@@ -1,0 +1,55 @@
+const SOCKET_EVENTS = Object.freeze({
+  // Connection
+  CONNECTION: 'connection',
+  DISCONNECT: 'disconnect',
+
+  // Player → Server
+  JOIN_SESSION: 'join_session',
+  SUBMIT_ANSWER: 'submit_answer',
+  SUBMIT_WAGER: 'submit_wager',
+  MINI_GAME_ACTION: 'mini_game_action',
+
+  // Host → Server
+  HOST_ACTION: 'host_action',
+  START_GAME: 'start_game',
+  NEXT_QUESTION: 'next_question',
+  START_TIMER: 'start_timer',
+  PAUSE_TIMER: 'pause_timer',
+  REVEAL_ANSWER: 'reveal_answer',
+  SHOW_SCOREBOARD: 'show_scoreboard',
+  START_BREAK: 'start_break',
+  END_BREAK: 'end_break',
+  LAUNCH_MINI_GAME: 'launch_mini_game',
+  ADD_TEAM: 'add_team',
+  REMOVE_TEAM: 'remove_team',
+  EDIT_TEAM_SCORE: 'edit_team_score',
+  ADVANCE_ROUND: 'advance_round',
+
+  // Server → Client
+  SESSION_STATE: 'session_state',
+  QUESTION_ACTIVE: 'question_active',
+  TIMER_UPDATE: 'timer_update',
+  TIMER_EXPIRED: 'timer_expired',
+  ANSWER_REVEAL: 'answer_reveal',
+  SCOREBOARD: 'scoreboard',
+  TEAM_JOINED: 'team_joined',
+  TEAM_REMOVED: 'team_removed',
+  TEAM_UPDATED: 'team_updated',
+  BREAK_START: 'break_start',
+  BREAK_END: 'break_end',
+  MINI_GAME_START: 'mini_game_start',
+  MINI_GAME_UPDATE: 'mini_game_update',
+  MINI_GAME_END: 'mini_game_end',
+  ROUND_INTRO: 'round_intro',
+  ROUND_END: 'round_end',
+  GAME_END: 'game_end',
+  PLAYER_ELIMINATED: 'player_eliminated',
+  AUTO_REVEAL: 'auto_reveal',
+  RESPONSE_COUNT: 'response_count',
+
+  // Errors
+  ERROR: 'error',
+  JOIN_ERROR: 'join_error',
+});
+
+module.exports = { SOCKET_EVENTS };

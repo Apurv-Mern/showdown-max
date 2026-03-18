@@ -48,15 +48,15 @@ export default function SessionsPage() {
   const [creating, setCreating] = useState(false);
   const [createdSession, setCreatedSession] = useState<NewSession | null>(null);
 
-  const fetchSessions = async () => {
+  const fetchSessions = async (showLoader = false) => {
     try {
-      setLoading(true);
+      if (showLoader) setLoading(true);
       const res = await api.get<{ sessions: Session[]; total: number }>('/api/sessions');
       setSessions(res.data.sessions);
     } catch (err) {
       console.error('Failed to fetch sessions:', err);
     } finally {
-      setLoading(false);
+      if (showLoader) setLoading(false);
     }
   };
 
@@ -70,8 +70,12 @@ export default function SessionsPage() {
   };
 
   useEffect(() => {
-    fetchSessions();
+    fetchSessions(true);
     fetchQuizzes();
+    const interval = setInterval(() => {
+      fetchSessions(false);
+    }, 5000);
+    return () => clearInterval(interval);
   }, []);
 
   const handleCreate = async () => {

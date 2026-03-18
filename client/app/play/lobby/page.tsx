@@ -21,8 +21,14 @@ export default function LobbyPage() {
   useEffect(() => {
     if (!socket) return;
 
-    const handleRoundIntro = () => router.push('/play/game');
-    const handleQuestionActive = () => router.push('/play/game');
+    const handleRoundIntro = (data: any) => {
+      if (data) sessionStorage.setItem('roundIntro', JSON.stringify(data));
+      router.push('/play/game');
+    };
+    const handleQuestionActive = (data: any) => {
+      if (data) sessionStorage.setItem('questionActive', JSON.stringify(data));
+      router.push('/play/game');
+    };
     const handleMiniGameStart = () => router.push('/play/mini-game');
     const handleGameStarted = () => router.push('/play/game');
 

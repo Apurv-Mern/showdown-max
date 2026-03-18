@@ -122,19 +122,35 @@ export default function GamePage() {
   }, [session, router]);
 
   useEffect(() => {
-    if (!socket || !session.pin || !session.teamName) return;
+    const savedRoundIntro = sessionStorage.getItem('roundIntro');
+    if (savedRoundIntro) {
+      try {
+        const data = JSON.parse(savedRoundIntro);
+        setRoundInfo(data);
+        setPhase('round_intro');
+      } catch { /* ignore */ }
+      sessionStorage.removeItem('roundIntro');
+    }
+    const savedQuestion = sessionStorage.getItem('questionActive');
+    if (savedQuestion) {
+      try {
+        const data = JSON.parse(savedQuestion);
+        setQuestion(data);
+        setTimerDuration(data.timerDuration);
+        setTimerRemaining(data.timerDuration);
+        setPhase('question');
+      } catch { /* ignore */ }
+      sessionStorage.removeItem('questionActive');
+    }
+  }, []);
 
-    socket.emit('join_session', {
-      pin: session.pin,
-      teamName: session.teamName,
-    });
+  useEffect(() => {
+    if (!socket || !session.pin || !session.teamName) return;
 
     socket.on('session_state', (data: any) => {
       if (data.gameState) {
         const gs = data.gameState;
-        if (gs.state === 'ROUND_INTRO' || gs.state === 'ROUND_ACTIVE') {
-          // round_intro event will follow from server
-        } else if (gs.state === 'BREAK') {
+        if (gs.state === 'BREAK') {
           setPhase('break');
         } else if (gs.state === 'FINAL_RESULTS') {
           setPhase('game_end');

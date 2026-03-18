@@ -11,7 +11,7 @@ const envSchema = z.object({
   DB_USER: z.string().default('root'),
   DB_PASSWORD: z.string().default(''),
   REDIS_URL: z.string().default('redis://localhost:6379'),
-  PORT: z.coerce.number().default(3001),
+  PORT: z.coerce.number().default(3002),
   UPLOAD_DIR: z.string().default('./uploads'),
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
 });

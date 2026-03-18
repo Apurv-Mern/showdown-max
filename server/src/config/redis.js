@@ -15,30 +15,34 @@ const getRedisClient = () => {
       connectTimeout: 5000,
       lazyConnect: true,
       retryStrategy(times) {
-        if (times > 3) {
-          logger.warn('Redis max retries reached, giving up');
+        if (times > 5) {
+          logger.warn('Redis max retries reached, falling back to in-memory');
           return null;
         }
-        return Math.min(times * 200, 2000);
+        return Math.min(times * 500, 3000);
       },
     });
 
     redis.on('ready', () => {
       redisReady = true;
-      logger.info('Redis ready');
+      logger.info('Redis connected and ready');
     });
 
     redis.on('error', (err) => {
+      if (redisReady) {
+        logger.error('Redis connection lost', { error: err.message });
+      }
       redisReady = false;
-      logger.error('Redis connection error', { error: err.message });
     });
 
     redis.on('close', () => {
       redisReady = false;
     });
 
-    redis.connect().catch((err) => {
-      logger.warn('Redis initial connection failed, running without Redis', { error: err.message });
+    redis.connect().then(() => {
+      logger.info('Redis connection established');
+    }).catch((err) => {
+      logger.warn('Redis not available, using in-memory fallback', { error: err.message });
     });
   }
 

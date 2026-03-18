@@ -38,9 +38,15 @@ const hostHandlers = (io, socket) => {
         return;
       }
 
+      const lobbyTeams = await redisStore.getLobbyTeams(pin);
+      if (lobbyTeams.length === 0) {
+        socket.emit(SOCKET_EVENTS.ERROR, { message: 'Cannot start game with no teams. Wait for players to join.' });
+        return;
+      }
+
       await session.update({ status: 'active' });
       await gameController.startGame(io, pin, quiz.toJSON(), session.id);
-      logger.info('Game started', { pin, sessionId: session.id });
+      logger.info('Game started', { pin, sessionId: session.id, teamCount: lobbyTeams.length });
     } catch (err) {
       logger.error('start_game error', { error: err.message });
       socket.emit(SOCKET_EVENTS.ERROR, { message: 'Failed to start game' });
@@ -116,6 +122,14 @@ const hostHandlers = (io, socket) => {
       await gameController.launchMiniGame(io, data.pin, data.game);
     } catch (err) {
       logger.error('launch_mini_game error', { error: err.message });
+    }
+  });
+
+  socket.on(SOCKET_EVENTS.END_GAME, async (data) => {
+    try {
+      await gameController.endGame(io, data.pin);
+    } catch (err) {
+      logger.error('end_game error', { error: err.message });
     }
   });
 

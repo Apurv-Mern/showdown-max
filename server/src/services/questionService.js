@@ -3,21 +3,28 @@ const logger = require('../utils/logger');
 
 /**
  * Get questions with optional filters
- * @param {{ roundId?: number, category?: string, search?: string, page?: number, limit?: number }} options
+ * @param {{ roundId?: number, roundType?: string, category?: string, search?: string, page?: number, limit?: number }} options
  * @returns {Promise<{ questions: object[], total: number }>}
  */
-const getQuestions = async ({ roundId, category, search, page = 1, limit = 50 } = {}) => {
+const getQuestions = async ({ roundId, roundType, category, search, page = 1, limit = 50 } = {}) => {
   const { Op } = require('sequelize');
   const where = {};
+  const roundWhere = {};
 
   if (roundId) where.roundId = roundId;
+  if (roundType) roundWhere.type = roundType;
   if (category) where.category = category;
   if (search) where.text = { [Op.like]: `%${search}%` };
 
   const offset = (page - 1) * limit;
   const { rows, count } = await Question.findAndCountAll({
     where,
-    include: [{ model: Round, as: 'round', attributes: ['id', 'name', 'type'] }],
+    include: [{
+      model: Round,
+      as: 'round',
+      attributes: ['id', 'name', 'type'],
+      where: Object.keys(roundWhere).length > 0 ? roundWhere : undefined,
+    }],
     order: [['order', 'ASC'], ['createdAt', 'DESC']],
     limit,
     offset,

@@ -30,8 +30,13 @@ module.exports = (sequelize) => {
       allowNull: true,
     },
     mediaType: {
-      type: DataTypes.ENUM('mp3', 'mp4'),
+      type: DataTypes.ENUM('mp3', 'mp4', 'image'),
       allowNull: true,
+    },
+    timerDuration: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+      comment: 'Per-question timer override in seconds; null = use round default',
     },
     order: {
       type: DataTypes.INTEGER,

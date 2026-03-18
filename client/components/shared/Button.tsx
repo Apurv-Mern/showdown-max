@@ -9,9 +9,9 @@ interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
 }
 
 const variants = {
-  primary: 'bg-primary hover:bg-primary-light text-white',
+  primary: 'bg-neon-cyan/20 hover:bg-neon-cyan/30 text-neon-cyan border border-neon-cyan/40',
   secondary: 'bg-surface hover:bg-surface-light border border-border text-foreground',
-  danger: 'bg-danger hover:bg-red-600 text-white',
+  danger: 'bg-neon-red/20 hover:bg-neon-red/30 text-neon-red border border-neon-red/40',
   ghost: 'bg-transparent hover:bg-surface-light text-foreground',
 };
 
@@ -31,7 +31,7 @@ export const Button = ({
   return (
     <button
       className={cn(
-        'rounded-lg font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-primary/50 disabled:opacity-50 disabled:cursor-not-allowed',
+        'rounded-lg font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-neon-cyan/50 disabled:opacity-50 disabled:cursor-not-allowed',
         variants[variant],
         sizes[size],
         className,

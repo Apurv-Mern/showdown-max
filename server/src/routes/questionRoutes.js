@@ -11,9 +11,10 @@ const idParamSchema = z.object({ id: z.coerce.number().int().positive() });
  */
 const questionRoutes = async (fastify) => {
   fastify.get('/', async (request) => {
-    const { roundId, category, search, page, limit } = request.query;
+    const { roundId, roundType, category, search, page, limit } = request.query;
     const result = await questionService.getQuestions({
       roundId: roundId ? Number(roundId) : undefined,
+      roundType: roundType || undefined,
       category,
       search,
       page: Number(page) || 1,

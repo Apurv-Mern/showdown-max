@@ -2,8 +2,14 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { Socket } from 'socket.io-client';
-import { connectSocket, disconnectSocket } from '@/lib/socket';
+import { connectSocket } from '@/lib/socket';
 
+/**
+ * Provides the singleton Socket.io client.
+ * The socket stays connected across page navigations — it is NOT
+ * disconnected on component unmount because multiple pages/components
+ * share the same instance. Only the local event listeners are cleaned up.
+ */
 export const useSocket = () => {
   const socketRef = useRef<Socket | null>(null);
   const [isConnected, setIsConnected] = useState(false);
@@ -25,7 +31,6 @@ export const useSocket = () => {
     return () => {
       socket.off('connect', onConnect);
       socket.off('disconnect', onDisconnect);
-      disconnectSocket();
     };
   }, []);
 

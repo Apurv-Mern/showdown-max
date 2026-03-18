@@ -39,8 +39,18 @@ const playerHandlers = (io, socket) => {
 
       let team;
       if (existingTeam) {
+        if (existingTeam.isConnected && existingTeam.socketId) {
+          const existingSocket = io.sockets.sockets.get(existingTeam.socketId);
+          if (existingSocket && existingSocket.connected) {
+            socket.emit(SOCKET_EVENTS.JOIN_ERROR, {
+              message: 'Team name already taken. Please choose a different name.',
+            });
+            return;
+          }
+        }
         team = existingTeam;
         await team.update({ isConnected: true, socketId: socket.id });
+        logger.info('Player reconnected', { pin, teamName, teamId: team.id });
       } else {
         const session = await Session.findByPk(sessionData.sessionId);
         const teamCount = await Team.count({ where: { sessionId: sessionData.sessionId } });
@@ -79,19 +89,69 @@ const playerHandlers = (io, socket) => {
         await redisStore.setGameState(pin, gameState);
       }
 
-      socket.emit(SOCKET_EVENTS.SESSION_STATE, {
+      const sessionPayload = {
         joined: true,
         teamId: team.id,
         teamName: team.teamName,
         score: team.score,
-        gameState: gameState ? { state: gameState.state, questionState: gameState.questionState } : null,
-      });
+        gameState: gameState ? {
+          state: gameState.state,
+          questionState: gameState.questionState,
+          currentRoundIndex: gameState.currentRoundIndex,
+          currentQuestionIndex: gameState.currentQuestionIndex,
+          timerRemaining: gameState.timerRemaining,
+          activeMiniGame: gameState.activeMiniGame,
+        } : null,
+      };
+
+      socket.emit(SOCKET_EVENTS.SESSION_STATE, sessionPayload);
+
+      if (gameState && gameState.state !== 'LOBBY') {
+        const round = gameState.rounds?.[gameState.currentRoundIndex];
+        if (round) {
+          socket.emit(SOCKET_EVENTS.ROUND_INTRO, {
+            round: { name: round.name, type: round.type },
+            roundIndex: gameState.currentRoundIndex,
+            totalRounds: gameState.rounds.length,
+          });
+        }
+        if (gameState.state === 'BREAK') {
+          socket.emit(SOCKET_EVENTS.BREAK_START, { duration: gameState.breakRemaining || gameState.breakDuration });
+        }
+        if (gameState.activeMiniGame) {
+          socket.emit(SOCKET_EVENTS.MINI_GAME_START, { game: gameState.activeMiniGame });
+        }
+      }
 
       io.to(`session:${pin}`).emit(SOCKET_EVENTS.TEAM_JOINED, teamData);
-      logger.info('Player joined', { pin, teamName, teamId: team.id });
+      logger.info('Player joined', { pin, teamName, teamId: team.id, isReconnect: !!existingTeam });
     } catch (err) {
       logger.error('join_session error', { error: err.message, stack: err.stack });
       socket.emit(SOCKET_EVENTS.JOIN_ERROR, { message: 'Failed to join session' });
+    }
+  });
+
+  socket.on(SOCKET_EVENTS.LEAVE_SESSION, async () => {
+    try {
+      const { pin, teamId, teamName } = socket.data || {};
+      if (!pin || !teamId) return;
+
+      await Team.update({ isConnected: false, socketId: null }, { where: { id: teamId } });
+
+      const gameState = await redisStore.getGameState(pin);
+      if (gameState && gameState.teams[teamId]) {
+        gameState.teams[teamId].isConnected = false;
+        await redisStore.setGameState(pin, gameState);
+      }
+
+      socket.leave(`session:${pin}`);
+      socket.data = {};
+
+      io.to(`session:${pin}`).emit(SOCKET_EVENTS.TEAM_REMOVED, { teamId });
+      socket.emit(SOCKET_EVENTS.SESSION_STATE, { left: true });
+      logger.info('Player left session', { pin, teamId, teamName });
+    } catch (err) {
+      logger.error('leave_session error', { error: err.message });
     }
   });
 

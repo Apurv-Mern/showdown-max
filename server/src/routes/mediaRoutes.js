@@ -38,8 +38,16 @@ const mediaRoutes = async (fastify) => {
       return error('File not found', 404);
     }
 
-    const ext = path.extname(filename).slice(1);
-    const mimeMap = { mp3: 'audio/mpeg', mp4: 'video/mp4' };
+    const ext = path.extname(filename).slice(1).toLowerCase();
+    const mimeMap = {
+      mp3: 'audio/mpeg',
+      mp4: 'video/mp4',
+      jpg: 'image/jpeg',
+      jpeg: 'image/jpeg',
+      png: 'image/png',
+      gif: 'image/gif',
+      webp: 'image/webp',
+    };
     const contentType = mimeMap[ext] || 'application/octet-stream';
 
     const fs = require('fs');

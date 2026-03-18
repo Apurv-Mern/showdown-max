@@ -5,6 +5,7 @@ const SOCKET_EVENTS = Object.freeze({
 
   // Player → Server
   JOIN_SESSION: 'join_session',
+  LEAVE_SESSION: 'leave_session',
   SUBMIT_ANSWER: 'submit_answer',
   SUBMIT_WAGER: 'submit_wager',
   MINI_GAME_ACTION: 'mini_game_action',
@@ -24,6 +25,7 @@ const SOCKET_EVENTS = Object.freeze({
   REMOVE_TEAM: 'remove_team',
   EDIT_TEAM_SCORE: 'edit_team_score',
   ADVANCE_ROUND: 'advance_round',
+  END_GAME: 'end_game',
 
   // Server → Client
   SESSION_STATE: 'session_state',

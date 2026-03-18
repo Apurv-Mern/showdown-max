@@ -6,12 +6,14 @@ const { errorHandler } = require('./middleware/errorHandler');
 const { initializeSocket } = require('./socket');
 const { success } = require('./utils/responseWrapper');
 const { testConnection, syncDatabase } = require('./models');
+const { getRedisClient } = require('./config/redis');
 
 const quizRoutes = require('./routes/quizRoutes');
 const questionRoutes = require('./routes/questionRoutes');
 const sessionRoutes = require('./routes/sessionRoutes');
 const teamRoutes = require('./routes/teamRoutes');
 const mediaRoutes = require('./routes/mediaRoutes');
+const roundRoutes = require('./routes/roundRoutes');
 
 const start = async () => {
   const fastify = Fastify({
@@ -34,8 +36,10 @@ const start = async () => {
   fastify.register(sessionRoutes, { prefix: '/api/sessions' });
   fastify.register(teamRoutes, { prefix: '/api/teams' });
   fastify.register(mediaRoutes, { prefix: '/api/media' });
+  fastify.register(roundRoutes, { prefix: '/api/rounds' });
 
   await testConnection();
+  getRedisClient();
 
   if (env.NODE_ENV === 'development') {
     await syncDatabase({ alter: true });

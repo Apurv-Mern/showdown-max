@@ -7,6 +7,11 @@ const ALLOWED_TYPES = {
   'audio/mpeg': 'mp3',
   'audio/mp3': 'mp3',
   'video/mp4': 'mp4',
+  'image/jpeg': 'image',
+  'image/jpg': 'image',
+  'image/png': 'image',
+  'image/gif': 'image',
+  'image/webp': 'image',
 };
 
 const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50 MB

@@ -7,6 +7,7 @@ const { calculateScores } = require('./scoringEngine');
 const knockoutEngine = require('./knockoutEngine');
 const timerManager = require('./timerManager');
 const redisStore = require('../redisSessionStore');
+const { Team, Session } = require('../../models');
 const logger = require('../../utils/logger');
 
 const eliminationStates = new Map();
@@ -69,6 +70,7 @@ const nextQuestion = async (io, pin) => {
 
   const question = stateMachine.getCurrentQuestion(gameState);
   const round = stateMachine.getCurrentRound(gameState);
+  const effectiveTimer = question.timerDuration || round.timerDuration;
 
   io.to(`session:${pin}`).emit(SOCKET_EVENTS.QUESTION_ACTIVE, {
     questionIndex: gameState.currentQuestionIndex,
@@ -80,7 +82,7 @@ const nextQuestion = async (io, pin) => {
       mediaUrl: question.mediaUrl,
       mediaType: question.mediaType,
     },
-    timerDuration: round.timerDuration,
+    timerDuration: effectiveTimer,
     roundType: round.type,
     pointsForQuestion: round.type === ROUND_TYPES.ELIMINATION
       ? require('shared/constants/scoring').getEliminationPoints(gameState.currentQuestionIndex)
@@ -89,7 +91,7 @@ const nextQuestion = async (io, pin) => {
 
   timerManager.startTimer(
     pin,
-    round.timerDuration,
+    effectiveTimer,
     (remaining) => {
       io.to(`session:${pin}`).emit(SOCKET_EVENTS.TIMER_UPDATE, { remaining });
     },
@@ -101,6 +103,7 @@ const nextQuestion = async (io, pin) => {
         gs.timerRemaining = 0;
         await redisStore.setGameState(pin, gs);
       }
+      await revealAnswer(io, pin);
     },
   );
 };
@@ -118,7 +121,11 @@ const submitAnswer = async (io, pin, teamId, data) => {
   const existing = await redisStore.getResponses(pin, question.id);
   if (existing[teamId.toString()]) return;
 
-  await redisStore.recordResponse(pin, question.id, teamId, data.selectedOptionIndex);
+  const responseData = {
+    selectedOptionIndex: data.selectedOptionIndex,
+    wagerAmount: data.wagerAmount,
+  };
+  await redisStore.recordResponse(pin, question.id, teamId, JSON.stringify(responseData));
 
   const count = await redisStore.getResponseCount(pin, question.id);
   gameState.responseCount = count;
@@ -151,8 +158,30 @@ const revealAnswer = async (io, pin) => {
   const rawResponses = await redisStore.getResponses(pin, question.id);
 
   const responses = {};
-  for (const [teamId, optIdx] of Object.entries(rawResponses)) {
-    responses[teamId] = { selectedOptionIndex: Number(optIdx) };
+  for (const [teamId, raw] of Object.entries(rawResponses)) {
+    try {
+      const parsed = JSON.parse(raw);
+      responses[teamId] = {
+        selectedOptionIndex: Number(parsed.selectedOptionIndex),
+        wagerAmount: parsed.wagerAmount !== undefined ? Number(parsed.wagerAmount) : 0,
+      };
+    } catch {
+      responses[teamId] = { selectedOptionIndex: Number(raw), wagerAmount: 0 };
+    }
+  }
+
+  const isWagerRound = round.type === ROUND_TYPES.WAGER || round.type === ROUND_TYPES.FINAL_WAGER;
+  for (const teamId of gameState.activeTeamIds) {
+    const tid = String(teamId);
+    if (!responses[tid]) {
+      responses[tid] = {
+        selectedOptionIndex: -1,
+        wagerAmount: 0,
+      };
+    }
+    if (isWagerRound && responses[tid].wagerAmount === undefined) {
+      responses[tid].wagerAmount = 0;
+    }
   }
 
   const result = calculateScores({
@@ -187,9 +216,17 @@ const revealAnswer = async (io, pin) => {
       }
       io.to(`session:${pin}`).emit(SOCKET_EVENTS.PLAYER_ELIMINATED, { teamId });
     }
+
+    if (knockoutEngine.shouldEndEarly(elimState)) {
+      logger.info('Elimination round ending early — 0 or 1 team remaining', { pin });
+    }
   }
 
   await redisStore.setGameState(pin, gameState);
+
+  persistScoresToDB(gameState.teams).catch((err) =>
+    logger.error('Failed to persist scores to DB', { pin, error: err.message }),
+  );
 
   const correctIndex = question.options.findIndex((o) => o.isCorrect);
 
@@ -255,6 +292,33 @@ const advanceToNextRound = async (io, pin) => {
       await redisStore.setGameState(pin, finalResult.gameState);
       const sortedTeams = Object.values(finalResult.gameState.teams).sort((a, b) => b.score - a.score);
       io.to(`session:${pin}`).emit(SOCKET_EVENTS.GAME_END, { teams: sortedTeams });
+
+      persistScoresToDB(finalResult.gameState.teams).catch((err) =>
+        logger.error('Failed to persist scores on natural game end', { pin, error: err.message }),
+      );
+
+      try {
+        await Session.update(
+          { status: 'completed' },
+          { where: { pin, status: { [require('sequelize').Op.ne]: 'completed' } } },
+        );
+      } catch (err) {
+        logger.error('Failed to mark session as completed', { pin, error: err.message });
+      }
+
+      setTimeout(async () => {
+        try {
+          await redisStore.cleanupSession(pin);
+          const room = `session:${pin}`;
+          const sockets = await io.in(room).fetchSockets();
+          for (const s of sockets) {
+            s.leave(room);
+          }
+          logger.info('Session destroyed', { pin });
+        } catch (err) {
+          logger.error('Failed to cleanup session', { pin, error: err.message });
+        }
+      }, 2000);
     }
     return;
   }
@@ -360,9 +424,73 @@ const startTimer = async (io, pin) => {
       },
       async () => {
         io.to(`session:${pin}`).emit(SOCKET_EVENTS.TIMER_EXPIRED, {});
+        await revealAnswer(io, pin);
       },
     );
   }
+};
+
+/**
+ * Force-end the game (host action). Persists scores and broadcasts final results.
+ */
+const endGame = async (io, pin) => {
+  let gameState = await redisStore.getGameState(pin);
+  if (!gameState) return;
+
+  timerManager.stopTimer(pin);
+
+  const finalResult = stateMachine.transition(gameState, GAME_STATES.FINAL_RESULTS);
+  if (finalResult.valid) {
+    gameState = finalResult.gameState;
+  } else {
+    gameState.state = GAME_STATES.FINAL_RESULTS;
+  }
+
+  await redisStore.setGameState(pin, gameState);
+
+  const sortedTeams = Object.values(gameState.teams).sort((a, b) => b.score - a.score);
+  io.to(`session:${pin}`).emit(SOCKET_EVENTS.GAME_END, { teams: sortedTeams });
+
+  persistScoresToDB(gameState.teams).catch((err) =>
+    logger.error('Failed to persist scores on end_game', { pin, error: err.message }),
+  );
+
+  try {
+    await Session.update(
+      { status: 'completed' },
+      { where: { pin, status: { [require('sequelize').Op.ne]: 'completed' } } },
+    );
+  } catch (err) {
+    logger.error('Failed to mark session as completed', { pin, error: err.message });
+  }
+
+  setTimeout(async () => {
+    try {
+      await redisStore.cleanupSession(pin);
+      const room = `session:${pin}`;
+      const sockets = await io.in(room).fetchSockets();
+      for (const s of sockets) {
+        s.leave(room);
+      }
+      logger.info('Session destroyed', { pin });
+    } catch (err) {
+      logger.error('Failed to cleanup session', { pin, error: err.message });
+    }
+  }, 2000);
+
+  logger.info('Game ended', { pin });
+};
+
+/**
+ * Persist current scores from in-memory/Redis state back to DB.
+ * Runs asynchronously — errors are logged but don't block the game.
+ * @param {Record<string, {teamId: number, score: number}>} teams
+ */
+const persistScoresToDB = async (teams) => {
+  const updates = Object.values(teams).map((t) =>
+    Team.update({ score: t.score }, { where: { id: t.teamId } }),
+  );
+  await Promise.all(updates);
 };
 
 /**
@@ -398,4 +526,5 @@ module.exports = {
   launchMiniGame,
   pauseTimer,
   startTimer,
+  endGame,
 };

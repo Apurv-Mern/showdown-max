@@ -8,12 +8,14 @@ const { success } = require('./utils/responseWrapper');
 const { testConnection, syncDatabase } = require('./models');
 const { getRedisClient } = require('./config/redis');
 
+const authRoutes = require('./routes/authRoutes');
 const quizRoutes = require('./routes/quizRoutes');
 const questionRoutes = require('./routes/questionRoutes');
 const sessionRoutes = require('./routes/sessionRoutes');
 const teamRoutes = require('./routes/teamRoutes');
 const mediaRoutes = require('./routes/mediaRoutes');
 const roundRoutes = require('./routes/roundRoutes');
+const { requireAdmin, requireAdminOrHost } = require('./middleware/authMiddleware');
 
 const start = async () => {
   const fastify = Fastify({
@@ -31,12 +33,21 @@ const start = async () => {
     return success({ status: 'ok', timestamp: new Date().toISOString() }, 'Server is running');
   });
 
-  fastify.register(quizRoutes, { prefix: '/api/quizzes' });
-  fastify.register(questionRoutes, { prefix: '/api/questions' });
-  fastify.register(sessionRoutes, { prefix: '/api/sessions' });
-  fastify.register(teamRoutes, { prefix: '/api/teams' });
-  fastify.register(mediaRoutes, { prefix: '/api/media' });
-  fastify.register(roundRoutes, { prefix: '/api/rounds' });
+  fastify.register(authRoutes, { prefix: '/api/auth' });
+
+  fastify.register(async (scope) => {
+    scope.addHook('onRequest', requireAdmin);
+    scope.register(quizRoutes, { prefix: '/api/quizzes' });
+    scope.register(questionRoutes, { prefix: '/api/questions' });
+    scope.register(mediaRoutes, { prefix: '/api/media' });
+    scope.register(roundRoutes, { prefix: '/api/rounds' });
+  });
+
+  fastify.register(async (scope) => {
+    scope.addHook('onRequest', requireAdminOrHost);
+    scope.register(sessionRoutes, { prefix: '/api/sessions' });
+    scope.register(teamRoutes, { prefix: '/api/teams' });
+  });
 
   await testConnection();
   getRedisClient();

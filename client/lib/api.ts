@@ -1,3 +1,5 @@
+import { getStoredToken } from './auth';
+
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3002';
 
 interface ApiResponse<T> {
@@ -13,27 +15,73 @@ interface ApiError {
 }
 
 /**
- * Generic fetch wrapper for the backend API
+ * Generic fetch wrapper for the backend API.
+ * Automatically attaches JWT Bearer token from localStorage.
  */
 export const apiFetch = async <T>(
   endpoint: string,
   options: RequestInit = {},
 ): Promise<ApiResponse<T>> => {
   const url = `${API_URL}${endpoint}`;
+  const token = getStoredToken();
+
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    ...(options.headers as Record<string, string>),
+  };
+
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
 
   const response = await fetch(url, {
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers,
-    },
     ...options,
+    headers,
   });
+
+  if (response.status === 401) {
+    if (typeof window !== 'undefined' && !endpoint.includes('/api/auth/')) {
+      localStorage.removeItem('auth_token');
+      localStorage.removeItem('auth_role');
+      const path = window.location.pathname;
+      if (path.startsWith('/admin')) {
+        window.location.href = '/admin/login';
+      } else if (path.startsWith('/host')) {
+        window.location.href = '/host/login';
+      }
+    }
+  }
 
   const data = await response.json();
 
   if (!response.ok) {
     const error = data as ApiError;
     throw new Error(error.error || 'Request failed');
+  }
+
+  return data as ApiResponse<T>;
+};
+
+/**
+ * Upload a file via FormData. Attaches JWT token automatically.
+ */
+export const apiUpload = async <T>(endpoint: string, formData: FormData): Promise<ApiResponse<T>> => {
+  const url = `${API_URL}${endpoint}`;
+  const token = getStoredToken();
+  const headers: Record<string, string> = {};
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers,
+    body: formData,
+  });
+
+  const data = await response.json();
+
+  if (!response.ok) {
+    const error = data as ApiError;
+    throw new Error(error.error || 'Upload failed');
   }
 
   return data as ApiResponse<T>;

@@ -1,15 +1,23 @@
 'use client';
 
 import Link from 'next/link';
-import { useSearchParams } from 'next/navigation';
+import { useSearchParams, usePathname, useRouter } from 'next/navigation';
 import { Suspense } from 'react';
+import { useAuth } from '@/lib/auth';
 
 function HostNav() {
   const searchParams = useSearchParams();
+  const router = useRouter();
+  const { logout } = useAuth();
   const pin = searchParams.get('pin') || '';
   const sessionId = searchParams.get('sessionId') || '';
 
   const qs = pin ? `?pin=${pin}${sessionId ? `&sessionId=${sessionId}` : ''}` : '';
+
+  const handleLogout = () => {
+    logout();
+    router.replace('/host/login');
+  };
 
   return (
     <header className="border-b border-border/50 px-4 py-1.5 flex items-center justify-between bg-surface/80">
@@ -32,12 +40,31 @@ function HostNav() {
         <Link href={`/host/teams${qs}`} className="text-foreground/50 hover:text-neon-cyan transition-colors text-sm">
           Teams
         </Link>
+        <button
+          onClick={handleLogout}
+          className="text-foreground/40 hover:text-neon-red transition-colors text-sm ml-2"
+        >
+          Sign Out
+        </button>
       </nav>
     </header>
   );
 }
 
-export default function HostLayout({ children }: { children: React.ReactNode }) {
+function HostAuthGuard({ children }: { children: React.ReactNode }) {
+  const pathname = usePathname();
+  const router = useRouter();
+  const { isAuthenticated, role } = useAuth();
+
+  if (pathname === '/host/login') {
+    return <>{children}</>;
+  }
+
+  if (!isAuthenticated || role !== 'host') {
+    router.replace('/host/login');
+    return null;
+  }
+
   return (
     <div className="min-h-screen bg-background">
       <Suspense fallback={null}>
@@ -46,4 +73,8 @@ export default function HostLayout({ children }: { children: React.ReactNode }) 
       <main className="p-2">{children}</main>
     </div>
   );
+}
+
+export default function HostLayout({ children }: { children: React.ReactNode }) {
+  return <HostAuthGuard>{children}</HostAuthGuard>;
 }

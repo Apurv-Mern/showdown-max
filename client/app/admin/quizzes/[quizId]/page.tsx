@@ -3,7 +3,7 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { api } from '@/lib/api';
+import { api, apiUpload } from '@/lib/api';
 import { Button } from '@/components/shared/Button';
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner';
 import { Modal } from '@/components/shared/Modal';
@@ -159,12 +159,7 @@ export default function QuizDetailPage() {
 
     try {
       setUploading(true);
-      const response = await fetch(`${API_URL}/api/media/upload`, {
-        method: 'POST',
-        body: fd,
-      });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || 'Upload failed');
+      const data = await apiUpload<{ url: string; mediaType: string }>('/api/media/upload', fd);
 
       setFormData((prev) => ({
         ...prev,

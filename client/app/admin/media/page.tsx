@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, useRef } from 'react';
-import { api } from '@/lib/api';
+import { api, apiUpload } from '@/lib/api';
 import { Button } from '@/components/shared/Button';
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner';
 
@@ -46,12 +46,7 @@ export default function MediaPage() {
 
     try {
       setUploading(true);
-      const response = await fetch(`${API_URL}/api/media/upload`, {
-        method: 'POST',
-        body: formData,
-      });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || 'Upload failed');
+      const data = await apiUpload('/api/media/upload', formData);
       fetchFiles();
     } catch (err: any) {
       alert(err.message || 'Upload failed');

@@ -2,13 +2,21 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { Montserrat } from 'next/font/google';
 import { useAuth } from '@/lib/auth';
+
+const montserrat = Montserrat({
+  weight: ['400', '500', '600', '700', '800', '900'],
+  subsets: ['latin'],
+  display: 'swap',
+});
 
 export default function HostLoginPage() {
   const router = useRouter();
   const { login, isAuthenticated, role } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [rememberMe, setRememberMe] = useState(true);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -25,64 +33,184 @@ export default function HostLoginPage() {
     try {
       await login(email, password, 'host');
       router.replace('/host/sessions');
-    } catch (err: any) {
-      setError(err.message || 'Login failed');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Login failed');
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center sci-fi-bg p-4">
-      <div className="w-full max-w-sm">
-        <div className="text-center mb-8">
-          <h1 className="text-3xl font-bold">
-            MAX <span className="text-neon-cyan text-glow-cyan">SHOWDOWN</span>
-          </h1>
-          <p className="text-foreground/50 text-sm mt-2">Host sign in</p>
-        </div>
+    <div
+      data-name="Host Login"
+      data-node-id="232:3347"
+      className={`${montserrat.className} relative min-h-screen w-full overflow-x-hidden bg-linear-to-b from-[#0b0f1a] from-50% to-[#151b2b] antialiased`}
+    >
+      {/* Figma 232:3348 / 232:3349 — ambient blurs */}
+      <div
+        data-name="Container"
+        data-node-id="232:3348"
+        className="pointer-events-none absolute left-[20%] top-[20%] size-[min(488px,90vw)] -translate-x-1/2 rounded-full bg-[rgba(43,127,255,0.1)] opacity-[0.37] blur-3xl"
+        aria-hidden
+      />
+      <div
+        data-name="Container"
+        data-node-id="232:3349"
+        className="pointer-events-none absolute right-[10%] top-[28%] size-[min(501px,95vw)] rounded-full bg-[rgba(0,184,219,0.1)] opacity-[0.32] blur-3xl"
+        aria-hidden
+      />
 
-        <form onSubmit={handleSubmit} className="neon-border bg-surface/90 rounded-xl p-6 space-y-4">
-          {error && (
-            <div className="bg-neon-red/10 border border-neon-red/30 text-neon-red text-sm rounded-lg px-4 py-2.5">
-              {error}
-            </div>
-          )}
-
-          <div>
-            <label className="block text-sm font-medium text-foreground/70 mb-1">Email</label>
-            <input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              required
-              autoFocus
-              className="w-full bg-surface-light border border-border rounded-lg px-4 py-2.5 text-foreground focus:outline-none focus:ring-2 focus:ring-neon-cyan/50"
-              placeholder="host@showdown.com"
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-foreground/70 mb-1">Password</label>
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-              className="w-full bg-surface-light border border-border rounded-lg px-4 py-2.5 text-foreground focus:outline-none focus:ring-2 focus:ring-neon-cyan/50"
-              placeholder="••••••••"
-            />
-          </div>
-
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full bg-neon-cyan/20 text-neon-cyan border border-neon-cyan/50 font-semibold py-2.5 rounded-lg hover:bg-neon-cyan/30 transition-colors disabled:opacity-50"
+      {/* Figma 232:3350 — logo + tagline */}
+      <header
+        className="absolute left-0 right-0 top-0 z-20 px-5 pt-8 sm:px-10 sm:pt-10 lg:px-14"
+        data-node-id="232:3350"
+      >
+        <div className="mx-auto flex max-w-[1400px] flex-col gap-6 sm:flex-row sm:items-end sm:gap-10 lg:gap-16">
+          <div
+            className="font-black tracking-[-0.04em] text-white [text-shadow:0_0_50px_rgba(59,130,246,0.6)]"
+            data-node-id="232:3351"
           >
-            {loading ? 'Signing in...' : 'Sign In'}
-          </button>
-        </form>
-      </div>
+            <span className="block text-[clamp(2.5rem,8vw,5rem)] leading-[1.05] sm:inline sm:leading-[128px]">
+              MAX{' '}
+            </span>
+            <span className="block text-[clamp(2.5rem,8vw,5rem)] leading-[1.05] text-[#00d9ff] sm:inline sm:leading-[128px]">
+              SHOWDOWN
+            </span>
+          </div>
+          <p
+            className="max-w-md text-[clamp(0.65rem,2vw,1.125rem)] font-medium uppercase tracking-[0.25em] text-white sm:pb-2 lg:tracking-[0.3em]"
+            data-node-id="232:3352"
+          >
+            Live Trivia Experience
+          </p>
+        </div>
+      </header>
+
+      {/* Figma 232:3353 — centered login block */}
+      <main
+        className="relative z-10 flex min-h-screen flex-col items-center justify-center px-5 pb-12 pt-36 sm:px-8 sm:pt-40"
+        data-node-id="232:3353"
+      >
+        <div className="flex w-full max-w-[800px] flex-col items-center">
+          <div
+            className="mb-2 text-center text-white"
+            data-node-id="232:3354"
+          >
+            <h1 className="font-bold leading-normal text-[clamp(1.75rem,5vw,2.5rem)]">
+              Host Login
+            </h1>
+            <p className="mt-1 font-medium leading-normal text-[clamp(1rem,3vw,1.875rem)] text-[#00d9ff]">
+              Sign-In Manage Live Games
+            </p>
+          </div>
+
+          {/* Figma 232:3355 card area → form with neon border */}
+          <form
+            data-node-id="232:3355"
+            onSubmit={handleSubmit}
+            className="mt-8 w-full max-w-[750px] rounded-2xl border border-solid border-[rgba(0,217,255,0.55)] bg-[rgba(26,31,46,0.92)] px-7 py-8 shadow-[0_0_15px_rgba(0,217,255,0.35),0_0_40px_rgba(0,217,255,0.1)] sm:px-10 sm:py-10"
+          >
+            {error && (
+              <div
+                className="mb-5 rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-400"
+                role="alert"
+              >
+                {error}
+              </div>
+            )}
+
+            <div className="flex flex-col gap-6" data-node-id="232:3360">
+              <div data-node-id="232:3361">
+                <label
+                  htmlFor="host-email"
+                  className="mb-2 block text-xl font-semibold text-white"
+                  data-node-id="232:3362"
+                >
+                  Enter Email
+                </label>
+                <input
+                  id="host-email"
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  required
+                  autoFocus
+                  autoComplete="email"
+                  placeholder="Enter your Email"
+                  data-node-id="232:3364"
+                  className="h-[57px] w-full rounded-[10px] border border-white/10 bg-[#050508] px-4 text-base text-white outline-none transition-[border-color,box-shadow] duration-200 placeholder:text-[#a1a1a1] focus:border-[rgba(0,217,255,0.5)] focus:shadow-[0_0_0_2px_rgba(0,217,255,0.15)]"
+                />
+              </div>
+
+              <div data-node-id="232:3366">
+                <label
+                  htmlFor="host-password"
+                  className="mb-2 block text-xl font-semibold text-white"
+                  data-node-id="232:3367"
+                >
+                  Enter Password
+                </label>
+                <input
+                  id="host-password"
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  required
+                  autoComplete="current-password"
+                  placeholder="Enter Password"
+                  data-node-id="232:3369"
+                  className="h-[57px] w-full rounded-[10px] border border-white/10 bg-[#050508] px-4 text-base text-white outline-none transition-[border-color,box-shadow] duration-200 placeholder:text-[#a1a1a1] focus:border-[rgba(0,217,255,0.5)] focus:shadow-[0_0_0_2px_rgba(0,217,255,0.15)]"
+                />
+
+                <label
+                  className="mt-4 flex cursor-pointer select-none items-center gap-2.5"
+                  data-node-id="232:3371"
+                >
+                  <input
+                    type="checkbox"
+                    checked={rememberMe}
+                    onChange={(e) => setRememberMe(e.target.checked)}
+                    className="sr-only"
+                  />
+                  <span
+                    className={`inline-flex size-[21px] shrink-0 items-center justify-center rounded border-2 border-solid border-[#00d9ff] transition-transform duration-150 active:scale-95 ${rememberMe ? 'bg-[#00d9ff] shadow-[0_0_10px_rgba(0,217,255,0.45)]' : 'bg-transparent'}`}
+                    aria-hidden
+                    data-node-id="232:3373"
+                  >
+                    {rememberMe ? (
+                      <svg width="12" height="10" viewBox="0 0 12 10" fill="none" aria-hidden>
+                        <path
+                          d="M1 5l3.5 3.5L11 1"
+                          stroke="white"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        />
+                      </svg>
+                    ) : null}
+                  </span>
+                  <span className="text-base text-white" data-node-id="232:3372">
+                    Remember Me
+                  </span>
+                </label>
+              </div>
+            </div>
+
+            {/* Figma 232:3357 — red gradient Login */}
+            <div className="mt-8 flex justify-center" data-node-id="232:3356">
+              <button
+                type="submit"
+                disabled={loading}
+                data-name="Button"
+                data-node-id="232:3357"
+                className="h-[50px] min-w-[200px] max-w-[90%] rounded-[10px] border border-white bg-linear-to-b from-red-600 to-[#0b0f1a] px-12 text-xl font-bold text-white shadow-[0_4px_5px_rgba(0,0,0,0.5)] transition-[filter,transform] duration-200 hover:brightness-110 active:scale-[0.98] disabled:opacity-50 sm:min-w-[292px]"
+              >
+                {loading ? 'Signing in…' : 'Login'}
+              </button>
+            </div>
+          </form>
+        </div>
+      </main>
     </div>
   );
 }

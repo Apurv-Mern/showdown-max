@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useRef, useCallback } from 'react';
+import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { api, apiUpload } from '@/lib/api';
@@ -62,6 +62,17 @@ const ROUND_TYPE_SCORING: Record<string, string> = {
   FINAL_WAGER: '% of total score',
 };
 
+/** One-line preview for Round Configuration card (Figma-style) */
+const ROUND_POINTS_PREVIEW: Record<string, string> = {
+  MULTIPLE_CHOICE: 'Correct answer: +10 pts · Incorrect: −2 pts',
+  WAGER: 'Wager 0–50 pts · Win/lose wager amount',
+  MUSIC: 'Correct answer: +10 pts · Incorrect: −2 pts',
+  ELIMINATION: '10–120 pts ladder · Wrong answer = knockout',
+  MAJORITY_RULES: 'Majority +50 pts · Minority −50 pts',
+  FINAL_MULTIPLE_CHOICE: 'Correct answer: +10 pts · Incorrect: −2 pts',
+  FINAL_WAGER: 'Wager 0–100% of score · Win/lose wager',
+};
+
 const ROUND_TYPE_COLORS: Record<string, string> = {
   MULTIPLE_CHOICE: 'bg-blue-500/20 text-blue-400',
   WAGER: 'bg-amber-500/20 text-amber-400',
@@ -107,6 +118,8 @@ export default function QuizDetailPage() {
   const [formData, setFormData] = useState<NewQuestion>({ ...defaultNewQuestion });
   const [uploading, setUploading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [selectedRoundId, setSelectedRoundId] = useState<number | null>(null);
+  const [addingRound, setAddingRound] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const fetchQuiz = useCallback(async () => {
@@ -124,6 +137,57 @@ export default function QuizDetailPage() {
   useEffect(() => {
     fetchQuiz();
   }, [fetchQuiz]);
+
+  useEffect(() => {
+    if (!quiz?.rounds?.length) {
+      setSelectedRoundId(null);
+      return;
+    }
+    const sorted = [...quiz.rounds].sort((a, b) => a.order - b.order);
+    setSelectedRoundId((prev) => {
+      if (prev && sorted.some((r) => r.id === prev)) return prev;
+      return sorted[0].id;
+    });
+  }, [quiz]);
+
+  const sortedRounds = useMemo(
+    () => (quiz ? [...quiz.rounds].sort((a, b) => a.order - b.order) : []),
+    [quiz],
+  );
+
+  const selectedRound = sortedRounds.find((r) => r.id === selectedRoundId) ?? null;
+
+  const handleAddRound = async () => {
+    if (!quiz) return;
+    setAddingRound(true);
+    try {
+      const n = sortedRounds.length + 1;
+      const res = await api.post<Round>('/api/rounds', {
+        quizId: quiz.id,
+        name: `Round ${n}`,
+        type: 'MULTIPLE_CHOICE',
+        timerDuration: 60,
+      });
+      await fetchQuiz();
+      setSelectedRoundId(res.data.id);
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : 'Failed to add round');
+    } finally {
+      setAddingRound(false);
+    }
+  };
+
+  const patchRound = async (
+    roundId: number,
+    patch: Partial<{ name: string; type: string; timerDuration: number }>,
+  ) => {
+    try {
+      await api.patch(`/api/rounds/${roundId}`, patch);
+      await fetchQuiz();
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : 'Failed to update round');
+    }
+  };
 
   const openAddModal = (roundId: number) => {
     setEditingQuestion(null);
@@ -264,128 +328,263 @@ export default function QuizDetailPage() {
 
   const totalQuestions = quiz.rounds.reduce((sum, r) => sum + r.questions.length, 0);
 
+  const roundIdx = selectedRound
+    ? sortedRounds.findIndex((r) => r.id === selectedRound.id)
+    : -1;
+
   return (
-    <div>
-      <div className="flex items-center justify-between mb-8">
-        <div>
-          <h1 className="text-3xl font-bold">{quiz.title}</h1>
-          {quiz.description && <p className="text-foreground/50 mt-1">{quiz.description}</p>}
-          <p className="text-foreground/30 text-sm mt-1">
-            {quiz.rounds.length} rounds &middot; {totalQuestions} questions
-          </p>
+    <div className="flex flex-col gap-8 antialiased">
+      <div className="flex flex-col gap-1">
+        <div className="flex min-h-12 flex-wrap items-center justify-between gap-4">
+          <h1 className="text-[30px] font-medium leading-9 text-white">Quiz Builder</h1>
+          <div className="flex shrink-0 flex-wrap items-center gap-2">
+            <Link href={`/admin/quizzes/${quizId}/preview`}>
+              <Button variant="secondary">Preview</Button>
+            </Link>
+            <Link href="/admin/quizzes">
+              <Button variant="ghost">&larr; Back</Button>
+            </Link>
+            <button
+              type="button"
+              onClick={handleAddRound}
+              disabled={addingRound}
+              className="flex h-12 items-center gap-3 rounded-[14px] bg-[#2e354c] px-5 text-base font-medium text-white transition-colors duration-200 hover:bg-[#3a4260] disabled:opacity-50"
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <line x1="12" y1="5" x2="12" y2="19" />
+                <line x1="5" y1="12" x2="19" y2="12" />
+              </svg>
+              {addingRound ? 'Adding…' : 'Add Round'}
+            </button>
+          </div>
         </div>
-        <div className="flex gap-2">
-          <Link href={`/admin/quizzes/${quizId}/preview`}>
-            <Button variant="secondary">Preview</Button>
-          </Link>
-          <Link href="/admin/quizzes">
-            <Button variant="ghost">&larr; Back</Button>
-          </Link>
-        </div>
+        <p className="text-sm text-white/60">{quiz.title}</p>
+        {quiz.description && <p className="text-sm text-white/40">{quiz.description}</p>}
+        <p className="text-xs text-white/35">
+          {quiz.rounds.length} rounds · {totalQuestions} questions
+        </p>
       </div>
 
-      <div className="space-y-6">
-        {quiz.rounds
-          .sort((a, b) => a.order - b.order)
-          .map((round, roundIdx) => (
-            <div key={round.id} className="bg-surface border border-border rounded-xl overflow-hidden">
-              {/* Round Header */}
-              <div className="px-5 py-4 border-b border-border flex items-center justify-between">
-                <div>
-                  <div className="flex items-center gap-3">
-                    <span className="text-foreground/30 text-sm font-mono">R{roundIdx + 1}</span>
-                    <h2 className="text-lg font-semibold">{round.name}</h2>
-                  </div>
-                  <div className="flex flex-wrap gap-2 mt-1.5">
-                    <span className={`text-xs px-2 py-0.5 rounded font-medium ${ROUND_TYPE_COLORS[round.type] || 'bg-primary/20 text-primary'}`}>
-                      {ROUND_TYPE_LABELS[round.type] || round.type}
-                    </span>
-                    <span className="text-xs text-foreground/30">
-                      {round.timerDuration}s default timer
-                    </span>
-                    <span className="text-xs text-foreground/30">
-                      &middot; {ROUND_TYPE_SCORING[round.type] || ''}
-                    </span>
-                    <span className="text-xs text-foreground/30">
-                      &middot; {round.questions.length} Q{round.questions.length !== 1 ? 's' : ''}
-                    </span>
-                  </div>
-                </div>
-                <Button size="sm" onClick={() => openAddModal(round.id)}>
-                  + Add Question
-                </Button>
-              </div>
+      {/* Round Builder Timeline — Figma 232:1251 */}
+      <section
+        className="flex flex-col gap-4 rounded-2xl border-2 border-[rgba(0,217,255,0.3)] px-6 pb-2 pt-6 sm:gap-4"
+        style={{
+          background:
+            'linear-gradient(170deg, rgb(26, 31, 53) 0%, rgb(25, 30, 50) 12.5%, rgb(23, 28, 48) 25%, rgb(22, 27, 45) 37.5%, rgb(20, 25, 42) 50%, rgb(19, 24, 40) 62.5%, rgb(18, 23, 37) 75%, rgb(16, 21, 35) 87.5%, rgb(15, 20, 32) 100%)',
+        }}
+      >
+        <h2 className="text-xl font-medium leading-7 text-[#00d9ff]">Round Builder Timeline</h2>
+        <div className="flex gap-4 overflow-x-auto pb-2">
+          {sortedRounds.map((round, idx) => {
+            const active = round.id === selectedRoundId;
+            return (
+              <button
+                key={round.id}
+                type="button"
+                onClick={() => setSelectedRoundId(round.id)}
+                className={`relative flex h-24 w-40 shrink-0 items-center justify-center rounded-[14px] border-2 text-base font-normal text-white transition-all duration-150 ${
+                  active
+                    ? 'border-[rgba(0,217,255,0.6)] bg-[#252b45] shadow-[0_0_16px_rgba(0,217,255,0.15)]'
+                    : 'border-[rgba(0,217,255,0.3)] bg-[#252b45] hover:border-[rgba(0,217,255,0.45)]'
+                }`}
+              >
+                <span className="pointer-events-none absolute right-2 top-2 text-[10px] text-white/40">
+                  {idx + 1}
+                </span>
+                {round.name}
+              </button>
+            );
+          })}
+          <button
+            type="button"
+            onClick={handleAddRound}
+            disabled={addingRound}
+            className="flex h-24 w-40 shrink-0 items-center justify-center rounded-[14px] border-2 border-dashed border-[rgba(0,217,255,0.5)] text-[#00d9ff] transition-colors duration-150 hover:bg-[rgba(0,217,255,0.06)] disabled:opacity-50"
+            aria-label="Add round"
+          >
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <line x1="12" y1="5" x2="12" y2="19" />
+              <line x1="5" y1="12" x2="19" y2="12" />
+            </svg>
+          </button>
+        </div>
+      </section>
 
-              {/* Questions List */}
-              {round.questions.length === 0 ? (
-                <div className="px-5 py-8 text-center text-foreground/30 text-sm">
-                  No questions yet &mdash; click &quot;Add Question&quot; above
-                </div>
-              ) : (
-                <div className="divide-y divide-border">
-                  {round.questions
-                    .sort((a, b) => a.order - b.order)
-                    .map((q, idx) => (
-                      <div
-                        key={q.id}
-                        className="px-5 py-3 flex items-start gap-3 hover:bg-surface-light/50 transition-colors group"
-                      >
-                        <span className="text-foreground/30 text-sm font-mono mt-0.5 w-6 shrink-0">
-                          {idx + 1}
-                        </span>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium">{q.text}</p>
-                          <div className="flex flex-wrap gap-1.5 mt-1.5">
-                            {q.options.map((opt, oi) => (
-                              <span
-                                key={oi}
-                                className={`text-xs px-2 py-0.5 rounded ${
-                                  opt.isCorrect
-                                    ? 'bg-success/20 text-success border border-success/30'
-                                    : 'bg-surface-light text-foreground/50 border border-border'
-                                }`}
-                              >
-                                {opt.text}
-                              </span>
-                            ))}
-                          </div>
-                          <div className="flex gap-3 mt-1 text-xs text-foreground/30">
-                            {q.category && <span>📁 {q.category}</span>}
-                            {q.mediaType && (
-                              <span>
-                                {q.mediaType === 'mp3' ? '🎵' : q.mediaType === 'mp4' ? '🎬' : '🖼'}
-                                {' '}{q.mediaType.toUpperCase()}
-                              </span>
-                            )}
-                            {q.timerDuration && (
-                              <span>⏱ {q.timerDuration}s</span>
-                            )}
-                          </div>
-                        </div>
-                        <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => openEditModal(q, round.id)}
-                          >
-                            Edit
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => handleDeleteQuestion(q.id)}
-                            className="text-danger/60 hover:text-danger"
-                          >
-                            ✕
-                          </Button>
-                        </div>
-                      </div>
-                    ))}
-                </div>
-              )}
+      {/* Round Configuration — Figma 232:1268 */}
+      {selectedRound && (
+        <section
+          className="flex flex-col gap-6 rounded-2xl border-2 border-[rgba(0,217,255,0.3)] px-6 pb-2 pt-6"
+          style={{
+            background:
+              'linear-gradient(167deg, rgb(26, 31, 53) 0%, rgb(25, 30, 50) 12.5%, rgb(23, 28, 48) 25%, rgb(22, 27, 45) 37.5%, rgb(20, 25, 42) 50%, rgb(19, 24, 40) 62.5%, rgb(18, 23, 37) 75%, rgb(16, 21, 35) 87.5%, rgb(15, 20, 32) 100%)',
+          }}
+        >
+          <h2 className="text-xl font-medium leading-7 text-[#00d9ff]">Round Configuration</h2>
+          <div className="grid grid-cols-1 gap-6 lg:grid-cols-2 lg:gap-8">
+            <div className="flex flex-col gap-2">
+              <label className="text-sm font-medium leading-5 text-[#99a1af]">Round Type</label>
+              <select
+                value={selectedRound.type}
+                onChange={(e) =>
+                  patchRound(selectedRound.id, { type: e.target.value })
+                }
+                className="h-[49px] w-full rounded-[10px] border border-[rgba(0,217,255,0.3)] bg-[#252b45] px-4 text-sm text-white outline-none focus:border-[rgba(0,217,255,0.55)]"
+              >
+                {Object.entries(ROUND_TYPE_LABELS).map(([value, label]) => (
+                  <option key={value} value={value}>
+                    {label}
+                  </option>
+                ))}
+              </select>
             </div>
-          ))}
-      </div>
+            <div className="flex flex-col gap-2">
+              <label className="text-sm font-medium leading-5 text-[#99a1af]">Timer (seconds)</label>
+              <div className="relative">
+                <svg
+                  className="absolute left-3 top-1/2 size-5 -translate-y-1/2 text-[#00d9ff]/80"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                >
+                  <circle cx="12" cy="12" r="10" />
+                  <polyline points="12 6 12 12 16 14" />
+                </svg>
+                <input
+                  type="number"
+                  min={5}
+                  max={300}
+                  defaultValue={selectedRound.timerDuration}
+                  key={selectedRound.id}
+                  onBlur={(e) => {
+                    const v = Number(e.target.value);
+                    if (Number.isFinite(v) && v >= 5 && v <= 300 && v !== selectedRound.timerDuration) {
+                      patchRound(selectedRound.id, { timerDuration: v });
+                    }
+                  }}
+                  className="h-[50px] w-full rounded-[10px] border border-[rgba(0,217,255,0.3)] bg-[#252b45] pl-11 pr-4 text-base text-white outline-none focus:border-[rgba(0,217,255,0.55)]"
+                />
+              </div>
+            </div>
+          </div>
+          <div className="flex flex-col gap-2">
+            <span className="text-sm font-medium leading-5 text-[#99a1af]">Points Preview</span>
+            <div className="flex h-[46px] items-center gap-2 rounded-[10px] border border-[rgba(0,217,255,0.3)] bg-[#252b45] pl-[17px] pr-3">
+              <svg
+                className="size-5 shrink-0 text-[#00d9ff]"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+              >
+                <circle cx="12" cy="12" r="10" />
+                <circle cx="12" cy="12" r="6" />
+                <circle cx="12" cy="12" r="2" />
+              </svg>
+              <p className="text-sm leading-5 text-white">
+                {ROUND_POINTS_PREVIEW[selectedRound.type] ||
+                  ROUND_TYPE_SCORING[selectedRound.type] ||
+                  '—'}
+              </p>
+            </div>
+          </div>
+        </section>
+      )}
+
+      {/* Questions for selected round */}
+      {selectedRound ? (
+        <div className="overflow-hidden rounded-xl border border-border bg-surface">
+          <div className="flex items-center justify-between border-b border-border px-5 py-4">
+            <div>
+              <div className="flex items-center gap-3">
+                <span className="font-mono text-sm text-foreground/30">R{roundIdx + 1}</span>
+                <h2 className="text-lg font-semibold text-white">{selectedRound.name}</h2>
+              </div>
+              <div className="mt-1.5 flex flex-wrap gap-2">
+                <span
+                  className={`rounded px-2 py-0.5 text-xs font-medium ${ROUND_TYPE_COLORS[selectedRound.type] || 'bg-primary/20 text-primary'}`}
+                >
+                  {ROUND_TYPE_LABELS[selectedRound.type] || selectedRound.type}
+                </span>
+                <span className="text-xs text-foreground/30">
+                  {selectedRound.timerDuration}s default timer
+                </span>
+                <span className="text-xs text-foreground/30">
+                  · {selectedRound.questions.length} Q
+                  {selectedRound.questions.length !== 1 ? 's' : ''}
+                </span>
+              </div>
+            </div>
+            <Button size="sm" onClick={() => openAddModal(selectedRound.id)}>
+              + Add Question
+            </Button>
+          </div>
+          {selectedRound.questions.length === 0 ? (
+            <div className="px-5 py-8 text-center text-sm text-foreground/30">
+              No questions yet — click &quot;Add Question&quot; above
+            </div>
+          ) : (
+            <div className="divide-y divide-border">
+              {selectedRound.questions
+                .sort((a, b) => a.order - b.order)
+                .map((q, idx) => (
+                  <div
+                    key={q.id}
+                    className="group flex items-start gap-3 px-5 py-3 transition-colors hover:bg-surface-light/50"
+                  >
+                    <span className="mt-0.5 w-6 shrink-0 font-mono text-sm text-foreground/30">
+                      {idx + 1}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium">{q.text}</p>
+                      <div className="mt-1.5 flex flex-wrap gap-1.5">
+                        {q.options.map((opt, oi) => (
+                          <span
+                            key={oi}
+                            className={`rounded px-2 py-0.5 text-xs ${
+                              opt.isCorrect
+                                ? 'border border-success/30 bg-success/20 text-success'
+                                : 'border border-border bg-surface-light text-foreground/50'
+                            }`}
+                          >
+                            {opt.text}
+                          </span>
+                        ))}
+                      </div>
+                      <div className="mt-1 flex gap-3 text-xs text-foreground/30">
+                        {q.category && <span>📁 {q.category}</span>}
+                        {q.mediaType && (
+                          <span>
+                            {q.mediaType === 'mp3' ? '🎵' : q.mediaType === 'mp4' ? '🎬' : '🖼'}{' '}
+                            {q.mediaType.toUpperCase()}
+                          </span>
+                        )}
+                        {q.timerDuration && <span>⏱ {q.timerDuration}s</span>}
+                      </div>
+                    </div>
+                    <div className="flex shrink-0 gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+                      <Button variant="ghost" size="sm" onClick={() => openEditModal(q, selectedRound.id)}>
+                        Edit
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleDeleteQuestion(q.id)}
+                        className="text-danger/60 hover:text-danger"
+                      >
+                        ✕
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+            </div>
+          )}
+        </div>
+      ) : (
+        <div className="rounded-xl border border-dashed border-[rgba(0,217,255,0.3)] py-12 text-center text-white/50">
+          No rounds yet — use &quot;Add Round&quot; to create one.
+        </div>
+      )}
 
       {/* Add / Edit Question Modal */}
       <Modal

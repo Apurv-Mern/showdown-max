@@ -65,6 +65,10 @@ function HostAuthGuard({ children }: { children: React.ReactNode }) {
     return null;
   }
 
+  if (pathname === '/host/dashboard') {
+    return <>{children}</>;
+  }
+
   return (
     <div className="min-h-screen bg-background">
       <Suspense fallback={null}>

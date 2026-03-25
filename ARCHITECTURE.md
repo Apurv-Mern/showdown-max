@@ -6,18 +6,20 @@ Max Showdown Trivia is a real-time live trivia platform designed for venues, sup
 
 ## Tech Stack
 
-| Layer | Technology |
-|-------|------------|
-| Frontend | Next.js 16 (App Router), React 19, TypeScript, Tailwind CSS, Framer Motion |
-| Backend | Node.js, Fastify, Socket.io |
-| Database | MySQL + Sequelize ORM |
-| Cache / Live State | Redis (ioredis) with in-memory fallback |
-| Validation | Zod (shared schemas) |
-| Auth | JWT (jsonwebtoken) |
-| Media | Local file storage (S3-compatible in production) |
-| 3D Mini-Games | Unity WebGL builds embedded via react-unity-webgl |
-| Audio | Web Audio API (synthesized timer sounds, MP3 playback) |
-| Monorepo | npm workspaces (client, server, shared) |
+
+| Layer              | Technology                                                                 |
+| ------------------ | -------------------------------------------------------------------------- |
+| Frontend           | Next.js 16 (App Router), React 19, TypeScript, Tailwind CSS, Framer Motion |
+| Backend            | Node.js, Fastify, Socket.io                                                |
+| Database           | MySQL + Sequelize ORM                                                      |
+| Cache / Live State | Redis (ioredis) with in-memory fallback                                    |
+| Validation         | Zod (shared schemas)                                                       |
+| Auth               | JWT (jsonwebtoken)                                                         |
+| Media              | Local file storage (S3-compatible in production)                           |
+| 3D Mini-Games      | Unity WebGL builds embedded via react-unity-webgl                          |
+| Audio              | Web Audio API (synthesized timer sounds, MP3 playback)                     |
+| Monorepo           | npm workspaces (client, server, shared)                                    |
+
 
 ## High-Level Architecture
 
@@ -273,42 +275,48 @@ Additional states: `BREAK`, `MINI_GAME`
 
 ### Round Types (7)
 
-| Round | Type | Scoring |
-|-------|------|---------|
-| 1 | MULTIPLE_CHOICE | +2 correct, -1 wrong |
-| 2 | WAGER | +/- wagered amount |
-| 3 | MUSIC | +2 correct, -1 wrong |
-| 4 | ELIMINATION | +2 correct, eliminated if wrong (all-wrong rule) |
-| 5 | MAJORITY_RULES | Points = teams who chose the same answer |
-| 6 | FINAL_MULTIPLE_CHOICE | +3 correct, -1 wrong |
-| 7 | FINAL_WAGER | +/- wagered amount |
+
+| Round | Type                  | Scoring                                          |
+| ----- | --------------------- | ------------------------------------------------ |
+| 1     | MULTIPLE_CHOICE       | +2 correct, -1 wrong                             |
+| 2     | WAGER                 | +/- wagered amount                               |
+| 3     | MUSIC                 | +2 correct, -1 wrong                             |
+| 4     | ELIMINATION           | +2 correct, eliminated if wrong (all-wrong rule) |
+| 5     | MAJORITY_RULES        | Points = teams who chose the same answer         |
+| 6     | FINAL_MULTIPLE_CHOICE | +3 correct, -1 wrong                             |
+| 7     | FINAL_WAGER           | +/- wagered amount                               |
+
 
 ### Live State Storage (Redis)
 
-| Key Pattern | Data |
-|-------------|------|
-| `game:{pin}:session` | Session ID reference |
-| `game:{pin}:gameState` | Full game state (rounds, scores, current question) |
-| `game:{pin}:lobby` | Teams in lobby (hash) |
-| `game:{pin}:teams` | Team data with scores (hash) |
-| `game:{pin}:responses:{qIdx}` | Player responses per question |
+
+| Key Pattern                   | Data                                               |
+| ----------------------------- | -------------------------------------------------- |
+| `game:{pin}:session`          | Session ID reference                               |
+| `game:{pin}:gameState`        | Full game state (rounds, scores, current question) |
+| `game:{pin}:lobby`            | Teams in lobby (hash)                              |
+| `game:{pin}:teams`            | Team data with scores (hash)                       |
+| `game:{pin}:responses:{qIdx}` | Player responses per question                      |
+
 
 Falls back to an in-memory `Map` when Redis is unavailable.
 
 ## API Routes
 
-| Method | Route | Auth | Description |
-|--------|-------|------|-------------|
-| POST | /api/auth/login | Public | Login (admin or host) |
-| GET | /api/auth/me | Bearer | Validate token |
-| GET/POST/PUT/DELETE | /api/quizzes | Admin | Quiz CRUD |
-| GET/POST/PUT/DELETE | /api/questions | Admin | Question CRUD |
-| GET | /api/rounds | Admin | Round listing |
-| POST/GET/DELETE | /api/media | Admin | File upload/list |
-| GET/POST | /api/sessions | Admin+Host | Session management |
-| POST | /api/sessions/:id/end | Admin+Host | End a session |
-| GET | /api/sessions/:id/results | Admin+Host | Session results |
-| GET/POST/PUT/DELETE | /api/teams | Admin+Host | Team management |
+
+| Method                                                                                                                         | Route                                                                                                                          | Auth       | Description           |
+| ------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------ | ---------- | --------------------- |
+| POST                                                                                                                           | /api/auth/login                                                                                                                | Public     | Login (admin or host) |
+| GET                                                                                                                            | /api/auth/me                                                                                                                   | Bearer     | Validate token        |
+| GET/POST/PUT/DELETE                                                                                                            | /api/quizzes                                                                                                                   | Admin      | Quiz CRUD             |
+| GET/POST/PUT/DELETE                                                                                                            | /api/questions                                                                                                                 | Admin      | Question CRUD         |
+| Implement this design from Figma.@https://www.figma.com/design/JoPgI2aw16JXEohkaBYDQ4/Max-Showdown-Dev?node-id=232-2610&m=dev | Implement this design from Figma.@https://www.figma.com/design/JoPgI2aw16JXEohkaBYDQ4/Max-Showdown-Dev?node-id=232-2610&m=dev | Admin      | Round listing         |
+| POST/GET/DELETE                                                                                                                | /api/media                                                                                                                     | Admin      | File upload/list      |
+| GET/POST                                                                                                                       | /api/sessions                                                                                                                  | Admin+Host | Session management    |
+| POST                                                                                                                           | /api/sessions/:id/end                                                                                                          | Admin+Host | End a session         |
+| GET                                                                                                                            | /api/sessions/:id/results                                                                                                      | Admin+Host | Session results       |
+| GET/POST/PUT/DELETE                                                                                                            | /api/teams                                                                                                                     | Admin+Host | Team management       |
+
 
 ## Deployment Notes
 
@@ -319,3 +327,4 @@ Falls back to an in-memory `Map` when Redis is unavailable.
 - **Sticky sessions** required for Socket.io in multi-instance deployments
 - **CORS** enabled for cross-origin requests
 - **File uploads** stored in `./uploads` directory (configurable via UPLOAD_DIR)
+

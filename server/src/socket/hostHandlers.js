@@ -119,7 +119,7 @@ const hostHandlers = (io, socket) => {
 
   socket.on(SOCKET_EVENTS.LAUNCH_MINI_GAME, async (data) => {
     try {
-      await gameController.launchMiniGame(io, data.pin, data.game);
+      await gameController.launchMiniGame(io, data.pin, data.game, data.config || {});
     } catch (err) {
       logger.error('launch_mini_game error', { error: err.message });
     }

@@ -386,7 +386,7 @@ const endBreak = async (io, pin) => {
 /**
  * Launch a mini-game during break
  */
-const launchMiniGame = async (io, pin, gameType) => {
+const launchMiniGame = async (io, pin, gameType, config = {}) => {
   let gameState = await redisStore.getGameState(pin);
   if (!gameState) return;
 
@@ -400,7 +400,7 @@ const launchMiniGame = async (io, pin, gameType) => {
     await redisStore.setGameState(pin, gameState);
   }
 
-  io.to(`session:${pin}`).emit(SOCKET_EVENTS.MINI_GAME_START, { game: gameType });
+  io.to(`session:${pin}`).emit(SOCKET_EVENTS.MINI_GAME_START, { game: gameType, ...config });
 };
 
 /**

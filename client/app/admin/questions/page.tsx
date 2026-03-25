@@ -85,6 +85,23 @@ const ROUND_TYPE_ICONS: Record<string, string> = {
   FINAL_WAGER: '🎲',
 };
 
+type DifficultyKey = 'EASY' | 'MEDIUM' | 'HARD' | 'GENERAL';
+
+function difficultyFromCategory(category: string | null): DifficultyKey {
+  const c = (category || '').trim().toLowerCase();
+  if (c === 'easy') return 'EASY';
+  if (c === 'medium') return 'MEDIUM';
+  if (c === 'hard') return 'HARD';
+  return 'GENERAL';
+}
+
+const DIFFICULTY_STYLE: Record<DifficultyKey, { label: string; className: string }> = {
+  EASY: { label: 'Easy', className: 'bg-[rgba(0,201,80,0.2)] text-[#05df72]' },
+  MEDIUM: { label: 'Medium', className: 'bg-[rgba(240,177,0,0.2)] text-[#fdc700]' },
+  HARD: { label: 'Hard', className: 'bg-[rgba(239,68,68,0.2)] text-[#f87171]' },
+  GENERAL: { label: 'General', className: 'bg-white/10 text-[#99a1af]' },
+};
+
 interface FormData {
   text: string;
   category: string;
@@ -117,6 +134,7 @@ export default function QuestionsPage() {
   const [search, setSearch] = useState('');
   const [selectedRoundId, setSelectedRoundId] = useState<string>('');
   const [selectedRoundType, setSelectedRoundType] = useState<string>('');
+  const [difficultyFilter, setDifficultyFilter] = useState<string>('');
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
 
@@ -143,6 +161,7 @@ export default function QuestionsPage() {
       if (search) params.set('search', search);
       if (selectedRoundId) params.set('roundId', selectedRoundId);
       else if (selectedRoundType) params.set('roundType', selectedRoundType);
+      if (difficultyFilter) params.set('category', difficultyFilter);
       params.set('page', page.toString());
       params.set('limit', '30');
 
@@ -154,7 +173,7 @@ export default function QuestionsPage() {
     } finally {
       setLoading(false);
     }
-  }, [search, selectedRoundId, selectedRoundType, page]);
+  }, [search, selectedRoundId, selectedRoundType, difficultyFilter, page]);
 
   useEffect(() => {
     fetchRounds();
@@ -163,12 +182,6 @@ export default function QuestionsPage() {
   useEffect(() => {
     fetchQuestions();
   }, [fetchQuestions]);
-
-  const handleSearch = (e: React.FormEvent) => {
-    e.preventDefault();
-    setPage(1);
-    fetchQuestions();
-  };
 
   const filteredRounds = selectedRoundType
     ? rounds.filter((r) => r.type === selectedRoundType)
@@ -219,8 +232,8 @@ export default function QuestionsPage() {
         mediaUrl: data.data.url,
         mediaType: data.data.mediaType,
       }));
-    } catch (err: any) {
-      alert(err.message || 'Upload failed');
+    } catch (err: unknown) {
+      alert(err instanceof Error ? err.message : 'Upload failed');
     } finally {
       setUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
@@ -267,8 +280,8 @@ export default function QuestionsPage() {
       closeModal();
       fetchQuestions();
       fetchRounds();
-    } catch (err: any) {
-      alert(err.message || 'Failed to save question');
+    } catch (err: unknown) {
+      alert(err instanceof Error ? err.message : 'Failed to save question');
     } finally {
       setSaving(false);
     }
@@ -326,203 +339,196 @@ export default function QuestionsPage() {
     ROUND_TYPE_COLORS[type] || { bg: 'bg-primary/10', text: 'text-primary', border: 'border-primary/30' };
 
   return (
-    <div>
-      {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-3xl font-bold">Question Bank</h1>
-          <p className="text-foreground/40 text-sm mt-1">
-            {total} question{total !== 1 ? 's' : ''} across {rounds.length} round{rounds.length !== 1 ? 's' : ''}
-          </p>
-        </div>
-        <Button onClick={() => openAddModal()}>+ Add Question</Button>
-      </div>
-
-      {/* Round Type Tabs */}
-      <div className="flex flex-wrap gap-2 mb-4">
+    <div className="flex flex-col gap-6 antialiased">
+      <div className="flex min-h-12 flex-wrap items-center justify-between gap-4">
+        <h1 className="text-[30px] font-medium leading-9 text-white">Question Bank</h1>
         <button
-          onClick={() => { setSelectedRoundType(''); setSelectedRoundId(''); setPage(1); }}
-          className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-            !selectedRoundType
-              ? 'bg-primary text-white'
-              : 'bg-surface border border-border text-foreground/60 hover:text-foreground'
-          }`}
+          type="button"
+          onClick={() => openAddModal()}
+          className="flex h-12 items-center gap-3 rounded-[14px] bg-[#2e354c] px-5 text-base font-medium text-white transition-colors hover:bg-[#3a4260]"
         >
-          All Rounds
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <line x1="12" y1="5" x2="12" y2="19" />
+            <line x1="5" y1="12" x2="19" y2="12" />
+          </svg>
+          Add Question
         </button>
-        {ROUND_TYPES.map((type) => {
-          const color = getRoundColor(type);
-          const count = rounds.filter((r) => r.type === type).reduce(
-            (sum, r) => sum + (Number(r.questionCount) || 0), 0,
-          );
-          return (
-            <button
-              key={type}
-              onClick={() => {
-                setSelectedRoundType(type);
-                setSelectedRoundId('');
-                setPage(1);
-              }}
-              className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors border ${
-                selectedRoundType === type
-                  ? `${color.bg} ${color.text} ${color.border}`
-                  : 'bg-surface border-border text-foreground/60 hover:text-foreground'
-              }`}
-            >
-              {ROUND_TYPE_ICONS[type]} {ROUND_TYPE_LABELS[type]}
-              <span className="ml-1.5 text-xs opacity-60">({count})</span>
-            </button>
-          );
-        })}
       </div>
+      <p className="text-sm text-[#99a1af]">
+        {total} question{total !== 1 ? 's' : ''} · set category to Easy, Medium, or Hard to tag difficulty for filters
+      </p>
 
-      {/* Round Selector + Search */}
-      <div className="flex gap-3 mb-6">
-        <form onSubmit={handleSearch} className="flex-1 flex gap-3">
+      {/* Filter bar — Figma 232:1390 */}
+      <section
+        className="rounded-2xl border-2 border-[rgba(0,217,255,0.3)] px-6 pb-2 pt-6"
+        style={{
+          background:
+            'linear-gradient(176deg, rgb(26, 31, 53) 0%, rgb(25, 30, 50) 12.5%, rgb(23, 28, 48) 25%, rgb(22, 27, 45) 37.5%, rgb(20, 25, 42) 50%, rgb(19, 24, 40) 62.5%, rgb(18, 23, 37) 75%, rgb(16, 21, 35) 87.5%, rgb(15, 20, 32) 100%)',
+        }}
+      >
+        <div className="flex flex-wrap items-center gap-4">
+          <svg
+            className="size-5 shrink-0 text-[#00d9ff]"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            aria-hidden
+          >
+            <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
+          </svg>
+          <select
+            value={difficultyFilter}
+            onChange={(e) => {
+              setDifficultyFilter(e.target.value);
+              setPage(1);
+            }}
+            className="h-[41px] min-w-[160px] rounded-[10px] border border-[rgba(0,217,255,0.3)] bg-[#252b45] px-3 text-sm font-bold text-white outline-none focus:border-[rgba(0,217,255,0.55)]"
+          >
+            <option value="">All Difficulties</option>
+            <option value="Easy">Easy</option>
+            <option value="Medium">Medium</option>
+            <option value="Hard">Hard</option>
+          </select>
+          <select
+            value={selectedRoundType}
+            onChange={(e) => {
+              setSelectedRoundType(e.target.value);
+              setSelectedRoundId('');
+              setPage(1);
+            }}
+            className="h-[41px] min-w-[160px] rounded-[10px] border border-[rgba(0,217,255,0.3)] bg-[#252b45] px-3 text-sm font-bold text-white outline-none focus:border-[rgba(0,217,255,0.55)]"
+          >
+            <option value="">All Round Type</option>
+            {ROUND_TYPES.map((type) => (
+              <option key={type} value={type}>
+                {ROUND_TYPE_LABELS[type]}
+              </option>
+            ))}
+          </select>
+          <select
+            value={selectedRoundId}
+            onChange={(e) => {
+              setSelectedRoundId(e.target.value);
+              setPage(1);
+            }}
+            className="h-[41px] min-w-[200px] flex-1 rounded-[10px] border border-[rgba(0,217,255,0.3)] bg-[#252b45] px-3 text-sm font-medium text-white outline-none focus:border-[rgba(0,217,255,0.55)] sm:max-w-md"
+          >
+            <option value="">Specific round (optional)</option>
+            {filteredRounds.map((r) => (
+              <option key={r.id} value={r.id}>
+                {r.quiz?.title ? `${r.quiz.title} → ` : ''}
+                {r.name} ({ROUND_TYPE_LABELS[r.type]})
+              </option>
+            ))}
+          </select>
           <input
-            type="text"
-            placeholder="Search questions..."
+            type="search"
+            placeholder="Search question text…"
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="flex-1 bg-surface border border-border rounded-lg px-4 py-2 text-foreground placeholder:text-foreground/40 focus:outline-none focus:ring-2 focus:ring-primary/50"
+            onChange={(e) => {
+              setSearch(e.target.value);
+              setPage(1);
+            }}
+            className="h-[41px] min-w-[200px] flex-1 rounded-[10px] border border-[rgba(0,217,255,0.3)] bg-[#252b45] px-3 text-sm text-white placeholder:text-[#6a7282] outline-none focus:border-[rgba(0,217,255,0.55)] lg:max-w-xs"
           />
-          <Button type="submit" variant="secondary">Search</Button>
-        </form>
-        <select
-          value={selectedRoundId}
-          onChange={(e) => { setSelectedRoundId(e.target.value); setPage(1); }}
-          className="bg-surface border border-border rounded-lg px-4 py-2 text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 max-w-xs"
-        >
-          <option value="">All Rounds</option>
-          {filteredRounds.map((r) => (
-            <option key={r.id} value={r.id}>
-              {r.quiz?.title ? `${r.quiz.title} → ` : ''}{r.name} ({ROUND_TYPE_LABELS[r.type]})
-            </option>
-          ))}
-        </select>
-      </div>
-
-      {/* Round Info Cards (when a type is selected) */}
-      {selectedRoundType && !selectedRoundId && (
-        <div className="mb-6 p-4 rounded-xl border border-border bg-surface">
-          <div className="flex items-center gap-3 mb-3">
-            <span className="text-2xl">{ROUND_TYPE_ICONS[selectedRoundType]}</span>
-            <div>
-              <h3 className="font-semibold text-lg">{ROUND_TYPE_LABELS[selectedRoundType]}</h3>
-              <p className="text-sm text-foreground/40">{ROUND_TYPE_SCORING[selectedRoundType]}</p>
-            </div>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {rounds
-              .filter((r) => r.type === selectedRoundType)
-              .map((r) => {
-                const color = getRoundColor(r.type);
-                return (
-                  <button
-                    key={r.id}
-                    onClick={() => { setSelectedRoundId(String(r.id)); setPage(1); }}
-                    className={`px-3 py-2 rounded-lg text-sm border transition-colors hover:opacity-80 ${color.bg} ${color.text} ${color.border}`}
-                  >
-                    <span className="font-medium">{r.name}</span>
-                    {r.quiz && <span className="opacity-60 ml-1">({r.quiz.title})</span>}
-                    <span className="block text-xs opacity-50 mt-0.5">
-                      {Number(r.questionCount) || 0} questions · {r.timerDuration}s timer
-                    </span>
-                  </button>
-                );
-              })}
-            {rounds.filter((r) => r.type === selectedRoundType).length === 0 && (
-              <p className="text-foreground/30 text-sm">No rounds of this type exist yet. Create a quiz first.</p>
-            )}
-          </div>
         </div>
-      )}
+      </section>
 
-      {/* Questions List */}
+      {/* Table — Figma 232:1410 */}
       {loading ? (
         <LoadingSpinner />
       ) : questions.length === 0 ? (
-        <div className="text-center py-16 text-foreground/50">
-          <p className="text-lg">No questions found</p>
-          <p className="text-sm mt-2">
-            Click &quot;+ Add Question&quot; to create one
-          </p>
+        <div className="rounded-2xl border-2 border-[rgba(0,217,255,0.3)] py-16 text-center text-[#99a1af]">
+          <p className="text-lg text-white/80">No questions found</p>
+          <p className="mt-2 text-sm">Try changing filters or add a question.</p>
         </div>
       ) : (
         <>
-          <div className="space-y-3">
-            {questions.map((q) => {
-              const roundColor = q.round ? getRoundColor(q.round.type) : null;
-              return (
-                <div
-                  key={q.id}
-                  className="bg-surface border border-border rounded-xl p-4 hover:border-primary/30 transition-colors group"
-                >
-                  <div className="flex items-start justify-between gap-4">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-1">
-                        {q.round && (
-                          <span className={`text-xs px-2 py-0.5 rounded font-medium ${roundColor?.bg} ${roundColor?.text} border ${roundColor?.border}`}>
-                            {ROUND_TYPE_ICONS[q.round.type]} {q.round.name}
-                          </span>
-                        )}
-                        {q.category && (
-                          <span className="text-xs px-2 py-0.5 rounded bg-surface-light text-foreground/50 border border-border">
-                            📁 {q.category}
-                          </span>
-                        )}
-                      </div>
-                      <p className="font-medium">{q.text}</p>
-                      <div className="flex flex-wrap gap-1.5 mt-2">
-                        {q.options.map((opt, i) => (
-                          <span
-                            key={i}
-                            className={`text-xs px-2 py-0.5 rounded ${
-                              opt.isCorrect
-                                ? 'bg-success/20 text-success border border-success/30'
-                                : 'bg-surface-light text-foreground/50 border border-border'
-                            }`}
-                          >
-                            {String.fromCharCode(65 + i)}. {opt.text}
-                          </span>
-                        ))}
-                      </div>
-                      <div className="flex gap-3 mt-2 text-xs text-foreground/30">
-                        {q.mediaType && (
-                          <span>
-                            {q.mediaType === 'mp3' ? '🎵' : q.mediaType === 'mp4' ? '🎬' : '🖼'}
-                            {' '}{q.mediaType.toUpperCase()}
-                          </span>
-                        )}
-                        {q.timerDuration && <span>⏱ {q.timerDuration}s</span>}
-                        <span className="opacity-50">#{q.id}</span>
-                      </div>
-                    </div>
-                    <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
-                      <Button variant="ghost" size="sm" onClick={() => openEditModal(q)}>
-                        Edit
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => handleDeleteQuestion(q.id)}
-                        className="text-danger/60 hover:text-danger"
+          <section
+            className="overflow-hidden rounded-2xl border-2 border-[rgba(0,217,255,0.3)]"
+            style={{
+              background:
+                'linear-gradient(168deg, rgb(26, 31, 53) 0%, rgb(25, 30, 50) 12.5%, rgb(23, 28, 48) 25%, rgb(22, 27, 45) 37.5%, rgb(20, 25, 42) 50%, rgb(19, 24, 40) 62.5%, rgb(18, 23, 37) 75%, rgb(16, 21, 35) 87.5%, rgb(15, 20, 32) 100%)',
+            }}
+          >
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[720px] border-collapse text-left">
+                <thead>
+                  <tr className="border-b border-[rgba(0,217,255,0.3)] bg-[#252b45] text-sm font-bold text-[#99a1af]">
+                    <th className="px-6 py-4 font-bold">Question</th>
+                    <th className="w-36 px-6 py-4 font-bold">Difficulty</th>
+                    <th className="w-44 px-6 py-4 font-bold">Round Type</th>
+                    <th className="w-32 px-6 py-4 font-bold">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {questions.map((q) => {
+                    const dKey = difficultyFromCategory(q.category);
+                    const diff = DIFFICULTY_STYLE[dKey];
+                    const roundLabel = q.round ? ROUND_TYPE_LABELS[q.round.type] || q.round.type : '—';
+                    return (
+                      <tr
+                        key={q.id}
+                        className="border-b border-[rgba(0,217,255,0.1)] last:border-b-0"
                       >
-                        ✕
-                      </Button>
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+                        <td className="max-w-md px-6 py-4 align-middle">
+                          <p className="line-clamp-2 text-base leading-6 text-white" title={q.text}>
+                            {q.text}
+                          </p>
+                        </td>
+                        <td className="px-6 py-4 align-middle">
+                          <span
+                            className={`inline-flex rounded-full px-3 py-1 text-xs font-normal leading-4 ${diff.className}`}
+                          >
+                            {diff.label}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 align-middle text-base text-white">{roundLabel}</td>
+                        <td className="px-6 py-4 align-middle">
+                          <div className="flex gap-2">
+                            <button
+                              type="button"
+                              onClick={() => openEditModal(q)}
+                              className="flex size-[34px] items-center justify-center rounded-[10px] border border-[rgba(0,217,255,0.3)] bg-[#252b45] text-[#00d9ff] transition-colors hover:bg-[#2e354c]"
+                              aria-label="Edit question"
+                            >
+                              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                                <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+                              </svg>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteQuestion(q.id)}
+                              className="flex size-[34px] items-center justify-center rounded-[10px] border border-[rgba(255,0,128,0.3)] bg-[#252b45] text-pink-400 transition-colors hover:bg-[#2e354c]"
+                              aria-label="Delete question"
+                            >
+                              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                <polyline points="3 6 5 6 21 6" />
+                                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                                <line x1="10" y1="11" x2="10" y2="17" />
+                                <line x1="14" y1="11" x2="14" y2="17" />
+                              </svg>
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </section>
 
           {totalPages > 1 && (
-            <div className="flex items-center justify-center gap-3 mt-6">
+            <div className="flex items-center justify-center gap-3">
               <Button variant="ghost" size="sm" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
                 ← Prev
               </Button>
-              <span className="text-sm text-foreground/50">Page {page} of {totalPages}</span>
+              <span className="text-sm text-[#99a1af]">
+                Page {page} of {totalPages}
+              </span>
               <Button variant="ghost" size="sm" disabled={page >= totalPages} onClick={() => setPage((p) => p + 1)}>
                 Next →
               </Button>
@@ -586,12 +592,14 @@ export default function QuestionsPage() {
           {/* Category + Timer Row */}
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-sm font-medium text-foreground/70 mb-1">Category</label>
+              <label className="block text-sm font-medium text-foreground/70 mb-1">
+                Category / difficulty
+              </label>
               <input
                 type="text"
                 value={formData.category}
                 onChange={(e) => setFormData((p) => ({ ...p, category: e.target.value }))}
-                placeholder="e.g. Geography, Science..."
+                placeholder="Easy, Medium, Hard, or topic…"
                 className="w-full bg-surface-light border border-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-foreground/40 focus:outline-none focus:ring-2 focus:ring-primary/50"
               />
             </div>

@@ -29,7 +29,7 @@ export default function LobbyPage() {
       if (data) sessionStorage.setItem('questionActive', JSON.stringify(data));
       router.push('/play/game');
     };
-    const handleMiniGameStart = () => router.push('/play/mini-game');
+    const handleMiniGameStart = (data: { game: string }) => router.push(`/play/mini-game?game=${data.game}`);
     const handleGameStarted = () => router.push('/play/game');
 
     const handleSessionState = (data: any) => {

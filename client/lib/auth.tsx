@@ -14,6 +14,7 @@ interface AuthContextValue extends AuthState {
   login: (email: string, password: string, role: 'admin' | 'host') => Promise<void>;
   logout: () => void;
   isAuthenticated: boolean;
+  hydrated: boolean;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -21,22 +22,30 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 const TOKEN_KEY = 'auth_token';
 const ROLE_KEY = 'auth_role';
 
+function readStoredAuth(): AuthState {
+  if (typeof window === 'undefined') return { token: null, role: null, email: null };
+  const token = localStorage.getItem(TOKEN_KEY);
+  const role = localStorage.getItem(ROLE_KEY) as AuthState['role'];
+  if (token && role) return { token, role, email: null };
+  return { token: null, role: null, email: null };
+}
+
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [state, setState] = useState<AuthState>({ token: null, role: null, email: null });
-  const [mounted, setMounted] = useState(false);
+  const [hydrated, setHydrated] = useState(false);
 
   useEffect(() => {
-    const token = localStorage.getItem(TOKEN_KEY);
-    const role = localStorage.getItem(ROLE_KEY) as AuthState['role'];
-    if (token && role) {
-      setState({ token, role, email: null });
+    const stored = readStoredAuth();
+    setState(stored);
+
+    if (stored.token && stored.role) {
       fetch(`${API_URL}/api/auth/me`, {
-        headers: { Authorization: `Bearer ${token}` },
+        headers: { Authorization: `Bearer ${stored.token}` },
       })
         .then((res) => res.json())
         .then((data) => {
           if (data.success) {
-            setState({ token, role: data.data.role, email: data.data.email });
+            setState({ token: stored.token, role: data.data.role, email: data.data.email });
           } else {
             localStorage.removeItem(TOKEN_KEY);
             localStorage.removeItem(ROLE_KEY);
@@ -44,12 +53,11 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           }
         })
         .catch(() => {
-          localStorage.removeItem(TOKEN_KEY);
-          localStorage.removeItem(ROLE_KEY);
-          setState({ token: null, role: null, email: null });
+          /* Keep the local token — server may be temporarily unreachable.
+             The next API call will get a 401 and trigger a proper logout. */
         });
     }
-    setMounted(true);
+    setHydrated(true);
   }, []);
 
   const login = useCallback(async (email: string, password: string, role: 'admin' | 'host') => {
@@ -76,10 +84,10 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     setState({ token: null, role: null, email: null });
   }, []);
 
-  if (!mounted) return null;
+  if (!hydrated) return null;
 
   return (
-    <AuthContext.Provider value={{ ...state, login, logout, isAuthenticated: !!state.token }}>
+    <AuthContext.Provider value={{ ...state, login, logout, isAuthenticated: !!state.token, hydrated }}>
       {children}
     </AuthContext.Provider>
   );

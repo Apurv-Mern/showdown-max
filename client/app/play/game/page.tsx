@@ -207,22 +207,12 @@ export default function GamePage() {
     socket.on('round_end', () => setPhase('scoreboard'));
     socket.on('break_start', () => setPhase('break'));
     socket.on('break_end', () => setPhase('waiting'));
-    socket.on('mini_game_start', () => router.push('/play/mini-game'));
-    socket.on('game_end', (data: { teams: any[] }) => {
-      setScoreboard(data.teams);
-      setPhase('game_end');
-      setEndCountdown(15);
-      const countdownInterval = setInterval(() => {
-        setEndCountdown((prev) => {
-          if (prev <= 1) {
-            clearInterval(countdownInterval);
-            clearSession();
-            router.replace('/play/join');
-            return 0;
-          }
-          return prev - 1;
-        });
-      }, 1000);
+    socket.on('mini_game_start', (data: { game: string }) => {
+      router.push(`/play/mini-game?game=${data.game}`);
+    });
+    socket.on('game_end', () => {
+      clearSession();
+      router.replace('/play/join');
     });
 
     return () => {

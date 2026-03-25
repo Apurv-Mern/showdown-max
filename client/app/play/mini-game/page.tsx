@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useSocket } from '@/hooks/useSocket';
 import { usePlayerSession } from '../layout';
 import { Button } from '@/components/shared/Button';
@@ -21,20 +21,27 @@ const HORSES: HorseOption[] = [
   { id: 4, name: 'Blaze', color: 'bg-[#26890c]' },
 ];
 
-const CARDS = [
-  { id: 1, label: '♠', name: 'Spades' },
-  { id: 2, label: '♥', name: 'Hearts' },
-  { id: 3, label: '♦', name: 'Diamonds' },
-  { id: 4, label: '♣', name: 'Clubs' },
-];
+const CARD_POSITIONS = [
+  { id: 1, label: 'Left', emoji: '🃏' },
+  { id: 2, label: 'Middle', emoji: '🃏' },
+  { id: 3, label: 'Right', emoji: '🃏' },
+] as const;
+
+const CARD_LABEL_MAP: Record<number, string> = { 1: 'Left', 2: 'Middle', 3: 'Right' };
+
+type ResultPhase = null | 'winner' | 'loser';
 
 export default function MiniGamePage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { socket } = useSocket();
-  const { session } = usePlayerSession();
+  const { session, clearSession } = usePlayerSession();
 
-  const [gameType, setGameType] = useState<MiniGameType>(null);
+  const gameParam = searchParams.get('game') as MiniGameType;
+  const [gameType, setGameType] = useState<MiniGameType>(gameParam);
   const [selectedChoice, setSelectedChoice] = useState<number | null>(null);
+  const [resultPhase, setResultPhase] = useState<ResultPhase>(null);
+  const [winningValue, setWinningValue] = useState<number | null>(null);
 
   useEffect(() => {
     if (!session.pin || !session.teamId) {
@@ -49,10 +56,23 @@ export default function MiniGamePage() {
     socket.on('mini_game_start', (data: { game: string }) => {
       setGameType(data.game as MiniGameType);
       setSelectedChoice(null);
+      setResultPhase(null);
+      setWinningValue(null);
     });
 
-    socket.on('mini_game_end', () => {
-      router.push('/play/game');
+    socket.on('mini_game_end', (data: { game?: string; winningCard?: number; winningKangaroo?: number }) => {
+      const winning = data.winningCard ?? data.winningKangaroo ?? null;
+      setWinningValue(winning);
+
+      if (winning !== null && selectedChoice !== null) {
+        setResultPhase(selectedChoice === winning ? 'winner' : 'loser');
+      } else {
+        setResultPhase('loser');
+      }
+
+      setTimeout(() => {
+        router.push('/play/game');
+      }, 5000);
     });
 
     socket.on('break_end', () => {
@@ -63,13 +83,19 @@ export default function MiniGamePage() {
       router.push('/play/game');
     });
 
+    socket.on('game_end', () => {
+      clearSession();
+      router.replace('/play/join');
+    });
+
     return () => {
       socket.off('mini_game_start');
       socket.off('mini_game_end');
       socket.off('break_end');
       socket.off('round_intro');
+      socket.off('game_end');
     };
-  }, [socket, router]);
+  }, [socket, router, selectedChoice, clearSession]);
 
   const handleChoice = (choiceId: number) => {
     if (selectedChoice !== null || !socket) return;
@@ -80,9 +106,56 @@ export default function MiniGamePage() {
     });
   };
 
+  if (resultPhase) {
+    const isWinner = resultPhase === 'winner';
+    const winLabel = gameType === 'card_shuffle' && winningValue
+      ? CARD_LABEL_MAP[winningValue] || `Card ${winningValue}`
+      : gameType === 'horse_race' && winningValue
+        ? `Kangaroo #${winningValue}`
+        : '';
+
+    return (
+      <div className="flex-1 flex flex-col">
+        <div className="px-4 py-3 border-b border-border flex items-center justify-between bg-surface/50">
+          <span className="text-sm font-semibold text-primary">{session.teamName}</span>
+          <span className="text-sm font-mono font-bold">{session.score} pts</span>
+        </div>
+
+        <div className="flex-1 flex items-center justify-center p-6">
+          <div className="w-full max-w-sm text-center">
+            {isWinner ? (
+              <>
+                <div className="text-7xl mb-4 animate-bounce">🏆</div>
+                <h2 className="text-3xl font-black text-[#ffd700] mb-2">
+                  You Won!
+                </h2>
+                <p className="text-foreground/60 text-sm mb-4">
+                  You picked <span className="font-bold text-[#ffd700]">{winLabel}</span> — that was the winning card!
+                </p>
+              </>
+            ) : (
+              <>
+                <div className="text-7xl mb-4">😔</div>
+                <h2 className="text-3xl font-black text-foreground/60 mb-2">
+                  Better Luck Next Time
+                </h2>
+                <p className="text-foreground/40 text-sm mb-4">
+                  The winning card was <span className="font-bold text-primary">{winLabel}</span>
+                  {selectedChoice
+                    ? ` — you picked ${gameType === 'card_shuffle' ? (CARD_LABEL_MAP[selectedChoice] || `Card ${selectedChoice}`) : `#${selectedChoice}`}`
+                    : ' — you didn\'t pick'}.
+                </p>
+              </>
+            )}
+            <p className="text-xs text-foreground/30 mt-6">Returning to game...</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="flex-1 flex flex-col">
-      {/* Header */}
       <div className="px-4 py-3 border-b border-border flex items-center justify-between bg-surface/50">
         <span className="text-sm font-semibold text-primary">{session.teamName}</span>
         <span className="text-sm font-mono font-bold">{session.score} pts</span>
@@ -95,7 +168,9 @@ export default function MiniGamePage() {
             <div className="text-4xl mb-3">🏇</div>
             <h2 className="text-2xl font-bold mb-2">Horse Race</h2>
             <p className="text-foreground/50 text-sm mb-6">
-              {selectedChoice ? 'Your bet is locked! Watch the race on the big screen.' : 'Pick a horse to bet on!'}
+              {selectedChoice
+                ? 'Your bet is locked! Watch the race on the big screen.'
+                : 'Pick a horse to bet on!'}
             </p>
 
             <div className="grid grid-cols-2 gap-3">
@@ -120,33 +195,36 @@ export default function MiniGamePage() {
           </div>
         )}
 
-        {/* Card Shuffle */}
+        {/* Card Shuffle — left / middle / right */}
         {gameType === 'card_shuffle' && (
-          <div className="w-full max-w-sm text-center">
+          <div className="w-full max-w-md text-center">
             <div className="text-4xl mb-3">🃏</div>
             <h2 className="text-2xl font-bold mb-2">Card Shuffle</h2>
             <p className="text-foreground/50 text-sm mb-6">
-              {selectedChoice ? 'Card chosen! Watch the shuffle on the big screen.' : 'Pick a card!'}
+              {selectedChoice
+                ? 'Your pick is locked! Watch the shuffle on the big screen.'
+                : 'Which card is yours?'}
             </p>
 
-            <div className="grid grid-cols-2 gap-3">
-              {CARDS.map((card) => (
+            <div className="flex gap-3 justify-center">
+              {CARD_POSITIONS.map((pos) => (
                 <button
-                  key={card.id}
-                  onClick={() => handleChoice(card.id)}
+                  key={pos.id}
+                  type="button"
+                  onClick={() => handleChoice(pos.id)}
                   disabled={selectedChoice !== null}
-                  className={`bg-surface border-2 border-border rounded-xl p-6 text-center transition-all active:scale-95 ${
-                    selectedChoice === card.id
-                      ? 'border-primary bg-primary/10 scale-105'
+                  className={`flex-1 max-w-[130px] rounded-xl border-2 bg-surface px-3 py-6 text-center transition-all active:scale-95 ${
+                    selectedChoice === pos.id
+                      ? 'border-primary bg-primary/10 scale-105 ring-2 ring-primary/30'
                       : selectedChoice !== null
-                        ? 'opacity-30'
-                        : 'hover:border-primary/50 hover:scale-105'
+                        ? 'border-border opacity-30'
+                        : 'border-border hover:border-primary/50 hover:scale-[1.03]'
                   }`}
                 >
-                  <div className={`text-5xl mb-1 ${card.label === '♥' || card.label === '♦' ? 'text-danger' : 'text-foreground'}`}>
-                    {card.label}
+                  <div className="text-4xl mb-2" aria-hidden>
+                    {pos.emoji}
                   </div>
-                  <div className="text-sm text-foreground/60">{card.name}</div>
+                  <div className="text-base font-bold text-foreground">{pos.label}</div>
                 </button>
               ))}
             </div>
@@ -158,7 +236,9 @@ export default function MiniGamePage() {
           <div className="text-center">
             <div className="text-4xl mb-3">🎮</div>
             <h2 className="text-xl font-bold mb-2">Mini-Game</h2>
-            <p className="text-foreground/50 text-sm mb-6">Waiting for the host to launch a game...</p>
+            <p className="text-foreground/50 text-sm mb-6">
+              Waiting for the host to launch a game...
+            </p>
             <Button variant="ghost" onClick={() => router.push('/play/game')}>
               ← Back to Game
             </Button>

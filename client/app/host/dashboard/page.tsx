@@ -22,11 +22,18 @@ function formatRoundTypeLabel(type: string): string {
 
 const KANGAROO_SLOTS = [1, 2, 3, 4, 5, 6] as const;
 
-/** Matches player mini-game (4 suits). */
-const CARD_SHUFFLE_SLOTS = [1, 2, 3, 4] as const;
+/** Matches player mini-game (left / middle / right). */
+const CARD_SHUFFLE_SLOTS = [1, 2, 3] as const;
+const CARD_POSITION_LABELS: Record<number, string> = { 1: 'Left', 2: 'Middle', 3: 'Right' };
 
 /** Figma row groups for Score Board modal list */
-const SCOREBOARD_MODAL_ROW_IDS = ['232:2873', '232:2879', '232:2885', '232:2891', '232:2897'] as const;
+const SCOREBOARD_MODAL_ROW_IDS = [
+  '232:2873',
+  '232:2879',
+  '232:2885',
+  '232:2891',
+  '232:2897',
+] as const;
 
 const montserrat = Montserrat({
   weight: ['400', '500', '600', '700', '800'],
@@ -118,15 +125,18 @@ function HostTimerRing({
   };
 
   const color = getColor();
-  const digitClass =
-    size >= 110
-      ? 'text-[clamp(2rem,5vw,3.25rem)]'
-      : 'text-3xl';
+  const digitClass = size >= 110 ? 'text-[clamp(2rem,5vw,3.25rem)]' : 'text-3xl';
 
   return (
     <div className={cn('timer-ring', className)} style={{ width: size, height: size }}>
       <svg width={size} height={size}>
-        <circle className="timer-ring-track" cx={size / 2} cy={size / 2} r={radius} strokeWidth={stroke} />
+        <circle
+          className="timer-ring-track"
+          cx={size / 2}
+          cy={size / 2}
+          r={radius}
+          strokeWidth={stroke}
+        />
         <circle
           className="timer-ring-progress"
           cx={size / 2}
@@ -144,7 +154,9 @@ function HostTimerRing({
           className={cn(
             'font-black font-mono leading-none',
             digitClass,
-            remaining <= 5 ? 'text-neon-red text-glow-red' : 'text-white [text-shadow:0_4px_2px_rgba(0,0,0,0.4)]',
+            remaining <= 5
+              ? 'text-neon-red text-glow-red'
+              : 'text-white [text-shadow:0_4px_2px_rgba(0,0,0,0.4)]',
           )}
         >
           {remaining}
@@ -154,9 +166,18 @@ function HostTimerRing({
   );
 }
 
-function HostPanelTitle({ children, 'data-node-id': dataNodeId }: { children: React.ReactNode; 'data-node-id'?: string }) {
+function HostPanelTitle({
+  children,
+  'data-node-id': dataNodeId,
+}: {
+  children: React.ReactNode;
+  'data-node-id'?: string;
+}) {
   return (
-    <h2 data-node-id={dataNodeId} className="mb-4 text-xl font-bold uppercase leading-tight tracking-wide text-white sm:text-[25px]">
+    <h2
+      data-node-id={dataNodeId}
+      className="mb-4 text-xl font-bold uppercase leading-tight tracking-wide text-white sm:text-[25px]"
+    >
       {children}
     </h2>
   );
@@ -224,7 +245,9 @@ function HostFooterBtn({
           : 'border-white/15 bg-[linear-gradient(180deg,#2e354c_0%,#1a2030_100%)]',
       )}
     >
-      <span className="flex size-[22px] shrink-0 items-center justify-center [&>svg]:h-full [&>svg]:w-full">{icon}</span>
+      <span className="flex size-[22px] shrink-0 items-center justify-center [&>svg]:h-full [&>svg]:w-full">
+        {icon}
+      </span>
       {children}
     </button>
   );
@@ -255,8 +278,11 @@ function HostDashboardContent() {
   const [winningKangaroo, setWinningKangaroo] = useState(3);
   const [kangarooBetCounts, setKangarooBetCounts] = useState([0, 0, 0, 0, 0, 0]);
   const [showCardShuffleModal, setShowCardShuffleModal] = useState(false);
-  const [winningCard, setWinningCard] = useState(3);
-  const [cardPickCounts, setCardPickCounts] = useState([0, 0, 0, 0]);
+  const [winningCard, setWinningCard] = useState(2);
+  const [cardPickCounts, setCardPickCounts] = useState([0, 0, 0]);
+  const [activeMiniGameLocal, setActiveMiniGameLocal] = useState<string | null>(null);
+  const [miniGameLoading, setMiniGameLoading] = useState(false);
+  const [miniGameRevealing, setMiniGameRevealing] = useState(false);
   const [showScoreboardModal, setShowScoreboardModal] = useState(false);
   const [showTimerModal, setShowTimerModal] = useState(false);
   const [mp3Playing, setMp3Playing] = useState(false);
@@ -269,7 +295,11 @@ function HostDashboardContent() {
 
   const isMusicRound = currentQuestion?.roundType === 'MUSIC';
   const { playTick, playBuzz } = useTimerSound({ enabled: true, muted: isMusicRound });
-  const { play: playMp3, stop: stopMp3, setSource: setMp3Source } = useAudio({ loop: false, volume: 0.7 });
+  const {
+    play: playMp3,
+    stop: stopMp3,
+    setSource: setMp3Source,
+  } = useAudio({ loop: false, volume: 0.7 });
   const prevTimerRef = useRef(0);
 
   useEffect(() => {
@@ -290,12 +320,21 @@ function HostDashboardContent() {
   useEffect(() => {
     if (!socket || !pin) return;
 
-    const joinHost = () => { socket.emit('host_connect', { pin }); };
+    const joinHost = () => {
+      socket.emit('host_connect', { pin });
+    };
     joinHost();
     socket.on('connect', joinHost);
 
     socket.on('session_state', (data: GameState) => {
       if (data?.state) setGameState(data);
+      if (data?.activeMiniGame) {
+        setActiveMiniGameLocal(data.activeMiniGame);
+        setMiniGameLoading(false);
+      } else if (data?.activeMiniGame === null) {
+        setActiveMiniGameLocal(null);
+        setMiniGameLoading(false);
+      }
     });
 
     socket.on('question_active', (data: QuestionData) => {
@@ -303,7 +342,9 @@ function HostDashboardContent() {
       setRevealData(null);
       setTimerDuration(data.timerDuration);
       setTimerRemaining(data.timerDuration);
-      setGameState((prev) => prev ? { ...prev, state: 'QUESTION', questionState: 'ACTIVE' } : prev);
+      setGameState((prev) =>
+        prev ? { ...prev, state: 'QUESTION', questionState: 'ACTIVE' } : prev,
+      );
     });
 
     socket.on('timer_update', (data: { remaining: number; paused?: boolean }) => {
@@ -315,46 +356,61 @@ function HostDashboardContent() {
 
     socket.on('answer_reveal', (data: RevealData) => {
       setRevealData(data);
-      setGameState((prev) => prev ? { ...prev, questionState: 'REVEALED' } : prev);
+      setGameState((prev) => (prev ? { ...prev, questionState: 'REVEALED' } : prev));
     });
 
     socket.on('response_count', (data: { count: number; total: number }) => {
-      setGameState((prev) => prev ? { ...prev, responseCount: data.count, totalTeams: data.total } : prev);
+      setGameState((prev) =>
+        prev ? { ...prev, responseCount: data.count, totalTeams: data.total } : prev,
+      );
     });
 
     socket.on('round_intro', (data: { roundIndex?: number }) => {
       setCurrentQuestion(null);
       setRevealData(null);
-      setGameState((prev) => prev ? {
-        ...prev, state: 'ROUND_INTRO', questionState: 'WAITING',
-        currentRoundIndex: data.roundIndex ?? prev.currentRoundIndex,
-        currentQuestionIndex: 0, responseCount: 0,
-      } : prev);
+      setGameState((prev) =>
+        prev
+          ? {
+              ...prev,
+              state: 'ROUND_INTRO',
+              questionState: 'WAITING',
+              currentRoundIndex: data.roundIndex ?? prev.currentRoundIndex,
+              currentQuestionIndex: 0,
+              responseCount: 0,
+            }
+          : prev,
+      );
     });
 
     socket.on('scoreboard', () => {
-      setGameState((prev) => prev ? { ...prev, state: 'SCOREBOARD' } : prev);
+      setGameState((prev) => (prev ? { ...prev, state: 'SCOREBOARD' } : prev));
     });
 
     socket.on('round_end', () => {
-      setCurrentQuestion(null); setRevealData(null);
-      setGameState((prev) => prev ? { ...prev, state: 'SCOREBOARD' } : prev);
+      setCurrentQuestion(null);
+      setRevealData(null);
+      setGameState((prev) => (prev ? { ...prev, state: 'SCOREBOARD' } : prev));
     });
 
-    socket.on('break_start', () => setGameState((prev) => prev ? { ...prev, state: 'BREAK' } : prev));
-    socket.on('break_end', () => setGameState((prev) => prev ? { ...prev, state: 'ROUND_INTRO' } : prev));
+    socket.on('break_start', () =>
+      setGameState((prev) => (prev ? { ...prev, state: 'BREAK' } : prev)),
+    );
+    socket.on('break_end', () =>
+      setGameState((prev) => (prev ? { ...prev, state: 'ROUND_INTRO' } : prev)),
+    );
 
     socket.on('game_end', () => {
-      setGameState((prev) => prev ? { ...prev, state: 'FINAL_RESULTS' } : prev);
-      setTimeout(() => {
-        router.replace('/host/sessions');
-      }, 10000);
+      router.replace('/host/sessions');
     });
 
     socket.on('team_joined', (team: Team) => {
       setGameState((prev) => {
         if (!prev) return prev;
-        return { ...prev, teams: { ...prev.teams, [team.teamId]: team }, totalTeams: Object.keys(prev.teams).length + 1 };
+        return {
+          ...prev,
+          teams: { ...prev.teams, [team.teamId]: team },
+          totalTeams: Object.keys(prev.teams).length + 1,
+        };
       });
     });
 
@@ -374,6 +430,25 @@ function HostDashboardContent() {
       });
     });
 
+    socket.on('mini_game_start', (data: { game: string }) => {
+      setActiveMiniGameLocal(data.game);
+      setMiniGameLoading(false);
+    });
+
+    socket.on('mini_game_end', (data: { game?: string; winningCard?: number; winningKangaroo?: number }) => {
+      setMiniGameLoading(false);
+      if (data?.game) {
+        setMiniGameRevealing(true);
+        setTimeout(() => {
+          setActiveMiniGameLocal(null);
+          setMiniGameRevealing(false);
+        }, 5000);
+      } else {
+        setActiveMiniGameLocal(null);
+        setMiniGameRevealing(false);
+      }
+    });
+
     const onMiniGameUpdate = (data: { action?: string; value?: number }) => {
       if (data.action !== 'select' || typeof data.value !== 'number') return;
       const ag = gameStateRef.current?.activeMiniGame;
@@ -391,7 +466,7 @@ function HostDashboardContent() {
       }
       if (isCards) {
         const idx = data.value - 1;
-        if (idx < 0 || idx > 3) return;
+        if (idx < 0 || idx > 2) return;
         setCardPickCounts((prev) => {
           const next = [...prev];
           next[idx] += 1;
@@ -404,16 +479,34 @@ function HostDashboardContent() {
     return () => {
       socket.off('connect', joinHost);
       socket.off('mini_game_update', onMiniGameUpdate);
-      ['session_state', 'question_active', 'timer_update', 'timer_expired', 'answer_reveal',
-        'response_count', 'round_intro', 'scoreboard', 'round_end', 'break_start', 'break_end',
-        'game_end', 'team_joined', 'team_removed', 'team_updated',
+      [
+        'session_state',
+        'question_active',
+        'timer_update',
+        'timer_expired',
+        'answer_reveal',
+        'response_count',
+        'round_intro',
+        'scoreboard',
+        'round_end',
+        'break_start',
+        'break_end',
+        'game_end',
+        'team_joined',
+        'team_removed',
+        'team_updated',
+        'mini_game_start',
+        'mini_game_end',
       ].forEach((e) => socket.off(e));
     };
   }, [socket, pin]);
 
-  const emit = useCallback((event: string, data?: Record<string, unknown>) => {
-    if (socket) socket.emit(event, { pin, ...data });
-  }, [socket, pin]);
+  const emit = useCallback(
+    (event: string, data?: Record<string, unknown>) => {
+      if (socket) socket.emit(event, { pin, ...data });
+    },
+    [socket, pin],
+  );
 
   const handleStartGame = () => emit('start_game');
   const handleNextQuestion = () => emit('next_question');
@@ -434,11 +527,8 @@ function HostDashboardContent() {
     if (confirm('End the game? This shows final results to all players.')) emit('end_game');
   };
   const handleKangarooRaceSave = () => {
-    if (gameState?.state !== 'BREAK') {
-      alert('Start a break before launching Kangaroo Race.');
-      return;
-    }
     setKangarooBetCounts([0, 0, 0, 0, 0, 0]);
+    setMiniGameLoading(true);
     emit('launch_mini_game', {
       game: 'horse_race',
       config: { winningKangaroo },
@@ -447,16 +537,17 @@ function HostDashboardContent() {
   };
 
   const handleCardShuffleSave = () => {
-    if (gameState?.state !== 'BREAK') {
-      alert('Start a break before launching Card Shuffle.');
-      return;
-    }
-    setCardPickCounts([0, 0, 0, 0]);
+    setCardPickCounts([0, 0, 0]);
+    setMiniGameLoading(true);
     emit('launch_mini_game', {
       game: 'card_shuffle',
       config: { winningCard },
     });
     setShowCardShuffleModal(false);
+  };
+
+  const handleExitMiniGame = () => {
+    emit('end_mini_game');
   };
 
   const closeAddTeamModal = useCallback(() => {
@@ -519,8 +610,13 @@ function HostDashboardContent() {
   };
 
   const handleToggleMp3 = () => {
-    if (mp3Playing) { stopMp3(); setMp3Playing(false); }
-    else { playMp3(); setMp3Playing(true); }
+    if (mp3Playing) {
+      stopMp3();
+      setMp3Playing(false);
+    } else {
+      playMp3();
+      setMp3Playing(true);
+    }
   };
 
   useKeyboardShortcuts({
@@ -636,14 +732,19 @@ function HostDashboardContent() {
           >
             {currentRound ? (
               <>
-                <span className="text-white">Round {(gameState?.currentRoundIndex ?? 0) + 1}- </span>
+                <span className="text-white">
+                  Round {(gameState?.currentRoundIndex ?? 0) + 1}-{' '}
+                </span>
                 <span className="text-[#00d9ff]">{currentRound.type.replace(/_/g, ' ')}</span>
               </>
             ) : (
               <span className="text-white/60">Lobby</span>
             )}
           </div>
-          <div className="flex flex-wrap items-center justify-end gap-3 text-sm lg:gap-4 lg:text-base" data-node-id="232:4450">
+          <div
+            className="flex flex-wrap items-center justify-end gap-3 text-sm lg:gap-4 lg:text-base"
+            data-node-id="232:4450"
+          >
             <Link
               href="/host/sessions"
               className="text-[#00d9ff]/80 underline-offset-2 hover:text-[#00d9ff] hover:underline"
@@ -670,7 +771,10 @@ function HostDashboardContent() {
               className="flex items-center gap-2 rounded-full bg-[rgba(0,255,9,0.2)] px-3.5 py-1.5"
               data-node-id="232:4453"
             >
-              <span className="size-[7px] shrink-0 rounded-[3px] bg-[#00d9ff]" data-node-id="232:4455" />
+              <span
+                className="size-[7px] shrink-0 rounded-[3px] bg-[#00d9ff]"
+                data-node-id="232:4455"
+              />
               <span className="text-sm font-semibold text-[#00d9ff]" data-node-id="232:4456">
                 {isConnected ? 'Live' : 'Offline'}
               </span>
@@ -682,7 +786,11 @@ function HostDashboardContent() {
         </div>
       </header>
 
-      <div className="flex min-h-0 flex-1 flex-col lg:flex-row" data-name="Main Container" data-node-id="232:4459">
+      <div
+        className="flex min-h-0 flex-1 flex-col lg:flex-row"
+        data-name="Main Container"
+        data-node-id="232:4459"
+      >
         <aside
           data-name="Venue Display"
           className="w-full shrink-0 border-white/10 bg-[linear-gradient(180deg,rgba(20,26,42,0.6)_0%,#0b0f1a_100%)] px-4 py-6 lg:w-[min(100%,395px)] lg:border-r"
@@ -690,7 +798,11 @@ function HostDashboardContent() {
           <div className="space-y-10">
             <section data-name="Team Management Panel" data-node-id="232:4462">
               <HostPanelTitle data-node-id="232:4463">Team Management</HostPanelTitle>
-              <div className="grid grid-cols-2 gap-3" data-name="Team Management Item" data-node-id="232:4464">
+              <div
+                className="grid grid-cols-2 gap-3"
+                data-name="Team Management Item"
+                data-node-id="232:4464"
+              >
                 <HostSidebarTile
                   data-node-id="232:4465"
                   label="Add Team"
@@ -717,7 +829,11 @@ function HostDashboardContent() {
 
             <section data-name="Venue Display Panel" data-node-id="232:4498">
               <HostPanelTitle data-node-id="232:4499">Venue Display</HostPanelTitle>
-              <div className="grid grid-cols-2 gap-3" data-name="Venue Display Item" data-node-id="232:4500">
+              <div
+                className="grid grid-cols-2 gap-3"
+                data-name="Venue Display Item"
+                data-node-id="232:4500"
+              >
                 <HostSidebarTile
                   data-node-id="232:4501"
                   label="Welcome Screen"
@@ -748,7 +864,10 @@ function HostDashboardContent() {
                 <HostSidebarTile
                   label="Play/Pause MP3"
                   active={mp3Playing}
-                  disabled={!currentQuestion?.question?.mediaUrl || currentQuestion?.question?.mediaType !== 'mp3'}
+                  disabled={
+                    !currentQuestion?.question?.mediaUrl ||
+                    currentQuestion?.question?.mediaType !== 'mp3'
+                  }
                   icon={
                     <svg viewBox="0 0 24 24" fill="currentColor">
                       <path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z" />
@@ -759,7 +878,10 @@ function HostDashboardContent() {
                 <HostSidebarTile
                   label="Play/Pause MP4"
                   active={mp4Playing}
-                  disabled={!currentQuestion?.question?.mediaUrl || currentQuestion?.question?.mediaType !== 'mp4'}
+                  disabled={
+                    !currentQuestion?.question?.mediaUrl ||
+                    currentQuestion?.question?.mediaType !== 'mp4'
+                  }
                   icon={
                     <svg viewBox="0 0 24 24" fill="currentColor">
                       <path d="M17 10.5V7c0-.55-.45-1-1-1H4c-.55 0-1 .45-1 1v10c0 .55.45 1 1 1h12c.55 0 1-.45 1-1v-3.5l4 4v-11l-4 4z" />
@@ -772,198 +894,331 @@ function HostDashboardContent() {
           </div>
         </aside>
 
-        <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto px-4 py-4" data-name="Question Panel" data-node-id="232:4518">
-        {/* Question Display */}
-        {currentQuestion ? (
-          <div className="flex min-h-0 flex-1 flex-col rounded-2xl border-2 border-[rgba(0,217,255,0.45)] bg-[linear-gradient(180deg,rgba(26,31,46,0.85)_0%,rgba(11,15,26,0.92)_100%)] p-4 shadow-[0_0_28px_rgba(0,217,255,0.12)] sm:p-6">
-            <div className="mb-4 flex shrink-0 items-center justify-between" data-node-id="232:4519">
-              <h2 className="text-2xl font-semibold text-white sm:text-[30px]">
-                Question {(currentQuestion.questionIndex || 0) + 1}/{currentQuestion.totalQuestions}
-              </h2>
-              {currentQuestion.pointsForQuestion ? (
-                <span className="text-sm font-bold text-[#00d9ff]">{currentQuestion.pointsForQuestion} pts</span>
-              ) : null}
-            </div>
+        <main
+          className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto px-4 py-4"
+          data-name="Question Panel"
+          data-node-id="232:4518"
+        >
+          {/* ── Mini-Game Active / Loading ── */}
+          {(activeMiniGameLocal || miniGameLoading) ? (
+            <div className="flex min-h-0 flex-1 flex-col rounded-2xl border-2 border-[rgba(0,217,255,0.45)] bg-[linear-gradient(180deg,rgba(26,31,46,0.85)_0%,rgba(11,15,26,0.92)_100%)] p-4 shadow-[0_0_28px_rgba(0,217,255,0.12)] sm:p-6">
+              <div className="mb-4 flex shrink-0 items-center justify-between">
+                <h2 className="text-2xl font-semibold text-white sm:text-[30px]">
+                  {activeMiniGameLocal === 'horse_race' ? 'Kangaroo Race' : activeMiniGameLocal === 'card_shuffle' ? 'Card Shuffle' : 'Mini-Game'}
+                </h2>
+                <div className="flex items-center gap-3">
+                  {miniGameRevealing ? (
+                    <span className="rounded-full bg-amber-500/20 border border-amber-500/40 px-3 py-1 text-xs font-bold uppercase tracking-wider text-amber-400 animate-pulse">
+                      Revealing Winner on Venue
+                    </span>
+                  ) : activeMiniGameLocal ? (
+                    <>
+                      <span className="rounded-full bg-green-500/20 border border-green-500/40 px-3 py-1 text-xs font-bold uppercase tracking-wider text-green-400">
+                        Live on Venue
+                      </span>
+                      <button
+                        type="button"
+                        onClick={handleExitMiniGame}
+                        className="flex items-center gap-2 rounded-lg border border-red-500/40 bg-[linear-gradient(180deg,#dc2626_0%,#7f1d1d_100%)] px-4 py-2 text-sm font-bold uppercase tracking-wide text-white shadow-[0_4px_16px_rgba(0,0,0,0.4)] transition hover:brightness-110"
+                      >
+                        <svg viewBox="0 0 24 24" fill="currentColor" className="size-4">
+                          <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" />
+                        </svg>
+                        Exit Game
+                      </button>
+                    </>
+                  ) : null}
+                </div>
+              </div>
 
-            <div
-              className="relative mx-auto mb-4 w-full max-w-4xl overflow-hidden rounded-[24px] border border-[rgba(0,217,255,0.35)] bg-black/50 sm:rounded-[30px]"
-              data-name="Main Image"
-              data-node-id="232:4521"
-            >
-              {currentQuestion.question.mediaUrl && currentQuestion.question.mediaType === 'image' ? (
-                <img
-                  src={`${API_URL}${currentQuestion.question.mediaUrl}`}
-                  alt=""
-                  className="max-h-[min(50vh,420px)] w-full object-cover"
-                />
-              ) : null}
-              {currentQuestion.question.mediaUrl && currentQuestion.question.mediaType === 'mp4' ? (
-                <video
-                  src={`${API_URL}${currentQuestion.question.mediaUrl}`}
-                  className="max-h-[min(50vh,420px)] w-full object-contain"
-                  controls={mp4Playing}
-                  autoPlay={mp4Playing}
-                  muted={false}
-                />
-              ) : null}
-              {!currentQuestion.question.mediaUrl || currentQuestion.question.mediaType === 'mp3' ? (
-                <div className="flex min-h-[200px] items-center justify-center bg-[linear-gradient(180deg,#1a2238_0%,#0f1420_100%)]">
-                  {currentQuestion.question.mediaType === 'mp3' ? (
-                    <p className="text-sm text-[#00d9ff]">Audio question — use Play/Pause MP3</p>
-                  ) : (
-                    <p className="text-sm text-white/40">No media for this question</p>
+              {miniGameLoading && !activeMiniGameLocal ? (
+                <div className="flex flex-1 flex-col items-center justify-center gap-4">
+                  <div className="text-5xl animate-pulse">
+                    {gameState?.activeMiniGame === 'horse_race' ? '🦘' : '🃏'}
+                  </div>
+                  <p className="text-lg font-semibold text-white/60">Launching mini-game on venue...</p>
+                  <div className="h-1.5 w-48 overflow-hidden rounded-full bg-white/10">
+                    <div className="h-full w-full animate-[shimmer_1.5s_ease-in-out_infinite] rounded-full bg-[linear-gradient(90deg,transparent_0%,#00d9ff_50%,transparent_100%)] bg-[length:200%_100%]" />
+                  </div>
+                </div>
+              ) : activeMiniGameLocal === 'card_shuffle' ? (
+                <div className="flex flex-1 flex-col items-center justify-center gap-6">
+                  <div className="text-6xl">🃏</div>
+                  <p className="text-xl font-bold text-white">Card Shuffle is running on the big screen</p>
+                  <p className="text-sm text-white/50">Players are choosing Left, Middle, or Right on their phones</p>
+                  <div className="mt-2 flex gap-4">
+                    {CARD_SHUFFLE_SLOTS.map((n, i) => (
+                      <div
+                        key={n}
+                        className={cn(
+                          'flex flex-col items-center gap-2 rounded-xl border-2 px-6 py-4 transition-all',
+                          winningCard === n
+                            ? 'border-green-500/60 bg-green-500/10'
+                            : 'border-white/10 bg-white/5',
+                        )}
+                      >
+                        <span className="text-3xl">🃏</span>
+                        <span className="text-sm font-bold text-white">{CARD_POSITION_LABELS[n]}</span>
+                        <span className="text-lg font-mono font-bold text-[#00d9ff]">{cardPickCounts[i] ?? 0}</span>
+                        <span className="text-[10px] uppercase tracking-wider text-white/40">picks</span>
+                      </div>
+                    ))}
+                  </div>
+                  {winningCard && (
+                    <p className="text-xs text-white/30 mt-2">
+                      Winning position: <span className="text-green-400 font-semibold">{CARD_POSITION_LABELS[winningCard]}</span>
+                    </p>
                   )}
                 </div>
+              ) : activeMiniGameLocal === 'horse_race' ? (
+                <div className="flex flex-1 flex-col items-center justify-center gap-6">
+                  <div className="text-6xl">🦘</div>
+                  <p className="text-xl font-bold text-white">Kangaroo Race is running on the big screen</p>
+                  <p className="text-sm text-white/50">Players are betting on their phones</p>
+                  <div className="mt-2 flex flex-wrap justify-center gap-3">
+                    {KANGAROO_SLOTS.map((n, i) => (
+                      <div
+                        key={n}
+                        className={cn(
+                          'flex flex-col items-center gap-1 rounded-xl border-2 px-4 py-3 transition-all',
+                          winningKangaroo === n
+                            ? 'border-green-500/60 bg-green-500/10'
+                            : 'border-white/10 bg-white/5',
+                        )}
+                      >
+                        <span className="text-2xl">🦘</span>
+                        <span className="text-xs font-bold text-white">#{n}</span>
+                        <span className="text-base font-mono font-bold text-[#00d9ff]">{kangarooBetCounts[i] ?? 0}</span>
+                        <span className="text-[10px] uppercase tracking-wider text-white/40">bets</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
               ) : null}
+            </div>
+          ) : currentQuestion ? (
+            <div className="flex min-h-0 flex-1 flex-col rounded-2xl border-2 border-[rgba(0,217,255,0.45)] bg-[linear-gradient(180deg,rgba(26,31,46,0.85)_0%,rgba(11,15,26,0.92)_100%)] p-4 shadow-[0_0_28px_rgba(0,217,255,0.12)] sm:p-6">
               <div
-                className="pointer-events-none absolute inset-x-0 bottom-4 flex flex-col items-center gap-1"
-                data-name="Timer Container"
-                data-node-id="232:4523"
+                className="mb-4 flex shrink-0 items-center justify-between"
+                data-node-id="232:4519"
               >
-                <HostTimerRing remaining={timerRemaining} total={timerDuration} size={120} className="drop-shadow-lg" />
-                {timerPaused ? <p className="text-xs font-bold text-amber-400">PAUSED</p> : null}
+                <h2 className="text-2xl font-semibold text-white sm:text-[30px]">
+                  Question {(currentQuestion.questionIndex || 0) + 1}/
+                  {currentQuestion.totalQuestions}
+                </h2>
+                {currentQuestion.pointsForQuestion ? (
+                  <span className="text-sm font-bold text-[#00d9ff]">
+                    {currentQuestion.pointsForQuestion} pts
+                  </span>
+                ) : null}
               </div>
-            </div>
 
-            <div className="mb-4 px-1 text-center" data-node-id="232:4530">
-              <p className="text-lg font-semibold text-white sm:text-[25px]">
-                Q{(currentQuestion.questionIndex || 0) + 1}. {currentQuestion.question.text}
-              </p>
-            </div>
-
-            <div className="grid shrink-0 grid-cols-2 gap-3" data-name="Choices Container" data-node-id="232:4531">
-              {currentQuestion.question.options.map((opt, i) => {
-                const isCorrect = revealData && i === revealData.correctOptionIndex;
-                const isWrong = revealData && i !== revealData.correctOptionIndex;
-                return (
-                  <div
-                    key={i}
-                    className={cn(
-                      'rounded-xl border-2 px-4 py-3.5 text-base font-bold text-white transition-all sm:text-[22px]',
-                      isCorrect
-                        ? 'border-[#00ff88] bg-[linear-gradient(180deg,#00c853_0%,#0d4d26_100%)] shadow-[0_0_20px_rgba(0,255,106,0.35)]'
-                        : isWrong
-                          ? 'border-white/10 bg-[#151b2e]/90 opacity-40'
-                          : 'border-[rgba(0,217,255,0.35)] bg-[#151b2e]',
+              <div
+                className="relative mx-auto mb-4 w-full max-w-4xl overflow-hidden rounded-[24px] border border-[rgba(0,217,255,0.35)] bg-black/50 sm:rounded-[30px]"
+                data-name="Main Image"
+                data-node-id="232:4521"
+              >
+                {currentQuestion.question.mediaUrl &&
+                currentQuestion.question.mediaType === 'image' ? (
+                  <img
+                    src={`${API_URL}${currentQuestion.question.mediaUrl}`}
+                    alt=""
+                    className="max-h-[min(50vh,420px)] w-full object-cover"
+                  />
+                ) : null}
+                {currentQuestion.question.mediaUrl &&
+                currentQuestion.question.mediaType === 'mp4' ? (
+                  <video
+                    src={`${API_URL}${currentQuestion.question.mediaUrl}`}
+                    className="max-h-[min(50vh,420px)] w-full object-contain"
+                    controls={mp4Playing}
+                    autoPlay={mp4Playing}
+                    muted={false}
+                  />
+                ) : null}
+                {!currentQuestion.question.mediaUrl ||
+                currentQuestion.question.mediaType === 'mp3' ? (
+                  <div className="flex min-h-[200px] items-center justify-center bg-[linear-gradient(180deg,#1a2238_0%,#0f1420_100%)]">
+                    {currentQuestion.question.mediaType === 'mp3' ? (
+                      <p className="text-sm text-[#00d9ff]">Audio question — use Play/Pause MP3</p>
+                    ) : (
+                      <p className="text-sm text-white/40">No media for this question</p>
                     )}
-                  >
-                    <span className="mr-2 font-mono opacity-90">{OPTION_LETTERS[i]}.</span>
-                    {opt.text}
-                    {isCorrect ? <span className="ml-2">✓</span> : null}
                   </div>
-                );
-              })}
-            </div>
-
-            {revealData?.allWrong && (
-              <div className="mt-3 bg-neon-gold/10 border border-neon-gold/30 text-neon-gold rounded-lg px-4 py-2 text-sm text-center shrink-0">
-                All teams answered incorrectly — no eliminations
-              </div>
-            )}
-          </div>
-        ) : (
-          <div className="flex flex-1 items-center justify-center rounded-2xl border border-[rgba(0,217,255,0.25)] bg-[#151b2e]/40 p-8">
-            <div className="text-center">
-              <p className="mb-2 text-2xl font-bold text-white/30">
-                {state === 'LOBBY'
-                  ? 'Waiting for teams to join...'
-                  : state === 'ROUND_INTRO'
-                    ? `Round ${(gameState?.currentRoundIndex || 0) + 1}: ${currentRound?.name || ''}`
-                    : state === 'SCOREBOARD'
-                      ? 'Showing Scoreboard'
-                      : state === 'BREAK'
-                        ? 'Break Time'
-                        : state === 'FINAL_RESULTS'
-                          ? 'Game Over'
-                          : 'Waiting...'}
-              </p>
-              {state === 'LOBBY' ? (
-                <p className="text-sm text-white/40">
-                  {teamList.length} team{teamList.length !== 1 ? 's' : ''} in lobby
-                </p>
-              ) : null}
-            </div>
-          </div>
-        )}
-        </main>
-
-      <aside
-        data-name="Right Panel"
-        className="w-full shrink-0 border-white/10 bg-[linear-gradient(180deg,rgba(20,26,42,0.6)_0%,#0b0f1a_100%)] px-4 py-6 lg:w-[min(100%,395px)] lg:border-l"
-      >
-        <div className="space-y-10">
-          <section data-name="Main Right Panel" data-node-id="232:4580">
-            <HostPanelTitle data-node-id="232:4581">Game Controls</HostPanelTitle>
-            <div className="grid grid-cols-2 gap-3" data-name="Control Panel" data-node-id="232:4582">
-              <HostSidebarTile
-                data-node-id="232:4583"
-                label="Kangaroo Race"
-                active={showKangarooRaceModal}
-                icon={<span className="text-4xl leading-none">🦘</span>}
-                onClick={() => setShowKangarooRaceModal(true)}
-              />
-              <HostSidebarTile
-                data-node-id="232:4588"
-                label="Card Shuffle"
-                active={showCardShuffleModal}
-                icon={
-                  <svg viewBox="0 0 24 24" fill="currentColor">
-                    <path d="M4 4h16v4H4V4zm0 6h10v10H4V10zm12 0h4v4h-4v-4zm0 6h4v4h-4v-4z" />
-                  </svg>
-                }
-                onClick={() => setShowCardShuffleModal(true)}
-              />
-            </div>
-          </section>
-
-          <section data-name="Live Responses Panel" data-node-id="232:4549">
-            <HostPanelTitle data-node-id="232:4556">Live Responses</HostPanelTitle>
-            <div
-              className="rounded-xl border border-[rgba(0,217,255,0.25)] bg-[#151b2e]/80 px-4 py-4"
-              data-name="Response Progress Container"
-            >
-              <p className="mb-3 text-lg text-white" data-node-id="232:4555">
-                <span className="font-bold text-[#00d9ff]">{gameState?.responseCount ?? 0}</span>{' '}
-                <span className="font-medium">of {gameState?.totalTeams ?? 0} Teams responded</span>
-              </p>
-              <div className="relative h-2 overflow-hidden rounded-full bg-white/90" data-name="Response Progress Bar">
+                ) : null}
                 <div
-                  className="absolute left-0 top-0 h-full rounded-full bg-[linear-gradient(90deg,#00d9ff,#008cff)] transition-all duration-300"
-                  style={{ width: `${responsePct}%` }}
-                  data-name="Response Bar"
-                />
+                  className="pointer-events-none absolute inset-x-0 bottom-4 flex flex-col items-center gap-1"
+                  data-name="Timer Container"
+                  data-node-id="232:4523"
+                >
+                  <HostTimerRing
+                    remaining={timerRemaining}
+                    total={timerDuration}
+                    size={120}
+                    className="drop-shadow-lg"
+                  />
+                  {timerPaused ? <p className="text-xs font-bold text-amber-400">PAUSED</p> : null}
+                </div>
               </div>
-            </div>
-          </section>
 
-          <section data-name="Leaderboard Panel" data-node-id="232:4557">
-            <h2 className="mb-4 text-xl font-bold text-white sm:text-[25px]" data-node-id="232:4579">
-              Leaderboard
-            </h2>
-            <div className="overflow-hidden rounded-lg border border-white/20" data-name="Leaderboard Container">
-              {sortedTeams.length === 0 ? (
-                <p className="px-4 py-6 text-center text-sm text-white/40">No teams yet</p>
-              ) : (
-                sortedTeams.slice(0, 5).map((team, idx) => (
-                  <div
-                    key={team.teamId}
-                    className="flex items-center gap-3 border-b border-white/20 bg-[#1a1f2e] px-4 py-3 last:border-b-0"
-                    data-name="Rank Background"
-                  >
-                    <div className="flex size-[34px] shrink-0 items-center justify-center rounded bg-[#0b0f1a] text-lg font-semibold text-white">
-                      {idx + 1}
+              <div className="mb-4 px-1 text-center" data-node-id="232:4530">
+                <p className="text-lg font-semibold text-white sm:text-[25px]">
+                  Q{(currentQuestion.questionIndex || 0) + 1}. {currentQuestion.question.text}
+                </p>
+              </div>
+
+              <div
+                className="grid shrink-0 grid-cols-2 gap-3"
+                data-name="Choices Container"
+                data-node-id="232:4531"
+              >
+                {currentQuestion.question.options.map((opt, i) => {
+                  const isCorrect = revealData && i === revealData.correctOptionIndex;
+                  const isWrong = revealData && i !== revealData.correctOptionIndex;
+                  return (
+                    <div
+                      key={i}
+                      className={cn(
+                        'rounded-xl border-2 px-4 py-3.5 text-base font-bold text-white transition-all sm:text-[22px]',
+                        isCorrect
+                          ? 'border-[#00ff88] bg-[linear-gradient(180deg,#00c853_0%,#0d4d26_100%)] shadow-[0_0_20px_rgba(0,255,106,0.35)]'
+                          : isWrong
+                            ? 'border-white/10 bg-[#151b2e]/90 opacity-40'
+                            : 'border-[rgba(0,217,255,0.35)] bg-[#151b2e]',
+                      )}
+                    >
+                      <span className="mr-2 font-mono opacity-90">{OPTION_LETTERS[i]}.</span>
+                      {opt.text}
+                      {isCorrect ? <span className="ml-2">✓</span> : null}
                     </div>
-                    <div className="min-w-0 flex-1 text-base text-white">
-                      <span className="font-medium">{team.teamName}</span>
-                      <span className="font-bold"> : {team.score} Points</span>
-                    </div>
-                  </div>
-                ))
+                  );
+                })}
+              </div>
+
+              {revealData?.allWrong && (
+                <div className="mt-3 bg-neon-gold/10 border border-neon-gold/30 text-neon-gold rounded-lg px-4 py-2 text-sm text-center shrink-0">
+                  All teams answered incorrectly — no eliminations
+                </div>
               )}
             </div>
-          </section>
-        </div>
-      </aside>
+          ) : (
+            <div className="flex flex-1 items-center justify-center rounded-2xl border border-[rgba(0,217,255,0.25)] bg-[#151b2e]/40 p-8">
+              <div className="text-center">
+                <p className="mb-2 text-2xl font-bold text-white/30">
+                  {state === 'LOBBY'
+                    ? 'Waiting for teams to join...'
+                    : state === 'ROUND_INTRO'
+                      ? `Round ${(gameState?.currentRoundIndex || 0) + 1}: ${currentRound?.name || ''}`
+                      : state === 'SCOREBOARD'
+                        ? 'Showing Scoreboard'
+                        : state === 'BREAK'
+                          ? 'Break Time'
+                          : state === 'FINAL_RESULTS'
+                            ? 'Game Over'
+                            : 'Waiting...'}
+                </p>
+                {state === 'LOBBY' ? (
+                  <p className="text-sm text-white/40">
+                    {teamList.length} team{teamList.length !== 1 ? 's' : ''} in lobby
+                  </p>
+                ) : null}
+              </div>
+            </div>
+          )}
+        </main>
+
+        <aside
+          data-name="Right Panel"
+          className="w-full shrink-0 border-white/10 bg-[linear-gradient(180deg,rgba(20,26,42,0.6)_0%,#0b0f1a_100%)] px-4 py-6 lg:w-[min(100%,395px)] lg:border-l"
+        >
+          <div className="space-y-10">
+            <section data-name="Main Right Panel" data-node-id="232:4580">
+              <HostPanelTitle data-node-id="232:4581">Game Controls</HostPanelTitle>
+              <div
+                className="grid grid-cols-2 gap-3"
+                data-name="Control Panel"
+                data-node-id="232:4582"
+              >
+                <HostSidebarTile
+                  data-node-id="232:4583"
+                  label="Kangaroo Race"
+                  active={showKangarooRaceModal}
+                  icon={<span className="text-4xl leading-none">🦘</span>}
+                  onClick={() => setShowKangarooRaceModal(true)}
+                />
+                <HostSidebarTile
+                  data-node-id="232:4588"
+                  label="Card Shuffle"
+                  active={showCardShuffleModal}
+                  icon={
+                    <svg viewBox="0 0 24 24" fill="currentColor">
+                      <path d="M4 4h16v4H4V4zm0 6h10v10H4V10zm12 0h4v4h-4v-4zm0 6h4v4h-4v-4z" />
+                    </svg>
+                  }
+                  onClick={() => setShowCardShuffleModal(true)}
+                />
+              </div>
+            </section>
+
+            <section data-name="Live Responses Panel" data-node-id="232:4549">
+              <HostPanelTitle data-node-id="232:4556">Live Responses</HostPanelTitle>
+              <div
+                className="rounded-xl border border-[rgba(0,217,255,0.25)] bg-[#151b2e]/80 px-4 py-4"
+                data-name="Response Progress Container"
+              >
+                <p className="mb-3 text-lg text-white" data-node-id="232:4555">
+                  <span className="font-bold text-[#00d9ff]">{gameState?.responseCount ?? 0}</span>{' '}
+                  <span className="font-medium">
+                    of {gameState?.totalTeams ?? 0} Teams responded
+                  </span>
+                </p>
+                <div
+                  className="relative h-2 overflow-hidden rounded-full bg-white/90"
+                  data-name="Response Progress Bar"
+                >
+                  <div
+                    className="absolute left-0 top-0 h-full rounded-full bg-[linear-gradient(90deg,#00d9ff,#008cff)] transition-all duration-300"
+                    style={{ width: `${responsePct}%` }}
+                    data-name="Response Bar"
+                  />
+                </div>
+              </div>
+            </section>
+
+            <section data-name="Leaderboard Panel" data-node-id="232:4557">
+              <h2
+                className="mb-4 text-xl font-bold text-white sm:text-[25px]"
+                data-node-id="232:4579"
+              >
+                Leaderboard
+              </h2>
+              <div
+                className="overflow-hidden rounded-lg border border-white/20"
+                data-name="Leaderboard Container"
+              >
+                {sortedTeams.length === 0 ? (
+                  <p className="px-4 py-6 text-center text-sm text-white/40">No teams yet</p>
+                ) : (
+                  sortedTeams.slice(0, 5).map((team, idx) => (
+                    <div
+                      key={team.teamId}
+                      className="flex items-center gap-3 border-b border-white/20 bg-[#1a1f2e] px-4 py-3 last:border-b-0"
+                      data-name="Rank Background"
+                    >
+                      <div className="flex size-[34px] shrink-0 items-center justify-center rounded bg-[#0b0f1a] text-lg font-semibold text-white">
+                        {idx + 1}
+                      </div>
+                      <div className="min-w-0 flex-1 text-base text-white">
+                        <span className="font-medium">{team.teamName}</span>
+                        <span className="font-bold"> : {team.score} Points</span>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </section>
+          </div>
+        </aside>
       </div>
 
       <footer
@@ -1010,10 +1265,7 @@ function HostDashboardContent() {
               </svg>
             }
             disabled={
-              !(
-                state === 'QUESTION' &&
-                (questionState === 'WAITING' || questionState === 'ACTIVE')
-              )
+              !(state === 'QUESTION' && (questionState === 'WAITING' || questionState === 'ACTIVE'))
             }
             onClick={() => {
               setShowTimerModal(true);
@@ -1024,7 +1276,9 @@ function HostDashboardContent() {
               handleStartTimer();
             }}
           >
-            {state === 'QUESTION' && questionState === 'ACTIVE' && !timerPaused ? 'Pause Timer' : 'Start Timer'}
+            {state === 'QUESTION' && questionState === 'ACTIVE' && !timerPaused
+              ? 'Pause Timer'
+              : 'Start Timer'}
           </HostFooterBtn>
           <HostFooterBtn
             icon={
@@ -1100,7 +1354,15 @@ function HostDashboardContent() {
               className="absolute right-4 top-4 z-10 flex size-7 items-center justify-center rounded-md text-red-500 transition-colors hover:bg-red-500/10 hover:text-red-400"
               aria-label="Close"
             >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+              <svg
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.5"
+                strokeLinecap="round"
+              >
                 <path d="M18 6L6 18M6 6l12 12" />
               </svg>
             </button>
@@ -1115,10 +1377,7 @@ function HostDashboardContent() {
               </h2>
             </div>
 
-            <div
-              className="min-h-0 flex-1 overflow-y-auto px-6 pb-6"
-              data-node-id="232:2093"
-            >
+            <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-6" data-node-id="232:2093">
               {sortedTeams.length === 0 ? (
                 <p className="py-10 text-center text-base text-white/40">No teams registered</p>
               ) : (
@@ -1164,7 +1423,13 @@ function HostDashboardContent() {
                           className="flex size-[30px] items-center justify-center rounded border border-[#00d9ff]/50 bg-[#00d9ff]/10 text-[#00d9ff] transition-colors hover:bg-[#00d9ff]/20"
                           aria-label={`Edit score for ${team.teamName}`}
                         >
-                          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+                          <svg
+                            width="16"
+                            height="16"
+                            viewBox="0 0 24 24"
+                            fill="currentColor"
+                            aria-hidden
+                          >
                             <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1.003 1.003 0 0 0 0-1.42l-2.34-2.34a1.003 1.003 0 0 0-1.42 0l-1.83 1.83 3.75 3.75 1.84-1.82z" />
                           </svg>
                         </button>
@@ -1176,7 +1441,13 @@ function HostDashboardContent() {
                           className="flex size-[30px] items-center justify-center rounded border border-red-500/40 bg-red-500/10 text-red-500 transition-colors hover:bg-red-500/20"
                           aria-label={`Remove ${team.teamName}`}
                         >
-                          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+                          <svg
+                            width="16"
+                            height="16"
+                            viewBox="0 0 24 24"
+                            fill="currentColor"
+                            aria-hidden
+                          >
                             <path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z" />
                           </svg>
                         </button>
@@ -1214,7 +1485,15 @@ function HostDashboardContent() {
               className="absolute right-4 top-4 z-10 flex size-7 items-center justify-center rounded-md text-red-500 transition-colors hover:bg-red-500/10 hover:text-red-400"
               aria-label="Close"
             >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+              <svg
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.5"
+                strokeLinecap="round"
+              >
                 <path d="M18 6L6 18M6 6l12 12" />
               </svg>
             </button>
@@ -1236,11 +1515,10 @@ function HostDashboardContent() {
               >
                 {currentRound ? (
                   <>
-                    <p
-                      className="mb-4 text-center text-xl text-white"
-                      data-node-id="232:2651"
-                    >
-                      <span className="font-medium">Round {(gameState?.currentRoundIndex ?? 0) + 1} -</span>
+                    <p className="mb-4 text-center text-xl text-white" data-node-id="232:2651">
+                      <span className="font-medium">
+                        Round {(gameState?.currentRoundIndex ?? 0) + 1} -
+                      </span>
                       <span className="font-semibold text-[#00d9ff]">
                         {' '}
                         {formatRoundTypeLabel(currentRound.type)}
@@ -1252,9 +1530,9 @@ function HostDashboardContent() {
                     >
                       {currentRound.name}. This is what players see on the venue screen during round
                       intro—title, type badge, and progress. Use{' '}
-                      <span className="text-[#00d9ff]/90">Round Intro</span> to push the live display, or{' '}
-                      <span className="text-[#00d9ff]/90">Start Round</span> when you are ready to begin
-                      questions.
+                      <span className="text-[#00d9ff]/90">Round Intro</span> to push the live
+                      display, or <span className="text-[#00d9ff]/90">Start Round</span> when you
+                      are ready to begin questions.
                     </p>
                   </>
                 ) : (
@@ -1292,7 +1570,15 @@ function HostDashboardContent() {
               className="absolute right-4 top-4 z-10 flex size-7 items-center justify-center rounded-md text-red-500 transition-colors hover:bg-red-500/10 hover:text-red-400"
               aria-label="Close"
             >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+              <svg
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.5"
+                strokeLinecap="round"
+              >
                 <path d="M18 6L6 18M6 6l12 12" />
               </svg>
             </button>
@@ -1314,10 +1600,7 @@ function HostDashboardContent() {
               <p className="mb-3 text-xl font-semibold text-white" data-node-id="232:3146">
                 Select Winning Kangaroo
               </p>
-              <div
-                className="mb-8 grid grid-cols-3 gap-3 sm:gap-4"
-                data-node-id="232:3147"
-              >
+              <div className="mb-8 grid grid-cols-3 gap-3 sm:gap-4" data-node-id="232:3147">
                 {KANGAROO_SLOTS.map((n) => {
                   const selected = winningKangaroo === n;
                   return (
@@ -1360,7 +1643,15 @@ function HostDashboardContent() {
                         'flex h-[57px] items-center gap-4 border-b border-white/10 px-4 last:border-b-0',
                         isWinRow ? 'bg-[#0d2818]' : 'bg-[#151b2e]',
                       )}
-                      data-node-id={n === 1 ? '232:3108' : n === 2 ? '232:3116' : n === 3 ? '232:3123' : undefined}
+                      data-node-id={
+                        n === 1
+                          ? '232:3108'
+                          : n === 2
+                            ? '232:3116'
+                            : n === 3
+                              ? '232:3123'
+                              : undefined
+                      }
                     >
                       <span className="text-xl font-medium text-white">Kangaroo</span>
                       <div
@@ -1380,7 +1671,10 @@ function HostDashboardContent() {
                 })}
               </div>
 
-              <div className="flex flex-wrap justify-center gap-4 sm:justify-start" data-node-id="232:3097">
+              <div
+                className="flex flex-wrap justify-center gap-4 sm:justify-start"
+                data-node-id="232:3097"
+              >
                 <button
                   type="button"
                   data-node-id="232:3099"
@@ -1427,7 +1721,15 @@ function HostDashboardContent() {
               className="absolute right-4 top-4 z-10 flex size-7 items-center justify-center rounded-md text-red-500 transition-colors hover:bg-red-500/10 hover:text-red-400"
               aria-label="Close"
             >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+              <svg
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.5"
+                strokeLinecap="round"
+              >
                 <path d="M18 6L6 18M6 6l12 12" />
               </svg>
             </button>
@@ -1440,7 +1742,11 @@ function HostDashboardContent() {
               >
                 Card Shuffle
               </h2>
-              <span className="flex size-8 shrink-0 items-center justify-center text-[#00d9ff]" data-node-id="232:3463" aria-hidden>
+              <span
+                className="flex size-8 shrink-0 items-center justify-center text-[#00d9ff]"
+                data-node-id="232:3463"
+                aria-hidden
+              >
                 <svg viewBox="0 0 24 24" className="size-7" fill="currentColor">
                   <path d="M4 4h16v4H4V4zm0 6h10v10H4V10zm12 0h4v4h-4v-4zm0 6h4v4h-4v-4z" />
                 </svg>
@@ -1473,8 +1779,11 @@ function HostDashboardContent() {
                         isWinRow ? 'bg-[#0d2818]' : 'bg-[#151b2e] hover:bg-[#1a2235]',
                       )}
                     >
-                      <span className="text-xl font-medium text-white" data-node-id={n === 1 ? '232:3430' : undefined}>
-                        Card
+                      <span
+                        className="text-xl font-medium text-white"
+                        data-node-id={n === 1 ? '232:3430' : undefined}
+                      >
+                        {CARD_POSITION_LABELS[n] ?? `Card`}
                       </span>
                       <div
                         className={cn(
@@ -1484,7 +1793,15 @@ function HostDashboardContent() {
                             : 'bg-[#2e354c]',
                         )}
                         data-name="Container"
-                        data-node-id={n === 1 ? '232:3428' : n === 2 ? '232:3435' : n === 3 ? '232:3442' : undefined}
+                        data-node-id={
+                          n === 1
+                            ? '232:3428'
+                            : n === 2
+                              ? '232:3435'
+                              : n === 3
+                                ? '232:3442'
+                                : undefined
+                        }
                       >
                         {n}
                       </div>
@@ -1494,7 +1811,10 @@ function HostDashboardContent() {
                 })}
               </div>
 
-              <div className="flex flex-wrap justify-center gap-4 sm:justify-start" data-node-id="232:3415">
+              <div
+                className="flex flex-wrap justify-center gap-4 sm:justify-start"
+                data-node-id="232:3415"
+              >
                 <button
                   type="button"
                   data-node-id="232:3417"
@@ -1541,7 +1861,15 @@ function HostDashboardContent() {
               className="absolute right-4 top-4 z-10 flex size-7 items-center justify-center rounded-md text-red-500 transition-colors hover:bg-red-500/10 hover:text-red-400"
               aria-label="Close"
             >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+              <svg
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.5"
+                strokeLinecap="round"
+              >
                 <path d="M18 6L6 18M6 6l12 12" />
               </svg>
             </button>
@@ -1558,7 +1886,9 @@ function HostDashboardContent() {
 
             <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-6" data-node-id="232:2872">
               {sortedTeams.length === 0 ? (
-                <p className="py-10 text-center text-base text-white/40">No teams on the scoreboard yet</p>
+                <p className="py-10 text-center text-base text-white/40">
+                  No teams on the scoreboard yet
+                </p>
               ) : (
                 <ul className="flex flex-col gap-0 overflow-hidden rounded-lg border border-white/10">
                   {sortedTeams.slice(0, 5).map((team, idx) => (
@@ -1607,7 +1937,10 @@ function HostDashboardContent() {
             data-node-id="232:3779"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="flex items-center gap-3 border-b border-white/10 px-5 py-4" data-node-id="232:3760">
+            <div
+              className="flex items-center gap-3 border-b border-white/10 px-5 py-4"
+              data-node-id="232:3760"
+            >
               <button
                 type="button"
                 data-name="icon-park-solid:back"
@@ -1616,7 +1949,17 @@ function HostDashboardContent() {
                 className="flex size-8 shrink-0 items-center justify-center rounded-md text-red-500 transition-colors hover:bg-red-500/10 hover:text-red-400"
                 aria-label="Close"
               >
-                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                <svg
+                  width="22"
+                  height="22"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden
+                >
                   <path d="M15 18l-6-6 6-6" />
                 </svg>
               </button>
@@ -1629,10 +1972,7 @@ function HostDashboardContent() {
               </h2>
             </div>
 
-            <div
-              className="flex flex-col items-center px-6 py-10"
-              data-node-id="232:3780"
-            >
+            <div className="flex flex-col items-center px-6 py-10" data-node-id="232:3780">
               <div
                 className="relative mx-auto flex w-full max-w-[350px] flex-col items-center justify-center"
                 data-node-id="232:3785"
@@ -1660,7 +2000,9 @@ function HostDashboardContent() {
                       {formatSecondsMmSs(timerRemaining)}
                     </p>
                     {timerPaused ? (
-                      <span className="text-xs font-bold uppercase tracking-widest text-amber-400 sm:text-sm">Paused</span>
+                      <span className="text-xs font-bold uppercase tracking-widest text-amber-400 sm:text-sm">
+                        Paused
+                      </span>
                     ) : null}
                     <p
                       className="text-center text-lg font-medium uppercase tracking-[1px] text-white sm:text-xl"
@@ -1700,7 +2042,15 @@ function HostDashboardContent() {
               className="absolute right-4 top-4 flex size-7 items-center justify-center rounded-md text-red-500 transition-colors hover:bg-red-500/10 hover:text-red-400"
               aria-label="Close"
             >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+              <svg
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.5"
+                strokeLinecap="round"
+              >
                 <path d="M18 6L6 18M6 6l12 12" />
               </svg>
             </button>
@@ -1754,7 +2104,10 @@ function HostDashboardContent() {
               </div>
             </div>
 
-            <div className="mt-8 flex flex-wrap justify-center gap-4 sm:justify-start" data-node-id="232:1854">
+            <div
+              className="mt-8 flex flex-wrap justify-center gap-4 sm:justify-start"
+              data-node-id="232:1854"
+            >
               <button
                 type="button"
                 data-node-id="232:1856"
@@ -1787,7 +2140,9 @@ function HostDashboardContent() {
             onChange={(e) => setEditScoreValue(e.target.value)}
             className="mb-3 w-full rounded-lg border border-border bg-surface-light px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-neon-cyan/50"
             autoFocus
-            onKeyDown={(e) => e.key === 'Enter' && editScoreTeamId !== null && handleEditScore(editScoreTeamId)}
+            onKeyDown={(e) =>
+              e.key === 'Enter' && editScoreTeamId !== null && handleEditScore(editScoreTeamId)
+            }
           />
           <div className="flex gap-2">
             <button
@@ -1807,15 +2162,28 @@ function HostDashboardContent() {
           </div>
         </ModalOverlay>
       )}
-
     </div>
   );
 }
 
-function ModalOverlay({ children, onClose, title }: { children: React.ReactNode; onClose: () => void; title: string }) {
+function ModalOverlay({
+  children,
+  onClose,
+  title,
+}: {
+  children: React.ReactNode;
+  onClose: () => void;
+  title: string;
+}) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70" onClick={onClose}>
-      <div className="neon-border bg-surface rounded-2xl p-5 w-80 max-w-[90vw]" onClick={(e) => e.stopPropagation()}>
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70"
+      onClick={onClose}
+    >
+      <div
+        className="neon-border bg-surface rounded-2xl p-5 w-80 max-w-[90vw]"
+        onClick={(e) => e.stopPropagation()}
+      >
         <h3 className="text-lg font-bold mb-3 text-neon-cyan">{title}</h3>
         {children}
       </div>

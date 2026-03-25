@@ -21,6 +21,7 @@ const SOCKET_EVENTS = Object.freeze({
   START_BREAK: 'start_break',
   END_BREAK: 'end_break',
   LAUNCH_MINI_GAME: 'launch_mini_game',
+  END_MINI_GAME: 'end_mini_game',
   ADD_TEAM: 'add_team',
   REMOVE_TEAM: 'remove_team',
   EDIT_TEAM_SCORE: 'edit_team_score',

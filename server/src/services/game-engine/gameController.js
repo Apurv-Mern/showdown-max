@@ -384,23 +384,73 @@ const endBreak = async (io, pin) => {
 };
 
 /**
- * Launch a mini-game during break
+ * Launch a mini-game (anytime — not restricted to break).
+ * Sets activeMiniGame without changing the main game state.
  */
 const launchMiniGame = async (io, pin, gameType, config = {}) => {
   let gameState = await redisStore.getGameState(pin);
-  if (!gameState) return;
-
-  if (gameState.state === GAME_STATES.BREAK) {
-    const result = stateMachine.transition(gameState, GAME_STATES.MINI_GAME);
-    if (!result.valid) return;
-    result.gameState.activeMiniGame = gameType;
-    await redisStore.setGameState(pin, result.gameState);
-  } else {
-    gameState.activeMiniGame = gameType;
-    await redisStore.setGameState(pin, gameState);
+  
+  // If launching from LOBBY, gameState might not exist yet
+  if (!gameState) {
+    const lobbyTeams = await redisStore.getLobbyTeams(pin);
+    const teamsObj = {};
+    for (const t of lobbyTeams) {
+      teamsObj[t.teamId] = t;
+    }
+    
+    // Attempt to fetch qrCodeData from session
+    let qrCodeData = null;
+    try {
+      const sessionUrl = await Session.findOne({ where: { pin } });
+      if (sessionUrl) qrCodeData = sessionUrl.qrCodeData;
+    } catch (err) {
+      logger.error('Failed to query session for qrCodeData', { error: err.message });
+    }
+    
+    gameState = {
+      state: GAME_STATES.LOBBY,
+      questionState: null,
+      currentRoundIndex: -1,
+      currentQuestionIndex: -1,
+      timerRemaining: 0,
+      timerRunning: false,
+      responseCount: 0,
+      totalTeams: lobbyTeams.length,
+      rounds: [],
+      teams: teamsObj,
+      activeTeamIds: lobbyTeams.map((t) => t.teamId),
+      qrCodeData,
+    };
   }
 
+  gameState.activeMiniGame = gameType;
+  gameState.miniGameConfig = config;
+  await redisStore.setGameState(pin, gameState);
+
+  io.to(`session:${pin}`).emit(SOCKET_EVENTS.SESSION_STATE, sanitizeForClients(gameState));
   io.to(`session:${pin}`).emit(SOCKET_EVENTS.MINI_GAME_START, { game: gameType, ...config });
+};
+
+/**
+ * Clear mini-game after Unity reports completion or host manually ends it.
+ * Sends the winning config so venue/players can show the result screen.
+ */
+const endMiniGame = async (io, pin) => {
+  const gameState = await redisStore.getGameState(pin);
+  if (!gameState) return;
+
+  const game = gameState.activeMiniGame;
+  const config = gameState.miniGameConfig || {};
+
+  gameState.activeMiniGame = null;
+  gameState.miniGameConfig = null;
+  await redisStore.setGameState(pin, gameState);
+
+  io.to(`session:${pin}`).emit(SOCKET_EVENTS.MINI_GAME_END, { game, ...config });
+
+  setTimeout(() => {
+    io.to(`session:${pin}`).emit(SOCKET_EVENTS.SESSION_STATE, sanitizeForClients(gameState));
+  }, 5000);
 };
 
 /**
@@ -524,6 +574,7 @@ module.exports = {
   startBreak,
   endBreak,
   launchMiniGame,
+  endMiniGame,
   pauseTimer,
   startTimer,
   endGame,

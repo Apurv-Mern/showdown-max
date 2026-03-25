@@ -17,11 +17,12 @@ const GAME_CONFIGS: Record<string, { loaderUrl: string; dataUrl: string; framewo
     frameworkUrl: '/games/horse-race/Build/horse-race.framework.js',
     codeUrl: '/games/horse-race/Build/horse-race.wasm',
   },
+  /** WebGL build from repo `CardGame/` → copied to `client/public/CardGame/Build/` */
   card_shuffle: {
-    loaderUrl: '/games/card-shuffle/Build/card-shuffle.loader.js',
-    dataUrl: '/games/card-shuffle/Build/card-shuffle.data',
-    frameworkUrl: '/games/card-shuffle/Build/card-shuffle.framework.js',
-    codeUrl: '/games/card-shuffle/Build/card-shuffle.wasm',
+    loaderUrl: '/CardGame/Build/CardGame.loader.js',
+    dataUrl: '/CardGame/Build/CardGame.data.br',
+    frameworkUrl: '/CardGame/Build/CardGame.framework.js.br',
+    codeUrl: '/CardGame/Build/CardGame.wasm.br',
   },
 };
 
@@ -173,7 +174,7 @@ function FallbackView({ gameType }: { gameType: string }) {
         Unity WebGL build not found. Place your build files at:
       </p>
       <code className="text-xs font-mono bg-surface-light px-4 py-2 rounded-lg text-primary">
-        /public/games/{gameType === 'horse_race' ? 'horse-race' : 'card-shuffle'}/Build/
+        {gameType === 'horse_race' ? '/public/games/horse-race/Build/' : '/public/CardGame/Build/'}
       </code>
       <div className="mt-4 bg-primary/10 border border-primary/20 rounded-xl px-6 py-3">
         <p className="text-sm text-foreground/50">

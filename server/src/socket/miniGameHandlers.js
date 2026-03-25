@@ -1,5 +1,6 @@
 const { SOCKET_EVENTS } = require('shared/constants/socketEvents');
 const logger = require('../utils/logger');
+const gameController = require('../services/game-engine/gameController');
 
 /**
  * Registers mini-game socket event handlers.
@@ -21,11 +22,11 @@ const miniGameHandlers = (io, socket) => {
       const room = `session:${pin}`;
 
       if (data.source === 'unity' && data.action === 'game_complete') {
-        io.to(room).emit(SOCKET_EVENTS.MINI_GAME_END, {
-          result: data.value,
-          game: socket.data?.miniGameType || null,
+        gameController.endMiniGame(io, pin).then(() => {
+          logger.info('Mini-game completed via Unity', { pin });
+        }).catch((err) => {
+          logger.error('endMiniGame error on game_complete', { error: err.message });
         });
-        logger.info('Mini-game completed via Unity', { pin });
         return;
       }
 

@@ -19,6 +19,7 @@ type VenuePhase =
   | 'scoreboard'
   | 'break'
   | 'mini_game'
+  | 'mini_game_result'
   | 'game_end';
 
 interface Team {
@@ -61,7 +62,15 @@ const OPTION_BG: Record<number, string> = {
 
 const OPTION_LETTERS = ['A', 'B', 'C', 'D', 'E', 'F'];
 
-function TimerRing({ remaining, total, size = 140 }: { remaining: number; total: number; size?: number }) {
+function TimerRing({
+  remaining,
+  total,
+  size = 140,
+}: {
+  remaining: number;
+  total: number;
+  size?: number;
+}) {
   const radius = (size - 16) / 2;
   const circumference = 2 * Math.PI * radius;
   const progress = total > 0 ? remaining / total : 0;
@@ -119,7 +128,11 @@ function VenueDisplayContent() {
   const [phase, setPhase] = useState<VenuePhase>('welcome');
   const [qrCodeData, setQrCodeData] = useState<string>('');
   const [teams, setTeams] = useState<Team[]>([]);
-  const [roundInfo, setRoundInfo] = useState<{ round: any; roundIndex: number; totalRounds: number } | null>(null);
+  const [roundInfo, setRoundInfo] = useState<{
+    round: any;
+    roundIndex: number;
+    totalRounds: number;
+  } | null>(null);
   const [question, setQuestion] = useState<QuestionData | null>(null);
   const [timerRemaining, setTimerRemaining] = useState(0);
   const [timerDuration, setTimerDuration] = useState(30);
@@ -129,11 +142,16 @@ function VenueDisplayContent() {
   const [scoreboard, setScoreboard] = useState<Team[]>([]);
   const [breakDuration, setBreakDuration] = useState(360);
   const [miniGameType, setMiniGameType] = useState<string | null>(null);
+  const [miniGameResult, setMiniGameResult] = useState<{ game: string; winningCard?: number; winningKangaroo?: number } | null>(null);
   const [endCountdown, setEndCountdown] = useState(0);
 
   const isMusicRound = question?.roundType === 'MUSIC';
   const { playTick, playBuzz } = useTimerSound({ enabled: true, muted: isMusicRound });
-  const { play: playMp3, stop: stopMp3, setSource: setMp3Source } = useAudio({ loop: false, volume: 0.8 });
+  const {
+    play: playMp3,
+    stop: stopMp3,
+    setSource: setMp3Source,
+  } = useAudio({ loop: false, volume: 0.8 });
   const prevTimerRef = useRef(0);
 
   useEffect(() => {
@@ -152,7 +170,9 @@ function VenueDisplayContent() {
       setMp3Source(`${API_URL}${question.question.mediaUrl}`);
       playMp3();
     }
-    return () => { stopMp3(); };
+    return () => {
+      stopMp3();
+    };
   }, [question?.question?.mediaUrl, question?.question?.mediaType, setMp3Source, playMp3, stopMp3]);
 
   const handleUnityPlayerAction = useCallback(
@@ -174,27 +194,47 @@ function VenueDisplayContent() {
   useEffect(() => {
     if (!socket || !sessionPin) return;
 
-    const joinVenue = () => { socket.emit('venue_connect', { pin: sessionPin }); };
+    const joinVenue = () => {
+      socket.emit('venue_connect', { pin: sessionPin });
+    };
     joinVenue();
     socket.on('connect', joinVenue);
 
     socket.on('session_state', (data: any) => {
       if (data.qrCodeData) setQrCodeData(data.qrCodeData);
       if (data.teams) {
-        const teamList = typeof data.teams === 'object' && !Array.isArray(data.teams)
-          ? Object.values(data.teams) as Team[]
-          : data.teams as Team[];
+        const teamList =
+          typeof data.teams === 'object' && !Array.isArray(data.teams)
+            ? (Object.values(data.teams) as Team[])
+            : (data.teams as Team[]);
         setTeams(teamList);
         setTotalTeams(teamList.length);
       }
       const stateToPhase: Record<string, VenuePhase> = {
-        LOBBY: 'lobby', ROUND_INTRO: 'round_intro', QUESTION: 'question',
-        SCOREBOARD: 'scoreboard', BREAK: 'break', MINI_GAME: 'mini_game', FINAL_RESULTS: 'game_end',
+        LOBBY: 'lobby',
+        ROUND_INTRO: 'round_intro',
+        QUESTION: 'question',
+        SCOREBOARD: 'scoreboard',
+        BREAK: 'break',
+        MINI_GAME: 'mini_game',
+        FINAL_RESULTS: 'game_end',
       };
-      if (data.state && stateToPhase[data.state]) setPhase(stateToPhase[data.state]);
+      if (data.activeMiniGame) {
+        setMiniGameType(data.activeMiniGame);
+        setPhase('mini_game');
+      } else if (data.activeMiniGame === null && data.state && stateToPhase[data.state]) {
+        setPhase(stateToPhase[data.state]);
+      } else if (data.state && stateToPhase[data.state]) {
+        setPhase(stateToPhase[data.state]);
+      }
       if (data.rounds && data.currentRoundIndex !== undefined) {
         const round = data.rounds[data.currentRoundIndex];
-        if (round) setRoundInfo({ round, roundIndex: data.currentRoundIndex, totalRounds: data.rounds.length });
+        if (round)
+          setRoundInfo({
+            round,
+            roundIndex: data.currentRoundIndex,
+            totalRounds: data.rounds.length,
+          });
       }
     });
 
@@ -208,7 +248,10 @@ function VenueDisplayContent() {
       setTotalTeams((prev) => Math.max(0, prev - 1));
     });
 
-    socket.on('round_intro', (data) => { setRoundInfo(data); setPhase('round_intro'); });
+    socket.on('round_intro', (data) => {
+      setRoundInfo(data);
+      setPhase('round_intro');
+    });
 
     socket.on('question_active', (data: QuestionData) => {
       setQuestion(data);
@@ -249,38 +292,48 @@ function VenueDisplayContent() {
 
     socket.on('mini_game_start', (data: { game: string }) => {
       setMiniGameType(data.game);
+      setMiniGameResult(null);
       setPhase('mini_game');
     });
 
-    socket.on('game_end', (data: { teams: Team[] }) => {
-      setScoreboard(data.teams.sort((a, b) => b.score - a.score));
-      setPhase('game_end');
-      setEndCountdown(15);
-      const countdownInterval = setInterval(() => {
-        setEndCountdown((prev) => {
-          if (prev <= 1) {
-            clearInterval(countdownInterval);
-            setPhase('welcome');
-            setSessionPin('');
-            setPinInput('');
-            setTeams([]);
-            setQrCodeData('');
-            setRoundInfo(null);
-            setQuestion(null);
-            setRevealData(null);
-            setScoreboard([]);
-            return 0;
-          }
-          return prev - 1;
-        });
-      }, 1000);
+    socket.on('mini_game_end', (data: { game: string; winningCard?: number; winningKangaroo?: number }) => {
+      if (data.game) {
+        setMiniGameResult(data);
+        setPhase('mini_game_result');
+      }
+    });
+
+    socket.on('game_end', () => {
+      setPhase('welcome');
+      setSessionPin('');
+      setPinInput('');
+      setTeams([]);
+      setQrCodeData('');
+      setRoundInfo(null);
+      setQuestion(null);
+      setRevealData(null);
+      setScoreboard([]);
     });
 
     return () => {
       socket.off('connect', joinVenue);
-      ['session_state', 'team_joined', 'team_removed', 'round_intro', 'question_active',
-        'timer_update', 'timer_expired', 'response_count', 'answer_reveal', 'scoreboard',
-        'round_end', 'break_start', 'break_end', 'mini_game_start', 'game_end',
+      [
+        'session_state',
+        'team_joined',
+        'team_removed',
+        'round_intro',
+        'question_active',
+        'timer_update',
+        'timer_expired',
+        'response_count',
+        'answer_reveal',
+        'scoreboard',
+        'round_end',
+        'break_start',
+        'break_end',
+        'mini_game_start',
+        'mini_game_end',
+        'game_end',
       ].forEach((e) => socket.off(e));
     };
   }, [socket, sessionPin]);
@@ -299,7 +352,9 @@ function VenueDisplayContent() {
 
   const ConnectionDot = () => (
     <div className="absolute top-4 right-4 z-50 flex items-center gap-2">
-      <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-neon-green shadow-[0_0_8px_rgba(0,255,106,0.6)]' : 'bg-neon-red shadow-[0_0_8px_rgba(255,23,68,0.6)]'}`} />
+      <div
+        className={`w-2 h-2 rounded-full ${isConnected ? 'bg-neon-green shadow-[0_0_8px_rgba(0,255,106,0.6)]' : 'bg-neon-red shadow-[0_0_8px_rgba(255,23,68,0.6)]'}`}
+      />
     </div>
   );
 
@@ -321,12 +376,17 @@ function VenueDisplayContent() {
           {sessionPin ? (
             <div className="mt-12 neon-border-strong rounded-2xl px-10 py-6 bg-surface/80">
               <p className="text-foreground/40 text-sm mb-2">Join with PIN</p>
-              <p className="text-5xl font-mono font-black tracking-[0.4em] text-neon-cyan text-glow-cyan">{sessionPin}</p>
+              <p className="text-5xl font-mono font-black tracking-[0.4em] text-neon-cyan text-glow-cyan">
+                {sessionPin}
+              </p>
             </div>
           ) : (
             <form
               className="mt-12 flex flex-col items-center gap-4"
-              onSubmit={(e) => { e.preventDefault(); if (pinInput.length === 6) setSessionPin(pinInput); }}
+              onSubmit={(e) => {
+                e.preventDefault();
+                if (pinInput.length === 6) setSessionPin(pinInput);
+              }}
             >
               <input
                 type="text"
@@ -353,9 +413,14 @@ function VenueDisplayContent() {
         <div className="w-full h-full flex flex-col p-8 animate-fadeIn">
           <div className="text-center mb-6">
             <h2 className="text-4xl font-bold">
-              Join Now! <span className="text-neon-cyan text-glow-cyan font-mono tracking-widest">{sessionPin}</span>
+              Join Now!{' '}
+              <span className="text-neon-cyan text-glow-cyan font-mono tracking-widest">
+                {sessionPin}
+              </span>
             </h2>
-            <p className="text-foreground/40 mt-1">{teams.length} team{teams.length !== 1 ? 's' : ''} joined</p>
+            <p className="text-foreground/40 mt-1">
+              {teams.length} team{teams.length !== 1 ? 's' : ''} joined
+            </p>
           </div>
           <div className="flex-1 grid grid-cols-6 gap-3 content-start overflow-hidden">
             {Array.from({ length: Math.max(30, teams.length) }).map((_, i) => {
@@ -426,7 +491,9 @@ function VenueDisplayContent() {
               <div className="flex justify-center mb-4">
                 <video
                   src={`${API_URL}${question.question.mediaUrl}`}
-                  autoPlay muted={false} playsInline
+                  autoPlay
+                  muted={false}
+                  playsInline
                   className="max-h-52 rounded-xl neon-border"
                 />
               </div>
@@ -462,10 +529,12 @@ function VenueDisplayContent() {
             </div>
 
             {/* Options grid - hexagonal style */}
-            <div className={cn(
-              'grid gap-3',
-              question.question.options.length <= 4 ? 'grid-cols-2' : 'grid-cols-3',
-            )}>
+            <div
+              className={cn(
+                'grid gap-3',
+                question.question.options.length <= 4 ? 'grid-cols-2' : 'grid-cols-3',
+              )}
+            >
               {question.question.options.map((opt, i) => (
                 <div
                   key={i}
@@ -490,10 +559,12 @@ function VenueDisplayContent() {
             <h2 className="text-3xl font-bold">{question.question.text}</h2>
           </div>
 
-          <div className={cn(
-            'grid gap-3 mb-6',
-            question.question.options.length <= 4 ? 'grid-cols-2' : 'grid-cols-3',
-          )}>
+          <div
+            className={cn(
+              'grid gap-3 mb-6',
+              question.question.options.length <= 4 ? 'grid-cols-2' : 'grid-cols-3',
+            )}
+          >
             {question.question.options.map((opt, i) => {
               const isCorrect = i === revealData.correctOptionIndex;
               return (
@@ -522,7 +593,8 @@ function VenueDisplayContent() {
 
           {revealData.eliminations.length > 0 && (
             <div className="text-center text-neon-red text-glow-red text-sm mb-2">
-              {revealData.eliminations.length} team{revealData.eliminations.length !== 1 ? 's' : ''} eliminated
+              {revealData.eliminations.length} team{revealData.eliminations.length !== 1 ? 's' : ''}{' '}
+              eliminated
             </div>
           )}
 
@@ -540,22 +612,35 @@ function VenueDisplayContent() {
                     )}
                   >
                     <div className="flex items-center gap-2">
-                      <span className={cn(
-                        'w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold',
-                        idx === 0 ? 'bg-neon-gold/20 text-neon-gold' : 'bg-surface-light text-foreground/40',
-                      )}>
+                      <span
+                        className={cn(
+                          'w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold',
+                          idx === 0
+                            ? 'bg-neon-gold/20 text-neon-gold'
+                            : 'bg-surface-light text-foreground/40',
+                        )}
+                      >
                         {idx + 1}
                       </span>
-                      <span className={cn('text-sm font-medium', team.isEliminated && 'line-through text-foreground/30')}>
+                      <span
+                        className={cn(
+                          'text-sm font-medium',
+                          team.isEliminated && 'line-through text-foreground/30',
+                        )}
+                      >
                         {team.teamName}
                       </span>
                     </div>
                     <span className="font-mono font-bold text-neon-cyan text-sm">
                       {revealData.scores[String(team.teamId)] !== undefined && (
-                        <span className={cn(
-                          'mr-2 text-xs',
-                          revealData.scores[String(team.teamId)] > 0 ? 'text-neon-green' : 'text-neon-red',
-                        )}>
+                        <span
+                          className={cn(
+                            'mr-2 text-xs',
+                            revealData.scores[String(team.teamId)] > 0
+                              ? 'text-neon-green'
+                              : 'text-neon-red',
+                          )}
+                        >
                           {revealData.scores[String(team.teamId)] > 0 ? '+' : ''}
                           {revealData.scores[String(team.teamId)]}
                         </span>
@@ -581,17 +666,24 @@ function VenueDisplayContent() {
                 className="flex items-center gap-4 neon-border bg-surface/80 rounded-xl px-6 py-3"
                 style={{ animationDelay: `${idx * 80}ms` }}
               >
-                <span className={cn(
-                  'w-10 h-10 rounded-full flex items-center justify-center text-lg font-black',
-                  idx === 0 ? 'bg-neon-gold/20 text-neon-gold text-glow-gold' :
-                    idx === 1 ? 'bg-foreground/10 text-foreground/50' :
-                      idx === 2 ? 'bg-orange-500/20 text-orange-400' :
-                        'bg-surface-light text-foreground/20',
-                )}>
+                <span
+                  className={cn(
+                    'w-10 h-10 rounded-full flex items-center justify-center text-lg font-black',
+                    idx === 0
+                      ? 'bg-neon-gold/20 text-neon-gold text-glow-gold'
+                      : idx === 1
+                        ? 'bg-foreground/10 text-foreground/50'
+                        : idx === 2
+                          ? 'bg-orange-500/20 text-orange-400'
+                          : 'bg-surface-light text-foreground/20',
+                  )}
+                >
                   {idx + 1}
                 </span>
                 <span className="flex-1 text-xl font-semibold">{team.teamName}</span>
-                <span className="text-2xl font-mono font-black text-neon-cyan text-glow-cyan">{team.score}</span>
+                <span className="text-2xl font-mono font-black text-neon-cyan text-glow-cyan">
+                  {team.score}
+                </span>
               </div>
             ))}
           </div>
@@ -623,6 +715,86 @@ function VenueDisplayContent() {
         </div>
       )}
 
+      {/* ── MINI GAME RESULT ── */}
+      {phase === 'mini_game_result' && miniGameResult && (
+        <div className="w-full h-full flex flex-col items-center justify-center p-8 animate-fadeIn">
+          {miniGameResult.game === 'card_shuffle' && miniGameResult.winningCard && (
+            <>
+              <div className="text-7xl mb-6">🃏</div>
+              <h2 className="text-5xl font-black mb-4 text-glow-cyan">Winning Card</h2>
+              <div className="flex gap-8 mt-4">
+                {([
+                  { id: 1, label: 'Left' },
+                  { id: 2, label: 'Middle' },
+                  { id: 3, label: 'Right' },
+                ] as const).map((pos) => {
+                  const isWinner = pos.id === miniGameResult.winningCard;
+                  return (
+                    <div
+                      key={pos.id}
+                      className={cn(
+                        'flex flex-col items-center gap-3 rounded-2xl border-4 px-10 py-8 transition-all duration-500',
+                        isWinner
+                          ? 'border-neon-gold bg-neon-gold/10 scale-110 shadow-[0_0_40px_rgba(255,215,0,0.4)]'
+                          : 'border-white/10 bg-white/5 opacity-30 scale-90',
+                      )}
+                    >
+                      <span className={cn('text-7xl', isWinner && 'animate-bounce')} aria-hidden>
+                        🃏
+                      </span>
+                      <span className={cn(
+                        'text-2xl font-black',
+                        isWinner ? 'text-neon-gold text-glow-gold' : 'text-white/40',
+                      )}>
+                        {pos.label}
+                      </span>
+                      {isWinner && (
+                        <span className="text-lg font-bold text-neon-green text-glow-green mt-1">
+                          WINNER
+                        </span>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </>
+          )}
+          {miniGameResult.game === 'horse_race' && miniGameResult.winningKangaroo && (
+            <>
+              <div className="text-7xl mb-6">🦘</div>
+              <h2 className="text-5xl font-black mb-4 text-glow-cyan">Winning Kangaroo</h2>
+              <div className="flex gap-6 mt-4 flex-wrap justify-center">
+                {[1, 2, 3, 4, 5, 6].map((n) => {
+                  const isWinner = n === miniGameResult.winningKangaroo;
+                  return (
+                    <div
+                      key={n}
+                      className={cn(
+                        'flex flex-col items-center gap-2 rounded-2xl border-4 px-6 py-6 transition-all duration-500',
+                        isWinner
+                          ? 'border-neon-gold bg-neon-gold/10 scale-110 shadow-[0_0_40px_rgba(255,215,0,0.4)]'
+                          : 'border-white/10 bg-white/5 opacity-30 scale-90',
+                      )}
+                    >
+                      <span className={cn('text-5xl', isWinner && 'animate-bounce')}>🦘</span>
+                      <span className={cn(
+                        'text-xl font-black',
+                        isWinner ? 'text-neon-gold text-glow-gold' : 'text-white/40',
+                      )}>
+                        #{n}
+                      </span>
+                      {isWinner && (
+                        <span className="text-base font-bold text-neon-green text-glow-green">WINNER</span>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
       {/* ── GAME END ── */}
       {phase === 'game_end' && (
         <div className="w-full h-full flex flex-col items-center justify-center p-8 animate-fadeIn">
@@ -636,7 +808,9 @@ function VenueDisplayContent() {
               <div className="flex items-end gap-4 mb-8">
                 {scoreboard.length > 1 && (
                   <div className="text-center">
-                    <p className="text-lg font-bold text-foreground/60 mb-2">{scoreboard[1]?.teamName}</p>
+                    <p className="text-lg font-bold text-foreground/60 mb-2">
+                      {scoreboard[1]?.teamName}
+                    </p>
                     <div className="w-32 h-24 neon-border bg-surface/80 rounded-t-xl flex items-center justify-center">
                       <span className="text-2xl font-mono font-bold">{scoreboard[1]?.score}</span>
                     </div>
@@ -644,15 +818,23 @@ function VenueDisplayContent() {
                   </div>
                 )}
                 <div className="text-center">
-                  <p className="text-xl font-black text-neon-gold text-glow-gold mb-2">{scoreboard[0]?.teamName}</p>
+                  <p className="text-xl font-black text-neon-gold text-glow-gold mb-2">
+                    {scoreboard[0]?.teamName}
+                  </p>
                   <div className="w-36 h-36 bg-neon-gold/10 border-2 border-neon-gold/40 rounded-t-xl flex items-center justify-center shadow-[0_0_30px_rgba(255,215,0,0.2)]">
-                    <span className="text-3xl font-mono font-black text-neon-gold">{scoreboard[0]?.score}</span>
+                    <span className="text-3xl font-mono font-black text-neon-gold">
+                      {scoreboard[0]?.score}
+                    </span>
                   </div>
-                  <div className="bg-neon-gold/10 py-1 text-neon-gold text-sm font-bold">1st 🏆</div>
+                  <div className="bg-neon-gold/10 py-1 text-neon-gold text-sm font-bold">
+                    1st 🏆
+                  </div>
                 </div>
                 {scoreboard.length > 2 && (
                   <div className="text-center">
-                    <p className="text-lg font-bold text-orange-400/60 mb-2">{scoreboard[2]?.teamName}</p>
+                    <p className="text-lg font-bold text-orange-400/60 mb-2">
+                      {scoreboard[2]?.teamName}
+                    </p>
                     <div className="w-32 h-16 neon-border bg-surface/80 rounded-t-xl flex items-center justify-center">
                       <span className="text-2xl font-mono font-bold">{scoreboard[2]?.score}</span>
                     </div>
@@ -673,7 +855,15 @@ function VenueDisplayContent() {
   );
 }
 
-function BreakView({ duration, pin, qrCodeData }: { duration: number; pin: string; qrCodeData: string }) {
+function BreakView({
+  duration,
+  pin,
+  qrCodeData,
+}: {
+  duration: number;
+  pin: string;
+  qrCodeData: string;
+}) {
   const [remaining, setRemaining] = useState(duration);
 
   useEffect(() => {
@@ -699,7 +889,9 @@ function BreakView({ duration, pin, qrCodeData }: { duration: number; pin: strin
         <div className="mt-8 neon-border-strong bg-surface/80 rounded-2xl px-8 py-6 flex flex-col items-center gap-3">
           <p className="text-foreground/40 text-sm">Still want to join?</p>
           <img src={qrCodeData} alt="Join QR" className="w-40 h-40 rounded-lg" />
-          <p className="font-mono text-2xl font-bold tracking-widest text-neon-cyan text-glow-cyan">{pin}</p>
+          <p className="font-mono text-2xl font-bold tracking-widest text-neon-cyan text-glow-cyan">
+            {pin}
+          </p>
         </div>
       )}
     </div>
@@ -708,11 +900,13 @@ function BreakView({ duration, pin, qrCodeData }: { duration: number; pin: strin
 
 export default function VenueDisplayPage() {
   return (
-    <Suspense fallback={
-      <div className="w-full h-full flex items-center justify-center sci-fi-bg">
-        <div className="w-16 h-16 border-4 border-neon-cyan border-t-transparent rounded-full animate-spin shadow-[0_0_15px_rgba(0,229,255,0.5)]" />
-      </div>
-    }>
+    <Suspense
+      fallback={
+        <div className="w-full h-full flex items-center justify-center sci-fi-bg">
+          <div className="w-16 h-16 border-4 border-neon-cyan border-t-transparent rounded-full animate-spin shadow-[0_0_15px_rgba(0,229,255,0.5)]" />
+        </div>
+      }
+    >
       <VenueDisplayContent />
     </Suspense>
   );

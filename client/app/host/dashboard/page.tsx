@@ -1149,13 +1149,13 @@ function HostDashboardContent() {
                 <HostSidebarTile
                   data-node-id="232:4588"
                   label="Card Shuffle"
-                  active={showCardShuffleModal}
+                  active={!!activeMiniGameLocal && activeMiniGameLocal === 'card_shuffle'}
                   icon={
                     <svg viewBox="0 0 24 24" fill="currentColor">
                       <path d="M4 4h16v4H4V4zm0 6h10v10H4V10zm12 0h4v4h-4v-4zm0 6h4v4h-4v-4z" />
                     </svg>
                   }
-                  onClick={() => setShowCardShuffleModal(true)}
+                  onClick={handleCardShuffleSave}
                 />
               </div>
             </section>

@@ -6,7 +6,6 @@ Max Showdown Trivia is a real-time live trivia platform designed for venues, sup
 
 ## Tech Stack
 
-
 | Layer              | Technology                                                                 |
 | ------------------ | -------------------------------------------------------------------------- |
 | Frontend           | Next.js 16 (App Router), React 19, TypeScript, Tailwind CSS, Framer Motion |
@@ -19,7 +18,6 @@ Max Showdown Trivia is a real-time live trivia platform designed for venues, sup
 | 3D Mini-Games      | Unity WebGL builds embedded via react-unity-webgl                          |
 | Audio              | Web Audio API (synthesized timer sounds, MP3 playback)                     |
 | Monorepo           | npm workspaces (client, server, shared)                                    |
-
 
 ## High-Level Architecture
 
@@ -275,7 +273,6 @@ Additional states: `BREAK`, `MINI_GAME`
 
 ### Round Types (7)
 
-
 | Round | Type                  | Scoring                                          |
 | ----- | --------------------- | ------------------------------------------------ |
 | 1     | MULTIPLE_CHOICE       | +2 correct, -1 wrong                             |
@@ -286,23 +283,19 @@ Additional states: `BREAK`, `MINI_GAME`
 | 6     | FINAL_MULTIPLE_CHOICE | +3 correct, -1 wrong                             |
 | 7     | FINAL_WAGER           | +/- wagered amount                               |
 
-
 ### Live State Storage (Redis)
 
-
-| Key Pattern                   | Data                                               |
-| ----------------------------- | -------------------------------------------------- |
+| Key Pattern                     | Data                                               |
+| ------------------------------- | -------------------------------------------------- |
 | `game:{pin}:session`          | Session ID reference                               |
 | `game:{pin}:gameState`        | Full game state (rounds, scores, current question) |
 | `game:{pin}:lobby`            | Teams in lobby (hash)                              |
 | `game:{pin}:teams`            | Team data with scores (hash)                       |
 | `game:{pin}:responses:{qIdx}` | Player responses per question                      |
 
-
 Falls back to an in-memory `Map` when Redis is unavailable.
 
 ## API Routes
-
 
 | Method                                                                                                                         | Route                                                                                                                          | Auth       | Description           |
 | ------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------ | ---------- | --------------------- |
@@ -317,7 +310,6 @@ Falls back to an in-memory `Map` when Redis is unavailable.
 | GET                                                                                                                            | /api/sessions/:id/results                                                                                                      | Admin+Host | Session results       |
 | GET/POST/PUT/DELETE                                                                                                            | /api/teams                                                                                                                     | Admin+Host | Team management       |
 
-
 ## Deployment Notes
 
 - **Server**: Fastify on port 3002, Socket.io on same port
@@ -327,5 +319,3 @@ Falls back to an in-memory `Map` when Redis is unavailable.
 - **Sticky sessions** required for Socket.io in multi-instance deployments
 - **CORS** enabled for cross-origin requests
 - **File uploads** stored in `./uploads` directory (configurable via UPLOAD_DIR)
-
-hello

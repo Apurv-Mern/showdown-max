@@ -155,7 +155,7 @@ export default function SessionsPage() {
                     <Button size="sm">Host</Button>
                   </Link>
                 )}
-                <Link href={`/api/sessions/${session.id}/results`}>
+                <Link href={`/admin/sessions/${session.id}/results`}>
                   <Button variant="secondary" size="sm">Results</Button>
                 </Link>
                 {session.status !== 'completed' && (

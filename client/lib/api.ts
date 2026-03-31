@@ -1,4 +1,4 @@
-import { getStoredToken } from './auth';
+import { clearStoredAuth, getStoredToken } from './auth';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3002';
 
@@ -26,12 +26,22 @@ export const apiFetch = async <T>(
   const token = getStoredToken();
 
   const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
     ...(options.headers as Record<string, string>),
   };
 
   if (token) {
     headers['Authorization'] = `Bearer ${token}`;
+  }
+
+  // Only set JSON content-type when there is a body. DELETE/GET with
+  // Content-Type: application/json and no body is rejected by Express body parsers.
+  const body = options.body;
+  const hasBody =
+    body !== undefined &&
+    body !== null &&
+    !(typeof body === 'string' && body.length === 0);
+  if (hasBody && !headers['Content-Type'] && !headers['content-type']) {
+    headers['Content-Type'] = 'application/json';
   }
 
   const response = await fetch(url, {
@@ -41,8 +51,7 @@ export const apiFetch = async <T>(
 
   if (response.status === 401) {
     if (typeof window !== 'undefined' && !endpoint.includes('/api/auth/')) {
-      localStorage.removeItem('auth_token');
-      localStorage.removeItem('auth_role');
+      clearStoredAuth();
       const path = window.location.pathname;
       if (path.startsWith('/admin')) {
         window.location.href = '/admin/login';

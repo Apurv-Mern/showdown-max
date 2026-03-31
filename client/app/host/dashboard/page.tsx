@@ -62,6 +62,7 @@ interface GameState {
   teams: Record<string, Team>;
   activeTeamIds: number[];
   activeMiniGame?: string | null;
+  currentQuestion?: QuestionData | null;
 }
 
 interface QuestionData {
@@ -327,7 +328,15 @@ function HostDashboardContent() {
     socket.on('connect', joinHost);
 
     socket.on('session_state', (data: GameState) => {
-      if (data?.state) setGameState(data);
+      if (data?.state) {
+        setGameState(data);
+        setTimerRemaining(data.timerRemaining || 0);
+        setTimerPaused(data.timerRunning === false);
+        setCurrentQuestion(data.currentQuestion || null);
+        if (data.questionState !== 'REVEALED') {
+          setRevealData(null);
+        }
+      }
       if (data?.activeMiniGame) {
         setActiveMiniGameLocal(data.activeMiniGame);
         setMiniGameLoading(false);

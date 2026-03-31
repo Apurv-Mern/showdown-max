@@ -31,6 +31,10 @@ export default function LobbyPage() {
     };
     const handleMiniGameStart = (data: { game: string }) => router.push(`/play/mini-game?game=${data.game}`);
     const handleGameStarted = () => router.push('/play/game');
+    const handleGameEnd = () => {
+      clearSession();
+      router.replace('/play/join');
+    };
 
     const handleSessionState = (data: any) => {
       if (data.gameState && data.gameState.state && data.gameState.state !== 'LOBBY') {
@@ -42,6 +46,7 @@ export default function LobbyPage() {
     socket.on('question_active', handleQuestionActive);
     socket.on('mini_game_start', handleMiniGameStart);
     socket.on('game_started', handleGameStarted);
+    socket.on('game_end', handleGameEnd);
     socket.on('session_state', handleSessionState);
 
     return () => {
@@ -49,9 +54,10 @@ export default function LobbyPage() {
       socket.off('question_active', handleQuestionActive);
       socket.off('mini_game_start', handleMiniGameStart);
       socket.off('game_started', handleGameStarted);
+      socket.off('game_end', handleGameEnd);
       socket.off('session_state', handleSessionState);
     };
-  }, [socket, router]);
+  }, [socket, router, clearSession]);
 
   return (
     <div className="flex-1 flex items-center justify-center p-4 sci-fi-bg">

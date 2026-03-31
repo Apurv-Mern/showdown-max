@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState, useCallback, Suspense } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useSocket } from '@/hooks/useSocket';
 import { useTimerSound } from '@/hooks/useTimerSound';
 import { useAudio } from '@/hooks/useAudio';
@@ -9,6 +9,7 @@ import { cn } from '@/lib/utils';
 import DynamicUnityGame from '@/components/mini-games/DynamicUnityGame';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3002';
+const VENUE_PIN_STORAGE_KEY = 'venue_display_pin';
 
 type VenuePhase =
   | 'welcome'
@@ -118,13 +119,14 @@ function TimerRing({
 }
 
 function VenueDisplayContent() {
+  const router = useRouter();
   const searchParams = useSearchParams();
-  const initialPin = searchParams.get('pin') || '';
+  const initialPin = (searchParams.get('pin') || '').replace(/\D/g, '').slice(0, 6);
 
   const { socket, isConnected } = useSocket();
 
   const [sessionPin, setSessionPin] = useState(initialPin);
-  const [pinInput, setPinInput] = useState(initialPin);
+  const [isPinReady, setIsPinReady] = useState(false);
   const [phase, setPhase] = useState<VenuePhase>('welcome');
   const [qrCodeData, setQrCodeData] = useState<string>('');
   const [teams, setTeams] = useState<Team[]>([]);
@@ -142,8 +144,14 @@ function VenueDisplayContent() {
   const [scoreboard, setScoreboard] = useState<Team[]>([]);
   const [breakDuration, setBreakDuration] = useState(360);
   const [miniGameType, setMiniGameType] = useState<string | null>(null);
-  const [miniGameResult, setMiniGameResult] = useState<{ game: string; winningCard?: number; winningKangaroo?: number } | null>(null);
+  const [miniGameResult, setMiniGameResult] = useState<{
+    game: string;
+    winningCard?: number;
+    winningKangaroo?: number;
+  } | null>(null);
   const [endCountdown, setEndCountdown] = useState(0);
+  const [showVenueSplash, setShowVenueSplash] = useState(true);
+  const [showIntroVideoFallback, setShowIntroVideoFallback] = useState(false);
 
   const isMusicRound = question?.roundType === 'MUSIC';
   const { playTick, playBuzz } = useTimerSound({ enabled: true, muted: isMusicRound });
@@ -155,6 +163,31 @@ function VenueDisplayContent() {
   const prevTimerRef = useRef(0);
 
   useEffect(() => {
+    if (/^\d{6}$/.test(initialPin)) {
+      setSessionPin(initialPin);
+      setIsPinReady(true);
+      return;
+    }
+    if (typeof window === 'undefined') return;
+    const savedPin = window.localStorage.getItem(VENUE_PIN_STORAGE_KEY) || '';
+    if (/^\d{6}$/.test(savedPin)) {
+      setSessionPin(savedPin);
+    } else {
+      router.replace('/venue');
+    }
+    setIsPinReady(true);
+  }, [initialPin, router]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (/^\d{6}$/.test(sessionPin)) {
+      window.localStorage.setItem(VENUE_PIN_STORAGE_KEY, sessionPin);
+    } else {
+      window.localStorage.removeItem(VENUE_PIN_STORAGE_KEY);
+    }
+  }, [sessionPin]);
+
+  useEffect(() => {
     if (timerRemaining > 0 && timerRemaining !== prevTimerRef.current) {
       playTick(timerRemaining <= 5);
     }
@@ -163,6 +196,12 @@ function VenueDisplayContent() {
     }
     prevTimerRef.current = timerRemaining;
   }, [timerRemaining, playTick, playBuzz]);
+
+  useEffect(() => {
+    if (!showVenueSplash) return;
+    const timer = setTimeout(() => setShowVenueSplash(false), 5000);
+    return () => clearTimeout(timer);
+  }, [showVenueSplash]);
 
   useEffect(() => {
     if (!question?.question?.mediaUrl) return;
@@ -192,7 +231,16 @@ function VenueDisplayContent() {
   );
 
   useEffect(() => {
-    if (!socket || !sessionPin) return;
+    if (!socket || !sessionPin || !isPinReady) return;
+
+    let didReceiveSessionState = false;
+    const invalidPinTimeout = setTimeout(() => {
+      if (didReceiveSessionState) return;
+      if (typeof window !== 'undefined') {
+        window.localStorage.removeItem(VENUE_PIN_STORAGE_KEY);
+      }
+      router.replace('/venue?error=invalid-pin');
+    }, 5000);
 
     const joinVenue = () => {
       socket.emit('venue_connect', { pin: sessionPin });
@@ -201,6 +249,7 @@ function VenueDisplayContent() {
     socket.on('connect', joinVenue);
 
     socket.on('session_state', (data: any) => {
+      didReceiveSessionState = true;
       if (data.qrCodeData) setQrCodeData(data.qrCodeData);
       if (data.teams) {
         const teamList =
@@ -235,6 +284,13 @@ function VenueDisplayContent() {
             roundIndex: data.currentRoundIndex,
             totalRounds: data.rounds.length,
           });
+      }
+      if (data.currentQuestion) {
+        setQuestion(data.currentQuestion);
+        setTimerDuration(data.currentQuestion.timerDuration || data.timerDuration || 30);
+        setTimerRemaining(data.timerRemaining ?? data.currentQuestion.timerDuration ?? 0);
+      } else if (data.state !== 'QUESTION') {
+        setQuestion(null);
       }
     });
 
@@ -296,17 +352,25 @@ function VenueDisplayContent() {
       setPhase('mini_game');
     });
 
-    socket.on('mini_game_end', (data: { game: string; winningCard?: number; winningKangaroo?: number }) => {
-      if (data.game) {
-        setMiniGameResult(data);
-        setPhase('mini_game_result');
-      }
-    });
+    socket.on(
+      'mini_game_end',
+      (data: { game: string; winningCard?: number; winningKangaroo?: number }) => {
+        if (data.game) {
+          setMiniGameResult(data);
+          setPhase('mini_game_result');
+        }
+      },
+    );
 
     socket.on('game_end', () => {
       setPhase('welcome');
+      setShowVenueSplash(true);
+      setShowIntroVideoFallback(false);
       setSessionPin('');
-      setPinInput('');
+      if (typeof window !== 'undefined') {
+        window.localStorage.removeItem(VENUE_PIN_STORAGE_KEY);
+      }
+      router.replace('/venue');
       setTeams([]);
       setQrCodeData('');
       setRoundInfo(null);
@@ -316,6 +380,7 @@ function VenueDisplayContent() {
     });
 
     return () => {
+      clearTimeout(invalidPinTimeout);
       socket.off('connect', joinVenue);
       [
         'session_state',
@@ -336,7 +401,7 @@ function VenueDisplayContent() {
         'game_end',
       ].forEach((e) => socket.off(e));
     };
-  }, [socket, sessionPin]);
+  }, [socket, sessionPin, isPinReady, router]);
 
   const QROverlay = () => {
     if (!qrCodeData || phase === 'game_end') return null;
@@ -358,53 +423,67 @@ function VenueDisplayContent() {
     </div>
   );
 
+  if (!isPinReady || !sessionPin) {
+    return (
+      <div className="w-full h-full flex items-center justify-center">
+        <div className="w-16 h-16 border-4 border-neon-cyan border-t-transparent rounded-full animate-spin shadow-[0_0_15px_rgba(0,229,255,0.5)]" />
+      </div>
+    );
+  }
+
   return (
-    <div className="w-full h-full relative sci-fi-bg">
+    <div className="w-full h-full relative overflow-hidden">
+      <div
+        className="absolute inset-0 bg-cover bg-center"
+        style={{ backgroundImage: "url('/venue-stage-bg.png')" }}
+      />
+      <div className="absolute inset-0 bg-[#030818]/70" />
+      <div className="relative z-10 w-full h-full">
       <ConnectionDot />
       <QROverlay />
 
       {/* ── WELCOME ── */}
       {phase === 'welcome' && (
-        <div className="w-full h-full flex flex-col items-center justify-center text-center animate-fadeIn">
-          <div className="mb-8">
-            <h1 className="text-8xl font-black tracking-tight animate-neon-flicker">
-              MAX <span className="text-neon-cyan text-glow-cyan">SHOWDOWN</span>
-            </h1>
-            <div className="h-1 w-48 bg-neon-cyan mx-auto mt-4 rounded-full shadow-[0_0_20px_rgba(0,229,255,0.5)]" />
-          </div>
-          <p className="text-3xl text-foreground/50 font-light">Trivia Night</p>
-          {sessionPin ? (
-            <div className="mt-12 neon-border-strong rounded-2xl px-10 py-6 bg-surface/80">
-              <p className="text-foreground/40 text-sm mb-2">Join with PIN</p>
-              <p className="text-5xl font-mono font-black tracking-[0.4em] text-neon-cyan text-glow-cyan">
+        <div className="w-full h-full relative overflow-hidden animate-fadeIn">
+          {showVenueSplash ? (
+            <img
+              src="/venue-splash.png"
+              alt="Max Showdown splash"
+              className="w-full h-full object-cover"
+            />
+          ) : (
+            <div
+              className="w-full h-full relative bg-cover bg-center"
+              style={{ backgroundImage: "url('/venue-stage-bg.png')" }}
+            >
+              <div className="absolute inset-0 bg-black/10" />
+
+              <div className="absolute inset-0 flex items-center justify-center px-8 pb-8">
+                <div className="w-full max-w-[820px] aspect-video rounded-xl border-4 border-[#00d9ff] shadow-[0_0_30px_rgba(0,217,255,0.35)] overflow-hidden bg-[#39ff14]">
+                  {!showIntroVideoFallback ? (
+                    <video
+                      src="/venue-intro.mp4"
+                      autoPlay
+                      muted
+                      loop
+                      playsInline
+                      className="w-full h-full object-cover"
+                      onError={() => setShowIntroVideoFallback(true)}
+                    />
+                  ) : null}
+                </div>
+              </div>
+            </div>
+          )}
+
+          <div className="absolute left-1/2 -translate-x-1/2 bottom-6 w-full max-w-xl px-4">
+            <div className="neon-border-strong rounded-2xl px-8 py-5 bg-surface/85 text-center">
+              <p className="text-foreground/40 text-sm mb-1">Session PIN</p>
+              <p className="text-4xl font-mono font-black tracking-[0.28em] text-neon-cyan text-glow-cyan">
                 {sessionPin}
               </p>
             </div>
-          ) : (
-            <form
-              className="mt-12 flex flex-col items-center gap-4"
-              onSubmit={(e) => {
-                e.preventDefault();
-                if (pinInput.length === 6) setSessionPin(pinInput);
-              }}
-            >
-              <input
-                type="text"
-                maxLength={6}
-                value={pinInput}
-                onChange={(e) => setPinInput(e.target.value.replace(/\D/g, ''))}
-                placeholder="Enter 6-digit PIN"
-                className="text-5xl font-mono font-black tracking-[0.3em] text-center bg-surface neon-border rounded-xl px-6 py-4 w-96 focus:border-neon-cyan outline-none text-neon-cyan"
-              />
-              <button
-                type="submit"
-                disabled={pinInput.length !== 6}
-                className="bg-neon-cyan/20 text-neon-cyan border border-neon-cyan/50 px-10 py-3 rounded-lg text-xl font-bold disabled:opacity-40 hover:bg-neon-cyan/30 transition-colors"
-              >
-                Connect
-              </button>
-            </form>
-          )}
+          </div>
         </div>
       )}
 
@@ -723,11 +802,13 @@ function VenueDisplayContent() {
               <div className="text-7xl mb-6">🃏</div>
               <h2 className="text-5xl font-black mb-4 text-glow-cyan">Winning Card</h2>
               <div className="flex gap-8 mt-4">
-                {([
-                  { id: 1, label: 'Left' },
-                  { id: 2, label: 'Middle' },
-                  { id: 3, label: 'Right' },
-                ] as const).map((pos) => {
+                {(
+                  [
+                    { id: 1, label: 'Left' },
+                    { id: 2, label: 'Middle' },
+                    { id: 3, label: 'Right' },
+                  ] as const
+                ).map((pos) => {
                   const isWinner = pos.id === miniGameResult.winningCard;
                   return (
                     <div
@@ -742,10 +823,12 @@ function VenueDisplayContent() {
                       <span className={cn('text-7xl', isWinner && 'animate-bounce')} aria-hidden>
                         🃏
                       </span>
-                      <span className={cn(
-                        'text-2xl font-black',
-                        isWinner ? 'text-neon-gold text-glow-gold' : 'text-white/40',
-                      )}>
+                      <span
+                        className={cn(
+                          'text-2xl font-black',
+                          isWinner ? 'text-neon-gold text-glow-gold' : 'text-white/40',
+                        )}
+                      >
                         {pos.label}
                       </span>
                       {isWinner && (
@@ -777,14 +860,18 @@ function VenueDisplayContent() {
                       )}
                     >
                       <span className={cn('text-5xl', isWinner && 'animate-bounce')}>🦘</span>
-                      <span className={cn(
-                        'text-xl font-black',
-                        isWinner ? 'text-neon-gold text-glow-gold' : 'text-white/40',
-                      )}>
+                      <span
+                        className={cn(
+                          'text-xl font-black',
+                          isWinner ? 'text-neon-gold text-glow-gold' : 'text-white/40',
+                        )}
+                      >
                         #{n}
                       </span>
                       {isWinner && (
-                        <span className="text-base font-bold text-neon-green text-glow-green">WINNER</span>
+                        <span className="text-base font-bold text-neon-green text-glow-green">
+                          WINNER
+                        </span>
                       )}
                     </div>
                   );
@@ -851,6 +938,7 @@ function VenueDisplayContent() {
           )}
         </div>
       )}
+      </div>
     </div>
   );
 }
@@ -902,7 +990,7 @@ export default function VenueDisplayPage() {
   return (
     <Suspense
       fallback={
-        <div className="w-full h-full flex items-center justify-center sci-fi-bg">
+        <div className="w-full h-full flex items-center justify-center">
           <div className="w-16 h-16 border-4 border-neon-cyan border-t-transparent rounded-full animate-spin shadow-[0_0_15px_rgba(0,229,255,0.5)]" />
         </div>
       }

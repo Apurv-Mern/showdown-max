@@ -29,7 +29,7 @@ export default function Home() {
           Join Game
         </Link>
         <Link
-          href="/venue/display"
+          href="/venue"
           className="px-6 py-3 rounded-lg bg-surface hover:bg-surface-light border border-border text-center transition-colors"
         >
           Venue Display

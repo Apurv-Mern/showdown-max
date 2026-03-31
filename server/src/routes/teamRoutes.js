@@ -9,7 +9,24 @@ const sessionIdParamSchema = z.object({ sessionId: z.coerce.number().int().posit
 /**
  * @param {import('fastify').FastifyInstance} fastify
  */
+const createTeamSchema = z.object({
+  sessionId: z.number().int().positive(),
+  teamName: z.string().min(1).max(50),
+  score: z.number().int().optional().default(0),
+});
+
 const teamRoutes = async (fastify) => {
+  fastify.post('/', {
+    preHandler: [validateBody(createTeamSchema)],
+  }, async (request, reply) => {
+    const team = await teamService.createTeam(request.body);
+    if (!team) {
+      reply.status(400);
+      return error('Failed to create team — name may already be taken in this session', 400);
+    }
+    return success(team, 'Team created');
+  });
+
   fastify.get('/session/:sessionId', {
     preHandler: [validateParams(sessionIdParamSchema)],
   }, async (request) => {

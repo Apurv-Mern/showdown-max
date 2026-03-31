@@ -15,6 +15,7 @@ const envSchema = z.object({
   UPLOAD_DIR: z.string().default('./uploads'),
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
   JWT_SECRET: z.string().min(16).default('dev_jwt_secret_change_in_production'),
+  JWT_EXPIRES_IN: z.string().default('7d'),
   ADMIN_EMAIL: z.string().email().default('admin@showdown.com'),
   ADMIN_PASSWORD: z.string().min(4).default('admin123'),
   HOST_EMAIL: z.string().email().default('host@showdown.com'),

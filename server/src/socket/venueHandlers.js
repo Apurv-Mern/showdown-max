@@ -76,6 +76,9 @@ const venueHandlers = (_io, socket) => {
  * @returns {object}
  */
 const buildFullStatePayload = (gameState, pin) => {
+  const currentRound = gameState.rounds?.[gameState.currentRoundIndex];
+  const currentQuestion = currentRound?.questions?.[gameState.currentQuestionIndex] || null;
+
   const sanitizedRounds = gameState.rounds
     ? gameState.rounds.map((r) => ({
         id: r.id,
@@ -107,6 +110,21 @@ const buildFullStatePayload = (gameState, pin) => {
     breakDuration: gameState.breakDuration,
     breakRemaining: gameState.breakRemaining,
     activeMiniGame: gameState.activeMiniGame,
+    currentQuestion: currentQuestion
+      ? {
+          questionIndex: gameState.currentQuestionIndex,
+          totalQuestions: currentRound?.questions?.length || 0,
+          question: {
+            id: currentQuestion.id,
+            text: currentQuestion.text,
+            options: currentQuestion.options || [],
+            mediaUrl: currentQuestion.mediaUrl,
+            mediaType: currentQuestion.mediaType,
+          },
+          timerDuration: currentRound?.timerDuration || gameState.timerDuration || 30,
+          roundType: currentRound?.type || '',
+        }
+      : null,
     qrCodeData: gameState.qrCodeData,
     pin,
   };

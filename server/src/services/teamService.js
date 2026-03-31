@@ -2,6 +2,22 @@ const { Team, Session } = require('../models');
 const logger = require('../utils/logger');
 
 /**
+ * Create a new team for a session (admin REST endpoint).
+ * Returns null if the team name is already taken in that session.
+ */
+const createTeam = async ({ sessionId, teamName, score = 0 }) => {
+  const session = await Session.findByPk(sessionId);
+  if (!session) return null;
+
+  const existing = await Team.findOne({ where: { sessionId, teamName } });
+  if (existing) return null;
+
+  const team = await Team.create({ sessionId, teamName, score });
+  logger.info('Team created via admin API', { teamId: team.id, sessionId, teamName, score });
+  return team;
+};
+
+/**
  * Get all teams for a session
  * @param {number} sessionId
  * @returns {Promise<object[]>}
@@ -54,6 +70,7 @@ const removeTeam = async (teamId) => {
 };
 
 module.exports = {
+  createTeam,
   getTeamsBySession,
   getTeamById,
   updateTeamScore,

@@ -1,4 +1,4 @@
-const { Question, Round } = require('../models');
+const { Question, Round, Quiz } = require('../models');
 const logger = require('../utils/logger');
 
 /**
@@ -23,7 +23,15 @@ const getQuestions = async ({ roundId, roundType, category, search, page = 1, li
       model: Round,
       as: 'round',
       attributes: ['id', 'name', 'type'],
+      include: [{
+        model: Quiz,
+        as: 'quiz',
+        attributes: [],
+        where: { isActive: true },
+        required: true,
+      }],
       where: Object.keys(roundWhere).length > 0 ? roundWhere : undefined,
+      required: true,
     }],
     order: [['order', 'ASC'], ['createdAt', 'DESC']],
     limit,
@@ -39,8 +47,21 @@ const getQuestions = async ({ roundId, roundType, category, search, page = 1, li
  * @returns {Promise<object | null>}
  */
 const getQuestionById = async (questionId) => {
-  return Question.findByPk(questionId, {
-    include: [{ model: Round, as: 'round', attributes: ['id', 'name', 'type'] }],
+  return Question.findOne({
+    where: { id: questionId },
+    include: [{
+      model: Round,
+      as: 'round',
+      attributes: ['id', 'name', 'type'],
+      include: [{
+        model: Quiz,
+        as: 'quiz',
+        attributes: [],
+        where: { isActive: true },
+        required: true,
+      }],
+      required: true,
+    }],
   });
 };
 
@@ -51,7 +72,16 @@ const getQuestionById = async (questionId) => {
  */
 const createQuestion = async (data) => {
   if (data.roundId) {
-    const round = await Round.findByPk(data.roundId);
+    const round = await Round.findOne({
+      where: { id: data.roundId },
+      include: [{
+        model: Quiz,
+        as: 'quiz',
+        attributes: ['id'],
+        where: { isActive: true },
+        required: true,
+      }],
+    });
     if (!round) throw Object.assign(new Error('Round not found'), { statusCode: 404 });
 
     const maxOrder = await Question.max('order', { where: { roundId: data.roundId } });
@@ -83,6 +113,22 @@ const bulkCreateQuestions = async (questions) => {
 const updateQuestion = async (questionId, data) => {
   const question = await Question.findByPk(questionId);
   if (!question) return null;
+
+  if (data.roundId !== undefined) {
+    const targetRound = await Round.findOne({
+      where: { id: data.roundId },
+      include: [{
+        model: Quiz,
+        as: 'quiz',
+        attributes: ['id'],
+        where: { isActive: true },
+        required: true,
+      }],
+    });
+    if (!targetRound) {
+      throw Object.assign(new Error('Round not found'), { statusCode: 404 });
+    }
+  }
 
   await question.update(data);
   logger.info('Question updated', { questionId });

@@ -7,7 +7,9 @@ const logger = require('../utils/logger');
  * @returns {Promise<{ quizzes: object[], total: number }>}
  */
 const getAllQuizzes = async ({ page = 1, limit = 20, search } = {}) => {
-  const where = {};
+  const where = {
+    isActive: true,
+  };
   if (search) {
     const { Op } = require('sequelize');
     where.title = { [Op.like]: `%${search}%` };
@@ -36,7 +38,11 @@ const getAllQuizzes = async ({ page = 1, limit = 20, search } = {}) => {
  * @returns {Promise<object | null>}
  */
 const getQuizById = async (quizId) => {
-  return Quiz.findByPk(quizId, {
+  return Quiz.findOne({
+    where: {
+      id: quizId,
+      isActive: true,
+    },
     include: [{
       model: Round,
       as: 'rounds',
@@ -98,7 +104,10 @@ const updateQuiz = async (quizId, data) => {
   const transaction = await sequelize.transaction();
 
   try {
-    const quiz = await Quiz.findByPk(quizId, { transaction });
+    const quiz = await Quiz.findOne({
+      where: { id: quizId, isActive: true },
+      transaction,
+    });
     if (!quiz) {
       await transaction.rollback();
       return null;
@@ -137,7 +146,9 @@ const updateQuiz = async (quizId, data) => {
  * @returns {Promise<boolean>}
  */
 const deleteQuiz = async (quizId) => {
-  const quiz = await Quiz.findByPk(quizId);
+  const quiz = await Quiz.findOne({
+    where: { id: quizId, isActive: true },
+  });
   if (!quiz) return false;
   await quiz.update({ isActive: false });
   logger.info('Quiz deactivated', { quizId });

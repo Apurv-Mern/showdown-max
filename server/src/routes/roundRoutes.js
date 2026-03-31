@@ -32,7 +32,13 @@ const roundRoutes = async (fastify) => {
     const rounds = await Round.findAll({
       where,
       include: [
-        { model: Quiz, as: 'quiz', attributes: ['id', 'title'] },
+        {
+          model: Quiz,
+          as: 'quiz',
+          attributes: ['id', 'title'],
+          where: { isActive: true },
+          required: true,
+        },
       ],
       attributes: {
         include: [
@@ -55,7 +61,9 @@ const roundRoutes = async (fastify) => {
   }, async (request, reply) => {
     const { quizId, name, type, order, timerDuration } = request.body;
 
-    const quiz = await Quiz.findByPk(quizId);
+    const quiz = await Quiz.findOne({
+      where: { id: quizId, isActive: true },
+    });
     if (!quiz) {
       reply.status(404);
       return error('Quiz not found', 404);
@@ -82,7 +90,18 @@ const roundRoutes = async (fastify) => {
   fastify.patch('/:id', {
     preHandler: [validateParams(idParamSchema), validateBody(patchRoundSchema)],
   }, async (request, reply) => {
-    const round = await Round.findByPk(request.params.id);
+    const round = await Round.findOne({
+      where: { id: request.params.id },
+      include: [
+        {
+          model: Quiz,
+          as: 'quiz',
+          attributes: ['id'],
+          where: { isActive: true },
+          required: true,
+        },
+      ],
+    });
     if (!round) {
       reply.status(404);
       return error('Round not found', 404);
@@ -97,7 +116,13 @@ const roundRoutes = async (fastify) => {
 
     const updated = await Round.findByPk(round.id, {
       include: [
-        { model: Quiz, as: 'quiz', attributes: ['id', 'title'] },
+        {
+          model: Quiz,
+          as: 'quiz',
+          attributes: ['id', 'title'],
+          where: { isActive: true },
+          required: true,
+        },
         { model: Question, as: 'questions', order: [['order', 'ASC']] },
       ],
     });
@@ -108,9 +133,16 @@ const roundRoutes = async (fastify) => {
   fastify.get('/:id', {
     preHandler: [validateParams(z.object({ id: z.coerce.number().int().positive() }))],
   }, async (request, reply) => {
-    const round = await Round.findByPk(request.params.id, {
+    const round = await Round.findOne({
+      where: { id: request.params.id },
       include: [
-        { model: Quiz, as: 'quiz', attributes: ['id', 'title'] },
+        {
+          model: Quiz,
+          as: 'quiz',
+          attributes: ['id', 'title'],
+          where: { isActive: true },
+          required: true,
+        },
         { model: Question, as: 'questions', order: [['order', 'ASC']] },
       ],
     });

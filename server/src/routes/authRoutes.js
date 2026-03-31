@@ -39,7 +39,7 @@ const authRoutes = async (fastify) => {
     const token = jwt.sign(
       { role, email },
       env.JWT_SECRET,
-      { expiresIn: '24h' },
+      { expiresIn: env.JWT_EXPIRES_IN || '7d' },
     );
 
     logger.info(`${role} logged in`, { email });

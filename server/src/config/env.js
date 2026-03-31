@@ -11,11 +11,11 @@ dotenv.config({
 });
 
 const envSchema = z.object({
-  DB_HOST: z.string().default('localhost'),
+  DB_HOST: z.string().default('192.168.1.47'),
   DB_PORT: z.coerce.number().default(3306),
-  DB_NAME: z.string().default('showdown_trivia'),
-  DB_USER: z.string().default('root'),
-  DB_PASSWORD: z.string().default(''),
+  DB_NAME: z.string().default('showdowntrivia'),
+  DB_USER: z.string().default('showdowntrivia'),
+  DB_PASSWORD: z.string().default('IITi08uwS5b9Dzvjb3ZVUdIsa'),
   REDIS_URL: z.string().default('redis://localhost:6379'),
   PORT: z.coerce.number().default(3002),
   UPLOAD_DIR: z.string().default('./uploads'),

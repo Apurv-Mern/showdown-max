@@ -418,11 +418,24 @@ function VenueDisplayContent() {
       {phase === 'welcome' && (
         <div className="w-full h-full relative overflow-hidden animate-fadeIn">
           {showVenueSplash ? (
-            <img
-              src="/venue-splash.png"
-              alt="Max Showdown splash"
-              className="w-full h-full object-cover"
-            />
+            <div className="w-full h-full relative">
+              <img
+                src="/venue-stage-bg.png"
+                alt="Venue background"
+                className="absolute inset-0 w-full h-full object-cover"
+              />
+              <div className="absolute inset-0 bg-black/10" />
+              <img
+                src="/platform.png"
+                alt="Splash platform"
+                className="absolute left-1/2 -translate-x-1/2 bottom-[4%] w-[84%] max-w-[1150px] object-contain"
+              />
+              <img
+                src="/logo.png"
+                alt="Max Showdown logo"
+                className="absolute left-1/2 -translate-x-1/2 top-[16%] w-[58%] max-w-[760px] object-contain drop-shadow-[0_0_24px_rgba(0,229,255,0.35)]"
+              />
+            </div>
           ) : (
             <div
               className="w-full h-full relative bg-cover bg-center"

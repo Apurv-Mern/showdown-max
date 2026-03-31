@@ -47,6 +47,7 @@ export default function SessionsPage() {
   const [maxTeams, setMaxTeams] = useState(50);
   const [creating, setCreating] = useState(false);
   const [createdSession, setCreatedSession] = useState<NewSession | null>(null);
+  const [deletingSessionId, setDeletingSessionId] = useState<number | null>(null);
 
   const fetchSessions = async (showLoader = false) => {
     try {
@@ -106,6 +107,20 @@ export default function SessionsPage() {
     }
   };
 
+  const handleDelete = async (id: number, pin: string) => {
+    if (!confirm(`Delete session ${pin}? This cannot be undone.`)) return;
+    try {
+      setDeletingSessionId(id);
+      await api.delete(`/api/sessions/${id}`);
+      setSessions((prev) => prev.filter((s) => s.id !== id));
+    } catch (err) {
+      console.error('Failed to delete session:', err);
+      alert('Failed to delete session');
+    } finally {
+      setDeletingSessionId(null);
+    }
+  };
+
   const statusColors: Record<string, string> = {
     pending: 'bg-warning/20 text-warning',
     active: 'bg-success/20 text-success',
@@ -161,6 +176,14 @@ export default function SessionsPage() {
                 {session.status !== 'completed' && (
                   <Button variant="danger" size="sm" onClick={() => handleEnd(session.id)}>End</Button>
                 )}
+                <Button
+                  variant="danger"
+                  size="sm"
+                  onClick={() => handleDelete(session.id, session.pin)}
+                  disabled={deletingSessionId === session.id}
+                >
+                  {deletingSessionId === session.id ? 'Deleting...' : 'Delete'}
+                </Button>
               </div>
             </div>
           ))}

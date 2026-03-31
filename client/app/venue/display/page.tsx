@@ -54,69 +54,40 @@ interface RevealData {
   teams: Team[];
 }
 
-const OPTION_BG: Record<number, string> = {
-  0: 'bg-[#00c853]',
-  1: 'bg-[#1565c0]',
-  2: 'bg-[#1565c0]',
-  3: 'bg-[#c62828]',
-};
-
 const OPTION_LETTERS = ['A', 'B', 'C', 'D', 'E', 'F'];
 
-function TimerRing({
-  remaining,
-  total,
-  size = 140,
-}: {
-  remaining: number;
-  total: number;
-  size?: number;
-}) {
-  const radius = (size - 16) / 2;
-  const circumference = 2 * Math.PI * radius;
-  const progress = total > 0 ? remaining / total : 0;
-  const offset = circumference * (1 - progress);
+const resolveMediaUrl = (mediaUrl?: string) => {
+  if (!mediaUrl) return '';
+  const venueSafeUrl = mediaUrl.replace('/api/media/files/', '/api/public/media/files/');
+  if (
+    venueSafeUrl.startsWith('http://') ||
+    venueSafeUrl.startsWith('https://') ||
+    venueSafeUrl.startsWith('data:')
+  ) {
+    return venueSafeUrl;
+  }
+  if (venueSafeUrl.startsWith('/')) {
+    return `${API_URL}${venueSafeUrl}`;
+  }
+  return `${API_URL}/${venueSafeUrl}`;
+};
 
-  const getColor = () => {
-    if (remaining <= 5) return '#ff1744';
-    if (remaining <= 10) return '#ffc400';
-    if (progress > 0.5) return '#00ff6a';
-    return '#ffc400';
-  };
-
-  return (
-    <div className="timer-ring" style={{ width: size, height: size }}>
-      <svg width={size} height={size}>
-        <circle
-          className="timer-ring-track"
-          cx={size / 2}
-          cy={size / 2}
-          r={radius}
-          strokeWidth={10}
-        />
-        <circle
-          className="timer-ring-progress"
-          cx={size / 2}
-          cy={size / 2}
-          r={radius}
-          strokeWidth={10}
-          stroke={getColor()}
-          strokeDasharray={circumference}
-          strokeDashoffset={offset}
-          style={{ filter: `drop-shadow(0 0 8px ${getColor()})` }}
-        />
-      </svg>
-      <span
-        className={cn(
-          'text-5xl font-black font-mono',
-          remaining <= 5 ? 'text-neon-red text-glow-red' : 'text-neon-cyan text-glow-cyan',
-        )}
-      >
-        {remaining}
-      </span>
-    </div>
-  );
-}
+const getRoundScoringLines = (roundType?: string) => {
+  const type = (roundType || '').toUpperCase();
+  if (type === 'WAGER') {
+    return { positive: '0 to 50 points (wager gain)', negative: '0 to 50 points (wager loss)' };
+  }
+  if (type === 'MAJORITY_RULES') {
+    return { positive: '50 points for majority vote', negative: '50 points for minority vote' };
+  }
+  if (type === 'FINAL_WAGER') {
+    return {
+      positive: 'Gain wagered percentage of total score',
+      negative: 'Lose wagered percentage of total score',
+    };
+  }
+  return { positive: '10 points for correct answers', negative: '2 points for incorrect answers' };
+};
 
 function VenueDisplayContent() {
   const router = useRouter();
@@ -205,8 +176,9 @@ function VenueDisplayContent() {
 
   useEffect(() => {
     if (!question?.question?.mediaUrl) return;
-    if (question.question.mediaType === 'mp3') {
-      setMp3Source(`${API_URL}${question.question.mediaUrl}`);
+    const mediaType = (question.question.mediaType || '').toLowerCase();
+    if (mediaType === 'mp3') {
+      setMp3Source(resolveMediaUrl(question.question.mediaUrl));
       playMp3();
     }
     return () => {
@@ -404,7 +376,7 @@ function VenueDisplayContent() {
   }, [socket, sessionPin, isPinReady, router]);
 
   const QROverlay = () => {
-    if (!qrCodeData || phase === 'game_end') return null;
+    if (!qrCodeData || phase === 'game_end' || phase === 'lobby') return null;
     return (
       <div className="absolute bottom-4 right-4 z-50 flex flex-col items-center gap-1">
         <div className="neon-border rounded-lg p-1 bg-surface/80">
@@ -489,40 +461,56 @@ function VenueDisplayContent() {
 
       {/* ── LOBBY ── */}
       {phase === 'lobby' && (
-        <div className="w-full h-full flex flex-col p-8 animate-fadeIn">
-          <div className="text-center mb-6">
-            <h2 className="text-4xl font-bold">
-              Join Now!{' '}
-              <span className="text-neon-cyan text-glow-cyan font-mono tracking-widest">
-                {sessionPin}
-              </span>
+        <div className="w-full h-full flex flex-col px-6 py-5 animate-fadeIn">
+          <div className="text-center mb-4">
+            <h2 className="text-6xl font-black tracking-wide text-white text-glow-cyan">
+              TEAM REGISTRATION
             </h2>
-            <p className="text-foreground/40 mt-1">
-              {teams.length} team{teams.length !== 1 ? 's' : ''} joined
+            <p className="text-neon-cyan text-2xl font-semibold mt-1">
+              {teams.length} of 25 Teams Joined
             </p>
           </div>
-          <div className="flex-1 grid grid-cols-6 gap-3 content-start overflow-hidden">
-            {Array.from({ length: Math.max(30, teams.length) }).map((_, i) => {
+
+          {qrCodeData ? (
+            <div className="mx-auto mb-4 rounded-xl border border-neon-cyan/45 bg-[#051230]/85 px-4 py-3 shadow-[0_0_20px_rgba(0,229,255,0.18)] flex items-center gap-3">
+              <img src={qrCodeData} alt="Scan to join" className="w-20 h-20 rounded bg-white p-1" />
+              <div className="text-left">
+                <p className="text-neon-cyan font-bold text-sm">SCAN TO JOIN</p>
+                <p className="text-white/70 text-xs mt-1">Session PIN: {sessionPin}</p>
+              </div>
+            </div>
+          ) : null}
+
+          <div className="flex-1 grid grid-cols-5 gap-3 content-start">
+            {Array.from({ length: 25 }).map((_, i) => {
               const team = teams[i];
               return (
-                <div
-                  key={i}
-                  className={cn(
-                    'rounded-xl border px-3 py-3 flex items-center gap-2 transition-all duration-500',
-                    team
-                      ? 'bg-neon-green/5 border-neon-green/40 animate-scaleIn shadow-[0_0_10px_rgba(0,255,106,0.15)]'
-                      : 'bg-surface/50 border-border/30',
-                  )}
-                >
-                  <span className="text-foreground/20 font-mono text-xs w-5">{i + 1}</span>
-                  {team ? (
-                    <>
-                      <span className="text-neon-green text-sm">✓</span>
-                      <span className="text-sm font-medium truncate">{team.teamName}</span>
-                    </>
-                  ) : (
-                    <span className="text-foreground/10 text-sm">—</span>
-                  )}
+                <div key={i} className="relative">
+                  <div className="absolute -top-2 right-1 z-10 w-5 h-5 rounded-full bg-[#0c4ac4] border border-neon-cyan/40 text-[10px] font-black text-white flex items-center justify-center shadow-[0_0_8px_rgba(0,229,255,0.25)]">
+                    {i + 1}
+                  </div>
+                  <div
+                    className={cn(
+                      'h-[56px] rounded-xl border px-3 flex items-center gap-2 transition-all duration-500 backdrop-blur-sm',
+                      team
+                        ? 'bg-gradient-to-r from-[#0f4bc2]/85 via-[#0a2a92]/80 to-[#9f0ed2]/80 border-neon-cyan/65 shadow-[0_0_14px_rgba(0,229,255,0.25)]'
+                        : 'bg-[#130f2e]/55 border-white/25 border-dashed',
+                    )}
+                  >
+                    {team ? (
+                      <>
+                        <div className="w-5 h-5 rounded-full bg-[#00be57] flex items-center justify-center text-white text-[11px] font-black">
+                          {'\u2713'}
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-sm font-bold text-white truncate">{team.teamName}</p>
+                          <p className="text-[10px] text-[#66ffb2] font-semibold -mt-0.5">Ready</p>
+                        </div>
+                      </>
+                    ) : (
+                      <p className="w-full text-center text-white/70 text-sm">Waiting...</p>
+                    )}
+                  </div>
                 </div>
               );
             })}
@@ -530,100 +518,150 @@ function VenueDisplayContent() {
         </div>
       )}
 
-      {/* ── ROUND INTRO ── */}
       {phase === 'round_intro' && roundInfo && (
-        <div className="w-full h-full flex flex-col items-center justify-center text-center animate-fadeIn">
-          <p className="text-foreground/30 text-xl mb-3">
-            Round {(roundInfo.roundIndex || 0) + 1} of {roundInfo.totalRounds}
-          </p>
-          <h1 className="text-6xl font-black mb-4 text-glow-cyan">{roundInfo.round?.name}</h1>
-          <span className="bg-neon-cyan/10 text-neon-cyan border border-neon-cyan/30 px-6 py-2 rounded-full text-xl font-medium">
-            {roundInfo.round?.type?.replace(/_/g, ' ')}
-          </span>
+        <div className="w-full h-full flex flex-col items-center justify-center text-center animate-fadeIn px-6">
+          <div className="relative mb-8">
+            <div className="w-[420px] h-[320px] rounded-[999px] bg-gradient-to-b from-[#ffb300] via-[#ff8f00] to-[#7a2b00] p-2 shadow-[0_0_28px_rgba(255,183,0,0.45)]">
+              <div className="w-full h-full rounded-[999px] bg-gradient-to-b from-[#6d23d9] to-[#341180] border-4 border-[#ffcc4d] flex flex-col items-center justify-center relative overflow-hidden">
+                <div className="absolute inset-0 opacity-25 bg-[radial-gradient(circle_at_center,rgba(255,255,255,0.25)_2px,transparent_2px)] [background-size:14px_14px]" />
+                <p className="relative z-10 text-[#ffe9a7] text-[58px] font-black leading-none tracking-wide">
+                  ROUND {(roundInfo.roundIndex || 0) + 1}
+                </p>
+                <p className="relative z-10 text-neon-cyan text-4xl font-bold mt-3">
+                  {roundInfo.round?.name}
+                </p>
+              </div>
+            </div>
+
+            <div className="absolute inset-0 pointer-events-none">
+              {Array.from({ length: 10 }).map((_, i) => (
+                <span
+                  key={i}
+                  className="absolute w-6 h-6 rounded-full bg-[#ffe66d] shadow-[0_0_14px_rgba(255,230,109,0.95)] border border-[#ffd54d]"
+                  style={{
+                    left: `${50 + 46 * Math.cos((i / 10) * 2 * Math.PI)}%`,
+                    top: `${50 + 44 * Math.sin((i / 10) * 2 * Math.PI)}%`,
+                    transform: 'translate(-50%, -50%)',
+                  }}
+                />
+              ))}
+            </div>
+          </div>
+
+          <div className="relative -mt-4 mb-4 flex items-center gap-6">
+            <span className="text-6xl text-[#ffd64d] drop-shadow-[0_0_10px_rgba(255,214,77,0.8)]">
+              *
+            </span>
+            <span className="text-8xl text-[#ffd64d] drop-shadow-[0_0_10px_rgba(255,214,77,0.8)]">
+              *
+            </span>
+            <span className="text-6xl text-[#ffd64d] drop-shadow-[0_0_10px_rgba(255,214,77,0.8)]">
+              *
+            </span>
+          </div>
+
+          <div className="w-full max-w-[760px] rounded-3xl p-[3px] bg-gradient-to-r from-[#2cd7ff] via-[#1588ff] to-[#2cd7ff] shadow-[0_0_24px_rgba(44,215,255,0.45)]">
+            <div className="rounded-[22px] bg-gradient-to-r from-[#1e0a88]/95 to-[#5a14a8]/95 px-10 py-8 text-left">
+              <p className="text-[40px] font-black text-[#39ff14] leading-none mb-3">
+                + {getRoundScoringLines(roundInfo.round?.type).positive}
+              </p>
+              <p className="text-[40px] font-black text-[#ff2d2d] leading-none">
+                - {getRoundScoringLines(roundInfo.round?.type).negative}
+              </p>
+            </div>
+          </div>
         </div>
       )}
 
       {/* ── QUESTION ── */}
       {phase === 'question' && question && (
-        <div className="w-full h-full flex flex-col p-6 animate-fadeIn">
-          {/* Question number header */}
-          <div className="mb-4">
-            <h2 className="text-2xl font-black text-foreground/80">
-              Question {(question.questionIndex || 0) + 1}/{question.totalQuestions}
-            </h2>
-          </div>
-
-          {/* Main content area with neon border */}
-          <div className="flex-1 flex flex-col neon-border-strong rounded-2xl p-6 bg-surface/60">
-            {/* Media image */}
-            {question.question.mediaUrl && question.question.mediaType === 'image' && (
-              <div className="flex justify-center mb-4">
-                <img
-                  src={`${API_URL}${question.question.mediaUrl}`}
-                  alt="Question media"
-                  className="max-h-52 rounded-xl object-contain neon-border"
-                />
-              </div>
-            )}
-
-            {question.question.mediaUrl && question.question.mediaType === 'mp4' && (
-              <div className="flex justify-center mb-4">
-                <video
-                  src={`${API_URL}${question.question.mediaUrl}`}
-                  autoPlay
-                  muted={false}
-                  playsInline
-                  className="max-h-52 rounded-xl neon-border"
-                />
-              </div>
-            )}
-
-            {question.question.mediaUrl && question.question.mediaType === 'mp3' && (
-              <div className="flex justify-center mb-4">
-                <div className="neon-border rounded-xl px-8 py-4 flex items-center gap-4 bg-surface/80">
-                  <div className="flex items-end gap-1">
-                    {[0.6, 1, 0.4, 0.8, 0.5].map((h, i) => (
-                      <div
-                        key={i}
-                        className="w-1.5 bg-neon-cyan rounded-full animate-pulse"
-                        style={{ height: `${h * 24}px`, animationDelay: `${i * 150}ms` }}
-                      />
-                    ))}
-                  </div>
-                  <span className="text-neon-cyan font-medium">Now Playing</span>
+        <div className="w-full h-full flex flex-col p-4 animate-fadeIn">
+          <div className="mx-auto w-full max-w-[1060px] flex-1 rounded-2xl border border-neon-cyan/55 bg-[#060f2a]/78 shadow-[0_0_24px_rgba(0,229,255,0.22)] p-3">
+            <div className="rounded-xl border border-neon-cyan/35 bg-[#08142f]/90 px-4 py-2 mb-3 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-20 h-3 rounded-full bg-[#0b1836] border border-neon-cyan/40 overflow-hidden">
+                  <div
+                    className="h-full bg-gradient-to-r from-[#00e5ff] to-[#00ff6a]"
+                    style={{ width: `${Math.min(100, Math.round((responseCount / Math.max(1, totalTeams)) * 100))}%` }}
+                  />
+                </div>
+                <div className="text-[11px] text-neon-cyan font-semibold tracking-wide">
+                  WAITING FOR RESPONSES
                 </div>
               </div>
-            )}
-
-            {/* Timer ring - centered */}
-            <div className="flex justify-center mb-4">
-              <TimerRing remaining={timerRemaining} total={timerDuration} size={120} />
+              <div className="flex items-center gap-4 text-sm font-bold text-neon-cyan">
+                <span>{responseCount}</span>
+                <span>{totalTeams}</span>
+              </div>
             </div>
 
-            {/* Question text in styled bar */}
-            <div className="neon-border rounded-xl px-6 py-4 mb-6 bg-surface/80 text-center">
-              <p className="text-2xl font-bold">
+            <div className="relative rounded-2xl border border-white/20 overflow-hidden">
+              <div className="absolute left-4 top-3 z-10 text-white/90 text-2xl font-semibold">
+                Question {(question.questionIndex || 0) + 1}/{question.totalQuestions}
+              </div>
+
+              <div className="h-[300px] bg-[#020b22]">
+                {resolveMediaUrl(question.question.mediaUrl) &&
+                (question.question.mediaType || '').toLowerCase() === 'image' ? (
+                  <img
+                    src={resolveMediaUrl(question.question.mediaUrl)}
+                    alt="Question media"
+                    className="w-full h-full object-cover"
+                  />
+                ) : resolveMediaUrl(question.question.mediaUrl) &&
+                  (question.question.mediaType || '').toLowerCase() === 'mp4' ? (
+                  <video
+                    src={resolveMediaUrl(question.question.mediaUrl)}
+                    autoPlay
+                    muted={false}
+                    playsInline
+                    className="w-full h-full object-cover"
+                  />
+                ) : (
+                  <div className="w-full h-full bg-[radial-gradient(circle_at_20%_20%,rgba(0,229,255,0.2),transparent_40%),radial-gradient(circle_at_70%_40%,rgba(180,74,255,0.2),transparent_45%),#020b22]" />
+                )}
+              </div>
+
+              <div className="absolute left-1/2 -translate-x-1/2 -bottom-10 z-20 w-[124px] h-[124px] rounded-full p-[5px] bg-gradient-to-r from-[#ff4a4a] via-[#ffd400] to-[#00ff6a] shadow-[0_0_16px_rgba(0,229,255,0.4)]">
+                <div className="w-full h-full rounded-full bg-[#1a0b5d] border border-white/20 flex items-center justify-center">
+                  <span className="text-6xl font-black text-white">{timerRemaining}</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-12 rounded-xl border border-neon-cyan/35 bg-[#1a0f61]/85 px-5 py-4">
+              <p className="text-2xl font-bold text-white">
                 Q{(question.questionIndex || 0) + 1}. {question.question.text}
               </p>
             </div>
 
-            {/* Options grid - hexagonal style */}
-            <div
-              className={cn(
-                'grid gap-3',
-                question.question.options.length <= 4 ? 'grid-cols-2' : 'grid-cols-3',
-              )}
-            >
+            {resolveMediaUrl(question.question.mediaUrl) &&
+              (question.question.mediaType || '').toLowerCase() === 'mp3' && (
+              <div className="mt-3 neon-border rounded-xl px-8 py-3 flex items-center gap-4 bg-surface/80">
+                <div className="flex items-end gap-1">
+                  {[0.6, 1, 0.4, 0.8, 0.5].map((h, i) => (
+                    <div
+                      key={i}
+                      className="w-1.5 bg-neon-cyan rounded-full animate-pulse"
+                      style={{ height: `${h * 24}px`, animationDelay: `${i * 150}ms` }}
+                    />
+                  ))}
+                </div>
+                <span className="text-neon-cyan font-medium">Now Playing</span>
+              </div>
+            )}
+
+            <div className="mt-3 grid grid-cols-2 gap-3">
               {question.question.options.map((opt, i) => (
                 <div
                   key={i}
                   className={cn(
-                    'hex-option py-4 px-8 text-white font-bold text-lg flex items-center',
-                    OPTION_BG[i] || 'bg-[#1565c0]',
+                    'rounded-lg border border-neon-cyan/45 bg-[#071327]/95 px-4 py-3 text-white font-bold text-2xl flex items-center shadow-[inset_0_0_12px_rgba(0,229,255,0.08)]',
+                    i === 0 && 'bg-[#1d5fbe] border-[#2cd7ff]',
                   )}
                 >
-                  <span className="font-black mr-3 opacity-80">{OPTION_LETTERS[i]}.</span>
-                  <span>{opt.text}</span>
+                  <span className="font-black mr-3">{OPTION_LETTERS[i]}.</span>
+                  <span className="truncate">{opt.text}</span>
                 </div>
               ))}
             </div>
@@ -631,7 +669,6 @@ function VenueDisplayContent() {
         </div>
       )}
 
-      {/* ── REVEAL ── */}
       {phase === 'reveal' && revealData && question && (
         <div className="w-full h-full flex flex-col p-6 animate-fadeIn">
           <div className="text-center mb-4">

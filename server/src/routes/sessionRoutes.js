@@ -74,6 +74,17 @@ const sessionRoutes = async (fastify) => {
     return success(null, 'Session ended');
   });
 
+  fastify.delete('/:id', {
+    preHandler: [validateParams(idParamSchema)],
+  }, async (request, reply) => {
+    const session = await sessionService.deleteSession(request.params.id);
+    if (!session) {
+      reply.status(404);
+      return error('Session not found', 404);
+    }
+    return success(null, 'Session deleted');
+  });
+
   fastify.get('/:id/results', {
     preHandler: [validateParams(idParamSchema)],
   }, async (request, reply) => {

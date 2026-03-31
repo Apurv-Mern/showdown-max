@@ -14,7 +14,9 @@ const questionRoutes = require('./routes/questionRoutes');
 const sessionRoutes = require('./routes/sessionRoutes');
 const teamRoutes = require('./routes/teamRoutes');
 const mediaRoutes = require('./routes/mediaRoutes');
+const publicMediaRoutes = require('./routes/publicMediaRoutes');
 const roundRoutes = require('./routes/roundRoutes');
+const publicSessionRoutes = require('./routes/publicSessionRoutes');
 const { requireAdmin, requireAdminOrHost } = require('./middleware/authMiddleware');
 
 const start = async () => {
@@ -34,6 +36,8 @@ const start = async () => {
   });
 
   fastify.register(authRoutes, { prefix: '/api/auth' });
+  fastify.register(publicSessionRoutes, { prefix: '/api/public/sessions' });
+  fastify.register(publicMediaRoutes, { prefix: '/api/public/media' });
 
   fastify.register(async (scope) => {
     scope.addHook('onRequest', requireAdmin);

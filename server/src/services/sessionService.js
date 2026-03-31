@@ -1,5 +1,5 @@
 const { Op } = require('sequelize');
-const { Session, Quiz, Round, Question, Team } = require('../models');
+const { Session, Quiz, Round, Question, Team, Answer } = require('../models');
 const { generatePin } = require('../utils/pinGenerator');
 const { generateQRCode } = require('../utils/qrGenerator');
 const { generateHostToken } = require('../utils/tokenGenerator');
@@ -124,6 +124,34 @@ const endSession = async (sessionId) => {
 };
 
 /**
+ * Permanently delete a session and dependent team/answer data.
+ * @param {number} sessionId
+ * @returns {Promise<object|null>}
+ */
+const deleteSession = async (sessionId) => {
+  const session = await Session.findByPk(sessionId);
+  if (!session) return null;
+
+  const teams = await Team.findAll({
+    where: { sessionId },
+    attributes: ['id'],
+    raw: true,
+  });
+  const teamIds = teams.map((t) => t.id);
+
+  if (teamIds.length > 0) {
+    await Answer.destroy({ where: { teamId: { [Op.in]: teamIds } } });
+  }
+  await Team.destroy({ where: { sessionId } });
+
+  await redisStore.cleanupSession(session.pin);
+  await session.destroy();
+
+  logger.info('Session deleted', { sessionId, pin: session.pin, teamCount: teamIds.length });
+  return session;
+};
+
+/**
  * Get session results (teams sorted by score)
  * @param {number} sessionId
  * @returns {Promise<object | null>}
@@ -167,5 +195,6 @@ module.exports = {
   createSession,
   getSessionByPin,
   endSession,
+  deleteSession,
   getSessionResults,
 };

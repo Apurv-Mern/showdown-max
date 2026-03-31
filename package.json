@@ -12,6 +12,7 @@
     "dev:client": "npm run dev -w client",
     "dev:server": "npm run dev -w server",
     "build": "npm run build -w shared && npm run build -w server && npm run build -w client",
+    "build:prod": "npm run build -w shared && npm run build -w server && npm run build:prod -w client",
     "lint": "eslint ."
   },
   "devDependencies": {

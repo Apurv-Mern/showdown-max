@@ -6,6 +6,8 @@
   "scripts": {
     "dev": "nodemon src/index.js",
     "start": "node src/index.js",
+    "start:prod": "node dist/src/index.js",
+    "build": "node ./scripts/build.cjs",
     "db:migrate": "npx sequelize-cli db:migrate",
     "db:seed": "npx sequelize-cli db:seed:all",
     "db:undo": "npx sequelize-cli db:migrate:undo:all"

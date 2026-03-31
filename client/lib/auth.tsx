@@ -35,6 +35,8 @@ const EMAIL_KEYS: Record<AuthRole, string> = {
   host: 'auth_email_host',
 };
 
+const isAuthRole = (value: unknown): value is AuthRole => value === 'admin' || value === 'host';
+
 const getRoleFromPath = (pathname: string | null): AuthRole | null => {
   if (!pathname) return null;
   if (pathname.startsWith('/admin')) return 'admin';
@@ -112,27 +114,38 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     setHydrated(true);
   }, [scopedRole]);
 
-  const login = useCallback(async (email: string, password: string, role: AuthRole) => {
-    const res = await fetch(`${API_URL}/api/auth/login`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password, role }),
-    });
+  const login = useCallback(
+    async (email: string, password: string, role: AuthRole) => {
+      const res = await fetch(`${API_URL}/api/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password, role }),
+      });
 
-    const data = await res.json();
+      const data = await res.json();
 
-    if (!res.ok || !data.success) {
-      throw new Error(data.error || 'Login failed');
-    }
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'Login failed');
+      }
 
-    localStorage.setItem(TOKEN_KEYS[data.data.role], data.data.token);
-    localStorage.setItem(EMAIL_KEYS[data.data.role], email);
-    localStorage.setItem(ACTIVE_ROLE_KEY, data.data.role);
+      const responseRole: unknown = data?.data?.role;
 
-    if (!scopedRole || scopedRole === data.data.role) {
-      setState({ token: data.data.token, role: data.data.role, email });
-    }
-  }, [scopedRole]);
+      if (!isAuthRole(responseRole)) {
+        throw new Error('Invalid role returned from login');
+      }
+
+      const resolvedRole: AuthRole = responseRole;
+
+      localStorage.setItem(TOKEN_KEYS[resolvedRole], data.data.token);
+      localStorage.setItem(EMAIL_KEYS[resolvedRole], email);
+      localStorage.setItem(ACTIVE_ROLE_KEY, resolvedRole);
+
+      if (!scopedRole || scopedRole === resolvedRole) {
+        setState({ token: data.data.token, role: resolvedRole, email });
+      }
+    },
+    [scopedRole],
+  );
 
   const logout = useCallback(() => {
     const roleToLogout = scopedRole || state.role;
@@ -152,7 +165,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   if (!hydrated) return null;
 
   return (
-    <AuthContext.Provider value={{ ...state, login, logout, isAuthenticated: !!state.token, hydrated }}>
+    <AuthContext.Provider
+      value={{ ...state, login, logout, isAuthenticated: !!state.token, hydrated }}
+    >
       {children}
     </AuthContext.Provider>
   );
@@ -182,4 +197,3 @@ export const getStoredToken = (role?: AuthRole | null): string | null => {
   if (!resolved) return null;
   return localStorage.getItem(TOKEN_KEYS[resolved]);
 };
-

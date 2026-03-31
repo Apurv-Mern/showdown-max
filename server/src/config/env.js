@@ -1,8 +1,14 @@
 const { z } = require('zod');
 const dotenv = require('dotenv');
+const fs = require('fs');
 const path = require('path');
 
-dotenv.config({ path: path.resolve(__dirname, '../../../.env') });
+const envPathFromCwd = path.resolve(process.cwd(), '.env');
+const envPathFromSource = path.resolve(__dirname, '../../../.env');
+
+dotenv.config({
+  path: fs.existsSync(envPathFromCwd) ? envPathFromCwd : envPathFromSource,
+});
 
 const envSchema = z.object({
   DB_HOST: z.string().default('localhost'),

@@ -3,6 +3,9 @@
   "version": "1.0.0",
   "private": true,
   "main": "index.js",
+  "scripts": {
+    "build": "node ./scripts/build.cjs"
+  },
   "dependencies": {
     "zod": "^3.23.0"
   }

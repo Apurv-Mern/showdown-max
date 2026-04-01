@@ -3,12 +3,24 @@ const dotenv = require('dotenv');
 const fs = require('fs');
 const path = require('path');
 
-const envPathFromCwd = path.resolve(process.cwd(), '.env');
-const envPathFromSource = path.resolve(__dirname, '../../../.env');
+const resolveEnvPath = () => {
+  const candidates = [
+    path.resolve(process.cwd(), '.env'),
+    path.resolve(process.cwd(), '../.env'),
+    path.resolve(process.cwd(), '../../.env'),
+    path.resolve(__dirname, '../../../.env'),
+    path.resolve(__dirname, '../../../../.env'),
+  ];
 
-dotenv.config({
-  path: fs.existsSync(envPathFromCwd) ? envPathFromCwd : envPathFromSource,
-});
+  return candidates.find((candidate) => fs.existsSync(candidate));
+};
+
+const envPath = resolveEnvPath();
+if (envPath) {
+  dotenv.config({ path: envPath });
+} else {
+  dotenv.config();
+}
 
 const envSchema = z.object({
   DB_HOST: z.string().default('localhost'),
@@ -29,5 +41,19 @@ const envSchema = z.object({
 });
 
 const env = envSchema.parse(process.env);
+
+if (env.NODE_ENV === 'production') {
+  const missingProductionVars = [
+    'DB_HOST',
+    'DB_NAME',
+    'DB_USER',
+    'DB_PASSWORD',
+    'JWT_SECRET',
+  ].filter((key) => !process.env[key] || String(process.env[key]).trim() === '');
+
+  if (missingProductionVars.length > 0) {
+    throw new Error(`Missing required production env vars: ${missingProductionVars.join(', ')}`);
+  }
+}
 
 module.exports = { env };

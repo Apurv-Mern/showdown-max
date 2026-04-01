@@ -1,6 +1,7 @@
 const Fastify = require('fastify');
 const cors = require('@fastify/cors');
 const { env } = require('./config/env');
+const { getSSLConfig } = require('./config/ssl');
 const logger = require('./utils/logger');
 const { errorHandler } = require('./middleware/errorHandler');
 const { initializeSocket } = require('./socket');
@@ -20,9 +21,16 @@ const publicSessionRoutes = require('./routes/publicSessionRoutes');
 const { requireAdmin, requireAdminOrHost } = require('./middleware/authMiddleware');
 
 const start = async () => {
-  const fastify = Fastify({
+  const sslConfig = getSSLConfig();
+  const fastifyOptions = {
     logger: false,
-  });
+  };
+
+  if (sslConfig) {
+    fastifyOptions.https = sslConfig;
+  }
+
+  const fastify = Fastify(fastifyOptions);
 
   await fastify.register(cors, {
     origin: true,
@@ -65,8 +73,11 @@ const start = async () => {
   const httpServer = fastify.server;
   initializeSocket(httpServer);
 
+  const protocol = sslConfig ? 'https' : 'http';
   logger.info(`Server running on port ${env.PORT}`);
-  logger.info(`Health check: http://localhost:${env.PORT}/health`);
+  logger.info(`Environment: ${env.NODE_ENV}`);
+  logger.info(`Protocol: ${protocol.toUpperCase()}`);
+  logger.info(`Health check: ${protocol}://localhost:${env.PORT}/health`);
 };
 
 start().catch((err) => {

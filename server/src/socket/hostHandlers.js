@@ -3,6 +3,7 @@ const logger = require('../utils/logger');
 const gameController = require('../services/game-engine/gameController');
 const redisStore = require('../services/redisSessionStore');
 const { Session, Quiz, Round, Question, Team } = require('../models');
+const { normalizeTeamName, sanitizeTeamName } = require('../utils/teamName');
 
 /**
  * Registers host-specific socket event handlers
@@ -146,10 +147,24 @@ const hostHandlers = (io, socket) => {
       const { pin, teamName, score } = data;
       const sessionData = await redisStore.getSession(pin);
       if (!sessionData) return;
+      const cleanTeamName = sanitizeTeamName(teamName);
+      const normalized = normalizeTeamName(cleanTeamName);
+
+      const existingTeams = await Team.findAll({
+        where: { sessionId: sessionData.sessionId },
+        attributes: ['teamName'],
+      });
+      const duplicate = existingTeams.some((t) => normalizeTeamName(t.teamName) === normalized);
+      if (duplicate) {
+        socket.emit(SOCKET_EVENTS.ERROR, {
+          message: 'Team name already taken. Please choose a different name.',
+        });
+        return;
+      }
 
       const team = await Team.create({
         sessionId: sessionData.sessionId,
-        teamName,
+        teamName: cleanTeamName,
         score: score || 0,
       });
 

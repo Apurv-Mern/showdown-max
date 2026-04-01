@@ -5,6 +5,7 @@ const gameController = require('../services/game-engine/gameController');
 const redisStore = require('../services/redisSessionStore');
 const { Session, Team } = require('../models');
 const { joinSessionSchema } = require('shared/schemas/session');
+const { normalizeTeamName, sanitizeTeamName } = require('../utils/teamName');
 
 /**
  * Registers player-specific socket event handlers
@@ -21,6 +22,8 @@ const playerHandlers = (io, socket) => {
       }
 
       const { pin, teamName } = parsed.data;
+      const cleanTeamName = sanitizeTeamName(teamName);
+      const normalizedTeamName = normalizeTeamName(cleanTeamName);
       let sessionData = await redisStore.getSession(pin);
 
       if (!sessionData) {
@@ -33,9 +36,13 @@ const playerHandlers = (io, socket) => {
         sessionData = { sessionId: session.id };
       }
 
-      const existingTeam = await Team.findOne({
-        where: { sessionId: sessionData.sessionId, teamName },
+      const sessionTeams = await Team.findAll({
+        where: { sessionId: sessionData.sessionId },
+        attributes: ['id', 'teamName', 'isConnected', 'socketId', 'score'],
       });
+      const existingTeam = sessionTeams.find(
+        (t) => normalizeTeamName(t.teamName) === normalizedTeamName,
+      );
 
       let team;
       if (existingTeam) {
@@ -50,10 +57,10 @@ const playerHandlers = (io, socket) => {
         }
         team = existingTeam;
         await team.update({ isConnected: true, socketId: socket.id });
-        logger.info('Player reconnected', { pin, teamName, teamId: team.id });
+        logger.info('Player reconnected', { pin, teamName: team.teamName, teamId: team.id });
       } else {
         const session = await Session.findByPk(sessionData.sessionId);
-        const teamCount = await Team.count({ where: { sessionId: sessionData.sessionId } });
+        const teamCount = sessionTeams.length;
 
         if (session && teamCount >= session.maxTeams) {
           socket.emit(SOCKET_EVENTS.JOIN_ERROR, { message: 'Session is full' });
@@ -62,7 +69,7 @@ const playerHandlers = (io, socket) => {
 
         team = await Team.create({
           sessionId: sessionData.sessionId,
-          teamName,
+          teamName: cleanTeamName,
           socketId: socket.id,
         });
       }
@@ -88,6 +95,8 @@ const playerHandlers = (io, socket) => {
         gameState.totalTeams = Object.keys(gameState.teams).length;
         await redisStore.setGameState(pin, gameState);
       }
+      const currentRound = gameState?.rounds?.[gameState.currentRoundIndex];
+      const currentQuestion = currentRound?.questions?.[gameState.currentQuestionIndex] || null;
 
       const sessionPayload = {
         joined: true,
@@ -99,8 +108,30 @@ const playerHandlers = (io, socket) => {
           questionState: gameState.questionState,
           currentRoundIndex: gameState.currentRoundIndex,
           currentQuestionIndex: gameState.currentQuestionIndex,
+          totalRounds: gameState.rounds?.length || 0,
+          currentRound: currentRound
+            ? { name: currentRound.name, type: currentRound.type }
+            : null,
+          currentQuestion: currentQuestion
+            ? {
+                questionIndex: gameState.currentQuestionIndex,
+                totalQuestions: currentRound?.questions?.length || 0,
+                question: {
+                  id: currentQuestion.id,
+                  text: currentQuestion.text,
+                  options: (currentQuestion.options || []).map((o) => ({ text: o.text })),
+                  mediaUrl: currentQuestion.mediaUrl,
+                  mediaType: currentQuestion.mediaType,
+                },
+                timerDuration: currentQuestion.timerDuration || currentRound?.timerDuration || 30,
+                roundType: currentRound?.type || '',
+              }
+            : null,
           timerRemaining: gameState.timerRemaining,
+          responseCount: gameState.responseCount,
+          totalTeams: gameState.totalTeams,
           activeMiniGame: gameState.activeMiniGame,
+          teams: gameState.teams,
         } : null,
       };
 
@@ -115,6 +146,32 @@ const playerHandlers = (io, socket) => {
             totalRounds: gameState.rounds.length,
           });
         }
+        if (
+          gameState.state === 'QUESTION' &&
+          gameState.questionState === 'ACTIVE' &&
+          round &&
+          currentQuestion
+        ) {
+          socket.emit(SOCKET_EVENTS.QUESTION_ACTIVE, {
+            questionIndex: gameState.currentQuestionIndex,
+            totalQuestions: round.questions.length,
+            question: {
+              id: currentQuestion.id,
+              text: currentQuestion.text,
+              options: (currentQuestion.options || []).map((o) => ({ text: o.text })),
+              mediaUrl: currentQuestion.mediaUrl,
+              mediaType: currentQuestion.mediaType,
+            },
+            timerDuration: currentQuestion.timerDuration || round.timerDuration || 30,
+            roundType: round.type,
+          });
+          socket.emit(SOCKET_EVENTS.TIMER_UPDATE, { remaining: gameState.timerRemaining });
+        }
+        if (gameState.state === 'SCOREBOARD') {
+          socket.emit(SOCKET_EVENTS.SCOREBOARD, {
+            teams: Object.values(gameState.teams).sort((a, b) => b.score - a.score),
+          });
+        }
         if (gameState.state === 'BREAK') {
           socket.emit(SOCKET_EVENTS.BREAK_START, { duration: gameState.breakRemaining || gameState.breakDuration });
         }
@@ -124,7 +181,12 @@ const playerHandlers = (io, socket) => {
       }
 
       io.to(`session:${pin}`).emit(SOCKET_EVENTS.TEAM_JOINED, teamData);
-      logger.info('Player joined', { pin, teamName, teamId: team.id, isReconnect: !!existingTeam });
+      logger.info('Player joined', {
+        pin,
+        teamName: team.teamName,
+        teamId: team.id,
+        isReconnect: !!existingTeam,
+      });
     } catch (err) {
       logger.error('join_session error', { error: err.message, stack: err.stack });
       socket.emit(SOCKET_EVENTS.JOIN_ERROR, { message: 'Failed to join session' });

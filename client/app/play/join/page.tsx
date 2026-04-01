@@ -7,6 +7,8 @@ import { useSocket } from '@/hooks/useSocket';
 import { usePlayerSession } from '../layout';
 import { Button } from '@/components/shared/Button';
 
+const sanitizeTeamName = (name: string) => name.trim().replace(/\s+/g, ' ');
+
 function JoinContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -23,6 +25,27 @@ function JoinContent() {
 
     socket.on('session_state', (data: any) => {
       if (data.joined) {
+        const gs = data.gameState;
+        if (gs?.currentRound) {
+          sessionStorage.setItem(
+            'roundIntro',
+            JSON.stringify({
+              round: gs.currentRound,
+              roundIndex: gs.currentRoundIndex || 0,
+              totalRounds: gs.totalRounds || 0,
+            }),
+          );
+        }
+        if (gs?.currentQuestion) {
+          sessionStorage.setItem(
+            'questionActive',
+            JSON.stringify({
+              ...gs.currentQuestion,
+              timerRemaining: gs.timerRemaining,
+            }),
+          );
+        }
+
         setSession({
           pin,
           teamId: data.teamId,
@@ -30,7 +53,11 @@ function JoinContent() {
           score: data.score || 0,
         });
         setJoining(false);
-        router.push('/play/lobby');
+        if (gs?.state && gs.state !== 'LOBBY') {
+          router.push('/play/game');
+        } else {
+          router.push('/play/lobby');
+        }
       }
     });
 
@@ -47,12 +74,13 @@ function JoinContent() {
 
   const handleJoin = () => {
     setError('');
+    const cleanTeamName = sanitizeTeamName(teamName);
 
     if (!pin || pin.length !== 6) {
       setError('Please enter a valid 6-digit PIN');
       return;
     }
-    if (!teamName.trim()) {
+    if (!cleanTeamName) {
       setError('Please enter a team name');
       return;
     }
@@ -62,7 +90,7 @@ function JoinContent() {
     }
 
     setJoining(true);
-    socket.emit('join_session', { pin, teamName: teamName.trim() });
+    socket.emit('join_session', { pin, teamName: cleanTeamName });
   };
 
   return (
@@ -115,7 +143,7 @@ function JoinContent() {
             type="text"
             placeholder="Team Name"
             value={teamName}
-            onChange={(e) => setTeamName(e.target.value)}
+            onChange={(e) => setTeamName(e.target.value.replace(/\s{2,}/g, ' '))}
             className="w-full px-4 py-4 rounded-xl bg-surface neon-border text-foreground text-center text-lg placeholder:text-foreground/30 focus:outline-none focus:border-neon-cyan transition-colors touch-manipulation"
             maxLength={50}
           />

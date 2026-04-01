@@ -165,8 +165,8 @@ export default function GamePage() {
       try {
         const data = JSON.parse(savedQuestion);
         setQuestion(data);
-        setTimerDuration(data.timerDuration);
-        setTimerRemaining(data.timerDuration);
+        setTimerDuration(data.timerDuration || 30);
+        setTimerRemaining(data.timerRemaining ?? data.timerDuration ?? 0);
         setPhase('question');
       } catch {
         /* ignore */
@@ -181,10 +181,74 @@ export default function GamePage() {
     socket.on('session_state', (data: any) => {
       if (data.gameState) {
         const gs = data.gameState;
+        const myTeam = session.teamId ? gs.teams?.[session.teamId] : null;
+        const currentlyEliminated = Boolean(myTeam?.isEliminated);
+        if (myTeam?.score !== undefined) {
+          setSession({ score: myTeam.score });
+        }
+        setIsEliminated(currentlyEliminated);
+
+        if (gs.activeMiniGame) {
+          router.push(`/play/mini-game?game=${gs.activeMiniGame}`);
+          return;
+        }
+
+        if (gs.state === 'ROUND_INTRO' && gs.currentRound) {
+          setRoundInfo({
+            round: gs.currentRound,
+            roundIndex: gs.currentRoundIndex || 0,
+            totalRounds: gs.totalRounds || 0,
+          });
+          setPhase('round_intro');
+          return;
+        }
+
+        if (gs.state === 'QUESTION' && gs.currentQuestion) {
+          setQuestion(gs.currentQuestion);
+          setTimerDuration(gs.currentQuestion.timerDuration || 30);
+          setTimerRemaining(gs.timerRemaining ?? gs.currentQuestion.timerDuration ?? 0);
+          setSelectedOption(null);
+          setRevealData(null);
+          setPointsGained(null);
+          setWagerSubmitted(false);
+          setWagerAmount(0);
+
+          if (currentlyEliminated) {
+            setPhase('eliminated');
+          } else if (gs.questionState === 'ACTIVE') {
+            if (
+              gs.currentQuestion.roundType === 'WAGER' ||
+              gs.currentQuestion.roundType === 'FINAL_WAGER'
+            ) {
+              setPhase('wager_input');
+            } else {
+              setPhase('question');
+            }
+          } else {
+            setPhase('waiting');
+          }
+          return;
+        }
+
+        if (gs.state === 'SCOREBOARD' && gs.teams) {
+          const sorted = Object.values(gs.teams)
+            .sort((a: any, b: any) => Number(b.score || 0) - Number(a.score || 0))
+            .map((team: any) => ({
+              teamId: Number(team.teamId),
+              teamName: String(team.teamName || ''),
+              score: Number(team.score || 0),
+            }));
+          setScoreboard(sorted);
+          setPhase('scoreboard');
+          return;
+        }
+
         if (gs.state === 'BREAK') {
           setPhase('break');
         } else if (gs.state === 'FINAL_RESULTS') {
           setPhase('game_end');
+        } else if (gs.state === 'LOBBY') {
+          setPhase('waiting');
         }
       }
     });
@@ -266,7 +330,7 @@ export default function GamePage() {
         'game_end',
       ].forEach((e) => socket.off(e));
     };
-  }, [socket, session.pin, session.teamName, session.teamId, isEliminated, router, setSession]);
+  }, [socket, session.pin, session.teamName, session.teamId, isEliminated, router, setSession, clearSession]);
 
   const handleSelectOption = useCallback(
     (index: number) => {

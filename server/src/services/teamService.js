@@ -1,5 +1,6 @@
 const { Team, Session } = require('../models');
 const logger = require('../utils/logger');
+const { normalizeTeamName, sanitizeTeamName } = require('../utils/teamName');
 
 /**
  * Create a new team for a session (admin REST endpoint).
@@ -9,11 +10,14 @@ const createTeam = async ({ sessionId, teamName, score = 0 }) => {
   const session = await Session.findByPk(sessionId);
   if (!session) return null;
 
-  const existing = await Team.findOne({ where: { sessionId, teamName } });
+  const cleanTeamName = sanitizeTeamName(teamName);
+  const normalized = normalizeTeamName(cleanTeamName);
+  const existingTeams = await Team.findAll({ where: { sessionId }, attributes: ['teamName'] });
+  const existing = existingTeams.find((t) => normalizeTeamName(t.teamName) === normalized);
   if (existing) return null;
 
-  const team = await Team.create({ sessionId, teamName, score });
-  logger.info('Team created via admin API', { teamId: team.id, sessionId, teamName, score });
+  const team = await Team.create({ sessionId, teamName: cleanTeamName, score });
+  logger.info('Team created via admin API', { teamId: team.id, sessionId, teamName: cleanTeamName, score });
   return team;
 };
 

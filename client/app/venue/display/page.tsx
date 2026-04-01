@@ -631,7 +631,11 @@ function VenueDisplayContent() {
                     className="w-full h-full object-cover"
                   />
                 ) : (
-                  <div className="w-full h-full bg-[radial-gradient(circle_at_20%_20%,rgba(0,229,255,0.2),transparent_40%),radial-gradient(circle_at_70%_40%,rgba(180,74,255,0.2),transparent_45%),#020b22]" />
+                  <img
+                    src="/withoutImagequestion.png"
+                    alt="Question fallback"
+                    className="w-full h-full object-cover"
+                  />
                 )}
               </div>
 

@@ -45,6 +45,7 @@ module.exports = (sequelize) => {
   Session.associate = (models) => {
     Session.belongsTo(models.Quiz, { foreignKey: 'quizId', as: 'quiz' });
     Session.hasMany(models.Team, { foreignKey: 'sessionId', as: 'teams' });
+    Session.hasOne(models.HostAccount, { foreignKey: 'sessionId', as: 'assignedHost' });
   };
 
   return Session;

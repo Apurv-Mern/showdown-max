@@ -34,7 +34,7 @@ Max Showdown Trivia is a real-time live trivia platform designed for venues, sup
 └─────────┼────────────────┼───────────────┼──────────────┼────────┘
           │                │               │              │
 ┌─────────▼────────────────▼───────────────▼──────────────▼────────┐
-│                      FASTIFY SERVER (:3002)                       │
+│                      FASTIFY SERVER (:5001)                       │
 │                                                                   │
 │  ┌──────────┐  ┌───────────────┐  ┌──────────────────────────┐  │
 │  │ REST API │  │ Socket.io     │  │ Game Engine              │  │
@@ -285,8 +285,8 @@ Additional states: `BREAK`, `MINI_GAME`
 
 ### Live State Storage (Redis)
 
-| Key Pattern                     | Data                                               |
-| ------------------------------- | -------------------------------------------------- |
+| Key Pattern                   | Data                                               |
+| ----------------------------- | -------------------------------------------------- |
 | `game:{pin}:session`          | Session ID reference                               |
 | `game:{pin}:gameState`        | Full game state (rounds, scores, current question) |
 | `game:{pin}:lobby`            | Teams in lobby (hash)                              |
@@ -312,7 +312,7 @@ Falls back to an in-memory `Map` when Redis is unavailable.
 
 ## Deployment Notes
 
-- **Server**: Fastify on port 3002, Socket.io on same port
+- **Server**: Fastify on port 5001, Socket.io on same port
 - **Client**: Next.js on port 3000
 - **Database**: MySQL on port 3306
 - **Redis**: port 6379 (optional for dev)

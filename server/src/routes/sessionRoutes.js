@@ -11,12 +11,17 @@ const pinParamSchema = z.object({ pin: z.string().length(6) });
  * @param {import('fastify').FastifyInstance} fastify
  */
 const sessionRoutes = async (fastify) => {
+  const hostSessionId = (request) =>
+    request.user?.role === 'host' && request.user?.sessionId ? Number(request.user.sessionId) : null;
+
   fastify.get('/', async (request) => {
     const { status, page, limit } = request.query;
+    const sessionIdForHost = hostSessionId(request) || undefined;
     const result = await sessionService.getSessions({
       status,
       page: Number(page) || 1,
       limit: Number(limit) || 20,
+      sessionId: sessionIdForHost,
     });
     return success(result, 'Sessions fetched');
   });
@@ -24,6 +29,11 @@ const sessionRoutes = async (fastify) => {
   fastify.get('/:id', {
     preHandler: [validateParams(idParamSchema)],
   }, async (request, reply) => {
+    if (hostSessionId(request) && hostSessionId(request) !== Number(request.params.id)) {
+      reply.status(403);
+      return error('Access denied for this session', 403);
+    }
+
     const session = await sessionService.getSessionById(request.params.id);
     if (!session) {
       reply.status(404);
@@ -35,6 +45,11 @@ const sessionRoutes = async (fastify) => {
   fastify.post('/', {
     preHandler: [validateBody(createSessionSchema)],
   }, async (request, reply) => {
+    if (request.user?.role !== 'admin') {
+      reply.status(403);
+      return error('Admin access required', 403);
+    }
+
     try {
       const session = await sessionService.createSession(request.body);
       reply.status(201);
@@ -66,6 +81,11 @@ const sessionRoutes = async (fastify) => {
   fastify.post('/:id/end', {
     preHandler: [validateParams(idParamSchema)],
   }, async (request, reply) => {
+    if (hostSessionId(request) && hostSessionId(request) !== Number(request.params.id)) {
+      reply.status(403);
+      return error('Access denied for this session', 403);
+    }
+
     const session = await sessionService.endSession(request.params.id);
     if (!session) {
       reply.status(404);
@@ -77,6 +97,11 @@ const sessionRoutes = async (fastify) => {
   fastify.delete('/:id', {
     preHandler: [validateParams(idParamSchema)],
   }, async (request, reply) => {
+    if (request.user?.role !== 'admin') {
+      reply.status(403);
+      return error('Admin access required', 403);
+    }
+
     const session = await sessionService.deleteSession(request.params.id);
     if (!session) {
       reply.status(404);
@@ -88,6 +113,11 @@ const sessionRoutes = async (fastify) => {
   fastify.get('/:id/results', {
     preHandler: [validateParams(idParamSchema)],
   }, async (request, reply) => {
+    if (hostSessionId(request) && hostSessionId(request) !== Number(request.params.id)) {
+      reply.status(403);
+      return error('Access denied for this session', 403);
+    }
+
     const results = await sessionService.getSessionResults(request.params.id);
     if (!results) {
       reply.status(404);

@@ -21,8 +21,9 @@ const Question = require('./Question')(sequelize);
 const Session = require('./Session')(sequelize);
 const Team = require('./Team')(sequelize);
 const Answer = require('./Answer')(sequelize);
+const HostAccount = require('./HostAccount')(sequelize);
 
-const models = { Quiz, Round, Question, Session, Team, Answer };
+const models = { Quiz, Round, Question, Session, Team, Answer, HostAccount };
 
 Object.values(models).forEach((model) => {
   if (model.associate) {
@@ -33,7 +34,12 @@ Object.values(models).forEach((model) => {
 const testConnection = async () => {
   try {
     await sequelize.authenticate();
-    logger.info('MySQL connected');
+    logger.info('MySQL connected', {
+      host: env.DB_HOST,
+      port: env.DB_PORT,
+      database: env.DB_NAME,
+      user: env.DB_USER,
+    });
   } catch (err) {
     logger.error('MySQL connection failed', { error: err.message });
   }

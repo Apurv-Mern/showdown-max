@@ -8,9 +8,9 @@ import { useAuth } from '@/lib/auth';
 function HostNav() {
   const searchParams = useSearchParams();
   const router = useRouter();
-  const { logout } = useAuth();
-  const pin = searchParams.get('pin') || '';
-  const sessionId = searchParams.get('sessionId') || '';
+  const { logout, assignedSession } = useAuth();
+  const pin = searchParams.get('pin') || assignedSession?.pin || '';
+  const sessionId = searchParams.get('sessionId') || (assignedSession?.id ? String(assignedSession.id) : '');
 
   const qs = pin ? `?pin=${pin}${sessionId ? `&sessionId=${sessionId}` : ''}` : '';
 
@@ -21,7 +21,7 @@ function HostNav() {
 
   return (
     <header className="border-b border-border/50 px-4 py-1.5 flex items-center justify-between bg-surface/80">
-      <Link href={`/host/sessions`} className="text-lg font-bold">
+      <Link href={pin ? `/host/dashboard${qs}` : '/host/login'} className="text-lg font-bold">
         MAX <span className="text-neon-cyan text-glow-cyan">SHOWDOWN</span>
         <span className="text-foreground/30 text-sm ml-2 font-normal">Host Control</span>
       </Link>
@@ -31,9 +31,6 @@ function HostNav() {
             PIN: {pin}
           </span>
         )}
-        <Link href={`/host/sessions`} className="text-foreground/50 hover:text-neon-cyan transition-colors text-sm">
-          Sessions
-        </Link>
         <Link href={`/host/dashboard${qs}`} className="text-foreground/50 hover:text-neon-cyan transition-colors text-sm">
           Dashboard
         </Link>
@@ -54,7 +51,7 @@ function HostNav() {
 function HostAuthGuard({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
-  const { isAuthenticated, role } = useAuth();
+  const { isAuthenticated, role, assignedSession } = useAuth();
 
   if (pathname === '/host/login') {
     return <>{children}</>;
@@ -62,6 +59,20 @@ function HostAuthGuard({ children }: { children: React.ReactNode }) {
 
   if (!isAuthenticated || role !== 'host') {
     router.replace('/host/login');
+    return null;
+  }
+
+  if (!assignedSession?.pin || !assignedSession?.id) {
+    if (pathname !== '/host/login') {
+      router.replace('/host/login');
+    }
+    return null;
+  }
+
+  const assignedQs = `?pin=${assignedSession.pin}&sessionId=${assignedSession.id}`;
+
+  if (pathname === '/host/sessions') {
+    router.replace(`/host/dashboard${assignedQs}`);
     return null;
   }
 

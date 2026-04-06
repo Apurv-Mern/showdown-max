@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
 import { Button } from '@/components/shared/Button';
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner';
+import { useAuth } from '@/lib/auth';
 
 interface Session {
   id: number;
@@ -18,10 +19,16 @@ interface Session {
 
 export default function HostSessionsPage() {
   const router = useRouter();
+  const { assignedSession } = useAuth();
   const [sessions, setSessions] = useState<Session[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    if (assignedSession?.pin && assignedSession?.id) {
+      router.replace(`/host/dashboard?pin=${assignedSession.pin}&sessionId=${assignedSession.id}`);
+      return;
+    }
+
     const fetchSessions = async () => {
       try {
         const res = await api.get<{ sessions: Session[]; total: number }>('/api/sessions?status=pending');
@@ -34,7 +41,7 @@ export default function HostSessionsPage() {
       }
     };
     fetchSessions();
-  }, []);
+  }, [assignedSession, router]);
 
   const handleSelect = (session: Session) => {
     router.push(`/host/dashboard?pin=${session.pin}&sessionId=${session.id}`);

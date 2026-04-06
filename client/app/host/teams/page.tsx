@@ -6,6 +6,7 @@ import { useSocket } from '@/hooks/useSocket';
 import { Button } from '@/components/shared/Button';
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner';
 import { Modal } from '@/components/shared/Modal';
+import { useAuth } from '@/lib/auth';
 
 interface Team {
   teamId: number;
@@ -17,7 +18,8 @@ interface Team {
 
 function HostTeamsContent() {
   const searchParams = useSearchParams();
-  const pin = searchParams.get('pin') || '';
+  const { assignedSession } = useAuth();
+  const pin = assignedSession?.pin || searchParams.get('pin') || '';
 
   const { socket, isConnected } = useSocket();
   const [teams, setTeams] = useState<Team[]>([]);

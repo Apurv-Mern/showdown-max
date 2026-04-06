@@ -17,6 +17,7 @@ const teamRoutes = require('./routes/teamRoutes');
 const mediaRoutes = require('./routes/mediaRoutes');
 const publicMediaRoutes = require('./routes/publicMediaRoutes');
 const roundRoutes = require('./routes/roundRoutes');
+const hostRoutes = require('./routes/hostRoutes');
 const publicSessionRoutes = require('./routes/publicSessionRoutes');
 const { requireAdmin, requireAdminOrHost } = require('./middleware/authMiddleware');
 
@@ -53,6 +54,7 @@ const start = async () => {
     scope.register(questionRoutes, { prefix: '/api/questions' });
     scope.register(mediaRoutes, { prefix: '/api/media' });
     scope.register(roundRoutes, { prefix: '/api/rounds' });
+    scope.register(hostRoutes, { prefix: '/api/hosts' });
   });
 
   fastify.register(async (scope) => {
@@ -62,10 +64,18 @@ const start = async () => {
   });
 
   await testConnection();
+  logger.info('Database target', {
+    host: env.DB_HOST,
+    port: env.DB_PORT,
+    database: env.DB_NAME,
+    user: env.DB_USER,
+  });
   getRedisClient();
 
-  if (env.NODE_ENV === 'development') {
+  if (env.NODE_ENV === 'development' && env.DB_SYNC_ALTER) {
     await syncDatabase({ alter: true });
+  } else if (env.NODE_ENV === 'development') {
+    logger.info('Skipping sequelize sync alter in development (set DB_SYNC_ALTER=true to enable)');
   }
 
   await fastify.listen({ port: env.PORT, host: '0.0.0.0' });

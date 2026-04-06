@@ -1,4 +1,5 @@
 const { Question, Round, Quiz } = require('../models');
+const { Op } = require('sequelize');
 const logger = require('../utils/logger');
 
 /**
@@ -27,7 +28,7 @@ const getQuestions = async ({ roundId, roundType, category, search, page = 1, li
         model: Quiz,
         as: 'quiz',
         attributes: [],
-        where: { isActive: true },
+        where: { isActive: { [Op.not]: false } },
         required: true,
       }],
       where: Object.keys(roundWhere).length > 0 ? roundWhere : undefined,
@@ -57,7 +58,7 @@ const getQuestionById = async (questionId) => {
         model: Quiz,
         as: 'quiz',
         attributes: [],
-        where: { isActive: true },
+        where: { isActive: { [Op.not]: false } },
         required: true,
       }],
       required: true,
@@ -78,7 +79,7 @@ const createQuestion = async (data) => {
         model: Quiz,
         as: 'quiz',
         attributes: ['id'],
-        where: { isActive: true },
+        where: { isActive: { [Op.not]: false } },
         required: true,
       }],
     });
@@ -121,7 +122,7 @@ const updateQuestion = async (questionId, data) => {
         model: Quiz,
         as: 'quiz',
         attributes: ['id'],
-        where: { isActive: true },
+        where: { isActive: { [Op.not]: false } },
         required: true,
       }],
     });

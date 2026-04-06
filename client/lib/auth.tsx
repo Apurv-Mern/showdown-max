@@ -3,13 +3,14 @@
 import { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
 import { usePathname } from 'next/navigation';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3002';
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5001';
 type AuthRole = 'admin' | 'host';
 
 interface AuthState {
   token: string | null;
   role: AuthRole | null;
   email: string | null;
+  assignedSession: { id: number; pin: string; status: string } | null;
 }
 
 interface AuthContextValue extends AuthState {
@@ -68,21 +69,21 @@ const resolveRole = (preferredRole?: AuthRole | null): AuthRole | null => {
 };
 
 function readStoredAuth(preferredRole?: AuthRole | null): AuthState {
-  if (typeof window === 'undefined') return { token: null, role: null, email: null };
+  if (typeof window === 'undefined') return { token: null, role: null, email: null, assignedSession: null };
   migrateLegacyAuthIfNeeded();
   const role = resolveRole(preferredRole);
-  if (!role) return { token: null, role: null, email: null };
+  if (!role) return { token: null, role: null, email: null, assignedSession: null };
   const token = localStorage.getItem(TOKEN_KEYS[role]);
   const email = localStorage.getItem(EMAIL_KEYS[role]);
-  if (token) return { token, role, email };
-  return { token: null, role: null, email: null };
+  if (token) return { token, role, email, assignedSession: null };
+  return { token: null, role: null, email: null, assignedSession: null };
 }
 
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const pathname = usePathname();
   const scopedRole = getRoleFromPath(pathname);
 
-  const [state, setState] = useState<AuthState>({ token: null, role: null, email: null });
+  const [state, setState] = useState<AuthState>({ token: null, role: null, email: null, assignedSession: null });
   const [hydrated, setHydrated] = useState(false);
 
   useEffect(() => {
@@ -99,7 +100,12 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
             localStorage.setItem(TOKEN_KEYS[stored.role!], stored.token!);
             localStorage.setItem(EMAIL_KEYS[stored.role!], data.data.email || '');
             localStorage.setItem(ACTIVE_ROLE_KEY, stored.role!);
-            setState({ token: stored.token, role: data.data.role, email: data.data.email });
+            setState({
+              token: stored.token,
+              role: data.data.role,
+              email: data.data.email,
+              assignedSession: data.data.assignedSession || null,
+            });
           } else {
             localStorage.removeItem(TOKEN_KEYS[stored.role!]);
             localStorage.removeItem(EMAIL_KEYS[stored.role!]);
@@ -141,7 +147,12 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       localStorage.setItem(ACTIVE_ROLE_KEY, resolvedRole);
 
       if (!scopedRole || scopedRole === resolvedRole) {
-        setState({ token: data.data.token, role: resolvedRole, email });
+        setState({
+          token: data.data.token,
+          role: resolvedRole,
+          email,
+          assignedSession: data.data.assignedSession || null,
+        });
       }
     },
     [scopedRole],

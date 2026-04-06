@@ -10,18 +10,19 @@ const montserrat = Montserrat({
   subsets: ['latin'],
   display: 'swap',
 });
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5001';
 
 export default function HostLoginPage() {
   const router = useRouter();
-  const { login, isAuthenticated, role } = useAuth();
+  const { login, isAuthenticated, role, assignedSession } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [rememberMe, setRememberMe] = useState(true);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
-  if (isAuthenticated && role === 'host') {
-    router.replace('/host/sessions');
+  if (isAuthenticated && role === 'host' && assignedSession?.pin) {
+    router.replace(`/host/dashboard?pin=${assignedSession.pin}&sessionId=${assignedSession.id}`);
     return null;
   }
 
@@ -32,7 +33,23 @@ export default function HostLoginPage() {
 
     try {
       await login(email, password, 'host');
-      router.replace('/host/sessions');
+      const params = new URLSearchParams(window.location.search);
+      const nextPin = params.get('pin');
+      const nextSessionId = params.get('sessionId');
+      if (nextPin && nextSessionId) {
+        router.replace(`/host/dashboard?pin=${nextPin}&sessionId=${nextSessionId}`);
+      } else {
+        const meRes = await fetch(`${API_URL}/api/auth/me`, {
+          headers: { Authorization: `Bearer ${localStorage.getItem('auth_token_host') || ''}` },
+        });
+        const meData = await meRes.json();
+        const assigned = meData?.data?.assignedSession;
+        if (assigned?.pin && assigned?.id) {
+          router.replace(`/host/dashboard?pin=${assigned.pin}&sessionId=${assigned.id}`);
+        } else {
+          setError('No session assigned to this host account');
+        }
+      }
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Login failed');
     } finally {

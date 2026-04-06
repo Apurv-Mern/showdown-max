@@ -1,4 +1,5 @@
 const { Quiz, Round, Question, sequelize } = require('../models');
+const { Op } = require('sequelize');
 const logger = require('../utils/logger');
 
 /**
@@ -8,10 +9,9 @@ const logger = require('../utils/logger');
  */
 const getAllQuizzes = async ({ page = 1, limit = 20, search } = {}) => {
   const where = {
-    isActive: true,
+    isActive: { [Op.not]: false },
   };
   if (search) {
-    const { Op } = require('sequelize');
     where.title = { [Op.like]: `%${search}%` };
   }
 
@@ -41,7 +41,7 @@ const getQuizById = async (quizId) => {
   return Quiz.findOne({
     where: {
       id: quizId,
-      isActive: true,
+      isActive: { [Op.not]: false },
     },
     include: [{
       model: Round,
@@ -105,7 +105,7 @@ const updateQuiz = async (quizId, data) => {
 
   try {
     const quiz = await Quiz.findOne({
-      where: { id: quizId, isActive: true },
+      where: { id: quizId, isActive: { [Op.not]: false } },
       transaction,
     });
     if (!quiz) {
@@ -147,7 +147,7 @@ const updateQuiz = async (quizId, data) => {
  */
 const deleteQuiz = async (quizId) => {
   const quiz = await Quiz.findOne({
-    where: { id: quizId, isActive: true },
+    where: { id: quizId, isActive: { [Op.not]: false } },
   });
   if (!quiz) return false;
   await quiz.update({ isActive: false });

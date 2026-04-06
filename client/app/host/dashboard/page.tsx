@@ -10,8 +10,9 @@ import { useTimerSound } from '@/hooks/useTimerSound';
 import { useAudio } from '@/hooks/useAudio';
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner';
 import { cn } from '@/lib/utils';
+import { useAuth } from '@/lib/auth';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3002';
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5001';
 
 function formatRoundTypeLabel(type: string): string {
   return type
@@ -257,8 +258,11 @@ function HostFooterBtn({
 function HostDashboardContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
-  const pin = searchParams.get('pin') || '';
-  const sessionId = searchParams.get('sessionId') || '';
+  const { assignedSession } = useAuth();
+  const pin = assignedSession?.pin || searchParams.get('pin') || '';
+  const sessionId = assignedSession?.id
+    ? String(assignedSession.id)
+    : searchParams.get('sessionId') || '';
 
   const { socket, isConnected } = useSocket();
   const [gameState, setGameState] = useState<GameState | null>(null);
@@ -444,19 +448,22 @@ function HostDashboardContent() {
       setMiniGameLoading(false);
     });
 
-    socket.on('mini_game_end', (data: { game?: string; winningCard?: number; winningKangaroo?: number }) => {
-      setMiniGameLoading(false);
-      if (data?.game) {
-        setMiniGameRevealing(true);
-        setTimeout(() => {
+    socket.on(
+      'mini_game_end',
+      (data: { game?: string; winningCard?: number; winningKangaroo?: number }) => {
+        setMiniGameLoading(false);
+        if (data?.game) {
+          setMiniGameRevealing(true);
+          setTimeout(() => {
+            setActiveMiniGameLocal(null);
+            setMiniGameRevealing(false);
+          }, 5000);
+        } else {
           setActiveMiniGameLocal(null);
           setMiniGameRevealing(false);
-        }, 5000);
-      } else {
-        setActiveMiniGameLocal(null);
-        setMiniGameRevealing(false);
-      }
-    });
+        }
+      },
+    );
 
     const onMiniGameUpdate = (data: { action?: string; value?: number }) => {
       if (data.action !== 'select' || typeof data.value !== 'number') return;
@@ -754,12 +761,12 @@ function HostDashboardContent() {
             className="flex flex-wrap items-center justify-end gap-3 text-sm lg:gap-4 lg:text-base"
             data-node-id="232:4450"
           >
-            <Link
-              href="/host/sessions"
-              className="text-[#00d9ff]/80 underline-offset-2 hover:text-[#00d9ff] hover:underline"
-            >
-              Sessions
-            </Link>
+            {/* <Link
+                href="/host/sessions"
+                className="text-[#00d9ff]/80 underline-offset-2 hover:text-[#00d9ff] hover:underline"
+              >
+                Sessions
+              </Link> */}
             <Link
               href={`/host/teams?pin=${encodeURIComponent(pin)}${sessionId ? `&sessionId=${encodeURIComponent(sessionId)}` : ''}`}
               className="text-[#00d9ff]/80 underline-offset-2 hover:text-[#00d9ff] hover:underline"
@@ -909,11 +916,15 @@ function HostDashboardContent() {
           data-node-id="232:4518"
         >
           {/* ── Mini-Game Active / Loading ── */}
-          {(activeMiniGameLocal || miniGameLoading) ? (
+          {activeMiniGameLocal || miniGameLoading ? (
             <div className="flex min-h-0 flex-1 flex-col rounded-2xl border-2 border-[rgba(0,217,255,0.45)] bg-[linear-gradient(180deg,rgba(26,31,46,0.85)_0%,rgba(11,15,26,0.92)_100%)] p-4 shadow-[0_0_28px_rgba(0,217,255,0.12)] sm:p-6">
               <div className="mb-4 flex shrink-0 items-center justify-between">
                 <h2 className="text-2xl font-semibold text-white sm:text-[30px]">
-                  {activeMiniGameLocal === 'horse_race' ? 'Kangaroo Race' : activeMiniGameLocal === 'card_shuffle' ? 'Card Shuffle' : 'Mini-Game'}
+                  {activeMiniGameLocal === 'horse_race'
+                    ? 'Kangaroo Race'
+                    : activeMiniGameLocal === 'card_shuffle'
+                      ? 'Card Shuffle'
+                      : 'Mini-Game'}
                 </h2>
                 <div className="flex items-center gap-3">
                   {miniGameRevealing ? (
@@ -945,7 +956,9 @@ function HostDashboardContent() {
                   <div className="text-5xl animate-pulse">
                     {gameState?.activeMiniGame === 'horse_race' ? '🦘' : '🃏'}
                   </div>
-                  <p className="text-lg font-semibold text-white/60">Launching mini-game on venue...</p>
+                  <p className="text-lg font-semibold text-white/60">
+                    Launching mini-game on venue...
+                  </p>
                   <div className="h-1.5 w-48 overflow-hidden rounded-full bg-white/10">
                     <div className="h-full w-full animate-[shimmer_1.5s_ease-in-out_infinite] rounded-full bg-[linear-gradient(90deg,transparent_0%,#00d9ff_50%,transparent_100%)] bg-[length:200%_100%]" />
                   </div>
@@ -953,8 +966,12 @@ function HostDashboardContent() {
               ) : activeMiniGameLocal === 'card_shuffle' ? (
                 <div className="flex flex-1 flex-col items-center justify-center gap-6">
                   <div className="text-6xl">🃏</div>
-                  <p className="text-xl font-bold text-white">Card Shuffle is running on the big screen</p>
-                  <p className="text-sm text-white/50">Players are choosing Left, Middle, or Right on their phones</p>
+                  <p className="text-xl font-bold text-white">
+                    Card Shuffle is running on the big screen
+                  </p>
+                  <p className="text-sm text-white/50">
+                    Players are choosing Left, Middle, or Right on their phones
+                  </p>
                   <div className="mt-2 flex gap-4">
                     {CARD_SHUFFLE_SLOTS.map((n, i) => (
                       <div
@@ -967,22 +984,33 @@ function HostDashboardContent() {
                         )}
                       >
                         <span className="text-3xl">🃏</span>
-                        <span className="text-sm font-bold text-white">{CARD_POSITION_LABELS[n]}</span>
-                        <span className="text-lg font-mono font-bold text-[#00d9ff]">{cardPickCounts[i] ?? 0}</span>
-                        <span className="text-[10px] uppercase tracking-wider text-white/40">picks</span>
+                        <span className="text-sm font-bold text-white">
+                          {CARD_POSITION_LABELS[n]}
+                        </span>
+                        <span className="text-lg font-mono font-bold text-[#00d9ff]">
+                          {cardPickCounts[i] ?? 0}
+                        </span>
+                        <span className="text-[10px] uppercase tracking-wider text-white/40">
+                          picks
+                        </span>
                       </div>
                     ))}
                   </div>
                   {winningCard && (
                     <p className="text-xs text-white/30 mt-2">
-                      Winning position: <span className="text-green-400 font-semibold">{CARD_POSITION_LABELS[winningCard]}</span>
+                      Winning position:{' '}
+                      <span className="text-green-400 font-semibold">
+                        {CARD_POSITION_LABELS[winningCard]}
+                      </span>
                     </p>
                   )}
                 </div>
               ) : activeMiniGameLocal === 'horse_race' ? (
                 <div className="flex flex-1 flex-col items-center justify-center gap-6">
                   <div className="text-6xl">🦘</div>
-                  <p className="text-xl font-bold text-white">Kangaroo Race is running on the big screen</p>
+                  <p className="text-xl font-bold text-white">
+                    Kangaroo Race is running on the big screen
+                  </p>
                   <p className="text-sm text-white/50">Players are betting on their phones</p>
                   <div className="mt-2 flex flex-wrap justify-center gap-3">
                     {KANGAROO_SLOTS.map((n, i) => (
@@ -997,8 +1025,12 @@ function HostDashboardContent() {
                       >
                         <span className="text-2xl">🦘</span>
                         <span className="text-xs font-bold text-white">#{n}</span>
-                        <span className="text-base font-mono font-bold text-[#00d9ff]">{kangarooBetCounts[i] ?? 0}</span>
-                        <span className="text-[10px] uppercase tracking-wider text-white/40">bets</span>
+                        <span className="text-base font-mono font-bold text-[#00d9ff]">
+                          {kangarooBetCounts[i] ?? 0}
+                        </span>
+                        <span className="text-[10px] uppercase tracking-wider text-white/40">
+                          bets
+                        </span>
                       </div>
                     ))}
                   </div>

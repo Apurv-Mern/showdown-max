@@ -29,7 +29,7 @@ const envSchema = z.object({
   DB_USER: z.string().default('root'),
   DB_PASSWORD: z.string().default(''),
   REDIS_URL: z.string().default('redis://localhost:6379'),
-  PORT: z.coerce.number().default(3002),
+  PORT: z.coerce.number().default(5001),
   UPLOAD_DIR: z.string().default('./uploads'),
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
   JWT_SECRET: z.string().min(16).default('dev_jwt_secret_change_in_production'),
@@ -38,6 +38,10 @@ const envSchema = z.object({
   ADMIN_PASSWORD: z.string().min(4).default('admin123'),
   HOST_EMAIL: z.string().email().default('host@showdown.com'),
   HOST_PASSWORD: z.string().min(4).default('host123'),
+  DB_SYNC_ALTER: z
+    .string()
+    .optional()
+    .transform((value) => String(value).toLowerCase() === 'true'),
 });
 
 const env = envSchema.parse(process.env);

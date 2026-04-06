@@ -2,56 +2,70 @@
 
 module.exports = {
   async up(queryInterface, Sequelize) {
-    await queryInterface.createTable('teams', {
-      id: {
-        type: Sequelize.INTEGER,
-        primaryKey: true,
-        autoIncrement: true,
-      },
-      sessionId: {
-        type: Sequelize.INTEGER,
-        allowNull: false,
-        references: { model: 'sessions', key: 'id' },
-        onUpdate: 'CASCADE',
-        onDelete: 'CASCADE',
-      },
-      teamName: {
-        type: Sequelize.STRING(50),
-        allowNull: false,
-      },
-      score: {
-        type: Sequelize.INTEGER,
-        allowNull: false,
-        defaultValue: 0,
-      },
-      isEliminated: {
-        type: Sequelize.BOOLEAN,
-        allowNull: false,
-        defaultValue: false,
-      },
-      isConnected: {
-        type: Sequelize.BOOLEAN,
-        allowNull: false,
-        defaultValue: true,
-      },
-      socketId: {
-        type: Sequelize.STRING(100),
-        allowNull: true,
-      },
-      createdAt: {
-        type: Sequelize.DATE,
-        allowNull: false,
-      },
-      updatedAt: {
-        type: Sequelize.DATE,
-        allowNull: false,
-      },
+    const allTables = await queryInterface.showAllTables();
+    const tableNames = allTables.map((t) => {
+      if (typeof t === 'string') return t;
+      if (t && typeof t === 'object') return t.tableName || t.TABLE_NAME || '';
+      return '';
     });
 
-    await queryInterface.addIndex('teams', ['sessionId', 'teamName'], {
-      unique: true,
-      name: 'unique_team_per_session',
-    });
+    if (!tableNames.includes('teams')) {
+      await queryInterface.createTable('teams', {
+        id: {
+          type: Sequelize.INTEGER,
+          primaryKey: true,
+          autoIncrement: true,
+        },
+        sessionId: {
+          type: Sequelize.INTEGER,
+          allowNull: false,
+          references: { model: 'sessions', key: 'id' },
+          onUpdate: 'CASCADE',
+          onDelete: 'CASCADE',
+        },
+        teamName: {
+          type: Sequelize.STRING(50),
+          allowNull: false,
+        },
+        score: {
+          type: Sequelize.INTEGER,
+          allowNull: false,
+          defaultValue: 0,
+        },
+        isEliminated: {
+          type: Sequelize.BOOLEAN,
+          allowNull: false,
+          defaultValue: false,
+        },
+        isConnected: {
+          type: Sequelize.BOOLEAN,
+          allowNull: false,
+          defaultValue: true,
+        },
+        socketId: {
+          type: Sequelize.STRING(100),
+          allowNull: true,
+        },
+        createdAt: {
+          type: Sequelize.DATE,
+          allowNull: false,
+        },
+        updatedAt: {
+          type: Sequelize.DATE,
+          allowNull: false,
+        },
+      });
+    }
+
+    const indexes = await queryInterface.showIndex('teams');
+    const hasUniqueTeamPerSession = indexes.some((idx) => idx.name === 'unique_team_per_session');
+
+    if (!hasUniqueTeamPerSession) {
+      await queryInterface.addIndex('teams', ['sessionId', 'teamName'], {
+        unique: true,
+        name: 'unique_team_per_session',
+      });
+    }
   },
 
   async down(queryInterface) {

@@ -1,4 +1,5 @@
 const { z } = require('zod');
+const { Op } = require('sequelize');
 const { ROUND_TYPES } = require('shared/constants/roundTypes');
 const { Round, Quiz, Question } = require('../models');
 const { success, error } = require('../utils/responseWrapper');
@@ -36,7 +37,7 @@ const roundRoutes = async (fastify) => {
           model: Quiz,
           as: 'quiz',
           attributes: ['id', 'title'],
-          where: { isActive: true },
+          where: { isActive: { [Op.not]: false } },
           required: true,
         },
       ],
@@ -62,7 +63,7 @@ const roundRoutes = async (fastify) => {
     const { quizId, name, type, order, timerDuration } = request.body;
 
     const quiz = await Quiz.findOne({
-      where: { id: quizId, isActive: true },
+      where: { id: quizId, isActive: { [Op.not]: false } },
     });
     if (!quiz) {
       reply.status(404);
@@ -97,7 +98,7 @@ const roundRoutes = async (fastify) => {
           model: Quiz,
           as: 'quiz',
           attributes: ['id'],
-          where: { isActive: true },
+          where: { isActive: { [Op.not]: false } },
           required: true,
         },
       ],
@@ -120,7 +121,7 @@ const roundRoutes = async (fastify) => {
           model: Quiz,
           as: 'quiz',
           attributes: ['id', 'title'],
-          where: { isActive: true },
+          where: { isActive: { [Op.not]: false } },
           required: true,
         },
         { model: Question, as: 'questions', order: [['order', 'ASC']] },
@@ -140,7 +141,7 @@ const roundRoutes = async (fastify) => {
           model: Quiz,
           as: 'quiz',
           attributes: ['id', 'title'],
-          where: { isActive: true },
+          where: { isActive: { [Op.not]: false } },
           required: true,
         },
         { model: Question, as: 'questions', order: [['order', 'ASC']] },

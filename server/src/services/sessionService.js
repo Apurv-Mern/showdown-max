@@ -9,12 +9,13 @@ const logger = require('../utils/logger');
 
 /**
  * Get all sessions with optional filters
- * @param {{ status?: string, page?: number, limit?: number }} options
+ * @param {{ status?: string, page?: number, limit?: number, sessionId?: number }} options
  * @returns {Promise<{ sessions: object[], total: number }>}
  */
-const getSessions = async ({ status, page = 1, limit = 20 } = {}) => {
+const getSessions = async ({ status, page = 1, limit = 20, sessionId } = {}) => {
   const where = {};
   if (status) where.status = status;
+  if (sessionId) where.id = sessionId;
 
   const offset = (page - 1) * limit;
   const { rows, count } = await Session.findAndCountAll({

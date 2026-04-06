@@ -1,6 +1,6 @@
 import { clearStoredAuth, getStoredToken } from './auth';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3002';
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5001';
 
 interface ApiResponse<T> {
   success: boolean;
@@ -37,9 +37,7 @@ export const apiFetch = async <T>(
   // Content-Type: application/json and no body is rejected by Express body parsers.
   const body = options.body;
   const hasBody =
-    body !== undefined &&
-    body !== null &&
-    !(typeof body === 'string' && body.length === 0);
+    body !== undefined && body !== null && !(typeof body === 'string' && body.length === 0);
   if (hasBody && !headers['Content-Type'] && !headers['content-type']) {
     headers['Content-Type'] = 'application/json';
   }
@@ -74,7 +72,10 @@ export const apiFetch = async <T>(
 /**
  * Upload a file via FormData. Attaches JWT token automatically.
  */
-export const apiUpload = async <T>(endpoint: string, formData: FormData): Promise<ApiResponse<T>> => {
+export const apiUpload = async <T>(
+  endpoint: string,
+  formData: FormData,
+): Promise<ApiResponse<T>> => {
   const url = `${API_URL}${endpoint}`;
   const token = getStoredToken();
   const headers: Record<string, string> = {};

@@ -8,7 +8,7 @@ import { Button } from '@/components/shared/Button';
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner';
 import { Modal } from '@/components/shared/Modal';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3002';
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5001';
 
 interface Option {
   text: string;
@@ -200,7 +200,8 @@ export default function QuizDetailPage() {
     setFormData({
       text: question.text,
       category: question.category || '',
-      options: question.options.length > 0 ? [...question.options] : [...defaultNewQuestion.options],
+      options:
+        question.options.length > 0 ? [...question.options] : [...defaultNewQuestion.options],
       mediaUrl: question.mediaUrl || '',
       mediaType: question.mediaType || '',
       timerDuration: question.timerDuration ? String(question.timerDuration) : '',
@@ -328,9 +329,7 @@ export default function QuizDetailPage() {
 
   const totalQuestions = quiz.rounds.reduce((sum, r) => sum + r.questions.length, 0);
 
-  const roundIdx = selectedRound
-    ? sortedRounds.findIndex((r) => r.id === selectedRound.id)
-    : -1;
+  const roundIdx = selectedRound ? sortedRounds.findIndex((r) => r.id === selectedRound.id) : -1;
 
   return (
     <div className="flex flex-col gap-8 antialiased">
@@ -350,7 +349,14 @@ export default function QuizDetailPage() {
               disabled={addingRound}
               className="flex h-12 items-center gap-3 rounded-[14px] bg-[#2e354c] px-5 text-base font-medium text-white transition-colors duration-200 hover:bg-[#3a4260] disabled:opacity-50"
             >
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <svg
+                width="20"
+                height="20"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+              >
                 <line x1="12" y1="5" x2="12" y2="19" />
                 <line x1="5" y1="12" x2="19" y2="12" />
               </svg>
@@ -402,7 +408,14 @@ export default function QuizDetailPage() {
             className="flex h-24 w-40 shrink-0 items-center justify-center rounded-[14px] border-2 border-dashed border-[rgba(0,217,255,0.5)] text-[#00d9ff] transition-colors duration-150 hover:bg-[rgba(0,217,255,0.06)] disabled:opacity-50"
             aria-label="Add round"
           >
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <svg
+              width="24"
+              height="24"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+            >
               <line x1="12" y1="5" x2="12" y2="19" />
               <line x1="5" y1="12" x2="19" y2="12" />
             </svg>
@@ -425,9 +438,7 @@ export default function QuizDetailPage() {
               <label className="text-sm font-medium leading-5 text-[#99a1af]">Round Type</label>
               <select
                 value={selectedRound.type}
-                onChange={(e) =>
-                  patchRound(selectedRound.id, { type: e.target.value })
-                }
+                onChange={(e) => patchRound(selectedRound.id, { type: e.target.value })}
                 className="h-[49px] w-full rounded-[10px] border border-[rgba(0,217,255,0.3)] bg-[#252b45] px-4 text-sm text-white outline-none focus:border-[rgba(0,217,255,0.55)]"
               >
                 {Object.entries(ROUND_TYPE_LABELS).map(([value, label]) => (
@@ -438,7 +449,9 @@ export default function QuizDetailPage() {
               </select>
             </div>
             <div className="flex flex-col gap-2">
-              <label className="text-sm font-medium leading-5 text-[#99a1af]">Timer (seconds)</label>
+              <label className="text-sm font-medium leading-5 text-[#99a1af]">
+                Timer (seconds)
+              </label>
               <div className="relative">
                 <svg
                   className="absolute left-3 top-1/2 size-5 -translate-y-1/2 text-[#00d9ff]/80"
@@ -458,7 +471,12 @@ export default function QuizDetailPage() {
                   key={selectedRound.id}
                   onBlur={(e) => {
                     const v = Number(e.target.value);
-                    if (Number.isFinite(v) && v >= 5 && v <= 300 && v !== selectedRound.timerDuration) {
+                    if (
+                      Number.isFinite(v) &&
+                      v >= 5 &&
+                      v <= 300 &&
+                      v !== selectedRound.timerDuration
+                    ) {
                       patchRound(selectedRound.id, { timerDuration: v });
                     }
                   }}
@@ -563,7 +581,11 @@ export default function QuizDetailPage() {
                       </div>
                     </div>
                     <div className="flex shrink-0 gap-1 opacity-0 transition-opacity group-hover:opacity-100">
-                      <Button variant="ghost" size="sm" onClick={() => openEditModal(q, selectedRound.id)}>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => openEditModal(q, selectedRound.id)}
+                      >
                         Edit
                       </Button>
                       <Button
@@ -639,12 +661,18 @@ export default function QuizDetailPage() {
 
           {/* Media Section */}
           <div>
-            <label className="block text-sm font-medium text-foreground/70 mb-1">Media Attachment</label>
+            <label className="block text-sm font-medium text-foreground/70 mb-1">
+              Media Attachment
+            </label>
             {formData.mediaUrl ? (
               <div className="bg-surface-light border border-border rounded-lg p-3 flex items-center justify-between">
                 <div className="flex items-center gap-3 min-w-0">
                   <span className="text-lg shrink-0">
-                    {formData.mediaType === 'mp3' ? '🎵' : formData.mediaType === 'mp4' ? '🎬' : '🖼'}
+                    {formData.mediaType === 'mp3'
+                      ? '🎵'
+                      : formData.mediaType === 'mp4'
+                        ? '🎬'
+                        : '🖼'}
                   </span>
                   <div className="min-w-0">
                     <p className="text-sm font-medium truncate">
@@ -661,7 +689,12 @@ export default function QuizDetailPage() {
                       className="w-12 h-12 object-cover rounded"
                     />
                   )}
-                  <Button variant="ghost" size="sm" onClick={removeMedia} className="text-danger/60 hover:text-danger">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={removeMedia}
+                    className="text-danger/60 hover:text-danger"
+                  >
                     Remove
                   </Button>
                 </div>
@@ -696,7 +729,9 @@ export default function QuizDetailPage() {
             <div className="flex items-center justify-between mb-2">
               <label className="text-sm font-medium text-foreground/70">
                 Options
-                <span className="text-foreground/30 font-normal ml-1">(click radio to mark correct)</span>
+                <span className="text-foreground/30 font-normal ml-1">
+                  (click radio to mark correct)
+                </span>
               </label>
               {formData.options.length < 6 && (
                 <Button type="button" variant="ghost" size="sm" onClick={addOption}>
@@ -745,11 +780,7 @@ export default function QuizDetailPage() {
           {/* Actions */}
           <div className="flex gap-3 pt-2 border-t border-border">
             <Button onClick={handleSaveQuestion} disabled={saving || !formData.text.trim()}>
-              {saving
-                ? 'Saving...'
-                : editingQuestion
-                  ? 'Update Question'
-                  : 'Add Question'}
+              {saving ? 'Saving...' : editingQuestion ? 'Update Question' : 'Add Question'}
             </Button>
             <Button variant="secondary" onClick={closeModal}>
               Cancel

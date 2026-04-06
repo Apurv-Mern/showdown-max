@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { getStoredToken } from '@/lib/auth';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3002';
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5001';
 
 interface DashboardStats {
   totalQuizzes: number;
@@ -21,7 +21,16 @@ const STAT_CARDS: {
     key: 'totalQuizzes',
     label: 'Total Quizzes Created',
     icon: (
-      <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#00d9ff" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <svg
+        width="32"
+        height="32"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="#00d9ff"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
         <rect x="2" y="3" width="20" height="18" rx="2" />
         <path d="M8 7h8M8 11h8M8 15h4" />
       </svg>
@@ -31,7 +40,16 @@ const STAT_CARDS: {
     key: 'totalQuestions',
     label: 'Total Questions in Bank',
     icon: (
-      <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#00d9ff" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <svg
+        width="32"
+        height="32"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="#00d9ff"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
         <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
         <line x1="9" y1="9" x2="15" y2="9" />
         <line x1="12" y1="6" x2="12" y2="12" />
@@ -42,7 +60,16 @@ const STAT_CARDS: {
     key: 'activeSessions',
     label: 'Active Sessions',
     icon: (
-      <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#00d9ff" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <svg
+        width="32"
+        height="32"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="#00d9ff"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
         <polygon points="5 3 19 12 5 21 5 3" />
       </svg>
     ),
@@ -51,7 +78,16 @@ const STAT_CARDS: {
     key: 'totalTeams',
     label: 'Total Teams Registered',
     icon: (
-      <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#00d9ff" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <svg
+        width="32"
+        height="32"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="#00d9ff"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
         <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
         <circle cx="9" cy="7" r="4" />
         <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
@@ -74,9 +110,7 @@ export default function AdminDashboardPage() {
     async function fetchStats() {
       try {
         const token = getStoredToken();
-        const headers: HeadersInit = token
-          ? { Authorization: `Bearer ${token}` }
-          : {};
+        const headers: HeadersInit = token ? { Authorization: `Bearer ${token}` } : {};
 
         const [quizRes, questionRes, sessionRes] = await Promise.allSettled([
           fetch(`${API_URL}/api/quizzes`, { headers }),
@@ -85,9 +119,7 @@ export default function AdminDashboardPage() {
         ]);
 
         const quizData =
-          quizRes.status === 'fulfilled' && quizRes.value.ok
-            ? await quizRes.value.json()
-            : null;
+          quizRes.status === 'fulfilled' && quizRes.value.ok ? await quizRes.value.json() : null;
         const questionData =
           questionRes.status === 'fulfilled' && questionRes.value.ok
             ? await questionRes.value.json()
@@ -102,7 +134,7 @@ export default function AdminDashboardPage() {
           totalQuestions: questionData?.data?.length ?? questionData?.length ?? 0,
           activeSessions: Array.isArray(sessionData?.data)
             ? sessionData.data.filter(
-                (s: { status?: string }) => s.status === 'active' || s.status === 'in_progress'
+                (s: { status?: string }) => s.status === 'active' || s.status === 'in_progress',
               ).length
             : 0,
           totalTeams: 0,
@@ -118,9 +150,7 @@ export default function AdminDashboardPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <h1 className="text-[30px] font-medium leading-9 text-white">
-        Dashboard Overview
-      </h1>
+      <h1 className="text-[30px] font-medium leading-9 text-white">Dashboard Overview</h1>
 
       <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 xl:grid-cols-4">
         {STAT_CARDS.map((card) => (
@@ -137,9 +167,7 @@ export default function AdminDashboardPage() {
               <span className="text-4xl leading-10 text-[#00d9ff]">
                 {loading ? '—' : stats[card.key]}
               </span>
-              <span className="text-sm leading-5 text-white">
-                {card.label}
-              </span>
+              <span className="text-sm leading-5 text-white">{card.label}</span>
             </div>
           </div>
         ))}

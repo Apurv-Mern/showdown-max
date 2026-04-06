@@ -6,7 +6,7 @@ import { Button } from '@/components/shared/Button';
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner';
 import { Modal } from '@/components/shared/Modal';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3002';
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5001';
 
 interface Option {
   text: string;
@@ -70,8 +70,16 @@ const ROUND_TYPE_COLORS: Record<string, { bg: string; text: string; border: stri
   WAGER: { bg: 'bg-amber-500/10', text: 'text-amber-400', border: 'border-amber-500/30' },
   MUSIC: { bg: 'bg-purple-500/10', text: 'text-purple-400', border: 'border-purple-500/30' },
   ELIMINATION: { bg: 'bg-red-500/10', text: 'text-red-400', border: 'border-red-500/30' },
-  MAJORITY_RULES: { bg: 'bg-emerald-500/10', text: 'text-emerald-400', border: 'border-emerald-500/30' },
-  FINAL_MULTIPLE_CHOICE: { bg: 'bg-cyan-500/10', text: 'text-cyan-400', border: 'border-cyan-500/30' },
+  MAJORITY_RULES: {
+    bg: 'bg-emerald-500/10',
+    text: 'text-emerald-400',
+    border: 'border-emerald-500/30',
+  },
+  FINAL_MULTIPLE_CHOICE: {
+    bg: 'bg-cyan-500/10',
+    text: 'text-cyan-400',
+    border: 'border-cyan-500/30',
+  },
   FINAL_WAGER: { bg: 'bg-orange-500/10', text: 'text-orange-400', border: 'border-orange-500/30' },
 };
 
@@ -165,7 +173,9 @@ export default function QuestionsPage() {
       params.set('page', page.toString());
       params.set('limit', '30');
 
-      const res = await api.get<{ questions: Question[]; total: number }>(`/api/questions?${params}`);
+      const res = await api.get<{ questions: Question[]; total: number }>(
+        `/api/questions?${params}`,
+      );
       setQuestions(res.data.questions);
       setTotal(res.data.total);
     } catch (err) {
@@ -336,7 +346,11 @@ export default function QuestionsPage() {
   const totalPages = Math.ceil(total / 30);
 
   const getRoundColor = (type: string) =>
-    ROUND_TYPE_COLORS[type] || { bg: 'bg-primary/10', text: 'text-primary', border: 'border-primary/30' };
+    ROUND_TYPE_COLORS[type] || {
+      bg: 'bg-primary/10',
+      text: 'text-primary',
+      border: 'border-primary/30',
+    };
 
   return (
     <div className="flex flex-col gap-6 antialiased">
@@ -347,7 +361,14 @@ export default function QuestionsPage() {
           onClick={() => openAddModal()}
           className="flex h-12 items-center gap-3 rounded-[14px] bg-[#2e354c] px-5 text-base font-medium text-white transition-colors hover:bg-[#3a4260]"
         >
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <svg
+            width="20"
+            height="20"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+          >
             <line x1="12" y1="5" x2="12" y2="19" />
             <line x1="5" y1="12" x2="19" y2="12" />
           </svg>
@@ -355,7 +376,8 @@ export default function QuestionsPage() {
         </button>
       </div>
       <p className="text-sm text-[#99a1af]">
-        {total} question{total !== 1 ? 's' : ''} · set category to Easy, Medium, or Hard to tag difficulty for filters
+        {total} question{total !== 1 ? 's' : ''} · set category to Easy, Medium, or Hard to tag
+        difficulty for filters
       </p>
 
       {/* Filter bar — Figma 232:1390 */}
@@ -466,7 +488,9 @@ export default function QuestionsPage() {
                   {questions.map((q) => {
                     const dKey = difficultyFromCategory(q.category);
                     const diff = DIFFICULTY_STYLE[dKey];
-                    const roundLabel = q.round ? ROUND_TYPE_LABELS[q.round.type] || q.round.type : '—';
+                    const roundLabel = q.round
+                      ? ROUND_TYPE_LABELS[q.round.type] || q.round.type
+                      : '—';
                     return (
                       <tr
                         key={q.id}
@@ -484,7 +508,9 @@ export default function QuestionsPage() {
                             {diff.label}
                           </span>
                         </td>
-                        <td className="px-6 py-4 align-middle text-base text-white">{roundLabel}</td>
+                        <td className="px-6 py-4 align-middle text-base text-white">
+                          {roundLabel}
+                        </td>
                         <td className="px-6 py-4 align-middle">
                           <div className="flex gap-2">
                             <button
@@ -493,7 +519,14 @@ export default function QuestionsPage() {
                               className="flex size-[34px] items-center justify-center rounded-[10px] border border-[rgba(0,217,255,0.3)] bg-[#252b45] text-[#00d9ff] transition-colors hover:bg-[#2e354c]"
                               aria-label="Edit question"
                             >
-                              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                              <svg
+                                width="16"
+                                height="16"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="2"
+                              >
                                 <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
                                 <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
                               </svg>
@@ -504,7 +537,14 @@ export default function QuestionsPage() {
                               className="flex size-[34px] items-center justify-center rounded-[10px] border border-[rgba(255,0,128,0.3)] bg-[#252b45] text-pink-400 transition-colors hover:bg-[#2e354c]"
                               aria-label="Delete question"
                             >
-                              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                              <svg
+                                width="16"
+                                height="16"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="2"
+                              >
                                 <polyline points="3 6 5 6 21 6" />
                                 <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
                                 <line x1="10" y1="11" x2="10" y2="17" />
@@ -523,13 +563,23 @@ export default function QuestionsPage() {
 
           {totalPages > 1 && (
             <div className="flex items-center justify-center gap-3">
-              <Button variant="ghost" size="sm" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={page <= 1}
+                onClick={() => setPage((p) => p - 1)}
+              >
                 ← Prev
               </Button>
               <span className="text-sm text-[#99a1af]">
                 Page {page} of {totalPages}
               </span>
-              <Button variant="ghost" size="sm" disabled={page >= totalPages} onClick={() => setPage((p) => p + 1)}>
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={page >= totalPages}
+                onClick={() => setPage((p) => p + 1)}
+              >
                 Next →
               </Button>
             </div>
@@ -547,9 +597,7 @@ export default function QuestionsPage() {
         <div className="space-y-4 max-h-[70vh] overflow-y-auto pr-1">
           {/* Round Selection */}
           <div>
-            <label className="block text-sm font-medium text-foreground/70 mb-1">
-              Round *
-            </label>
+            <label className="block text-sm font-medium text-foreground/70 mb-1">Round *</label>
             <select
               value={formData.roundId}
               onChange={(e) => setFormData((p) => ({ ...p, roundId: e.target.value }))}
@@ -558,21 +606,27 @@ export default function QuestionsPage() {
               <option value="">Select a round...</option>
               {rounds.map((r) => (
                 <option key={r.id} value={r.id}>
-                  {ROUND_TYPE_ICONS[r.type]} {r.quiz?.title ? `${r.quiz.title} → ` : ''}{r.name} ({ROUND_TYPE_LABELS[r.type]})
+                  {ROUND_TYPE_ICONS[r.type]} {r.quiz?.title ? `${r.quiz.title} → ` : ''}
+                  {r.name} ({ROUND_TYPE_LABELS[r.type]})
                 </option>
               ))}
             </select>
-            {formData.roundId && (() => {
-              const selected = rounds.find((r) => String(r.id) === formData.roundId);
-              if (!selected) return null;
-              const color = getRoundColor(selected.type);
-              return (
-                <div className={`mt-2 px-3 py-2 rounded-lg text-xs ${color.bg} ${color.text} border ${color.border}`}>
-                  {ROUND_TYPE_LABELS[selected.type]} — {ROUND_TYPE_SCORING[selected.type]}
-                  <span className="opacity-60 ml-2">Default timer: {selected.timerDuration}s</span>
-                </div>
-              );
-            })()}
+            {formData.roundId &&
+              (() => {
+                const selected = rounds.find((r) => String(r.id) === formData.roundId);
+                if (!selected) return null;
+                const color = getRoundColor(selected.type);
+                return (
+                  <div
+                    className={`mt-2 px-3 py-2 rounded-lg text-xs ${color.bg} ${color.text} border ${color.border}`}
+                  >
+                    {ROUND_TYPE_LABELS[selected.type]} — {ROUND_TYPE_SCORING[selected.type]}
+                    <span className="opacity-60 ml-2">
+                      Default timer: {selected.timerDuration}s
+                    </span>
+                  </div>
+                );
+              })()}
           </div>
 
           {/* Question Text */}
@@ -622,12 +676,18 @@ export default function QuestionsPage() {
 
           {/* Media Section */}
           <div>
-            <label className="block text-sm font-medium text-foreground/70 mb-1">Media Attachment</label>
+            <label className="block text-sm font-medium text-foreground/70 mb-1">
+              Media Attachment
+            </label>
             {formData.mediaUrl ? (
               <div className="bg-surface-light border border-border rounded-lg p-3 flex items-center justify-between">
                 <div className="flex items-center gap-3 min-w-0">
                   <span className="text-lg shrink-0">
-                    {formData.mediaType === 'mp3' ? '🎵' : formData.mediaType === 'mp4' ? '🎬' : '🖼'}
+                    {formData.mediaType === 'mp3'
+                      ? '🎵'
+                      : formData.mediaType === 'mp4'
+                        ? '🎬'
+                        : '🖼'}
                   </span>
                   <div className="min-w-0">
                     <p className="text-sm font-medium truncate">
@@ -644,7 +704,12 @@ export default function QuestionsPage() {
                       className="w-12 h-12 object-cover rounded"
                     />
                   )}
-                  <Button variant="ghost" size="sm" onClick={removeMedia} className="text-danger/60 hover:text-danger">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={removeMedia}
+                    className="text-danger/60 hover:text-danger"
+                  >
                     Remove
                   </Button>
                 </div>
@@ -679,7 +744,9 @@ export default function QuestionsPage() {
             <div className="flex items-center justify-between mb-2">
               <label className="text-sm font-medium text-foreground/70">
                 Options
-                <span className="text-foreground/30 font-normal ml-1">(click radio to mark correct)</span>
+                <span className="text-foreground/30 font-normal ml-1">
+                  (click radio to mark correct)
+                </span>
               </label>
               {formData.options.length < 6 && (
                 <Button type="button" variant="ghost" size="sm" onClick={addOption}>
@@ -730,12 +797,11 @@ export default function QuestionsPage() {
 
           {/* Actions */}
           <div className="flex gap-3 pt-2 border-t border-border">
-            <Button onClick={handleSaveQuestion} disabled={saving || !formData.text.trim() || !formData.roundId}>
-              {saving
-                ? 'Saving...'
-                : editingQuestion
-                  ? 'Update Question'
-                  : 'Add Question'}
+            <Button
+              onClick={handleSaveQuestion}
+              disabled={saving || !formData.text.trim() || !formData.roundId}
+            >
+              {saving ? 'Saving...' : editingQuestion ? 'Update Question' : 'Add Question'}
             </Button>
             <Button variant="secondary" onClick={closeModal}>
               Cancel

@@ -5,10 +5,9 @@ import { api, apiUpload } from '@/lib/api';
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner';
 import { cn } from '@/lib/utils';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3002';
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5001';
 
-const ACCEPT_ALL =
-  'audio/mpeg,audio/mp3,video/mp4,image/jpeg,image/png,image/gif,image/webp';
+const ACCEPT_ALL = 'audio/mpeg,audio/mp3,video/mp4,image/jpeg,image/png,image/gif,image/webp';
 
 /** Figma 232:3872 — upload panel gradient */
 const BG_UPLOAD_PANEL =
@@ -71,15 +70,7 @@ function IconMusic({ className }: { className?: string }) {
 function IconVideo({ className }: { className?: string }) {
   return (
     <svg className={className} viewBox="0 0 20 20" fill="none" aria-hidden>
-      <rect
-        x="2"
-        y="4"
-        width="12"
-        height="12"
-        rx="2"
-        stroke="currentColor"
-        strokeWidth="1.5"
-      />
+      <rect x="2" y="4" width="12" height="12" rx="2" stroke="currentColor" strokeWidth="1.5" />
       <path
         d="M16 7l4-2v10l-4-2V7z"
         stroke="currentColor"
@@ -226,9 +217,7 @@ export default function MediaPage() {
     <div className="pb-10" data-name="Admin Media Library">
       {/* Figma 232:3870 Heading */}
       <div className="mb-6" data-name="Heading 2">
-        <h1 className="text-[30px] font-medium leading-9 text-white">
-          Media Library
-        </h1>
+        <h1 className="text-[30px] font-medium leading-9 text-white">Media Library</h1>
       </div>
 
       {/* Figma 232:3872 — drag & drop container */}
@@ -283,19 +272,13 @@ export default function MediaPage() {
           >
             Drag &amp; Drop Media Files
           </h2>
-          <p
-            data-name="Paragraph"
-            className="mb-8 text-center text-base text-[#99a1af]"
-          >
+          <p data-name="Paragraph" className="mb-8 text-center text-base text-[#99a1af]">
             or click to browse
           </p>
         </button>
 
         {/* Figma 232:3881 — Upload MP3 / Upload MP4 */}
-        <div
-          data-name="Container"
-          className="flex flex-wrap items-center justify-center gap-4"
-        >
+        <div data-name="Container" className="flex flex-wrap items-center justify-center gap-4">
           <button
             type="button"
             data-name="Button"
@@ -324,13 +307,12 @@ export default function MediaPage() {
           </button>
         </div>
 
-        {uploading && (
-          <p className="mt-4 text-sm text-[#99a1af]">Uploading…</p>
-        )}
+        {uploading && <p className="mt-4 text-sm text-[#99a1af]">Uploading…</p>}
       </section>
 
       <p className="mb-8 text-sm text-[#99a1af]">
-        Upload MP3 (audio), MP4 (video), and images (JPG/PNG/GIF/WebP) for questions. Max 50MB per file.
+        Upload MP3 (audio), MP4 (video), and images (JPG/PNG/GIF/WebP) for questions. Max 50MB per
+        file.
       </p>
 
       {loading ? (
@@ -370,15 +352,9 @@ export default function MediaPage() {
                   data-name="Container"
                   className="mb-3 flex h-[140px] items-center justify-center rounded-[10px] bg-[#252b45]"
                 >
-                  {isMp3 && (
-                    <IconMusic className="size-8 text-[#00d9ff]" />
-                  )}
-                  {isMp4 && (
-                    <IconVideo className="size-8 text-[#00d9ff]" />
-                  )}
-                  {isImage && (
-                    <IconImage className="size-8 text-[#00d9ff]" />
-                  )}
+                  {isMp3 && <IconMusic className="size-8 text-[#00d9ff]" />}
+                  {isMp4 && <IconVideo className="size-8 text-[#00d9ff]" />}
+                  {isImage && <IconImage className="size-8 text-[#00d9ff]" />}
                 </div>
                 <p
                   data-name="Paragraph"

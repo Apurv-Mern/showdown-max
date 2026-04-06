@@ -19,6 +19,12 @@ function JoinContent() {
   const [teamName, setTeamName] = useState(session.teamName || '');
   const [error, setError] = useState('');
   const [joining, setJoining] = useState(false);
+  const [showSplash, setShowSplash] = useState(true);
+
+  useEffect(() => {
+    const timer = setTimeout(() => setShowSplash(false), 5000);
+    return () => clearTimeout(timer);
+  }, []);
 
   useEffect(() => {
     if (!socket) return;
@@ -94,85 +100,109 @@ function JoinContent() {
   };
 
   return (
-    <div className="flex-1 flex items-center justify-center p-4">
+    <div className="flex-1 h-full min-h-0 flex justify-center bg-[#050017]">
       <motion.div
-        initial={{ opacity: 0, y: 30 }}
+        initial={{ opacity: 0, y: 24 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.5, ease: 'easeOut' }}
-        className="w-full max-w-sm text-center"
+        transition={{ duration: 0.45, ease: 'easeOut' }}
+        className="relative h-full min-h-0 w-full max-w-[390px] overflow-hidden border-2 border-[#06c6ff] mobile-play-bg px-5 pt-8"
+        style={{ backgroundImage: "url('/Mobile_BG.png')", backgroundSize: '100% 100%', backgroundPosition: 'center', backgroundRepeat: 'no-repeat' }}
       >
-        <motion.h1
-          initial={{ opacity: 0, scale: 0.9 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ delay: 0.1, duration: 0.4 }}
-          className="text-4xl font-bold mb-1"
-        >
-          MAX <span className="text-neon-cyan text-glow-cyan">SHOWDOWN</span>
-        </motion.h1>
-        <p className="text-foreground/50 text-sm mb-8">Enter the game PIN and your team name</p>
-
-        {error && (
+        {showSplash ? (
           <motion.div
-            initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: 'auto' }}
-            exit={{ opacity: 0, height: 0 }}
-            className="bg-neon-red/10 border border-neon-red/30 text-neon-red rounded-xl px-4 py-3 text-sm mb-4"
+            key="join-splash"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            className="relative z-10 flex h-full flex-col"
           >
-            {error}
+            <div className="flex-1" />
+            <img
+              src="/logo.png"
+              alt="Max Showdown logo"
+              className="mx-auto w-[92%] max-w-[330px] drop-shadow-[0_0_18px_rgba(0,229,255,0.22)]"
+            />
+            <div className="px-1 pb-14 pt-5 text-left">
+              <h1 className="text-[36px] font-black uppercase leading-[1] text-[#00d8ff]">
+                LIVE TRIVIA EXPERIENCE
+              </h1>
+              <p className="mt-2 text-[27px] font-semibold leading-[1.15] text-white">
+                Get ready-the game is about to begin
+              </p>
+            </div>
           </motion.div>
-        )}
-
-        <div className="space-y-4">
-          <motion.input
-            initial={{ opacity: 0, x: -20 }}
-            animate={{ opacity: 1, x: 0 }}
-            transition={{ delay: 0.2 }}
-            type="text"
-            inputMode="numeric"
-            placeholder="Game PIN"
-            value={pin}
-            onChange={(e) => setPin(e.target.value.replace(/\D/g, '').slice(0, 6))}
-            className="w-full px-4 py-4 rounded-xl bg-surface neon-border text-neon-cyan text-center text-2xl font-mono tracking-[0.3em] placeholder:text-foreground/30 placeholder:tracking-normal placeholder:text-lg placeholder:font-sans focus:outline-none focus:border-neon-cyan transition-colors touch-manipulation"
-            maxLength={6}
-            autoFocus
-          />
-          <motion.input
-            initial={{ opacity: 0, x: -20 }}
-            animate={{ opacity: 1, x: 0 }}
-            transition={{ delay: 0.3 }}
-            type="text"
-            placeholder="Team Name"
-            value={teamName}
-            onChange={(e) => setTeamName(e.target.value.replace(/\s{2,}/g, ' '))}
-            className="w-full px-4 py-4 rounded-xl bg-surface neon-border text-foreground text-center text-lg placeholder:text-foreground/30 focus:outline-none focus:border-neon-cyan transition-colors touch-manipulation"
-            maxLength={50}
-          />
+        ) : (
           <motion.div
-            initial={{ opacity: 0, y: 10 }}
+            key="join-form"
+            initial={{ opacity: 0, y: 14 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.4 }}
+            transition={{ duration: 0.35, ease: 'easeOut' }}
+            className="relative z-10"
           >
+            <motion.img
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              transition={{ delay: 0.1, duration: 0.4 }}
+              src="/logo.png"
+              alt="Max Showdown logo"
+              className="mx-auto w-[94%] max-w-[340px] drop-shadow-[0_0_18px_rgba(0,229,255,0.22)]"
+            />
+
+            <div className="mt-8 space-y-5 text-left">
+            {error && (
+              <motion.div
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: 'auto' }}
+                className="rounded-xl border border-[#ff3d6f]/40 bg-[#ff3d6f]/10 px-4 py-2.5 text-sm text-[#ff6f94]"
+              >
+                {error}
+              </motion.div>
+            )}
+
+            <div>
+              <label className="mb-2 block text-[31px] font-semibold leading-none text-white">
+                Enter Session PIN
+              </label>
+              <input
+                type="text"
+                inputMode="numeric"
+                placeholder="Enter Session PIN"
+                value={pin}
+                onChange={(e) => setPin(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                className="h-14 w-full rounded-[10px] border border-[#00d8ff]/70 bg-[rgba(10,18,40,0.92)] px-4 text-[17px] font-medium tracking-[0.06em] text-white placeholder:text-[#93a0b5] focus:outline-none focus:shadow-[0_0_14px_rgba(0,216,255,0.35)]"
+                maxLength={6}
+                autoFocus
+              />
+            </div>
+
+            <div>
+              <label className="mb-2 block text-[31px] font-semibold leading-none text-white">
+                Enter your Team Name
+              </label>
+              <input
+                type="text"
+                placeholder="Enter Team Name"
+                value={teamName}
+                onChange={(e) => setTeamName(e.target.value.replace(/\s{2,}/g, ' '))}
+                className="h-14 w-full rounded-[10px] border border-[#00d8ff]/70 bg-[rgba(10,18,40,0.92)] px-4 text-[17px] font-medium text-white placeholder:text-[#93a0b5] focus:outline-none focus:shadow-[0_0_14px_rgba(0,216,255,0.35)]"
+                maxLength={50}
+              />
+            </div>
+
             <Button
               onClick={handleJoin}
               disabled={joining || !pin || !teamName.trim()}
-              className="w-full py-4 text-lg touch-manipulation"
+              className="h-14 w-full rounded-[10px] border border-[#ff4d4d] bg-gradient-to-b from-[#ff001f] to-[#7f0010] text-[31px] font-bold uppercase tracking-[0.04em] text-white shadow-[0_4px_16px_rgba(255,0,31,0.32)] hover:brightness-110 disabled:opacity-45"
             >
-              {joining ? 'Joining...' : 'Join Game'}
+              {joining ? 'Joining...' : 'JOIN GAME'}
             </Button>
-          </motion.div>
-        </div>
 
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ delay: 0.6 }}
-          className="mt-6 flex items-center justify-center gap-2"
-        >
-          <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-neon-green shadow-[0_0_6px_rgba(0,255,106,0.5)]' : 'bg-neon-red shadow-[0_0_6px_rgba(255,23,68,0.5)]'}`} />
-          <span className="text-xs text-foreground/30">
-            {isConnected ? 'Connected' : 'Connecting...'}
-          </span>
-        </motion.div>
+            <div className="pt-1 flex items-center justify-center gap-2">
+              <div className={`h-2.5 w-2.5 rounded-full ${isConnected ? 'bg-[#00ff6a] shadow-[0_0_6px_rgba(0,255,106,0.6)]' : 'bg-[#ff1744] shadow-[0_0_6px_rgba(255,23,68,0.6)]'}`} />
+              <span className="text-xs text-white/50">{isConnected ? 'Connected' : 'Connecting...'}</span>
+            </div>
+          </div>
+          </motion.div>
+        )}
       </motion.div>
     </div>
   );

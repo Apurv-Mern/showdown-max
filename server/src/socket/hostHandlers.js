@@ -142,6 +142,19 @@ const hostHandlers = (io, socket) => {
     }
   });
 
+  socket.on(SOCKET_EVENTS.MUSIC_CONTROL, async (data) => {
+    try {
+      const { pin, action, mediaUrl } = data || {};
+      if (!pin || !action) return;
+      io.to(`session:${pin}`).emit(SOCKET_EVENTS.MUSIC_CONTROL, {
+        action,
+        mediaUrl: mediaUrl || null,
+      });
+    } catch (err) {
+      logger.error('music_control error', { error: err.message });
+    }
+  });
+
   socket.on(SOCKET_EVENTS.ADD_TEAM, async (data) => {
     try {
       const { pin, teamName, score } = data;

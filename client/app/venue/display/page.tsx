@@ -7,8 +7,9 @@ import { useTimerSound } from '@/hooks/useTimerSound';
 import { useAudio } from '@/hooks/useAudio';
 import { cn } from '@/lib/utils';
 import DynamicUnityGame from '@/components/mini-games/DynamicUnityGame';
+import { PUBLIC_API_URL } from '@/lib/env';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5001';
+const API_URL = PUBLIC_API_URL;
 const VENUE_PIN_STORAGE_KEY = 'venue_display_pin';
 
 type VenuePhase =
@@ -123,6 +124,8 @@ function VenueDisplayContent() {
   const [endCountdown, setEndCountdown] = useState(0);
   const [showVenueSplash, setShowVenueSplash] = useState(true);
   const [showIntroVideoFallback, setShowIntroVideoFallback] = useState(false);
+  const [isVenueMp3Playing, setIsVenueMp3Playing] = useState(false);
+  const questionMediaUrlRef = useRef<string | undefined>(undefined);
 
   const isMusicRound = question?.roundType === 'MUSIC';
   const { playTick, playBuzz } = useTimerSound({ enabled: true, muted: isMusicRound });
@@ -175,16 +178,17 @@ function VenueDisplayContent() {
   }, [showVenueSplash]);
 
   useEffect(() => {
+    questionMediaUrlRef.current = question?.question?.mediaUrl;
     if (!question?.question?.mediaUrl) return;
     const mediaType = (question.question.mediaType || '').toLowerCase();
     if (mediaType === 'mp3') {
       setMp3Source(resolveMediaUrl(question.question.mediaUrl));
-      playMp3();
     }
     return () => {
       stopMp3();
+      setIsVenueMp3Playing(false);
     };
-  }, [question?.question?.mediaUrl, question?.question?.mediaType, setMp3Source, playMp3, stopMp3]);
+  }, [question?.question?.mediaUrl, question?.question?.mediaType, setMp3Source, stopMp3]);
 
   const handleUnityPlayerAction = useCallback(
     (action: string, value: unknown) => {
@@ -279,6 +283,8 @@ function VenueDisplayContent() {
     socket.on('round_intro', (data) => {
       setRoundInfo(data);
       setPhase('round_intro');
+      setIsVenueMp3Playing(false);
+      stopMp3();
     });
 
     socket.on('question_active', (data: QuestionData) => {
@@ -287,6 +293,8 @@ function VenueDisplayContent() {
       setTimerRemaining(data.timerDuration);
       setResponseCount(0);
       setRevealData(null);
+      setIsVenueMp3Playing(false);
+      stopMp3();
       setPhase('question');
     });
 
@@ -307,9 +315,15 @@ function VenueDisplayContent() {
     socket.on('scoreboard', (data: { teams: Team[] }) => {
       setScoreboard(data.teams.sort((a, b) => b.score - a.score));
       setPhase('scoreboard');
+      setIsVenueMp3Playing(false);
+      stopMp3();
     });
 
-    socket.on('round_end', () => setPhase('scoreboard'));
+    socket.on('round_end', () => {
+      setPhase('scoreboard');
+      setIsVenueMp3Playing(false);
+      stopMp3();
+    });
 
     socket.on('break_start', (data: { duration: number }) => {
       setBreakDuration(data.duration);
@@ -324,6 +338,24 @@ function VenueDisplayContent() {
       setPhase('mini_game');
     });
 
+    socket.on('music_control', (data: { action: 'play' | 'pause' | 'stop'; mediaUrl?: string }) => {
+      const action = data?.action;
+      if (!action) return;
+
+      if (action === 'play') {
+        const mediaUrl = data?.mediaUrl || questionMediaUrlRef.current;
+        if (mediaUrl) {
+          setMp3Source(resolveMediaUrl(mediaUrl));
+        }
+        playMp3();
+        setIsVenueMp3Playing(true);
+        return;
+      }
+
+      stopMp3();
+      setIsVenueMp3Playing(false);
+    });
+
     socket.on(
       'mini_game_end',
       (data: { game: string; winningCard?: number; winningKangaroo?: number }) => {
@@ -335,6 +367,8 @@ function VenueDisplayContent() {
     );
 
     socket.on('game_end', () => {
+      stopMp3();
+      setIsVenueMp3Playing(false);
       setPhase('welcome');
       setShowVenueSplash(true);
       setShowIntroVideoFallback(false);
@@ -360,6 +394,7 @@ function VenueDisplayContent() {
         'team_removed',
         'round_intro',
         'question_active',
+        'music_control',
         'timer_update',
         'timer_expired',
         'response_count',
@@ -373,7 +408,7 @@ function VenueDisplayContent() {
         'game_end',
       ].forEach((e) => socket.off(e));
     };
-  }, [socket, sessionPin, isPinReady, router]);
+  }, [socket, sessionPin, isPinReady, router, playMp3, setMp3Source, stopMp3]);
 
   const QROverlay = () => {
     if (!qrCodeData || phase === 'game_end' || phase === 'lobby') return null;
@@ -640,7 +675,11 @@ function VenueDisplayContent() {
                     />
                   ) : (
                     <img
-                      src="/withoutImagequestion.png"
+                      src={
+                        isMusicRound || (question.question.mediaType || '').toLowerCase() === 'mp3'
+                          ? '/musicbg.png'
+                          : '/withoutImagequestion.png'
+                      }
                       alt="Question fallback"
                       className="w-full h-full object-cover"
                     />
@@ -660,21 +699,20 @@ function VenueDisplayContent() {
                 </p>
               </div>
 
-              {resolveMediaUrl(question.question.mediaUrl) &&
-                (question.question.mediaType || '').toLowerCase() === 'mp3' && (
-                  <div className="mt-3 neon-border rounded-xl px-8 py-3 flex items-center gap-4 bg-surface/80">
-                    <div className="flex items-end gap-1">
-                      {[0.6, 1, 0.4, 0.8, 0.5].map((h, i) => (
-                        <div
-                          key={i}
-                          className="w-1.5 bg-neon-cyan rounded-full animate-pulse"
-                          style={{ height: `${h * 24}px`, animationDelay: `${i * 150}ms` }}
-                        />
-                      ))}
-                    </div>
-                    <span className="text-neon-cyan font-medium">Now Playing</span>
+              {(question.question.mediaType || '').toLowerCase() === 'mp3' && isVenueMp3Playing && (
+                <div className="mt-3 neon-border rounded-xl px-8 py-3 flex items-center gap-4 bg-surface/80">
+                  <div className="flex items-end gap-1">
+                    {[0.6, 1, 0.4, 0.8, 0.5].map((h, i) => (
+                      <div
+                        key={i}
+                        className="w-1.5 bg-neon-cyan rounded-full animate-pulse"
+                        style={{ height: `${h * 24}px`, animationDelay: `${i * 150}ms` }}
+                      />
+                    ))}
                   </div>
-                )}
+                  <span className="text-neon-cyan font-medium">Now Playing</span>
+                </div>
+              )}
 
               <div className="mt-3 grid grid-cols-2 gap-3">
                 {question.question.options.map((opt, i) => (

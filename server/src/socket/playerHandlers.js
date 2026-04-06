@@ -13,6 +13,14 @@ const { normalizeTeamName, sanitizeTeamName } = require('../utils/teamName');
  * @param {import('socket.io').Socket} socket
  */
 const playerHandlers = (io, socket) => {
+  const getLockedWager = (gameState, round, teamId) => {
+    if (!gameState || !round || round.type !== 'WAGER') return null;
+    const value = gameState.roundWagers?.[String(round.id)]?.[String(teamId)];
+    if (value === undefined || value === null) return null;
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  };
+
   socket.on(SOCKET_EVENTS.JOIN_SESSION, async (data) => {
     try {
       const parsed = joinSessionSchema.safeParse(data);
@@ -125,6 +133,7 @@ const playerHandlers = (io, socket) => {
                 },
                 timerDuration: currentQuestion.timerDuration || currentRound?.timerDuration || 30,
                 roundType: currentRound?.type || '',
+                lockedWagerAmount: getLockedWager(gameState, currentRound, team.id),
               }
             : null,
           timerRemaining: gameState.timerRemaining,
@@ -164,6 +173,7 @@ const playerHandlers = (io, socket) => {
             },
             timerDuration: currentQuestion.timerDuration || round.timerDuration || 30,
             roundType: round.type,
+            lockedWagerAmount: getLockedWager(gameState, round, team.id),
           });
           socket.emit(SOCKET_EVENTS.TIMER_UPDATE, { remaining: gameState.timerRemaining });
         }
@@ -235,8 +245,8 @@ const playerHandlers = (io, socket) => {
     try {
       const { pin, teamId } = socket.data || {};
       if (!pin || !teamId) return;
-
-      logger.debug('Player submitted wager', { teamId, amount: data.amount });
+      await gameController.submitWager(pin, teamId, data?.amount);
+      logger.debug('Player submitted wager', { teamId, amount: data?.amount });
     } catch (err) {
       logger.error('submit_wager error', { error: err.message });
     }

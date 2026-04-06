@@ -64,6 +64,7 @@ const createInitialState = (sessionId, quiz) => {
     timerRemaining: 0,
     timerRunning: false,
     teams: {},
+    roundWagers: {},
     eliminatedTeams: {},
     activeTeamIds: [],
     responseCount: 0,

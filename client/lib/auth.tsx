@@ -2,8 +2,9 @@
 
 import { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
 import { usePathname } from 'next/navigation';
+import { PUBLIC_API_URL } from './env';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5001';
+const API_URL = PUBLIC_API_URL;
 type AuthRole = 'admin' | 'host';
 
 interface AuthState {
@@ -69,7 +70,8 @@ const resolveRole = (preferredRole?: AuthRole | null): AuthRole | null => {
 };
 
 function readStoredAuth(preferredRole?: AuthRole | null): AuthState {
-  if (typeof window === 'undefined') return { token: null, role: null, email: null, assignedSession: null };
+  if (typeof window === 'undefined')
+    return { token: null, role: null, email: null, assignedSession: null };
   migrateLegacyAuthIfNeeded();
   const role = resolveRole(preferredRole);
   if (!role) return { token: null, role: null, email: null, assignedSession: null };
@@ -83,7 +85,12 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const pathname = usePathname();
   const scopedRole = getRoleFromPath(pathname);
 
-  const [state, setState] = useState<AuthState>({ token: null, role: null, email: null, assignedSession: null });
+  const [state, setState] = useState<AuthState>({
+    token: null,
+    role: null,
+    email: null,
+    assignedSession: null,
+  });
   const [hydrated, setHydrated] = useState(false);
 
   useEffect(() => {

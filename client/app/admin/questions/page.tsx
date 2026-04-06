@@ -5,8 +5,9 @@ import { api, apiUpload } from '@/lib/api';
 import { Button } from '@/components/shared/Button';
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner';
 import { Modal } from '@/components/shared/Modal';
+import { PUBLIC_API_URL } from '@/lib/env';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5001';
+const API_URL = PUBLIC_API_URL;
 
 interface Option {
   text: string;

@@ -11,8 +11,9 @@ import { useAudio } from '@/hooks/useAudio';
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/lib/auth';
+import { PUBLIC_API_URL } from '@/lib/env';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5001';
+const API_URL = PUBLIC_API_URL;
 
 function formatRoundTypeLabel(type: string): string {
   return type
@@ -355,6 +356,8 @@ function HostDashboardContent() {
       setRevealData(null);
       setTimerDuration(data.timerDuration);
       setTimerRemaining(data.timerDuration);
+      setMp3Playing(false);
+      stopMp3();
       setGameState((prev) =>
         prev ? { ...prev, state: 'QUESTION', questionState: 'ACTIVE' } : prev,
       );
@@ -381,6 +384,8 @@ function HostDashboardContent() {
     socket.on('round_intro', (data: { roundIndex?: number }) => {
       setCurrentQuestion(null);
       setRevealData(null);
+      setMp3Playing(false);
+      stopMp3();
       setGameState((prev) =>
         prev
           ? {
@@ -402,6 +407,8 @@ function HostDashboardContent() {
     socket.on('round_end', () => {
       setCurrentQuestion(null);
       setRevealData(null);
+      setMp3Playing(false);
+      stopMp3();
       setGameState((prev) => (prev ? { ...prev, state: 'SCOREBOARD' } : prev));
     });
 
@@ -515,7 +522,7 @@ function HostDashboardContent() {
         'mini_game_end',
       ].forEach((e) => socket.off(e));
     };
-  }, [socket, pin]);
+  }, [socket, pin, stopMp3]);
 
   const emit = useCallback(
     (event: string, data?: Record<string, unknown>) => {
@@ -629,9 +636,14 @@ function HostDashboardContent() {
     if (mp3Playing) {
       stopMp3();
       setMp3Playing(false);
+      emit('music_control', { action: 'pause' });
     } else {
       playMp3();
       setMp3Playing(true);
+      emit('music_control', {
+        action: 'play',
+        mediaUrl: currentQuestion?.question?.mediaUrl || '',
+      });
     }
   };
 

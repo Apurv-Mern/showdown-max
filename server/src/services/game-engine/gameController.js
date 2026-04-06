@@ -12,6 +12,16 @@ const logger = require('../../utils/logger');
 
 const eliminationStates = new Map();
 
+const clampWager = (amount) => {
+  const parsed = Number(amount);
+  if (!Number.isFinite(parsed)) return 0;
+  return Math.max(0, Math.min(50, Math.round(parsed)));
+};
+
+const getRoundWagerForTeam = (gameState, roundId, teamId) => {
+  return Number(gameState?.roundWagers?.[String(roundId)]?.[String(teamId)] ?? 0);
+};
+
 /**
  * Start a game session
  * @param {import('socket.io').Server} io
@@ -125,6 +135,11 @@ const submitAnswer = async (io, pin, teamId, data) => {
     selectedOptionIndex: data.selectedOptionIndex,
     wagerAmount: data.wagerAmount,
   };
+
+  const currentRound = stateMachine.getCurrentRound(gameState);
+  if (currentRound?.type === ROUND_TYPES.WAGER) {
+    responseData.wagerAmount = getRoundWagerForTeam(gameState, currentRound.id, teamId);
+  }
   await redisStore.recordResponse(pin, question.id, teamId, JSON.stringify(responseData));
 
   const count = await redisStore.getResponseCount(pin, question.id);
@@ -141,6 +156,31 @@ const submitAnswer = async (io, pin, teamId, data) => {
     io.to(`session:${pin}`).emit(SOCKET_EVENTS.AUTO_REVEAL, {});
     await revealAnswer(io, pin);
   }
+};
+
+/**
+ * Handle a team's wager submission (locked once per WAGER round).
+ */
+const submitWager = async (pin, teamId, amount) => {
+  const gameState = await redisStore.getGameState(pin);
+  if (!gameState) return;
+
+  const round = stateMachine.getCurrentRound(gameState);
+  if (!round || round.type !== ROUND_TYPES.WAGER) return;
+
+  const roundId = String(round.id);
+  const teamIdKey = String(teamId);
+  const locked = gameState.roundWagers?.[roundId]?.[teamIdKey];
+  if (locked !== undefined && locked !== null) {
+    return;
+  }
+
+  const wager = clampWager(amount);
+  if (!gameState.roundWagers) gameState.roundWagers = {};
+  if (!gameState.roundWagers[roundId]) gameState.roundWagers[roundId] = {};
+  gameState.roundWagers[roundId][teamIdKey] = wager;
+
+  await redisStore.setGameState(pin, gameState);
 };
 
 /**
@@ -179,7 +219,9 @@ const revealAnswer = async (io, pin) => {
         wagerAmount: 0,
       };
     }
-    if (isWagerRound && responses[tid].wagerAmount === undefined) {
+    if (round.type === ROUND_TYPES.WAGER) {
+      responses[tid].wagerAmount = getRoundWagerForTeam(gameState, round.id, tid);
+    } else if (isWagerRound && responses[tid].wagerAmount === undefined) {
       responses[tid].wagerAmount = 0;
     }
   }
@@ -567,6 +609,7 @@ module.exports = {
   startGame,
   nextQuestion,
   submitAnswer,
+  submitWager,
   revealAnswer,
   endRound,
   advanceToNextRound,

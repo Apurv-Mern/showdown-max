@@ -60,49 +60,72 @@ export default function LobbyPage() {
   }, [socket, router, clearSession]);
 
   return (
-    <div className="flex-1 flex items-center justify-center p-4 sci-fi-bg">
+    <div className="flex-1 h-full min-h-0 flex justify-center bg-[#050017]">
       <motion.div
         initial={{ opacity: 0, y: 30 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.5 }}
-        className="text-center max-w-sm"
+        className="relative h-full min-h-0 w-full max-w-[390px] overflow-hidden border-2 border-[#06c6ff] mobile-play-bg text-center"
+        style={{ backgroundImage: "url('/Mobile_BG.png')", backgroundSize: '100% 100%', backgroundPosition: 'center', backgroundRepeat: 'no-repeat' }}
       >
-        <motion.div
-          animate={{ rotate: 360 }}
-          transition={{ duration: 1.2, repeat: Infinity, ease: 'linear' }}
-          className="w-16 h-16 border-4 border-neon-cyan border-t-transparent rounded-full mx-auto mb-8 shadow-[0_0_15px_rgba(0,229,255,0.4)]"
-        />
+        <div className="relative z-10 flex h-full flex-col">
+          <div className="flex-1 flex flex-col items-center justify-center px-6">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.85 }}
+              animate={{ opacity: 1, scale: 1 }}
+              transition={{ delay: 0.2, duration: 0.35 }}
+              className="mb-6 flex h-[86px] w-[86px] items-center justify-center rounded-full border-2 border-[#00d8ff] bg-[rgba(5,14,34,0.75)] shadow-[0_0_18px_rgba(0,216,255,0.35)]"
+            >
+              <svg
+                width="42"
+                height="42"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="#00d8ff"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                className="drop-shadow-[0_0_8px_rgba(0,216,255,0.55)]"
+                aria-hidden
+              >
+                <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+                <circle cx="9" cy="7" r="3" />
+                <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
+                <path d="M16 3.13a3 3 0 0 1 0 5.74" />
+              </svg>
+            </motion.div>
 
-        <motion.h1
-          initial={{ opacity: 0, scale: 0.9 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ delay: 0.2 }}
-          className="text-2xl font-bold mb-2 text-glow-cyan"
-        >
-          You&apos;re In!
-        </motion.h1>
-        <p className="text-foreground/50 mb-8">Waiting for the host to start the game...</p>
+            <motion.h1
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.28 }}
+              className="text-[41px] font-bold leading-[1.05] text-white"
+            >
+              Waiting for game to start
+            </motion.h1>
+            <motion.p
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.38 }}
+              className="mt-2 text-[22px] font-medium leading-[1.2] text-white/70"
+            >
+              The host will start the game shortly
+            </motion.p>
 
-        <motion.div
-          initial={{ opacity: 0, y: 15 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.3 }}
-          className="neon-border rounded-xl p-5 bg-surface/80"
-        >
-          <p className="text-foreground/40 text-xs mb-1">Your Team</p>
-          <p className="text-xl font-bold text-neon-cyan text-glow-cyan">{session.teamName}</p>
-          <div className="mt-3 pt-3 border-t border-border/50 flex justify-between text-sm">
-            <span className="text-foreground/40">PIN</span>
-            <span className="font-mono font-bold text-neon-cyan">{session.pin}</span>
+            <div className="mt-8 flex items-center gap-3">
+              <span className="h-3.5 w-3.5 rounded-full bg-[#00d8ff] shadow-[0_0_9px_rgba(0,216,255,0.6)]" />
+              <span className="h-3.5 w-3.5 rounded-full bg-[#00d8ff]/65 shadow-[0_0_8px_rgba(0,216,255,0.45)]" />
+              <span className="h-3.5 w-3.5 rounded-full bg-[#00d8ff]/35" />
+            </div>
           </div>
-        </motion.div>
+        </div>
 
         <motion.button
           initial={{ opacity: 0 }}
-          animate={{ opacity: 0.5 }}
-          transition={{ delay: 0.6 }}
+          animate={{ opacity: 0.8 }}
+          transition={{ delay: 0.7 }}
           onClick={() => setShowExitConfirm(true)}
-          className="text-neon-red/60 hover:text-neon-red text-xs mt-6 underline underline-offset-2 transition-colors"
+          className="absolute bottom-3 left-1/2 z-20 -translate-x-1/2 text-xs text-[#ff6f94] underline underline-offset-2 transition-colors hover:text-[#ff1744]"
         >
           Leave Game
         </motion.button>

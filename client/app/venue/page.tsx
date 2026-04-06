@@ -2,9 +2,10 @@
 
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
+import { PUBLIC_API_URL } from '@/lib/env';
 
 const VENUE_PIN_STORAGE_KEY = 'venue_display_pin';
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5001';
+const API_URL = PUBLIC_API_URL;
 type IntroStep = 'splash' | 'stage' | 'login';
 
 export default function VenueSessionLoginPage() {

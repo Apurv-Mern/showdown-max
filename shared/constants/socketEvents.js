@@ -27,6 +27,7 @@ const SOCKET_EVENTS = Object.freeze({
   EDIT_TEAM_SCORE: 'edit_team_score',
   ADVANCE_ROUND: 'advance_round',
   END_GAME: 'end_game',
+  MUSIC_CONTROL: 'music_control',
 
   // Server → Client
   SESSION_STATE: 'session_state',

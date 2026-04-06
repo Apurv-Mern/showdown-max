@@ -83,7 +83,7 @@ export default function PlayerLayout({ children }: { children: React.ReactNode }
 
   return (
     <PlayerContext.Provider value={{ session, setSession, clearSession }}>
-      <div className="min-h-screen bg-background flex flex-col">
+      <div className="h-[100dvh] w-full bg-[#050017] flex flex-col overflow-hidden">
         {session.pin && session.teamId && (
           <PlayerReconnector session={session} setSession={setSession} />
         )}

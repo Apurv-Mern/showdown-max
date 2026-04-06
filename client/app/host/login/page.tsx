@@ -4,13 +4,14 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Montserrat } from 'next/font/google';
 import { useAuth } from '@/lib/auth';
+import { PUBLIC_API_URL } from '@/lib/env';
 
 const montserrat = Montserrat({
   weight: ['400', '500', '600', '700', '800', '900'],
   subsets: ['latin'],
   display: 'swap',
 });
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5001';
+const API_URL = PUBLIC_API_URL;
 
 export default function HostLoginPage() {
   const router = useRouter();
@@ -109,10 +110,7 @@ export default function HostLoginPage() {
         data-node-id="232:3353"
       >
         <div className="flex w-full max-w-[800px] flex-col items-center">
-          <div
-            className="mb-2 text-center text-white"
-            data-node-id="232:3354"
-          >
+          <div className="mb-2 text-center text-white" data-node-id="232:3354">
             <h1 className="font-bold leading-normal text-[clamp(1.75rem,5vw,2.5rem)]">
               Host Login
             </h1>

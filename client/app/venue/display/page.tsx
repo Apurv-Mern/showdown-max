@@ -685,67 +685,84 @@ function VenueDisplayContent() {
           </div>
         )}
 
-        {/* ── QUESTION ── */}
-        {phase === 'question' && question && (
-          <div className="w-full h-full flex flex-col p-4 animate-fadeIn">
-            <div className="mx-auto w-full max-w-265 flex-1 rounded-2xl  bg-[#060f2a]/78  p-3">
-              <div className="rounded-xl px-3 py-2 mb-3 bg-[#081331]/70 border border-[#12ddff]/30 flex items-center gap-4">
-                <div className="w-10 h-10 rounded-full border border-[#17d9ff]/60 bg-[#0a1642] flex items-center justify-center shadow-[0_0_12px_rgba(23,217,255,0.35)]">
-                  <svg
-                    viewBox="0 0 24 24"
-                    className="w-5 h-5 text-[#20e7ff]"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                  >
-                    <path d="M3 5h18M3 12h14M3 19h10" />
-                  </svg>
-                </div>
+        <div className="max-w-[75%] h-[95%] mx-auto mt-10">
+          {/* Question Stats */}
+          {phase === 'question' && question && (
+            <div className="mx-auto w-full flex-1 rounded-2xl mt-4">
+              <div className="rounded-xl mb-3 flex items-center gap-4 justify-between">
+                <div className="flex items-center gap-4 flex-1 border  border-[#00C8FF] rounded-xl max-w-2xl ">
+                  <div className="relative w-12 h-12 rounded-full flex items-center justify-center shrink-0 overflow-hidden">
+                    <div className="absolute inset-0 bg-linear-to-br from-purple-500/20 to-transparent" />
+                    <svg
+                      viewBox="0 0 24 24"
+                      className="w-7 h-7 text-[#20e7ff] relative z-10"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2.5"
+                    >
+                      <path d="M3 5h18M3 12h14M3 19h10" />
+                    </svg>
+                  </div>
 
-                <div className="flex-1">
-                  {[
-                    {
-                      key: 'correct',
-                      color: 'from-[#10d820] to-[#0ea01a]',
-                      track: 'bg-[#0f2515]',
-                      value: liveResponses.correct,
-                      dot: 'bg-[#17ff2d]',
-                    },
-                    {
-                      key: 'incorrect',
-                      color: 'from-[#ff2b2b] to-[#b81212]',
-                      track: 'bg-[#2d1111]',
-                      value: liveResponses.incorrect,
-                      dot: 'bg-[#ff4040]',
-                    },
-                    {
-                      key: 'no_answer',
-                      color: 'from-[#95b8ff] to-[#5f7ac9]',
-                      track: 'bg-[#14213f]',
-                      value: liveResponses.noAnswer,
-                      dot: 'bg-[#79a6ff]',
-                    },
-                  ].map((item) => {
-                    const total = Math.max(1, liveResponses.total || totalTeams || 1);
-                    const width = Math.max(
-                      0,
-                      Math.min(100, Math.round((item.value / total) * 100)),
-                    );
-                    return (
-                      <div key={item.key} className="flex items-center gap-2 mb-1 last:mb-0">
-                        <span className={`h-2.5 w-2.5 rounded-full ${item.dot}`} />
-                        <div className={`flex-1 h-3 rounded-full ${item.track} overflow-hidden`}>
+                  {/* 2. The Progress Container (The black pill with blue border) */}
+                  <div className="flex-1 max-w-2xl rounded-xl px-4">
+                    {[
+                      {
+                        key: 'correct',
+                        color: 'from-[#00ff00] to-[#008000]', // Brighter green
+                        track: 'bg-[#3d7a3d]/60',
+                        value: liveResponses.correct,
+                        icon: '✓',
+                        iconBg: 'bg-green-500',
+                      },
+                      {
+                        key: 'incorrect',
+                        color: 'from-[#ff0000] to-[#800000]', // Brighter red
+                        track: 'bg-[#7a3d3d]/60',
+                        value: liveResponses.incorrect,
+                        icon: '×',
+                        iconBg: 'bg-red-500',
+                      },
+                      {
+                        key: 'no_answer',
+                        color: 'from-[#3b82f6] to-[#1e3a8a]', // Brighter blue
+                        track: 'bg-[#3d507a]/60',
+                        value: liveResponses.noAnswer,
+                        icon: '?',
+                        iconBg: 'bg-blue-500',
+                      },
+                    ].map((item) => {
+                      const total = Math.max(1, liveResponses.total || totalTeams || 1);
+                      const width = Math.max(
+                        0,
+                        Math.min(100, Math.round((item.value / total) * 100)),
+                      );
+                      return (
+                        <div key={item.key} className="flex items-center gap-3">
                           <div
-                            className={`h-full rounded-full bg-linear-to-r ${item.color}`}
-                            style={{ width: `${width}%` }}
-                          />
+                            className={`${item.iconBg} h-4 w-4 rounded-full flex items-center justify-center text-[10px] text-white font-bold border border-white/20`}
+                          >
+                            {item.icon}
+                          </div>
+                          <div
+                            className={`flex-1 h-4 rounded-full ${item.track} overflow-hidden border border-white/10`}
+                          >
+                            <div
+                              className={`h-full rounded-full bg-linear-to-r ${item.color} shadow-[0_0_12px_rgba(255,255,255,0.4)]`}
+                              style={{
+                                width: `${width}%`,
+                                minWidth: item.value > 0 ? '8px' : '0px', // ← key fix
+                                transition: 'width 0.5s ease-out',
+                              }}
+                            />
+                          </div>
+                          <span className="w-6 text-right text-lg font-black text-[#47f3ff] italic">
+                            {item.value}
+                          </span>
                         </div>
-                        <span className="w-5 text-right text-sm font-black text-[#47f3ff]">
-                          {item.value}
-                        </span>
-                      </div>
-                    );
-                  })}
+                      );
+                    })}
+                  </div>
                 </div>
 
                 <div className="flex items-center gap-5 shrink-0 pr-1">
@@ -785,87 +802,83 @@ function VenueDisplayContent() {
                   </div>
                 </div>
               </div>
+            </div>
+          )}
 
-              <div className="relative rounded-2xl border border-white/20 overflow-hidden">
-                <div className="absolute left-4 top-3 z-10 text-white/90 text-2xl font-semibold">
-                  Question {(question.questionIndex || 0) + 1}/{question.totalQuestions}
-                </div>
+          {/* ── QUESTION ── */}
+          {phase === 'question' && question && (
+            <div className="w-full h-[85%] flex flex-col animate-fadeIn">
+              <div className="mx-auto w-full flex-1 rounded-2xl flex flex-col border">
+                {/* Media Section */}
+                <div className="relative rounded-t-2xl  overflow-hidden shrink-0">
+                  <div className="absolute left-4 top-3 z-10 text-white/90 text-2xl font-semibold">
+                    Question {(question.questionIndex || 0) + 1}/{question.totalQuestions}
+                  </div>
+                  {/* Media */}
+                  <div className="h-96">
+                    {resolveMediaUrl(question.question.mediaUrl) &&
+                    (question.question.mediaType || '').toLowerCase() === 'image' ? (
+                      <img
+                        src={resolveMediaUrl(question.question.mediaUrl)}
+                        className="w-full h-full object-cover"
+                        alt="media"
+                      />
+                    ) : (
+                      <img
+                        src="/withoutImagequestion.png"
+                        className="w-full h-full object-cover"
+                        alt="fallback"
+                      />
+                    )}
+                  </div>
 
-                <div className="h-75 bg-[#020b22]">
-                  {resolveMediaUrl(question.question.mediaUrl) &&
-                  (question.question.mediaType || '').toLowerCase() === 'image' ? (
-                    <img
-                      src={resolveMediaUrl(question.question.mediaUrl)}
-                      alt="Question media"
-                      className="w-full h-full object-cover"
-                    />
-                  ) : resolveMediaUrl(question.question.mediaUrl) &&
-                    (question.question.mediaType || '').toLowerCase() === 'mp4' ? (
-                    <video
-                      src={resolveMediaUrl(question.question.mediaUrl)}
-                      autoPlay
-                      muted={false}
-                      playsInline
-                      className="w-full h-full object-cover"
-                    />
-                  ) : (
-                    <img
-                      src={
-                        isMusicRound || (question.question.mediaType || '').toLowerCase() === 'mp3'
-                          ? '/musicbg.png'
-                          : '/withoutImagequestion.png'
-                      }
-                      alt="Question fallback"
-                      className="w-full h-full object-cover"
-                    />
-                  )}
-                </div>
-
-                <div className="absolute left-1/2 -translate-x-1/2 -bottom-10 z-20 w-[124px] h-[124px] rounded-full p-[5px] bg-linear-to-r from-[#ff4a4a] via-[#ffd400] to-[#00ff6a] shadow-[0_0_16px_rgba(0,229,255,0.4)]">
-                  <div className="w-full h-full rounded-full bg-[#1a0b5d] border border-white/20 flex items-center justify-center">
-                    <span className="text-6xl font-black text-white">{timerRemaining}</span>
+                  {/* Timer Arch - Pulled down to overlap the section below */}
+                  <div className="absolute left-1/2 -translate-x-1/2 bottom-px z-30 w-64 h-32 overflow-hidden">
+                    <div className="absolute top-6 left-0 w-50 h-50 rounded-full p-2 bg-linear-to-r from-[#ff0000] via-[#ddff00] via-[#ffaa00] to-[#00ff00] shadow-[0_0_20px_rgba(0,0,0,0.6)]">
+                      <div className="relative w-full h-full rounded-full bg-[#030818] border border-white/10 flex justify-center overflow-hidden">
+                        <div
+                          className="absolute inset-0 opacity-20 pointer-events-none"
+                          style={{
+                            backgroundImage:
+                              'radial-gradient(circle, #ffffff 1px, transparent 1px)',
+                            backgroundSize: '8px 8px',
+                          }}
+                        />
+                        <span className="mt-6 text-6xl font-black text-white relative z-10 tracking-tighter drop-shadow-[0_0_10px_rgba(255,255,255,0.3)]">
+                          {timerRemaining}
+                        </span>
+                      </div>
+                    </div>
                   </div>
                 </div>
-              </div>
 
-              <div className="mt-12 rounded-xl border  bg-[#1a0f61]/85 px-5 py-4">
-                <p className="text-2xl font-bold text-white">
-                  Q{(question.questionIndex || 0) + 1}. {question.question.text}
-                </p>
-              </div>
+                {/* Questions/Options Section */}
+                <div className="relative rounded-2xl border-t-2 border-t-white/50 flex-1 bg-linear-to-b from-[#100048] to-[#000000] z-20 pt-10 px-5 pb-5 ">
+                  <div className="mb-4">
+                    <p className="text-2xl font-bold text-white">
+                      Q{(question.questionIndex || 0) + 1}. {question.question.text}
+                    </p>
+                  </div>
 
-              {(question.question.mediaType || '').toLowerCase() === 'mp3' && isVenueMp3Playing && (
-                <div className="mt-3 neon-border rounded-xl px-8 py-3 flex items-center gap-4 bg-surface/80">
-                  <div className="flex items-end gap-1">
-                    {[0.6, 1, 0.4, 0.8, 0.5].map((h, i) => (
+                  <div className="grid grid-cols-2 gap-3">
+                    {question.question.options.map((opt, i) => (
                       <div
                         key={i}
-                        className="w-1.5 bg-neon-cyan rounded-full animate-pulse"
-                        style={{ height: `${h * 24}px`, animationDelay: `${i * 150}ms` }}
-                      />
+                        className={cn(
+                          'rounded-lg border px-4 py-4 text-white font-bold text-2xl flex items-center shadow-[0_8px_18px_rgba(0,0,0,0.35)]',
+                          VENUE_OPTION_COLOR_CLASSES[i % VENUE_OPTION_COLOR_CLASSES.length],
+                        )}
+                      >
+                        <span className="font-black mr-3">{OPTION_LETTERS[i]}.</span>
+                        <span className="truncate">{opt.text}</span>
+                      </div>
                     ))}
                   </div>
-                  <span className="text-neon-cyan font-medium">Now Playing</span>
                 </div>
-              )}
-
-              <div className="mt-3 grid grid-cols-2 gap-3">
-                {question.question.options.map((opt, i) => (
-                  <div
-                    key={i}
-                    className={cn(
-                      'rounded-lg border px-4 py-3 text-white font-bold text-2xl flex items-center shadow-[0_8px_18px_rgba(0,0,0,0.35)]',
-                      VENUE_OPTION_COLOR_CLASSES[i % VENUE_OPTION_COLOR_CLASSES.length],
-                    )}
-                  >
-                    <span className="font-black mr-3">{OPTION_LETTERS[i]}.</span>
-                    <span className="truncate">{opt.text}</span>
-                  </div>
-                ))}
               </div>
             </div>
-          </div>
-        )}
+          )}
+        </div>
 
         {phase === 'reveal' && revealData && question && (
           <div className="w-full h-full flex flex-col p-4 animate-fadeIn">
@@ -1269,13 +1282,7 @@ function BreakView({
 }
 export default function VenueDisplayPage() {
   return (
-    <Suspense
-      fallback={
-        <div className="w-full h-full flex items-center justify-center">
-          <div className="w-20 h-16 border-4 border-neon-cyan border-t-transparent rounded-full animate-spin shadow-[0_0_15px_rgba(0,229,255,0.5)]" />
-        </div>
-      }
-    >
+    <Suspense fallback={<div className="w-full h-full flex items-center justify-center"> </div>}>
       <VenueDisplayContent />
     </Suspense>
   );

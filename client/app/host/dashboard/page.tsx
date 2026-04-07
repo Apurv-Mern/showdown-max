@@ -247,7 +247,7 @@ function HostSidebarTile({
       onClick={onClick}
       disabled={disabled}
       className={cn(
-        'flex h-[136px] flex-col items-center justify-center gap-2 rounded-xl border px-2 text-center text-sm font-medium text-white shadow-[inset_0_0_24px_rgba(0,217,255,0.06)] transition hover:border-[rgba(0,217,255,0.55)] disabled:cursor-not-allowed disabled:opacity-35',
+        'flex h-27.75 w-38.75 flex-col items-center justify-center gap-2 rounded-xl border px-2 text-center text-sm font-medium text-white shadow-[inset_0_0_24px_rgba(0,217,255,0.06)] transition hover:border-[rgba(0,217,255,0.55)] disabled:cursor-not-allowed disabled:opacity-35',
         'bg-[linear-gradient(180deg,rgba(30,36,58,0.95)_0%,rgba(15,20,32,0.98)_100%)]',
         active
           ? 'border-[rgba(0,217,255,0.55)] shadow-[0_0_16px_rgba(0,217,255,0.15)]'
@@ -281,13 +281,13 @@ function HostFooterBtn({
       onClick={onClick}
       disabled={disabled}
       className={cn(
-        'inline-flex h-[50px] min-w-[120px] flex-1 max-w-[210px] items-center justify-center gap-2 rounded-lg border px-2 text-[10px] font-bold uppercase tracking-wide text-white shadow-[0_4px_12px_rgba(0,0,0,0.35)] transition hover:brightness-110 disabled:opacity-30 sm:min-w-[140px] sm:px-3 sm:text-xs',
+        'inline-flex h-12.5 min-w-30 flex-1 max-w-52.5 items-center justify-center gap-2 rounded-lg border px-2 text-[10px] font-bold uppercase tracking-wide text-white shadow-[0_4px_12px_rgba(0,0,0,0.35)] transition hover:brightness-110 disabled:opacity-30 sm:min-w-35 sm:px-3 sm:text-xs',
         emphasis
           ? 'border-[rgba(0,217,255,0.45)] bg-[linear-gradient(180deg,#3a4a68_0%,#1e2a42_100%)] shadow-[0_0_18px_rgba(0,217,255,0.18)]'
           : 'border-white/15 bg-[linear-gradient(180deg,#2e354c_0%,#1a2030_100%)]',
       )}
     >
-      <span className="flex size-[22px] shrink-0 items-center justify-center [&>svg]:h-full [&>svg]:w-full">
+      <span className="flex size-5.5 shrink-0 items-center justify-center [&>svg]:h-full [&>svg]:w-full">
         {icon}
       </span>
       {children}
@@ -930,7 +930,7 @@ function HostDashboardContent() {
               </div>
             </section>
 
-            <section data-name="Venue Display Panel" data-node-id="232:4498">
+            {/* <section data-name="Venue Display Panel" data-node-id="232:4498">
               <HostPanelTitle data-node-id="232:4499">Venue Display</HostPanelTitle>
               <div
                 className="grid grid-cols-2 gap-3"
@@ -957,6 +957,33 @@ function HostDashboardContent() {
                     </svg>
                   }
                   onClick={() => emit('advance_round')}
+                />
+              </div>
+            </section> */}
+            <section data-name="Main Right Panel" data-node-id="232:4580">
+              <HostPanelTitle data-node-id="232:4581">Game Controls</HostPanelTitle>
+              <div
+                className="grid grid-cols-2 gap-3"
+                data-name="Control Panel"
+                data-node-id="232:4582"
+              >
+                <HostSidebarTile
+                  data-node-id="232:4583"
+                  label="Kangaroo Race"
+                  active={showKangarooRaceModal}
+                  icon={<span className="text-4xl leading-none">🦘</span>}
+                  onClick={() => setShowKangarooRaceModal(true)}
+                />
+                <HostSidebarTile
+                  data-node-id="232:4588"
+                  label="Card Shuffle"
+                  active={!!activeMiniGameLocal && activeMiniGameLocal === 'card_shuffle'}
+                  icon={
+                    <svg viewBox="0 0 24 24" fill="currentColor">
+                      <path d="M4 4h16v4H4V4zm0 6h10v10H4V10zm12 0h4v4h-4v-4zm0 6h4v4h-4v-4z" />
+                    </svg>
+                  }
+                  onClick={handleCardShuffleSave}
                 />
               </div>
             </section>
@@ -1147,7 +1174,10 @@ function HostDashboardContent() {
                 data-node-id="232:4521"
               >
                 {currentQuestion.question.mediaUrl &&
-                isImageMedia(currentQuestion.question.mediaType, currentQuestion.question.mediaUrl) ? (
+                isImageMedia(
+                  currentQuestion.question.mediaType,
+                  currentQuestion.question.mediaUrl,
+                ) ? (
                   <img
                     src={resolveMediaUrl(currentQuestion.question.mediaUrl)}
                     alt=""
@@ -1185,7 +1215,7 @@ function HostDashboardContent() {
                     size={120}
                     className="drop-shadow-lg"
                   />
-                  {timerPaused ? <p className="text-xs font-bold text-amber-400">PAUSED</p> : null}
+                  {/* {timerPaused ? <p className="text-xs font-bold text-amber-400">PAUSED</p> : null} */}
                 </div>
               </div>
 
@@ -1290,34 +1320,6 @@ function HostDashboardContent() {
           className="w-full shrink-0 border-white/10 bg-[linear-gradient(180deg,rgba(20,26,42,0.6)_0%,#0b0f1a_100%)] px-4 py-6 lg:w-[min(100%,395px)] lg:border-l"
         >
           <div className="space-y-10">
-            <section data-name="Main Right Panel" data-node-id="232:4580">
-              <HostPanelTitle data-node-id="232:4581">Game Controls</HostPanelTitle>
-              <div
-                className="grid grid-cols-2 gap-3"
-                data-name="Control Panel"
-                data-node-id="232:4582"
-              >
-                <HostSidebarTile
-                  data-node-id="232:4583"
-                  label="Kangaroo Race"
-                  active={showKangarooRaceModal}
-                  icon={<span className="text-4xl leading-none">🦘</span>}
-                  onClick={() => setShowKangarooRaceModal(true)}
-                />
-                <HostSidebarTile
-                  data-node-id="232:4588"
-                  label="Card Shuffle"
-                  active={!!activeMiniGameLocal && activeMiniGameLocal === 'card_shuffle'}
-                  icon={
-                    <svg viewBox="0 0 24 24" fill="currentColor">
-                      <path d="M4 4h16v4H4V4zm0 6h10v10H4V10zm12 0h4v4h-4v-4zm0 6h4v4h-4v-4z" />
-                    </svg>
-                  }
-                  onClick={handleCardShuffleSave}
-                />
-              </div>
-            </section>
-
             <section data-name="Live Responses Panel" data-node-id="232:4549">
               <HostPanelTitle data-node-id="232:4556">Live Responses</HostPanelTitle>
               <div
@@ -2357,4 +2359,3 @@ export default function HostDashboardPage() {
     </Suspense>
   );
 }
-

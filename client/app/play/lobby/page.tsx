@@ -60,12 +60,12 @@ export default function LobbyPage() {
   }, [socket, router, clearSession]);
 
   return (
-    <div className="flex-1 h-full min-h-0 flex justify-center bg-[#050017]">
+    <div className="flex-1 h-full min-h-0 w-full bg-[#050017]">
       <motion.div
         initial={{ opacity: 0, y: 30 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.5 }}
-        className="relative h-full min-h-0 w-full max-w-[390px] overflow-hidden border-2 border-[#06c6ff] mobile-play-bg text-center"
+        className="relative h-full min-h-0 w-full overflow-hidden mobile-play-bg text-center"
         style={{ backgroundImage: "url('/Mobile_BG.png')", backgroundSize: '100% 100%', backgroundPosition: 'center', backgroundRepeat: 'no-repeat' }}
       >
         <div className="relative z-10 flex h-full flex-col">

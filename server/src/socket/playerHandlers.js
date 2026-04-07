@@ -13,6 +13,60 @@ const { normalizeTeamName, sanitizeTeamName } = require('../utils/teamName');
  * @param {import('socket.io').Socket} socket
  */
 const playerHandlers = (io, socket) => {
+  const parseStoredResponse = (raw) => {
+    if (!raw) return { selectedOptionIndex: -1, responseTime: null };
+    try {
+      const parsed = JSON.parse(raw);
+      const selectedOptionIndex = Number(parsed.selectedOptionIndex);
+      const responseTime = Number(parsed.responseTime);
+      return {
+        selectedOptionIndex: Number.isFinite(selectedOptionIndex) ? selectedOptionIndex : -1,
+        responseTime: Number.isFinite(responseTime) ? responseTime : null,
+      };
+    } catch {
+      const selectedOptionIndex = Number(raw);
+      return {
+        selectedOptionIndex: Number.isFinite(selectedOptionIndex) ? selectedOptionIndex : -1,
+        responseTime: null,
+      };
+    }
+  };
+
+  const buildReconnectRevealPayload = async (pin, gameState, currentQuestion) => {
+    const responsesRaw = currentQuestion?.id
+      ? await redisStore.getResponses(pin, currentQuestion.id)
+      : {};
+    const teams = Object.values(gameState.teams || {}).map((team) => ({
+      teamId: Number(team.teamId),
+      teamName: String(team.teamName || ''),
+      score: Number(team.score || 0),
+      isEliminated: Boolean(team.isEliminated),
+    }));
+    const responseDetails = teams.map((team) => {
+      const parsed = parseStoredResponse(responsesRaw[String(team.teamId)]);
+      return {
+        teamId: team.teamId,
+        selectedOptionIndex: parsed.selectedOptionIndex,
+        responseTime: parsed.responseTime,
+      };
+    });
+    const correctOptionIndex = (currentQuestion?.options || []).findIndex((o) => o?.isCorrect);
+    const allWrong =
+      correctOptionIndex < 0
+        ? true
+        : responseDetails.every((r) => r.selectedOptionIndex !== correctOptionIndex);
+
+    return {
+      correctOptionIndex,
+      correctText: currentQuestion?.options?.[correctOptionIndex]?.text || '',
+      scores: {},
+      responseDetails,
+      eliminations: teams.filter((t) => t.isEliminated).map((t) => t.teamId),
+      allWrong,
+      teams,
+    };
+  };
+
   const getLockedWager = (gameState, round, teamId) => {
     if (!gameState || !round || round.type !== 'WAGER') return null;
     const value = gameState.roundWagers?.[String(round.id)]?.[String(teamId)];
@@ -148,7 +202,7 @@ const playerHandlers = (io, socket) => {
 
       if (gameState && gameState.state !== 'LOBBY') {
         const round = gameState.rounds?.[gameState.currentRoundIndex];
-        if (round) {
+        if (gameState.state === 'ROUND_INTRO' && round) {
           socket.emit(SOCKET_EVENTS.ROUND_INTRO, {
             round: { name: round.name, type: round.type },
             roundIndex: gameState.currentRoundIndex,
@@ -177,6 +231,15 @@ const playerHandlers = (io, socket) => {
           });
           socket.emit(SOCKET_EVENTS.TIMER_UPDATE, { remaining: gameState.timerRemaining });
         }
+        if (
+          gameState.state === 'QUESTION' &&
+          gameState.questionState === 'REVEALED' &&
+          currentQuestion
+        ) {
+          const revealPayload = await buildReconnectRevealPayload(pin, gameState, currentQuestion);
+          socket.emit(SOCKET_EVENTS.ANSWER_REVEAL, revealPayload);
+          socket.emit(SOCKET_EVENTS.TIMER_UPDATE, { remaining: 0 });
+        }
         if (gameState.state === 'SCOREBOARD') {
           socket.emit(SOCKET_EVENTS.SCOREBOARD, {
             teams: Object.values(gameState.teams).sort((a, b) => b.score - a.score),
@@ -187,6 +250,11 @@ const playerHandlers = (io, socket) => {
         }
         if (gameState.activeMiniGame) {
           socket.emit(SOCKET_EVENTS.MINI_GAME_START, { game: gameState.activeMiniGame });
+        }
+        if (gameState.state === 'FINAL_RESULTS') {
+          socket.emit(SOCKET_EVENTS.GAME_END, {
+            teams: Object.values(gameState.teams).sort((a, b) => b.score - a.score),
+          });
         }
       }
 

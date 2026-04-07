@@ -18,6 +18,7 @@ const SOCKET_EVENTS = Object.freeze({
   PAUSE_TIMER: 'pause_timer',
   REVEAL_ANSWER: 'reveal_answer',
   SHOW_SCOREBOARD: 'show_scoreboard',
+  HIDE_SCOREBOARD: 'hide_scoreboard',
   START_BREAK: 'start_break',
   END_BREAK: 'end_break',
   LAUNCH_MINI_GAME: 'launch_mini_game',
@@ -36,6 +37,7 @@ const SOCKET_EVENTS = Object.freeze({
   TIMER_EXPIRED: 'timer_expired',
   ANSWER_REVEAL: 'answer_reveal',
   SCOREBOARD: 'scoreboard',
+  SCOREBOARD_HIDDEN: 'scoreboard_hidden',
   TEAM_JOINED: 'team_joined',
   TEAM_REMOVED: 'team_removed',
   TEAM_UPDATED: 'team_updated',
@@ -50,6 +52,7 @@ const SOCKET_EVENTS = Object.freeze({
   PLAYER_ELIMINATED: 'player_eliminated',
   AUTO_REVEAL: 'auto_reveal',
   RESPONSE_COUNT: 'response_count',
+  LIVE_RESPONSE_UPDATE: 'live_response_update',
 
   // Errors
   ERROR: 'error',

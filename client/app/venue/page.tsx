@@ -16,6 +16,7 @@ export default function VenueSessionLoginPage() {
   const [introStep, setIntroStep] = useState<IntroStep>('splash');
   const [isCheckingPin, setIsCheckingPin] = useState(false);
   const [pinError, setPinError] = useState('');
+  const forceLogin = searchParams.get('login') === '1';
 
   const errorText = useMemo(() => {
     if (searchParams.get('error') === 'invalid-pin') {
@@ -33,10 +34,14 @@ export default function VenueSessionLoginPage() {
   }, []);
 
   useEffect(() => {
+    if (forceLogin) {
+      setIntroStep('login');
+      return;
+    }
     if (introStep !== 'splash') return;
     const splashTimer = setTimeout(() => setIntroStep('stage'), 5000);
     return () => clearTimeout(splashTimer);
-  }, [introStep]);
+  }, [introStep, forceLogin]);
 
   const activateVenue = (sessionPin: string) => {
     if (!/^\d{6}$/.test(sessionPin)) return;

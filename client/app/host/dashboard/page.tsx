@@ -22,6 +22,20 @@ function formatRoundTypeLabel(type: string): string {
     .join(' ');
 }
 
+function getRoundScoringLines(roundType?: string) {
+  const type = (roundType || '').toUpperCase();
+  if (type === 'WAGER') {
+    return { positive: 'Gain wagered points', negative: 'Lose wagered points' };
+  }
+  if (type === 'FINAL_WAGER') {
+    return { positive: 'Gain wagered % of score', negative: 'Lose wagered % of score' };
+  }
+  if (type === 'MAJORITY_RULES') {
+    return { positive: '+50 majority vote', negative: '-50 minority vote' };
+  }
+  return { positive: '+10 correct answers', negative: '-2 incorrect answers' };
+}
+
 const KANGAROO_SLOTS = [1, 2, 3, 4, 5, 6] as const;
 
 /** Matches player mini-game (left / middle / right). */
@@ -78,6 +92,7 @@ interface QuestionData {
     mediaType?: string;
   };
   timerDuration: number;
+  timerRemaining?: number;
   roundType: string;
   pointsForQuestion?: number;
 }
@@ -92,6 +107,30 @@ interface RevealData {
 }
 
 const OPTION_LETTERS = ['A', 'B', 'C', 'D', 'E', 'F'];
+
+const resolveMediaUrl = (mediaUrl?: string) => {
+  if (!mediaUrl) return '';
+  const normalized = mediaUrl
+    .replace(/\\/g, '/')
+    .replace('/api/media/files/', '/api/public/media/files/')
+    .trim();
+  if (
+    normalized.startsWith('http://') ||
+    normalized.startsWith('https://') ||
+    normalized.startsWith('data:') ||
+    normalized.startsWith('blob:')
+  ) {
+    return normalized;
+  }
+  if (normalized.startsWith('/')) return `${API_URL}${normalized}`;
+  return `${API_URL}/${normalized}`;
+};
+
+const isImageMedia = (mediaType?: string, mediaUrl?: string) => {
+  const type = (mediaType || '').toLowerCase();
+  if (type.includes('image')) return true;
+  return /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(mediaUrl || '');
+};
 
 function formatSecondsMmSs(totalSeconds: number): string {
   const s = Math.max(0, Math.floor(totalSeconds));
@@ -290,11 +329,15 @@ function HostDashboardContent() {
   const [miniGameLoading, setMiniGameLoading] = useState(false);
   const [miniGameRevealing, setMiniGameRevealing] = useState(false);
   const [showScoreboardModal, setShowScoreboardModal] = useState(false);
+  const [isScoreboardVisible, setIsScoreboardVisible] = useState(false);
   const [showTimerModal, setShowTimerModal] = useState(false);
   const [mp3Playing, setMp3Playing] = useState(false);
   const [mp4Playing, setMp4Playing] = useState(false);
 
   const gameStateRef = useRef<GameState | null>(null);
+  const previousStateBeforeScoreboardRef = useRef<{ state: string; questionState: string } | null>(
+    null,
+  );
   useEffect(() => {
     gameStateRef.current = gameState;
   }, [gameState]);
@@ -318,8 +361,9 @@ function HostDashboardContent() {
 
   useEffect(() => {
     if (!currentQuestion?.question?.mediaUrl) return;
-    if (currentQuestion.question.mediaType === 'mp3') {
-      setMp3Source(`${API_URL}${currentQuestion.question.mediaUrl}`);
+    const mediaType = (currentQuestion.question.mediaType || '').toLowerCase();
+    if (mediaType === 'mp3') {
+      setMp3Source(resolveMediaUrl(currentQuestion.question.mediaUrl));
     }
   }, [currentQuestion?.question?.mediaUrl, currentQuestion?.question?.mediaType, setMp3Source]);
 
@@ -335,6 +379,7 @@ function HostDashboardContent() {
     socket.on('session_state', (data: GameState) => {
       if (data?.state) {
         setGameState(data);
+        setIsScoreboardVisible(data.state === 'SCOREBOARD');
         setTimerRemaining(data.timerRemaining || 0);
         setTimerPaused(data.timerRunning === false);
         setCurrentQuestion(data.currentQuestion || null);
@@ -355,7 +400,8 @@ function HostDashboardContent() {
       setCurrentQuestion(data);
       setRevealData(null);
       setTimerDuration(data.timerDuration);
-      setTimerRemaining(data.timerDuration);
+      setTimerRemaining(data.timerRemaining ?? data.timerDuration);
+      setIsScoreboardVisible(false);
       setMp3Playing(false);
       stopMp3();
       setGameState((prev) =>
@@ -384,6 +430,7 @@ function HostDashboardContent() {
     socket.on('round_intro', (data: { roundIndex?: number }) => {
       setCurrentQuestion(null);
       setRevealData(null);
+      setIsScoreboardVisible(false);
       setMp3Playing(false);
       stopMp3();
       setGameState((prev) =>
@@ -401,10 +448,31 @@ function HostDashboardContent() {
     });
 
     socket.on('scoreboard', () => {
-      setGameState((prev) => (prev ? { ...prev, state: 'SCOREBOARD' } : prev));
+      setIsScoreboardVisible(true);
+      setGameState((prev) => {
+        if (!prev) return prev;
+        if (prev.state !== 'SCOREBOARD') {
+          previousStateBeforeScoreboardRef.current = {
+            state: prev.state,
+            questionState: prev.questionState,
+          };
+        }
+        return { ...prev, state: 'SCOREBOARD' };
+      });
+    });
+
+    socket.on('scoreboard_hidden', () => {
+      setIsScoreboardVisible(false);
+      setGameState((prev) => {
+        if (!prev) return prev;
+        const restore = previousStateBeforeScoreboardRef.current;
+        if (!restore) return prev;
+        return { ...prev, state: restore.state, questionState: restore.questionState };
+      });
     });
 
     socket.on('round_end', () => {
+      setIsScoreboardVisible(false);
       setCurrentQuestion(null);
       setRevealData(null);
       setMp3Playing(false);
@@ -412,12 +480,13 @@ function HostDashboardContent() {
       setGameState((prev) => (prev ? { ...prev, state: 'SCOREBOARD' } : prev));
     });
 
-    socket.on('break_start', () =>
-      setGameState((prev) => (prev ? { ...prev, state: 'BREAK' } : prev)),
-    );
-    socket.on('break_end', () =>
-      setGameState((prev) => (prev ? { ...prev, state: 'ROUND_INTRO' } : prev)),
-    );
+    socket.on('break_start', () => {
+      setIsScoreboardVisible(false);
+      setGameState((prev) => (prev ? { ...prev, state: 'BREAK' } : prev));
+    });
+    socket.on('break_end', () => {
+      // Exact phase/state is restored by server via session_state.
+    });
 
     socket.on('game_end', () => {
       router.replace('/host/sessions');
@@ -511,6 +580,7 @@ function HostDashboardContent() {
         'response_count',
         'round_intro',
         'scoreboard',
+        'scoreboard_hidden',
         'round_end',
         'break_start',
         'break_end',
@@ -540,8 +610,13 @@ function HostDashboardContent() {
   };
   const handlePauseTimer = () => emit('pause_timer');
   const handleShowScoreboard = () => {
-    emit('show_scoreboard');
-    setShowScoreboardModal(true);
+    if (isScoreboardVisible) {
+      emit('hide_scoreboard');
+      setShowScoreboardModal(false);
+    } else {
+      emit('show_scoreboard');
+      setShowScoreboardModal(true);
+    }
   };
   const handleAdvanceRound = () => emit('advance_round');
   const handleStartBreak = () => emit('start_break');
@@ -894,7 +969,7 @@ function HostDashboardContent() {
                   active={mp3Playing}
                   disabled={
                     !currentQuestion?.question?.mediaUrl ||
-                    currentQuestion?.question?.mediaType !== 'mp3'
+                    (currentQuestion?.question?.mediaType || '').toLowerCase() !== 'mp3'
                   }
                   icon={
                     <svg viewBox="0 0 24 24" fill="currentColor">
@@ -908,7 +983,7 @@ function HostDashboardContent() {
                   active={mp4Playing}
                   disabled={
                     !currentQuestion?.question?.mediaUrl ||
-                    currentQuestion?.question?.mediaType !== 'mp4'
+                    (currentQuestion?.question?.mediaType || '').toLowerCase() !== 'mp4'
                   }
                   icon={
                     <svg viewBox="0 0 24 24" fill="currentColor">
@@ -1072,17 +1147,17 @@ function HostDashboardContent() {
                 data-node-id="232:4521"
               >
                 {currentQuestion.question.mediaUrl &&
-                currentQuestion.question.mediaType === 'image' ? (
+                isImageMedia(currentQuestion.question.mediaType, currentQuestion.question.mediaUrl) ? (
                   <img
-                    src={`${API_URL}${currentQuestion.question.mediaUrl}`}
+                    src={resolveMediaUrl(currentQuestion.question.mediaUrl)}
                     alt=""
                     className="max-h-[min(50vh,420px)] w-full object-cover"
                   />
                 ) : null}
                 {currentQuestion.question.mediaUrl &&
-                currentQuestion.question.mediaType === 'mp4' ? (
+                (currentQuestion.question.mediaType || '').toLowerCase() === 'mp4' ? (
                   <video
-                    src={`${API_URL}${currentQuestion.question.mediaUrl}`}
+                    src={resolveMediaUrl(currentQuestion.question.mediaUrl)}
                     className="max-h-[min(50vh,420px)] w-full object-contain"
                     controls={mp4Playing}
                     autoPlay={mp4Playing}
@@ -1090,9 +1165,9 @@ function HostDashboardContent() {
                   />
                 ) : null}
                 {!currentQuestion.question.mediaUrl ||
-                currentQuestion.question.mediaType === 'mp3' ? (
+                (currentQuestion.question.mediaType || '').toLowerCase() === 'mp3' ? (
                   <div className="flex min-h-[200px] items-center justify-center bg-[linear-gradient(180deg,#1a2238_0%,#0f1420_100%)]">
-                    {currentQuestion.question.mediaType === 'mp3' ? (
+                    {(currentQuestion.question.mediaType || '').toLowerCase() === 'mp3' ? (
                       <p className="text-sm text-[#00d9ff]">Audio question — use Play/Pause MP3</p>
                     ) : (
                       <p className="text-sm text-white/40">No media for this question</p>
@@ -1156,12 +1231,41 @@ function HostDashboardContent() {
             </div>
           ) : (
             <div className="flex flex-1 items-center justify-center rounded-2xl border border-[rgba(0,217,255,0.25)] bg-[#151b2e]/40 p-8">
-              <div className="text-center">
-                <p className="mb-2 text-2xl font-bold text-white/30">
-                  {state === 'LOBBY'
-                    ? 'Waiting for teams to join...'
-                    : state === 'ROUND_INTRO'
-                      ? `Round ${(gameState?.currentRoundIndex || 0) + 1}: ${currentRound?.name || ''}`
+              {state === 'ROUND_INTRO' ? (
+                <div className="w-full max-w-[980px] animate-fadeIn text-center">
+                  <div className="mx-auto mb-7 inline-flex items-center gap-3 rounded-full border border-[#41d9ff]/45 bg-[linear-gradient(180deg,rgba(20,42,89,0.95)_0%,rgba(11,20,46,0.95)_100%)] px-8 py-3 shadow-[0_0_22px_rgba(0,217,255,0.2)]">
+                    <span className="text-base font-semibold uppercase tracking-[0.2em] text-[#8cdfff]">
+                      Round {(gameState?.currentRoundIndex || 0) + 1}
+                    </span>
+                    <span className="h-2 w-2 rounded-full bg-[#00ffcc]" />
+                    <span className="text-base font-semibold uppercase tracking-[0.18em] text-[#8cdfff]">
+                      {formatRoundTypeLabel(currentRound?.type || 'MULTIPLE_CHOICE')}
+                    </span>
+                  </div>
+
+                  <h2 className="text-6xl font-black leading-none text-white drop-shadow-[0_0_14px_rgba(123,194,255,0.45)]">
+                    {currentRound?.name || 'Get Ready'}
+                  </h2>
+                  <p className="mt-3 text-[26px] font-semibold text-[#9de9ff]">
+                    Next question set is about to start
+                  </p>
+
+                  <div className="mx-auto mt-10 w-full max-w-[820px] rounded-3xl p-[3px] bg-gradient-to-r from-[#2cd7ff] via-[#1588ff] to-[#2cd7ff] shadow-[0_0_26px_rgba(44,215,255,0.35)]">
+                    <div className="rounded-[22px] bg-gradient-to-r from-[#1e0a88]/95 to-[#5a14a8]/95 px-10 py-8 text-left">
+                      <p className="text-[46px] font-black text-[#39ff14] leading-none mb-4">
+                        {getRoundScoringLines(currentRound?.type).positive}
+                      </p>
+                      <p className="text-[46px] font-black text-[#ff2d2d] leading-none">
+                        {getRoundScoringLines(currentRound?.type).negative}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="text-center">
+                  <p className="mb-2 text-2xl font-bold text-white/30">
+                    {state === 'LOBBY'
+                      ? 'Waiting for teams to join...'
                       : state === 'SCOREBOARD'
                         ? 'Showing Scoreboard'
                         : state === 'BREAK'
@@ -1169,13 +1273,14 @@ function HostDashboardContent() {
                           : state === 'FINAL_RESULTS'
                             ? 'Game Over'
                             : 'Waiting...'}
-                </p>
-                {state === 'LOBBY' ? (
-                  <p className="text-sm text-white/40">
-                    {teamList.length} team{teamList.length !== 1 ? 's' : ''} in lobby
                   </p>
-                ) : null}
-              </div>
+                  {state === 'LOBBY' ? (
+                    <p className="text-sm text-white/40">
+                      {teamList.length} team{teamList.length !== 1 ? 's' : ''} in lobby
+                    </p>
+                  ) : null}
+                </div>
+              )}
             </div>
           )}
         </main>
@@ -1356,6 +1461,7 @@ function HostDashboardContent() {
             {state === 'BREAK' ? 'End Break' : 'Start Break'}
           </HostFooterBtn>
           <HostFooterBtn
+            emphasis={isScoreboardVisible}
             icon={
               <svg viewBox="0 0 24 24" fill="currentColor" className="text-[#00d9ff]">
                 <path d="M5 3h4v2H5V3zm0 6h4v2H5V9zm0 6h4v2H5v-2zm6-12h10v2H11V3zm0 6h10v2H11V9zm0 6h10v2H11v-2z" />
@@ -1363,7 +1469,7 @@ function HostDashboardContent() {
             }
             onClick={handleShowScoreboard}
           >
-            Show Scoreboard
+            {isScoreboardVisible ? 'Hide Scoreboard' : 'Show Scoreboard'}
           </HostFooterBtn>
           <HostFooterBtn
             icon={
@@ -2251,3 +2357,4 @@ export default function HostDashboardPage() {
     </Suspense>
   );
 }
+

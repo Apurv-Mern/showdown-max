@@ -34,6 +34,7 @@ interface QuestionData {
     mediaType?: string;
   };
   timerDuration: number;
+  timerRemaining?: number;
   roundType: string;
   pointsForQuestion?: number;
   lockedWagerAmount?: number | null;
@@ -43,25 +44,49 @@ interface RevealData {
   correctOptionIndex: number;
   correctText: string;
   scores: Record<string, number>;
+  responseDetails?: { teamId: number; selectedOptionIndex: number; responseTime?: number | null }[];
   eliminations: number[];
   allWrong: boolean;
   teams: { teamId: number; teamName: string; score: number; isEliminated?: boolean }[];
 }
 
+// const OPTION_BG: Record<number, string> = {
+//   0: 'bg-[#11a7ff]', // A - blue
+//   1: 'bg-[#ff8a1f]', // B - orange
+//   2: 'bg-[#2bc62b]', // C - green
+//   3: 'bg-[#ffd319]', // D - yellow
+//   4: 'bg-[#8f2bff]', // E - purple
+//   5: 'bg-[#ff103b]', // F - red
+// };
+
 const OPTION_BG: Record<number, string> = {
-  0: 'bg-[#11a7ff]', // A - blue
-  1: 'bg-[#ff8a1f]', // B - orange
-  2: 'bg-[#2bc62b]', // C - green
-  3: 'bg-[#ffd319]', // D - yellow
-  4: 'bg-[#8f2bff]', // E - purple
-  5: 'bg-[#ff103b]', // F - red
+  // A - Blue: #006FFF -> #3AC9FF -> #006FFF
+  0: 'bg-gradient-to-b from-[#006FFF] via-[#3AC9FF] to-[#006FFF]',
+
+  // B - Orange: #E86130 -> #EB8800 -> #E86130
+  1: 'bg-gradient-to-b from-[#E86130] via-[#EB8800] to-[#E86130]',
+
+  // C - Green: #227E00 -> #2FB000 -> #227E00
+  2: 'bg-gradient-to-b from-[#227E00] via-[#2FB000] to-[#227E00]',
+
+  // D - Yellow: #CA9C00 -> #FFD900 -> #CA9C00
+  3: 'bg-gradient-to-b from-[#CA9C00] via-[#FFD900] to-[#CA9C00]',
+
+  // E - Purple: #460073 -> #5C0098 -> #460073
+  4: 'bg-gradient-to-b from-[#460073] via-[#5C0098] to-[#460073]',
+
+  // F - Red: #990003 -> #D20023 -> #990003
+  5: 'bg-gradient-to-b from-[#990003] via-[#D20023] to-[#990003]',
 };
 
 const OPTION_LETTERS = ['A', 'B', 'C', 'D', 'E', 'F'];
 
 const resolveMediaUrl = (mediaUrl?: string) => {
   if (!mediaUrl) return '';
-  const normalized = mediaUrl.replace(/\\/g, '/').trim();
+  const normalized = mediaUrl
+    .replace(/\\/g, '/')
+    .replace('/api/media/files/', '/api/public/media/files/')
+    .trim();
   if (
     normalized.startsWith('http://') ||
     normalized.startsWith('https://') ||
@@ -84,25 +109,70 @@ const isImageMedia = (mediaType?: string, mediaUrl?: string) => {
 
 function QuestionImage({ mediaUrl }: { mediaUrl: string }) {
   const candidates = useMemo(() => {
-    const normalized = (mediaUrl || '').replace(/\\/g, '/').trim();
+    const raw = (mediaUrl || '').replace(/\\/g, '/').trim();
+    const normalized = raw.replace('/api/media/files/', '/api/public/media/files/');
     if (!normalized) return [];
     const resolved = resolveMediaUrl(normalized);
     const out = [resolved];
+    const apiOrigin = (() => {
+      try {
+        return new URL(API_URL).origin;
+      } catch {
+        return '';
+      }
+    })();
+    const apiOriginNoPort = apiOrigin.replace(/:\d+$/, '');
+
     if (
       !normalized.startsWith('http://') &&
       !normalized.startsWith('https://') &&
       !normalized.startsWith('data:') &&
       !normalized.startsWith('blob:')
     ) {
-      out.push(normalized.startsWith('/') ? normalized : `/${normalized}`);
+      const path = normalized.startsWith('/') ? normalized : `/${normalized}`;
+      out.push(path);
+      if (apiOrigin) out.push(`${apiOrigin}${path}`);
+      if (apiOriginNoPort) out.push(`${apiOriginNoPort}${path}`);
+
+      // Try both media routes because some environments expose only one of these.
+      const legacyPath = path.replace('/api/public/media/files/', '/api/media/files/');
+      const publicPath = path.replace('/api/media/files/', '/api/public/media/files/');
+      if (legacyPath !== path) {
+        out.push(legacyPath);
+        if (apiOrigin) out.push(`${apiOrigin}${legacyPath}`);
+        if (apiOriginNoPort) out.push(`${apiOriginNoPort}${legacyPath}`);
+      }
+      if (publicPath !== path) {
+        out.push(publicPath);
+        if (apiOrigin) out.push(`${apiOrigin}${publicPath}`);
+        if (apiOriginNoPort) out.push(`${apiOriginNoPort}${publicPath}`);
+      }
     }
-    return Array.from(new Set(out));
+    const filename = raw.split('/').pop()?.split('?')[0] || '';
+    if (filename) {
+      out.push(`${API_URL}/api/public/media/files/${filename}`);
+      out.push(`${API_URL}/api/media/files/${filename}`);
+      if (apiOrigin) out.push(`${apiOrigin}/api/public/media/files/${filename}`);
+      if (apiOriginNoPort) out.push(`${apiOriginNoPort}/api/public/media/files/${filename}`);
+    }
+
+    return Array.from(new Set(out.map((u) => encodeURI(u))));
   }, [mediaUrl]);
   const [index, setIndex] = useState(0);
+  const [failed, setFailed] = useState(false);
 
-  useEffect(() => setIndex(0), [mediaUrl]);
+  useEffect(() => {
+    setIndex(0);
+    setFailed(false);
+  }, [mediaUrl]);
 
-  if (!candidates.length) return null;
+  if (!candidates.length || failed) {
+    return (
+      <div className="w-full rounded-xl border border-[#11a7ff] max-h-[190px] min-h-[140px] bg-[#0b1338]/70 flex items-center justify-center text-white/70 text-sm">
+        Image unavailable
+      </div>
+    );
+  }
 
   return (
     <img
@@ -110,7 +180,18 @@ function QuestionImage({ mediaUrl }: { mediaUrl: string }) {
       alt="Question media"
       className="w-full rounded-xl border border-[#11a7ff] object-cover max-h-[190px]"
       onError={() => {
-        setIndex((prev) => (prev + 1 < candidates.length ? prev + 1 : prev));
+        const next = index + 1;
+        if (next < candidates.length) {
+          setIndex(next);
+          return;
+        }
+        setFailed(true);
+        if (typeof window !== 'undefined') {
+          console.warn('[mobile-question-image] failed all URL candidates', {
+            mediaUrl,
+            candidates,
+          });
+        }
       }}
     />
   );
@@ -227,11 +308,15 @@ export default function GamePage() {
     { teamId: number; teamName: string; score: number }[]
   >([]);
   const [isEliminated, setIsEliminated] = useState(false);
-  const [endCountdown, setEndCountdown] = useState(0);
   const [breakDuration, setBreakDuration] = useState(300);
   const [breakRemaining, setBreakRemaining] = useState(300);
   const [isPlayerMp3Playing, setIsPlayerMp3Playing] = useState(false);
+  const [showBreakEndedNotice, setShowBreakEndedNotice] = useState(false);
   const questionMediaUrlRef = useRef<string | undefined>(undefined);
+  const phaseRef = useRef<GamePhase>('waiting');
+  const previousPhaseBeforeScoreboardRef = useRef<GamePhase | null>(null);
+  const questionRef = useRef<QuestionData | null>(null);
+  const revealDataRef = useRef<RevealData | null>(null);
   const {
     play: playMp3,
     stop: stopMp3,
@@ -240,6 +325,18 @@ export default function GamePage() {
     loop: false,
     volume: 0.75,
   });
+
+  useEffect(() => {
+    phaseRef.current = phase;
+  }, [phase]);
+
+  useEffect(() => {
+    questionRef.current = question;
+  }, [question]);
+
+  useEffect(() => {
+    revealDataRef.current = revealData;
+  }, [revealData]);
 
   useEffect(() => {
     if (!session.pin || !session.teamId) {
@@ -397,7 +494,7 @@ export default function GamePage() {
     socket.on('question_active', (data: QuestionData) => {
       setQuestion(data);
       setTimerDuration(data.timerDuration);
-      setTimerRemaining(data.timerDuration);
+      setTimerRemaining(data.timerRemaining ?? data.timerDuration);
       setSelectedOption(null);
       setRevealData(null);
       setPointsGained(null);
@@ -435,6 +532,13 @@ export default function GamePage() {
     socket.on('answer_reveal', (data: RevealData) => {
       setRevealData(data);
       setPhase('reveal');
+      const myResponse = data.responseDetails?.find((r) => r.teamId === session.teamId);
+      if (myResponse && Number.isFinite(Number(myResponse.selectedOptionIndex))) {
+        const selectedIdx = Number(myResponse.selectedOptionIndex);
+        setSelectedOption(selectedIdx >= 0 ? selectedIdx : null);
+      } else {
+        setSelectedOption(null);
+      }
       const teamIdStr = String(session.teamId);
       if (data.scores[teamIdStr] !== undefined) setPointsGained(data.scores[teamIdStr]);
       const myTeam = data.teams.find((t) => t.teamId === session.teamId);
@@ -447,13 +551,31 @@ export default function GamePage() {
     });
 
     socket.on('scoreboard', (data: { teams: any[] }) => {
+      if (phaseRef.current !== 'scoreboard') {
+        previousPhaseBeforeScoreboardRef.current = phaseRef.current;
+      }
       setScoreboard(data.teams);
       setPhase('scoreboard');
       setIsPlayerMp3Playing(false);
       stopMp3();
     });
+    socket.on('scoreboard_hidden', () => {
+      const previous = previousPhaseBeforeScoreboardRef.current;
+      if (previous && previous !== 'scoreboard') {
+        setPhase(previous);
+        return;
+      }
+      if (revealDataRef.current && questionRef.current) {
+        setPhase('reveal');
+        return;
+      }
+      if (questionRef.current) {
+        setPhase('question');
+        return;
+      }
+      setPhase('waiting');
+    });
     socket.on('round_end', () => {
-      setPhase('scoreboard');
       setIsPlayerMp3Playing(false);
       stopMp3();
     });
@@ -463,7 +585,11 @@ export default function GamePage() {
       setBreakRemaining(duration > 0 ? duration : 300);
       setPhase('break');
     });
-    socket.on('break_end', () => setPhase('waiting'));
+    socket.on('break_end', () => {
+      // Phase is restored by server via session_state.
+      setShowBreakEndedNotice(true);
+      setTimeout(() => setShowBreakEndedNotice(false), 2200);
+    });
     socket.on('mini_game_start', (data: { game: string }) => {
       router.push(`/play/mini-game?game=${data.game}`);
     });
@@ -484,12 +610,19 @@ export default function GamePage() {
       stopMp3();
       setIsPlayerMp3Playing(false);
     });
-    socket.on('game_end', () => {
-      stopMp3();
-      setIsPlayerMp3Playing(false);
-      clearSession();
-      router.replace('/play/join');
-    });
+    socket.on(
+      'game_end',
+      (data?: { teams?: { teamId: number; teamName: string; score: number }[] }) => {
+        stopMp3();
+        setIsPlayerMp3Playing(false);
+        if (data?.teams) {
+          setScoreboard(data.teams);
+          const myTeam = data.teams.find((t) => t.teamId === session.teamId);
+          if (myTeam) setSession({ score: myTeam.score });
+        }
+        setPhase('game_end');
+      },
+    );
 
     return () => {
       [
@@ -501,6 +634,7 @@ export default function GamePage() {
         'answer_reveal',
         'player_eliminated',
         'scoreboard',
+        'scoreboard_hidden',
         'round_end',
         'break_start',
         'break_end',
@@ -545,7 +679,6 @@ export default function GamePage() {
   };
 
   const myRank = scoreboard.findIndex((t) => t.teamId === session.teamId) + 1;
-  const showCompactHeader = !['waiting', 'break'].includes(phase);
   const breakProgress =
     breakDuration > 0 ? Math.max(0, Math.min(1, breakRemaining / breakDuration)) : 0;
   const breakRadius = 134;
@@ -553,11 +686,14 @@ export default function GamePage() {
   const breakOffset = breakCircumference * (1 - breakProgress);
   const breakMinutes = Math.floor(breakRemaining / 60);
   const breakSeconds = breakRemaining % 60;
+  const optionCount = question?.question?.options?.length || 0;
+  const optionHeightClass = optionCount <= 4 ? 'h-[116px]' : 'h-[116px]';
+  const optionTextClass = optionCount <= 4 ? 'text-[22px]' : 'text-[22px]';
 
   return (
-    <div className="flex-1 h-full min-h-0 flex justify-center bg-[#050017]">
+    <div className="flex-1 h-full min-h-0 w-full bg-[#050017]">
       <div
-        className="relative flex flex-col min-h-0 h-full w-full max-w-[390px] overflow-hidden border-2 border-[#06c6ff] mobile-play-bg"
+        className="relative flex flex-col min-h-0 h-full w-full overflow-hidden mobile-play-bg"
         style={{
           backgroundImage: "url('/Mobile_BG.png')",
           backgroundSize: '100% 100%',
@@ -565,26 +701,11 @@ export default function GamePage() {
           backgroundRepeat: 'no-repeat',
         }}
       >
-        {/* Header */}
-        {showCompactHeader && (
-          <div className="absolute left-0 right-0 top-0 z-20 px-4 py-2.5 border-b border-border/50 flex items-center justify-between bg-surface/80/90 backdrop-blur-sm">
-            <div className="text-sm flex items-center gap-2">
-              <button
-                onClick={() => setShowExitConfirm(true)}
-                className="text-foreground/30 hover:text-neon-red transition-colors text-xs"
-                title="Leave game"
-              >
-                x
-              </button>
-              <span className="text-foreground/40">Team: </span>
-              <span className="font-semibold text-neon-cyan">{session.teamName}</span>
-            </div>
-            <div className="text-sm font-mono font-bold text-neon-cyan text-glow-cyan">
-              {session.score} pts
-            </div>
+        {showBreakEndedNotice ? (
+          <div className="absolute top-4 left-1/2 -translate-x-1/2 z-50 rounded-xl border border-[#2bdcff]/60 bg-[rgba(8,20,56,0.9)] px-4 py-2 shadow-[0_0_18px_rgba(43,220,255,0.32)]">
+            <p className="text-sm font-extrabold tracking-wide text-[#2be9ff]">Break Ended</p>
           </div>
-        )}
-
+        ) : null}
         <div className="flex-1 flex flex-col min-h-0 overflow-y-auto">
           <AnimatePresence mode="wait">
             {/* ── ROUND INTRO ── */}
@@ -594,63 +715,42 @@ export default function GamePage() {
                 {...pageTransition}
                 className="flex-1 flex items-center justify-center p-4"
               >
-                <div className="w-full max-w-[390px] rounded-xl border-2 border-[#06c6ff] bg-[rgba(8,8,30,0.55)] p-3 text-center shadow-[0_0_20px_rgba(0,216,255,0.25)]">
-                  <motion.div
-                    initial={{ opacity: 0, scale: 0.92 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    transition={{ delay: 0.15 }}
-                    className="relative mx-auto h-[270px] w-[270px]"
-                  >
-                    <div className="absolute inset-0 rounded-full border-[7px] border-[#ffd44d] shadow-[0_0_18px_rgba(255,196,0,0.45),inset_0_0_16px_rgba(255,163,0,0.4)]" />
-                    {Array.from({ length: 10 }).map((_, i) => (
-                      <span
-                        key={i}
-                        className="absolute left-1/2 top-1/2 h-4 w-4 rounded-full bg-[#ffe887] shadow-[0_0_10px_rgba(255,220,90,0.9)]"
-                        style={{
-                          transform: `translate(-50%,-50%) rotate(${i * 36}deg) translateY(-126px)`,
-                        }}
-                      />
-                    ))}
-                    <div className="absolute inset-[18px] rounded-full border border-[#ffb300] bg-[radial-gradient(circle_at_50%_35%,#7434e3_0%,#3b118f_56%,#22044e_100%)]">
-                      <div className="absolute inset-0 rounded-full bg-[radial-gradient(circle,rgba(145,105,255,0.23)_0_2px,transparent_2px)] [background-size:12px_12px] opacity-55" />
-                      <div className="absolute inset-0 flex flex-col items-center justify-center px-6">
-                        <p className="text-[44px] font-extrabold uppercase leading-none tracking-[0.02em] text-white">
-                          ROUND {(roundInfo.roundIndex || 0) + 1}
-                        </p>
-                        <p className="mt-2 text-[28px] font-bold leading-[1.05] text-[#00d8ff]">
-                          {roundInfo.round?.name ||
-                            roundInfo.round?.type?.replace(/_/g, ' ') ||
-                            'Trivia Round'}
-                        </p>
-                      </div>
-                    </div>
-                    <div className="absolute bottom-[8px] left-1/2 flex -translate-x-1/2 items-center gap-4">
-                      <span className="text-[34px] text-[#ffca2c] drop-shadow-[0_0_8px_rgba(255,200,30,0.8)]">
-                        ★
-                      </span>
-                      <span className="text-[52px] text-[#ffca2c] drop-shadow-[0_0_10px_rgba(255,200,30,0.9)]">
-                        ★
-                      </span>
-                      <span className="text-[34px] text-[#ffca2c] drop-shadow-[0_0_8px_rgba(255,200,30,0.8)]">
-                        ★
-                      </span>
-                    </div>
-                  </motion.div>
+                <motion.div
+                  initial={{ opacity: 0, scale: 0.94 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  transition={{ delay: 0.1 }}
+                  className="relative w-full max-w-100"
+                >
+                  <img src="/round%20intro.png" alt="Round intro" className="w-full h-auto" />
 
-                  <motion.div
-                    initial={{ opacity: 0, y: 8 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: 0.35 }}
-                    className="mx-auto mt-2 max-w-[360px] rounded-xl border-2 border-[#00cfff] bg-[linear-gradient(180deg,#201066_0%,#31107f_55%,#240a64_100%)] px-4 py-3 text-left shadow-[0_0_14px_rgba(0,216,255,0.32),inset_0_0_14px_rgba(0,216,255,0.16)]"
-                  >
-                    <p className="text-[27px] font-bold text-[#00ff4a]">
-                      ⚡ {getRoundScoringLines(roundInfo.round?.type).positive}
-                    </p>
-                    <p className="mt-2 text-[27px] font-bold text-[#ff0037]">
-                      ⚡ {getRoundScoringLines(roundInfo.round?.type).negative}
-                    </p>
-                  </motion.div>
-                </div>
+                  <div className="pointer-events-none absolute inset-0">
+                    <div className="absolute left-1/2 top-[22%] h-[40%] w-[58%] -translate-x-1/2 rounded-full flex flex-col items-center justify-center text-center px-3">
+                      <p className="text-[40px] font-extrabold leading-[0.95] bg-linear-to-b from-[#FFFFFF] to-[#FFC870] bg-clip-text text-transparent">
+                        ROUND {(roundInfo.roundIndex || 0) + 1}
+                      </p>
+                      <p className="mt-1 text-[14px] font-bold leading-[1.15] text-[#00d8ff]">
+                        {roundInfo.round?.name ||
+                          roundInfo.round?.type?.replace(/_/g, ' ') ||
+                          `Round ${(roundInfo.roundIndex || 0) + 1}`}
+                      </p>
+                    </div>
+
+                    <div className="absolute top-[74%] left-[10%] w-full">
+                      <p className="text-[20px] font-bold text-[#00ff4a]">
+                        <img
+                          src="/plus10.png"
+                          alt="Checkmark"
+                          className="inline-block w-6  h-6 mr-2"
+                        />
+                        {getRoundScoringLines(roundInfo.round?.type).positive}
+                      </p>
+                      <p className="mt-1 text-[20px] font-bold text-[#ff0037]">
+                        <img src="/minus2.png" alt="Cross" className="inline-block w-6 h-6 mr-2" />
+                        {getRoundScoringLines(roundInfo.round?.type).negative}
+                      </p>
+                    </div>
+                  </div>
+                </motion.div>
               </motion.div>
             )}
 
@@ -663,7 +763,7 @@ export default function GamePage() {
                 className="flex-1 relative overflow-hidden mobile-play-bg"
               >
                 <div className="absolute inset-0 opacity-25 bg-[radial-gradient(circle_at_22%_16%,rgba(145,105,255,0.36)_0_4px,transparent_4px)] [background-size:110px_110px]" />
-                <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-[280px] h-[170px] opacity-55 bg-[radial-gradient(circle,rgba(0,229,255,0.26)_0_2px,transparent_2px)] [background-size:14px_14px]" />
+                <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-[280px] h-42.5 opacity-55 bg-[radial-gradient(circle,rgba(0,229,255,0.26)_0_2px,transparent_2px)] [background-size:14px_14px]" />
 
                 <div className="relative z-10 h-full flex items-center justify-center p-4">
                   <div className="w-full max-w-[420px] border-2 border-[#00d8ff] bg-[linear-gradient(180deg,rgba(45,13,121,0.72)_0%,rgba(15,8,66,0.82)_100%)] px-6 py-8 text-center shadow-[0_0_26px_rgba(0,216,255,0.24)]">
@@ -776,7 +876,7 @@ export default function GamePage() {
                 <div className="flex items-center justify-between mb-3 shrink-0">
                   <MobileTimerRing remaining={timerRemaining} total={timerDuration} />
                   <div className="text-right">
-                    <p className="text-foreground/40 text-xs">
+                    <p className="text-white/60 text-sm font-semibold">
                       Q{(question.questionIndex || 0) + 1} / {question.totalQuestions}
                     </p>
                     {question.roundType === 'WAGER' && wagerSubmitted && (
@@ -796,8 +896,10 @@ export default function GamePage() {
                 question.question.mediaUrl ? (
                   <div className="mb-3 shrink-0">
                     <QuestionImage mediaUrl={question.question.mediaUrl} />
-                    <div className="mt-3 neon-border rounded-xl px-4 py-3 bg-surface/60 text-center">
-                      <h2 className="text-lg font-bold leading-snug">{question.question.text}</h2>
+                    <div className="mt-3 rounded-2xl border border-[#11a7ff] bg-[#0f1a56]/80 px-4 py-3 text-center shadow-[0_0_12px_rgba(17,167,255,0.26)]">
+                      <h2 className="text-[22px] font-extrabold leading-snug text-white">
+                        {question.question.text}
+                      </h2>
                     </div>
                   </div>
                 ) : (question.question.mediaType || '').toLowerCase() === 'mp4' &&
@@ -805,11 +907,13 @@ export default function GamePage() {
                   <div className="mb-3 shrink-0">
                     <video
                       src={resolveMediaUrl(question.question.mediaUrl)}
-                      className="w-full rounded-xl border border-[#11a7ff] object-cover max-h-[190px]"
+                      className="w-full rounded-2xl border border-[#11a7ff] object-cover max-h-[190px]"
                       controls
                     />
-                    <div className="mt-3 neon-border rounded-xl px-4 py-3 bg-surface/60 text-center">
-                      <h2 className="text-lg font-bold leading-snug">{question.question.text}</h2>
+                    <div className="mt-3 rounded-2xl border border-[#11a7ff] bg-[#0f1a56]/80 px-4 py-3 text-center shadow-[0_0_12px_rgba(17,167,255,0.26)]">
+                      <h2 className="text-[22px] font-extrabold leading-snug text-white">
+                        {question.question.text}
+                      </h2>
                     </div>
                   </div>
                 ) : (question.question.mediaType || '').toLowerCase() === 'mp3' ||
@@ -825,13 +929,15 @@ export default function GamePage() {
                         ? 'Audio is playing on Venue Screen'
                         : 'Waiting for host to play music'}
                     </p>
-                    <div className="mt-3 neon-border rounded-xl px-4 py-3 bg-surface/60 text-center">
-                      <h2 className="text-lg font-bold leading-snug">{question.question.text}</h2>
+                    <div className="mt-3 rounded-2xl border border-[#11a7ff] bg-[#0f1a56]/80 px-4 py-3 text-center shadow-[0_0_12px_rgba(17,167,255,0.26)]">
+                      <h2 className="text-[22px] font-extrabold leading-snug text-white">
+                        {question.question.text}
+                      </h2>
                     </div>
                   </div>
                 ) : (
                   <div className="mb-3 shrink-0">
-                    <h2 className="text-[30px] leading-[1.08] font-extrabold text-white tracking-[-0.01em]">
+                    <h2 className="rounded-2xl border border-[#11a7ff] bg-[#0f1a56]/80 px-4 py-3 text-center text-[22px] font-extrabold leading-snug text-white shadow-[0_0_12px_rgba(17,167,255,0.26)]">
                       {question.question.text}
                     </h2>
                   </div>
@@ -842,7 +948,7 @@ export default function GamePage() {
                   variants={staggerContainer}
                   initial="initial"
                   animate="animate"
-                  className="flex-1 grid grid-cols-2 gap-3"
+                  className="grid grid-cols-2 gap-3"
                 >
                   {question.question.options.map((opt, i) => {
                     const isSelected = selectedOption === i;
@@ -856,16 +962,22 @@ export default function GamePage() {
                         onClick={() => handleSelectOption(i)}
                         disabled={isLocked || isEliminated}
                         className={cn(
-                          'rounded-lg py-4 px-4 text-center text-white font-bold text-base shadow-[inset_0_0_10px_rgba(255,255,255,0.15)]',
-                          'transition-all touch-manipulation select-none min-h-14',
+                          optionHeightClass,
+                          'w-full rounded-2xl px-5 text-center text-white font-bold shadow-[inset_0_0_18px_rgba(255,255,255,0.22),0_0_30px_rgba(0,0,0,0.45)] flex items-center justify-center',
+                          'transition-all touch-manipulation select-none',
                           OPTION_BG[i] || 'bg-[#1565c0]',
                           isSelected &&
-                            'ring-2 ring-white/60 shadow-[0_0_20px_rgba(255,255,255,0.3)] scale-[1.02]',
+                            'ring-2 ring-white/80 shadow-[0_0_36px_rgba(255,255,255,0.58)] scale-[1.02]',
                           isLocked && !isSelected && 'opacity-30',
                           isEliminated && 'opacity-20 cursor-not-allowed',
                         )}
                       >
-                        <span className="font-mono opacity-90">
+                        <span
+                          className={cn(
+                            optionTextClass,
+                            'leading-tight font-extrabold opacity-95 drop-shadow-[0_0_12px_rgba(255,255,255,0.58)]',
+                          )}
+                        >
                           {OPTION_LETTERS[i]}. {opt.text}
                         </span>
                       </motion.button>
@@ -879,7 +991,7 @@ export default function GamePage() {
                     animate={{ opacity: 1, y: 0 }}
                     className="text-center mt-3 shrink-0"
                   >
-                    <p className="text-white text-[28px] font-extrabold leading-none drop-shadow-[0_0_8px_rgba(255,255,255,0.35)]">
+                    <p className="text-white text-[25px] font-extrabold leading-none drop-shadow-[0_0_8px_rgba(255,255,255,0.35)]">
                       Answer Submitted !!
                     </p>
                   </motion.div>
@@ -889,19 +1001,38 @@ export default function GamePage() {
 
             {/* ── REVEAL ── */}
             {phase === 'reveal' && revealData && question && (
-              <motion.div key="reveal" {...pageTransition} className="flex-1 flex flex-col p-4">
-                <div className="flex items-center justify-between mb-3 shrink-0 gap-2">
-                  <div className="min-w-[120px] rounded-full border border-[#ff2b68] bg-[linear-gradient(180deg,#f22d63_0%,#b20b68_100%)] px-3 py-1.5 shadow-[0_0_12px_rgba(255,25,93,0.35)]">
-                    <p className="text-center font-extrabold text-white text-xl leading-none">00</p>
+              <motion.div key="reveal" {...pageTransition} className="flex-1 flex flex-col p-4  ">
+                {/*  Trophy and clock section */}
+                {/* Parent container ensuring it stays within your main content width */}
+                <div className="flex items-center gap-35 mt-10 mb-3 shrink-0">
+                  {/* Timer Pill */}
+                  <div className="relative flex items-center min-w-32.5 h-10 rounded-full border border-[#ff2b68] bg-[linear-gradient(180deg,#FF0000_0%,#801669_100%)] pl-10 pr-4 shadow-[0_0_12px_rgba(255,25,93,0.35)]">
+                    <img
+                      src={'/Clock.png'}
+                      className="absolute -left-2 w-14 h-14 object-contain"
+                      style={{ top: '40%', transform: 'translateY(-50%)' }}
+                      alt="clock"
+                    />
+                    <p className="w-full text-center font-extrabold text-white text-xl leading-none">
+                      00:{timerRemaining.toString().padStart(2, '0')}
+                    </p>
                   </div>
-                  <div className="min-w-[120px] rounded-full border border-[#ff2b68] bg-[linear-gradient(180deg,#f22d63_0%,#b20b68_100%)] px-3 py-1.5 shadow-[0_0_12px_rgba(255,25,93,0.35)]">
-                    <p className="text-center font-extrabold text-white text-xl leading-none">
+
+                  {/* Score Pill */}
+                  <div className="relative flex items-center min-w-32.5 h-10 rounded-full border border-[#ff2b68] bg-[linear-gradient(180deg,#FF0000_0%,#801669_100%)] pl-10 pr-4 shadow-[0_0_12px_rgba(255,25,93,0.35)]">
+                    <img
+                      src={'/trophy.png'}
+                      className="absolute -left-1 w-14 h-14 object-contain"
+                      style={{ top: '50%', transform: 'translateY(-50%)' }}
+                      alt="trophy"
+                    />
+                    <p className="w-full text-center font-extrabold text-white text-xl leading-none">
                       {session.score}
                     </p>
                   </div>
                 </div>
 
-                <div className="text-white/95 font-semibold text-base mb-2 shrink-0">
+                <div className="text-white/95 font-semibold text-base mt-2 mb-2 shrink-0">
                   Question {(question.questionIndex || 0) + 1}/{question.totalQuestions}
                 </div>
 
@@ -917,20 +1048,18 @@ export default function GamePage() {
                     <img
                       src="/musicbg.png"
                       alt="Music round placeholder"
-                      className="w-full rounded-xl border border-[#11a7ff] object-cover max-h-[190px]"
+                      className="w-full rounded-xl border border-[#11a7ff] object-cover max-h-47.5"
                     />
                   </div>
                 )}
-
-                <div className="neon-border rounded-xl px-4 py-3 mb-3 bg-surface/60 text-center shrink-0">
+                <div className="neon-border rounded-xl px-4 py-3 mb-6 bg-surface/60 text-center shrink-0">
                   <h2 className="text-lg font-bold leading-snug">{question.question.text}</h2>
                 </div>
-
                 <motion.div
                   variants={staggerContainer}
                   initial="initial"
                   animate="animate"
-                  className="flex-1 grid grid-cols-2 gap-3"
+                  className="grid grid-cols-2 gap-7"
                 >
                   {question.question.options.map((opt, i) => {
                     const isCorrectOption = i === revealData.correctOptionIndex;
@@ -944,24 +1073,23 @@ export default function GamePage() {
                         key={i}
                         variants={staggerItem}
                         className={cn(
-                          'rounded-lg py-4 px-4 text-center text-white font-bold text-base shadow-[inset_0_0_10px_rgba(255,255,255,0.15)]',
-                          'transition-all select-none min-h-14',
+                          'h-30 w-full rounded-2xl px-5 text-center text-white font-bold text-[22px]  flex items-center justify-center',
+                          'transition-all select-none',
                           OPTION_BG[i] || 'bg-[#1565c0]',
                           isCorrectOption &&
-                            'ring-2 ring-[#00ff50] shadow-[0_0_16px_rgba(0,255,92,0.7)]',
+                            'shadow-[0_0_40px_rgba(0,255,92,0.8),0_0_20px_rgba(0,255,92,1)]',
                           isSelectedWrong &&
-                            'ring-2 ring-[#ff2b2b] shadow-[0_0_16px_rgba(255,27,27,0.7)]',
-                          shouldDim && 'opacity-35',
+                            'shadow-[0_0_40px_rgba(255,27,27,0.8),0_0_20px_rgba(255,27,27,1)]',
+                          shouldDim && 'opacity-30 blur-xs saturate-[0.55]',
                         )}
                       >
-                        <span className="font-mono opacity-95">
+                        <span className="text-[22px]! leading-tight font-extrabold opacity-95 drop-shadow-[0_0_12px_rgba(255,255,255,0.58)]">
                           {OPTION_LETTERS[i]}. {opt.text}
                         </span>
                       </motion.div>
                     );
                   })}
                 </motion.div>
-
                 <motion.div
                   initial={{ opacity: 0, y: 8 }}
                   animate={{ opacity: 1, y: 0 }}
@@ -972,8 +1100,8 @@ export default function GamePage() {
                     className={cn(
                       'text-[28px] font-extrabold leading-none',
                       selectedOption !== null && selectedOption === revealData.correctOptionIndex
-                        ? 'text-[#53ff57] drop-shadow-[0_0_8px_rgba(67,255,89,0.7)]'
-                        : 'text-[#ff2525] drop-shadow-[0_0_8px_rgba(255,45,45,0.7)]',
+                        ? 'text-[#53ff57] drop-shadow-[0_0_15px_rgba(67,255,89,0.9)]' // Stronger Green Glow
+                        : 'text-[#ff2525] drop-shadow-[0_0_15px_rgba(255,45,45,0.9)]', // Stronger Red Glow
                     )}
                   >
                     {selectedOption !== null && selectedOption === revealData.correctOptionIndex
@@ -1020,12 +1148,16 @@ export default function GamePage() {
             {/* ── SCOREBOARD ── */}
             {phase === 'scoreboard' && (
               <motion.div key="scoreboard" {...pageTransition} className="flex-1 flex flex-col p-4">
-                <h2 className="text-xl font-bold text-center mb-4 text-glow-cyan">Scoreboard</h2>
+                <div className="mb-4 text-center">
+                  <h2 className="text-[52px] leading-none font-extrabold text-white tracking-wide drop-shadow-[0_0_10px_rgba(255,255,255,0.2)]">
+                    🏅 LEADERBOARD 🏅
+                  </h2>
+                </div>
                 <motion.div
                   variants={staggerContainer}
                   initial="initial"
                   animate="animate"
-                  className="flex-1 space-y-2 overflow-y-auto"
+                  className="flex-1 space-y-3 overflow-y-auto pr-1"
                 >
                   {scoreboard.map((team, idx) => {
                     const isMe = team.teamId === session.teamId;
@@ -1034,42 +1166,48 @@ export default function GamePage() {
                         key={team.teamId}
                         variants={staggerItem}
                         className={cn(
-                          'flex items-center justify-between px-4 py-3 rounded-xl border',
-                          isMe
-                            ? 'bg-neon-cyan/10 border-neon-cyan/30 shadow-[0_0_10px_rgba(0,229,255,0.15)]'
-                            : 'bg-surface/80 border-border/50',
+                          'relative flex items-center justify-between rounded-2xl border px-3 py-4 shadow-[0_0_18px_rgba(0,229,255,0.3)]',
+                          'border-[#12ddff]/70 bg-[linear-gradient(90deg,#2d12a0_0%,#9a0dbd_100%)]',
+                          isMe && 'ring-2 ring-[#35f6ff] shadow-[0_0_22px_rgba(53,246,255,0.5)]',
                         )}
                       >
-                        <div className="flex items-center gap-3">
+                        <div className="flex items-center gap-3 min-w-0">
                           <span
                             className={cn(
-                              'w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold',
-                              idx === 0
-                                ? 'bg-neon-gold/20 text-neon-gold'
-                                : 'bg-surface-light text-foreground/40',
+                              'w-11 h-11 rounded-lg flex items-center justify-center text-2xl font-black border',
+                              idx === 0 &&
+                                'bg-[linear-gradient(180deg,#ffd35e_0%,#ff9f0a_100%)] text-white border-[#ffdf7f]',
+                              idx === 1 &&
+                                'bg-[linear-gradient(180deg,#b7c8e6_0%,#6f88b5_100%)] text-white border-[#d4e4ff]',
+                              idx === 2 &&
+                                'bg-[linear-gradient(180deg,#df8f49_0%,#a45a21_100%)] text-white border-[#f3b07a]',
+                              idx > 2 && 'bg-[#100a3d] text-white border-[#281d72]',
                             )}
                           >
                             {idx + 1}
                           </span>
-                          <span className={cn('font-medium', isMe && 'text-neon-cyan')}>
-                            {team.teamName} {isMe && '(You)'}
+                          <span
+                            className={cn(
+                              'font-bold text-[36px] truncate text-white',
+                              isMe && 'text-[#8af7ff]',
+                            )}
+                          >
+                            {team.teamName}
                           </span>
                         </div>
-                        <span className="font-mono font-bold text-neon-cyan">{team.score}</span>
+                        <span
+                          className={cn(
+                            'font-extrabold text-[42px] leading-none text-white',
+                            isMe && 'text-[#8af7ff]',
+                          )}
+                        >
+                          {team.score >= 0 ? '+' : ''}
+                          {team.score}
+                        </span>
                       </motion.div>
                     );
                   })}
                 </motion.div>
-                {myRank > 0 && (
-                  <p className="text-center text-foreground/40 text-sm mt-4 shrink-0">
-                    You are in{' '}
-                    <span className="font-bold text-neon-cyan">
-                      {myRank}
-                      {myRank === 1 ? 'st' : myRank === 2 ? 'nd' : myRank === 3 ? 'rd' : 'th'}
-                    </span>{' '}
-                    place
-                  </p>
-                )}
               </motion.div>
             )}
             {/* Break */}
@@ -1157,7 +1295,7 @@ export default function GamePage() {
                     transition={{ delay: 0.3 }}
                     className="text-3xl font-bold mb-2 text-glow-cyan"
                   >
-                    Game Over!
+                    Thank You For Playing!
                   </motion.h2>
                   {myRank === 1 && (
                     <motion.p
@@ -1229,13 +1367,8 @@ export default function GamePage() {
                     }}
                     className="w-full py-3 rounded-xl bg-neon-cyan/20 text-neon-cyan border border-neon-cyan/50 font-bold hover:bg-neon-cyan/30 transition-colors touch-manipulation"
                   >
-                    Play Again
+                    Leave Game
                   </button>
-                  {endCountdown > 0 && (
-                    <p className="text-foreground/30 text-xs mt-3">
-                      Redirecting in {endCountdown}s...
-                    </p>
-                  )}
                 </div>
               </motion.div>
             )}

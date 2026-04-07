@@ -33,9 +33,9 @@ type ResultPhase = null | 'winner' | 'loser';
 
 function MobileFrame({ children }: { children: React.ReactNode }) {
   return (
-    <div className="flex-1 h-full min-h-0 flex justify-center bg-[#050017]">
+    <div className="flex-1 h-full min-h-0 w-full bg-[#050017]">
       <div
-        className="relative h-full min-h-0 w-full max-w-[390px] overflow-hidden border-2 border-[#06c6ff] mobile-play-bg"
+        className="relative h-full min-h-0 w-full overflow-hidden mobile-play-bg"
         style={{
           backgroundImage: "url('/Mobile_BG.png')",
           backgroundSize: '100% 100%',
@@ -135,11 +135,6 @@ export default function MiniGamePage() {
 
     return (
       <MobileFrame>
-        <div className="px-4 py-3 border-b border-border flex items-center justify-between bg-surface/50">
-          <span className="text-sm font-semibold text-primary">{session.teamName}</span>
-          <span className="text-sm font-mono font-bold">{session.score} pts</span>
-        </div>
-
         <div className="flex-1 flex items-center justify-center p-6">
           <div className="w-full max-w-sm text-center">
             {isWinner ? (
@@ -171,11 +166,6 @@ export default function MiniGamePage() {
 
   return (
     <MobileFrame>
-      <div className="px-4 py-3 border-b border-border flex items-center justify-between bg-surface/50">
-        <span className="text-sm font-semibold text-primary">{session.teamName}</span>
-        <span className="text-sm font-mono font-bold">{session.score} pts</span>
-      </div>
-
       <div className="flex-1 flex items-center justify-center p-6">
         {gameType === 'horse_race' && (
           <div className="w-full max-w-sm text-center">

@@ -94,6 +94,14 @@ const hostHandlers = (io, socket) => {
     }
   });
 
+  socket.on(SOCKET_EVENTS.HIDE_SCOREBOARD, async (data) => {
+    try {
+      await gameController.hideScoreboard(io, data.pin);
+    } catch (err) {
+      logger.error('hide_scoreboard error', { error: err.message });
+    }
+  });
+
   socket.on(SOCKET_EVENTS.ADVANCE_ROUND, async (data) => {
     try {
       await gameController.advanceToNextRound(io, data.pin);

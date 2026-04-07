@@ -22,6 +22,46 @@ const getRoundWagerForTeam = (gameState, roundId, teamId) => {
   return Number(gameState?.roundWagers?.[String(roundId)]?.[String(teamId)] ?? 0);
 };
 
+const parseSelectedOptionIndex = (rawResponse) => {
+  if (!rawResponse) return -1;
+  try {
+    const parsed = JSON.parse(rawResponse);
+    const selected = Number(parsed.selectedOptionIndex);
+    return Number.isFinite(selected) ? selected : -1;
+  } catch {
+    const selected = Number(rawResponse);
+    return Number.isFinite(selected) ? selected : -1;
+  }
+};
+
+const buildLiveResponseStats = (gameState, question, responsesRaw = {}) => {
+  const activeTeamIds = Array.isArray(gameState?.activeTeamIds) ? gameState.activeTeamIds : [];
+  const total = activeTeamIds.length;
+  const correctOptionIndex = (question?.options || []).findIndex((o) => o?.isCorrect);
+
+  let correct = 0;
+  let incorrect = 0;
+  let noAnswer = 0;
+
+  for (const teamId of activeTeamIds) {
+    const key = String(teamId);
+    const raw = responsesRaw[key];
+    if (raw === undefined || raw === null) {
+      noAnswer += 1;
+      continue;
+    }
+
+    const selectedOptionIndex = parseSelectedOptionIndex(raw);
+    if (selectedOptionIndex >= 0 && selectedOptionIndex === correctOptionIndex) {
+      correct += 1;
+    } else {
+      incorrect += 1;
+    }
+  }
+
+  return { correct, incorrect, noAnswer, total };
+};
+
 /**
  * Start a game session
  * @param {import('socket.io').Server} io
@@ -93,10 +133,17 @@ const nextQuestion = async (io, pin) => {
       mediaType: question.mediaType,
     },
     timerDuration: effectiveTimer,
+    timerRemaining: effectiveTimer,
     roundType: round.type,
     pointsForQuestion: round.type === ROUND_TYPES.ELIMINATION
       ? require('shared/constants/scoring').getEliminationPoints(gameState.currentQuestionIndex)
       : null,
+  });
+  io.to(`session:${pin}`).emit(SOCKET_EVENTS.LIVE_RESPONSE_UPDATE, {
+    correct: 0,
+    incorrect: 0,
+    noAnswer: gameState.activeTeamIds.length,
+    total: gameState.activeTeamIds.length,
   });
 
   timerManager.startTimer(
@@ -113,6 +160,11 @@ const nextQuestion = async (io, pin) => {
         gs.timerRemaining = 0;
         await redisStore.setGameState(pin, gs);
       }
+      logger.info('Auto reveal triggered on timer expiry', {
+        pin,
+        roundIndex: gs?.currentRoundIndex,
+        questionIndex: gs?.currentQuestionIndex,
+      });
       await revealAnswer(io, pin);
     },
   );
@@ -134,6 +186,10 @@ const submitAnswer = async (io, pin, teamId, data) => {
   const responseData = {
     selectedOptionIndex: data.selectedOptionIndex,
     wagerAmount: data.wagerAmount,
+    responseTime:
+      Number.isFinite(Number(gameState.timerRemaining)) && Number.isFinite(Number(question.timerDuration))
+        ? Math.max(0, Number(question.timerDuration) - Number(gameState.timerRemaining))
+        : null,
   };
 
   const currentRound = stateMachine.getCurrentRound(gameState);
@@ -150,6 +206,11 @@ const submitAnswer = async (io, pin, teamId, data) => {
     count,
     total: gameState.totalTeams,
   });
+  const responsesRaw = await redisStore.getResponses(pin, question.id);
+  io.to(`session:${pin}`).emit(
+    SOCKET_EVENTS.LIVE_RESPONSE_UPDATE,
+    buildLiveResponseStats(gameState, question, responsesRaw),
+  );
 
   if (count >= gameState.activeTeamIds.length) {
     timerManager.forceExpire(pin);
@@ -189,6 +250,14 @@ const submitWager = async (pin, teamId, amount) => {
 const revealAnswer = async (io, pin) => {
   let gameState = await redisStore.getGameState(pin);
   if (!gameState) return;
+  if (gameState.state !== GAME_STATES.QUESTION || gameState.questionState !== QUESTION_STATES.ACTIVE) {
+    logger.debug('Skipping reveal: question is not active', {
+      pin,
+      state: gameState.state,
+      questionState: gameState.questionState,
+    });
+    return;
+  }
 
   timerManager.stopTimer(pin);
   gameState = stateMachine.revealAnswer(gameState);
@@ -271,11 +340,23 @@ const revealAnswer = async (io, pin) => {
   );
 
   const correctIndex = question.options.findIndex((o) => o.isCorrect);
+  const responseDetails = Object.entries(responses).map(([teamId, response]) => ({
+    teamId: Number(teamId),
+    selectedOptionIndex:
+      response && Number.isFinite(Number(response.selectedOptionIndex))
+        ? Number(response.selectedOptionIndex)
+        : -1,
+    responseTime:
+      response && Number.isFinite(Number(response.responseTime))
+        ? Number(response.responseTime)
+        : null,
+  }));
 
   io.to(`session:${pin}`).emit(SOCKET_EVENTS.ANSWER_REVEAL, {
     correctOptionIndex: correctIndex,
     correctText: question.options[correctIndex]?.text,
     scores: result.scores,
+    responseDetails,
     eliminations: result.eliminations,
     allWrong: result.allWrong,
     teams: Object.values(gameState.teams).map((t) => ({
@@ -316,6 +397,7 @@ const endRound = async (io, pin, gameState) => {
 
   io.to(`session:${pin}`).emit(SOCKET_EVENTS.SCOREBOARD, {
     teams: sortedTeams,
+    source: 'round_end',
   });
 };
 
@@ -386,7 +468,11 @@ const showScoreboard = async (io, pin) => {
   if (!gameState) return;
 
   const sortedTeams = Object.values(gameState.teams).sort((a, b) => b.score - a.score);
-  io.to(`session:${pin}`).emit(SOCKET_EVENTS.SCOREBOARD, { teams: sortedTeams });
+  io.to(`session:${pin}`).emit(SOCKET_EVENTS.SCOREBOARD, { teams: sortedTeams, source: 'manual' });
+};
+
+const hideScoreboard = async (io, pin) => {
+  io.to(`session:${pin}`).emit(SOCKET_EVENTS.SCOREBOARD_HIDDEN, {});
 };
 
 /**
@@ -395,11 +481,41 @@ const showScoreboard = async (io, pin) => {
 const startBreak = async (io, pin) => {
   let gameState = await redisStore.getGameState(pin);
   if (!gameState) return;
+  if (gameState.state === GAME_STATES.BREAK) return;
+
+  const timerState = timerManager.getTimerState(pin);
+  const shouldPauseTimer =
+    gameState.state === GAME_STATES.QUESTION &&
+    gameState.questionState === QUESTION_STATES.ACTIVE &&
+    timerState.running &&
+    timerState.remaining > 0;
+
+  if (shouldPauseTimer) {
+    const remaining = timerManager.pauseTimer(pin);
+    gameState.timerRemaining = remaining;
+    gameState.timerRunning = false;
+  }
+
+  gameState.breakResumeState = {
+    state: gameState.state,
+    questionState: gameState.questionState,
+    currentRoundIndex: gameState.currentRoundIndex,
+    currentQuestionIndex: gameState.currentQuestionIndex,
+    responseCount: gameState.responseCount,
+    timerRemaining:
+      shouldPauseTimer
+        ? gameState.timerRemaining
+        : Number.isFinite(Number(gameState.timerRemaining))
+          ? Number(gameState.timerRemaining)
+          : 0,
+    timerRunning: shouldPauseTimer ? false : Boolean(gameState.timerRunning),
+  };
 
   const result = stateMachine.transition(gameState, GAME_STATES.BREAK);
   if (!result.valid) return;
 
   await redisStore.setGameState(pin, result.gameState);
+  io.to(`session:${pin}`).emit(SOCKET_EVENTS.SESSION_STATE, sanitizeForClients(result.gameState));
   io.to(`session:${pin}`).emit(SOCKET_EVENTS.BREAK_START, {
     duration: result.gameState.breakDuration,
   });
@@ -411,12 +527,81 @@ const startBreak = async (io, pin) => {
 const endBreak = async (io, pin) => {
   let gameState = await redisStore.getGameState(pin);
   if (!gameState) return;
+  if (gameState.state !== GAME_STATES.BREAK) return;
+
+  const resume = gameState.breakResumeState;
+  if (resume) {
+    gameState.state = resume.state || GAME_STATES.ROUND_INTRO;
+    gameState.questionState = resume.questionState ?? QUESTION_STATES.WAITING;
+    if (Number.isFinite(Number(resume.currentRoundIndex))) {
+      gameState.currentRoundIndex = Number(resume.currentRoundIndex);
+    }
+    if (Number.isFinite(Number(resume.currentQuestionIndex))) {
+      gameState.currentQuestionIndex = Number(resume.currentQuestionIndex);
+    }
+    if (Number.isFinite(Number(resume.responseCount))) {
+      gameState.responseCount = Number(resume.responseCount);
+    }
+    if (Number.isFinite(Number(resume.timerRemaining))) {
+      gameState.timerRemaining = Number(resume.timerRemaining);
+    }
+    gameState.timerRunning = false;
+    delete gameState.breakResumeState;
+
+    await redisStore.setGameState(pin, gameState);
+    io.to(`session:${pin}`).emit(SOCKET_EVENTS.BREAK_END, {});
+    io.to(`session:${pin}`).emit(SOCKET_EVENTS.SESSION_STATE, sanitizeForClients(gameState));
+
+    if (gameState.state === GAME_STATES.QUESTION) {
+      const round = stateMachine.getCurrentRound(gameState);
+      const question = stateMachine.getCurrentQuestion(gameState);
+      if (round && question) {
+        const effectiveTimer = Number(question.timerDuration || round.timerDuration || 30);
+        io.to(`session:${pin}`).emit(SOCKET_EVENTS.QUESTION_ACTIVE, {
+          questionIndex: gameState.currentQuestionIndex,
+          totalQuestions: round.questions.length,
+          question: {
+            id: question.id,
+            text: question.text,
+            options: question.options.map((o) => ({ text: o.text })),
+            mediaUrl: question.mediaUrl,
+            mediaType: question.mediaType,
+          },
+          timerDuration: effectiveTimer,
+          timerRemaining:
+            Number.isFinite(Number(gameState.timerRemaining)) && Number(gameState.timerRemaining) > 0
+              ? Number(gameState.timerRemaining)
+              : effectiveTimer,
+          roundType: round.type,
+          pointsForQuestion:
+            round.type === ROUND_TYPES.ELIMINATION
+              ? require('shared/constants/scoring').getEliminationPoints(gameState.currentQuestionIndex)
+              : null,
+        });
+        const responsesRaw = await redisStore.getResponses(pin, question.id);
+        io.to(`session:${pin}`).emit(
+          SOCKET_EVENTS.LIVE_RESPONSE_UPDATE,
+          buildLiveResponseStats(gameState, question, responsesRaw),
+        );
+      }
+    }
+
+    if (
+      gameState.state === GAME_STATES.QUESTION &&
+      gameState.questionState === QUESTION_STATES.ACTIVE &&
+      Number(gameState.timerRemaining) > 0
+    ) {
+      await startTimer(io, pin);
+    }
+    return;
+  }
 
   const result = stateMachine.transition(gameState, GAME_STATES.ROUND_INTRO);
   if (!result.valid) return;
 
   await redisStore.setGameState(pin, result.gameState);
   io.to(`session:${pin}`).emit(SOCKET_EVENTS.BREAK_END, {});
+  io.to(`session:${pin}`).emit(SOCKET_EVENTS.SESSION_STATE, sanitizeForClients(result.gameState));
 
   io.to(`session:${pin}`).emit(SOCKET_EVENTS.ROUND_INTRO, {
     round: stateMachine.getCurrentRound(result.gameState),
@@ -516,6 +701,7 @@ const startTimer = async (io, pin) => {
       },
       async () => {
         io.to(`session:${pin}`).emit(SOCKET_EVENTS.TIMER_EXPIRED, {});
+        logger.info('Auto reveal triggered on resumed timer expiry', { pin });
         await revealAnswer(io, pin);
       },
     );
@@ -614,6 +800,7 @@ module.exports = {
   endRound,
   advanceToNextRound,
   showScoreboard,
+  hideScoreboard,
   startBreak,
   endBreak,
   launchMiniGame,

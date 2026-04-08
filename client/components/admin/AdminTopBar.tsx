@@ -21,10 +21,11 @@ export default function AdminTopBar() {
         <div className="flex items-center">
           <span className="text-2xl font-medium leading-8 tracking-[0.6px] text-white">
             MAX{' '}
+            <span className="text-2xl font-bold leading-8 tracking-[0.6px] text-[#00d9ff]">
+              SHOWDOWN
+            </span>
           </span>
-          <span className="text-2xl font-bold leading-8 tracking-[0.6px] text-[#00d9ff]">
-            SHOWDOWN
-          </span>
+
         </div>
         <div className="h-8 w-px bg-[rgba(0,217,255,0.3)]" />
         <span className="text-xl font-medium leading-7 text-[rgba(0,217,255,0.8)]">

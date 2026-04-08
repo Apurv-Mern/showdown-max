@@ -6,6 +6,7 @@ import { useSocket } from '@/hooks/useSocket';
 import { useTimerSound } from '@/hooks/useTimerSound';
 import { useAudio } from '@/hooks/useAudio';
 import { cn } from '@/lib/utils';
+import { QRCodeSVG } from 'qrcode.react';
 import DynamicUnityGame from '@/components/mini-games/DynamicUnityGame';
 import { PUBLIC_API_URL } from '@/lib/env';
 
@@ -481,8 +482,8 @@ function VenueDisplayContent() {
     if (!qrCodeData || phase === 'game_end' || phase === 'lobby') return null;
     return (
       <div className="absolute bottom-4 right-4 z-50 flex flex-col items-center gap-1">
-        <div className="neon-border rounded-lg p-1 bg-surface/80">
-          <img src={qrCodeData} alt="Join QR" className="w-24 h-24 rounded" />
+        <div className="neon-border rounded-lg p-1 bg-surface/80 bg-white">
+          <QRCodeSVG value={`http://localhost:5002/play/join`} size={96} className="rounded" />
         </div>
         <span className="font-mono text-xs text-neon-cyan/60">{sessionPin}</span>
       </div>
@@ -600,13 +601,14 @@ function VenueDisplayContent() {
               </p>
             </div>
 
-            {qrCodeData ? (
+            {sessionPin ? (
               <div className="mx-auto mb-4 rounded-xl border border-neon-cyan/45 bg-[#051230]/85 px-4 py-3 shadow-[0_0_20px_rgba(0,229,255,0.18)] flex items-center gap-3">
-                <img
-                  src={qrCodeData}
-                  alt="Scan to join"
-                  className="w-20 h-20 rounded bg-white p-1"
-                />
+                <div className="w-20 h-20 rounded bg-white p-1 flex items-center justify-center">
+                  <QRCodeSVG
+                    value={`http://localhost:5002/play/join`}
+                    size={72}
+                  />
+                </div>
                 <div className="text-left">
                   <p className="text-neon-cyan font-bold text-sm">SCAN TO JOIN</p>
                   <p className="text-white/70 text-xs mt-1">Session PIN: {sessionPin}</p>

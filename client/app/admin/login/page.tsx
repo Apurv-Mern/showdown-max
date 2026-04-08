@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Montserrat } from 'next/font/google';
 import { useAuth } from '@/lib/auth';
+import Image from 'next/image';
 
 const montserrat = Montserrat({
   weight: ['400', '500', '600', '700', '800'],
@@ -21,7 +22,7 @@ export default function AdminLoginPage() {
   const [loading, setLoading] = useState(false);
 
   if (isAuthenticated && role === 'admin') {
-    router.replace('/admin/quizzes');
+    router.replace('/admin');
     return null;
   }
 
@@ -32,7 +33,7 @@ export default function AdminLoginPage() {
 
     try {
       await login(email, password, 'admin');
-      router.replace('/admin/quizzes');
+      router.replace('/admin');
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Login failed');
     } finally {
@@ -42,42 +43,33 @@ export default function AdminLoginPage() {
 
   return (
     <div
-      className={`${montserrat.className} relative min-h-screen w-full overflow-x-hidden bg-[radial-gradient(ellipse_85%_65%_at_50%_42%,#141a2a_0%,#0d121c_45%,#0a0f1a_72%,#06080e_100%)] antialiased`}
+      className={`${montserrat.className} flex items-center justify-center min-h-screen w-full overflow-x-hidden bg-[radial-gradient(ellipse_85%_65%_at_50%_42%,#141a2a_0%,#0d121c_45%,#0a0f1a_72%,#06080e_100%)] antialiased px-4 sm:px-8`}
     >
-      <div
-        className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_50%_40%_at_50%_35%,rgba(0,209,255,0.06)_0%,transparent_65%)]"
-        aria-hidden
-      />
-
-      {/* Top-left: stacked cyan logo + white tagline to the right */}
-      <header className="absolute left-0 right-0 top-0 z-20 px-5 pt-7 sm:px-10 sm:pt-9 lg:px-14">
-        <div className="mx-auto flex max-w-[1400px] flex-row flex-wrap items-center gap-x-10 gap-y-4 sm:gap-x-14 lg:gap-x-20">
-          <div className="flex flex-col leading-[0.95]">
-            <span className="font-black uppercase tracking-tight text-[clamp(1.75rem,4.5vw,3.25rem)] text-[#00d1ff] [text-shadow:0_0_15px_rgba(0,209,255,0.5),0_0_32px_rgba(0,209,255,0.25)]">
-              MAX
-            </span>
-            <span className="font-black uppercase tracking-tight text-[clamp(1.75rem,4.5vw,3.25rem)] text-[#00d1ff] [text-shadow:0_0_15px_rgba(0,209,255,0.5),0_0_32px_rgba(0,209,255,0.25)]">
-              SHOWDOWN
-            </span>
-          </div>
-          <p className="max-w-48 text-[10px] font-medium uppercase leading-snug tracking-[0.28em] text-white sm:max-w-none sm:text-xs sm:tracking-[0.32em] lg:text-sm">
-            Live Trivia Experience
-          </p>
+      <div className="flex flex-col lg:flex-row items-center justify-center m-12 gap-12 lg:gap-24 w-full">
+        {/* Left Side: Logo */}
+        <div className="shrink-0 flex items-center justify-center ">
+          <Image 
+            src={"/logo.png"} 
+            className="  sm:w-125 lg:w-200 h-auto object-contain" 
+            alt="Max Showdown LIVE Logo" 
+            width={800} 
+            height={600} 
+            priority
+          />
         </div>
-      </header>
 
-      {/* Centered column: titles + card (viewport center) */}
-      <main className="relative z-10 flex min-h-screen flex-col items-center justify-center px-5 pb-10 pt-24 sm:px-8 sm:pt-28">
-        <div className="flex w-full max-w-[440px] flex-col items-center">
-          <h1 className="text-center text-[clamp(1.5rem,4vw,2.25rem)] font-bold text-white">Admin Login</h1>
-          <p className="mt-2 text-center text-[clamp(0.875rem,2.2vw,1.125rem)] font-medium text-[#00d1ff]">
-            Sign-In Manage Live Games
-          </p>
+        {/* Right Side: Form Container */}
+        <main className="z-10 flex flex-col items-center justify-center w-full max-w-180">
+          <div className="flex w-full flex-col items-center">
+            <h1 className="text-center text-[clamp(1.5rem,4vw,2.25rem)] font-bold text-white">Admin Login</h1>
+            <p className="mt-2 text-center text-[clamp(0.875rem,2.2vw,1.125rem)] font-medium text-[#00d1ff]">
+              Sign-In Manage Live Games
+            </p>
 
-          <form
-            onSubmit={handleSubmit}
-            className="mt-8 w-full rounded-2xl border border-solid border-[rgba(0,209,255,0.55)] bg-[rgba(26,31,46,0.92)] px-7 py-8 shadow-[0_0_15px_rgba(0,209,255,0.5),0_0_40px_rgba(0,209,255,0.12)] sm:px-9 sm:py-10"
-          >
+            <form
+              onSubmit={handleSubmit}
+              className="mt-8 w-full rounded-2xl bg-[rgba(26,31,46,0.92)] px-7 py-8 shadow-[0_0_15px_rgba(0,209,255,0.5),0_0_40px_rgba(0,209,255,0.12)] sm:px-9 sm:py-10"
+            >
             {error && (
               <div
                 className="mb-5 rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-400"
@@ -160,6 +152,7 @@ export default function AdminLoginPage() {
           </form>
         </div>
       </main>
+      </div>
     </div>
   );
 }

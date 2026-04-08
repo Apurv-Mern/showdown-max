@@ -685,9 +685,9 @@ function VenueDisplayContent() {
           </div>
         )}
 
-        <div className="max-w-[75%] h-[95%] mx-auto mt-10">
-          {/* Question Stats */}
-          {phase === 'question' && question && (
+        {/* Question Stats */}
+        {phase === 'question' && question && (
+          <div className="max-w-[75%] h-[95%] mx-auto mt-10">
             <div className="mx-auto w-full flex-1 rounded-2xl mt-4">
               <div className="rounded-xl mb-3 flex items-center gap-4 justify-between">
                 <div className="flex items-center gap-4 flex-1 border  border-[#00C8FF] rounded-xl max-w-2xl ">
@@ -803,10 +803,8 @@ function VenueDisplayContent() {
                 </div>
               </div>
             </div>
-          )}
 
-          {/* ── QUESTION ── */}
-          {phase === 'question' && question && (
+            {/* ── QUESTION ── */}
             <div className="w-full h-[85%] flex flex-col animate-fadeIn">
               <div className="mx-auto w-full flex-1 rounded-2xl flex flex-col border">
                 {/* Media Section */}
@@ -877,8 +875,8 @@ function VenueDisplayContent() {
                 </div>
               </div>
             </div>
-          )}
-        </div>
+          </div>
+        )}
 
         {phase === 'reveal' && revealData && question && (
           <div className="w-full h-full flex flex-col p-4 animate-fadeIn">

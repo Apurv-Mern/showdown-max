@@ -1205,17 +1205,27 @@ function HostDashboardContent() {
                   </div>
                 ) : null}
                 <div
-                  className="pointer-events-none absolute inset-x-0 bottom-4 flex flex-col items-center gap-1"
+                  className="pointer-events-none absolute inset-x-0 bottom-0 flex flex-col items-center gap-1"
                   data-name="Timer Container"
                   data-node-id="232:4523"
                 >
-                  <HostTimerRing
-                    remaining={timerRemaining}
-                    total={timerDuration}
-                    size={120}
-                    className="drop-shadow-lg"
-                  />
-                  {/* {timerPaused ? <p className="text-xs font-bold text-amber-400">PAUSED</p> : null} */}
+                  <div className="relative w-48 h-24 overflow-hidden z-30">
+                    <div className="absolute top-0 left-0 w-48 h-48 rounded-full p-2 bg-linear-to-r from-[#ff0000] via-[#ddff00] via-[#ffaa00] to-[#00ff00] shadow-[0_0_20px_rgba(0,0,0,0.6)]">
+                      <div className="relative w-full h-full rounded-full bg-[#050B20] border border-white/10 flex justify-center overflow-hidden">
+                        <div
+                          className="absolute inset-0 opacity-20 pointer-events-none"
+                          style={{
+                            backgroundImage:
+                              'radial-gradient(circle, #ffffff 1px, transparent 1px)',
+                            backgroundSize: '8px 8px',
+                          }}
+                        />
+                        <span className="pt-8 text-5xl font-black text-white relative z-10 tracking-tighter drop-shadow-[0_0_10px_rgba(255,255,255,0.3)]">
+                          {timerRemaining}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </div>
 

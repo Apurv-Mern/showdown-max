@@ -160,12 +160,12 @@ const nextQuestion = async (io, pin) => {
         gs.timerRemaining = 0;
         await redisStore.setGameState(pin, gs);
       }
-      logger.info('Auto reveal triggered on timer expiry', {
+      logger.info('Timer expired for question, waiting for host to reveal', {
         pin,
         roundIndex: gs?.currentRoundIndex,
         questionIndex: gs?.currentQuestionIndex,
       });
-      await revealAnswer(io, pin);
+      // await revealAnswer(io, pin);
     },
   );
 };
@@ -214,8 +214,16 @@ const submitAnswer = async (io, pin, teamId, data) => {
 
   if (count >= gameState.activeTeamIds.length) {
     timerManager.forceExpire(pin);
+    
+    io.to(`session:${pin}`).emit(SOCKET_EVENTS.TIMER_UPDATE, { remaining: 0 });
+    io.to(`session:${pin}`).emit(SOCKET_EVENTS.TIMER_EXPIRED, {});
+    
+    gameState.timerRunning = false;
+    gameState.timerRemaining = 0;
+    await redisStore.setGameState(pin, gameState);
+
     io.to(`session:${pin}`).emit(SOCKET_EVENTS.AUTO_REVEAL, {});
-    await revealAnswer(io, pin);
+    // await revealAnswer(io, pin);
   }
 };
 
@@ -701,8 +709,14 @@ const startTimer = async (io, pin) => {
       },
       async () => {
         io.to(`session:${pin}`).emit(SOCKET_EVENTS.TIMER_EXPIRED, {});
-        logger.info('Auto reveal triggered on resumed timer expiry', { pin });
-        await revealAnswer(io, pin);
+        const gs = await redisStore.getGameState(pin);
+        if (gs) {
+          gs.timerRunning = false;
+          gs.timerRemaining = 0;
+          await redisStore.setGameState(pin, gs);
+        }
+        logger.info('Timer expired for question on resumed timer, waiting for host to reveal', { pin });
+        // await revealAnswer(io, pin);
       },
     );
   }

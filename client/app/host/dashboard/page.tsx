@@ -299,7 +299,7 @@ function HostFooterBtn({
 function HostDashboardContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
-  const { assignedSession } = useAuth();
+  const { assignedSession, logout } = useAuth();
   const pin = assignedSession?.pin || searchParams.get('pin') || '';
   const sessionId = assignedSession?.id
     ? String(assignedSession.id)
@@ -509,8 +509,41 @@ function HostDashboardContent() {
       // Exact phase/state is restored by server via session_state.
     });
 
-    socket.on('game_end', () => {
-      router.replace('/host/sessions');
+    socket.on('game_end', (data?: { teams?: Team[] }) => {
+      setCurrentQuestion(null);
+      setRevealData(null);
+      setIsScoreboardVisible(false);
+      setMp3Playing(false);
+      stopMp3();
+      setGameState((prev) => {
+        const nextTeams = data?.teams?.length
+          ? Object.fromEntries(data.teams.map((team) => [team.teamId, team]))
+          : prev?.teams || {};
+
+        return prev
+          ? {
+              ...prev,
+              state: 'FINAL_RESULTS',
+              questionState: 'WAITING',
+              teams: nextTeams,
+              totalTeams: Object.keys(nextTeams).length,
+            }
+          : {
+              state: 'FINAL_RESULTS',
+              questionState: 'WAITING',
+              currentRoundIndex: 0,
+              currentQuestionIndex: 0,
+              timerRemaining: 0,
+              timerRunning: false,
+              responseCount: 0,
+              totalTeams: Object.keys(nextTeams).length,
+              rounds: [],
+              teams: nextTeams,
+              activeTeamIds: [],
+              activeMiniGame: null,
+              currentQuestion: null,
+            };
+      });
     });
 
     socket.on('team_joined', (team: Team) => {
@@ -644,6 +677,10 @@ function HostDashboardContent() {
   const handleEndBreak = () => emit('end_break');
   const handleEndGame = () => {
     if (confirm('End the game? This shows final results to all players.')) emit('end_game');
+  };
+  const handleLogout = () => {
+    logout();
+    router.replace('/host/login');
   };
   const handleKangarooRaceSave = () => {
     setKangarooBetCounts([0, 0, 0, 0, 0, 0]);
@@ -881,12 +918,21 @@ function HostDashboardContent() {
             >
               Teams
             </Link>
+            {state !== 'FINAL_RESULTS' ? (
+              <button
+                type="button"
+                onClick={handleEndGame}
+                className="text-xs uppercase tracking-wide text-red-400/90 hover:text-red-300"
+              >
+                End game
+              </button>
+            ) : null}
             <button
               type="button"
-              onClick={handleEndGame}
-              className="text-xs uppercase tracking-wide text-red-400/90 hover:text-red-300"
+              onClick={handleLogout}
+              className="text-xs uppercase tracking-wide text-white/70 hover:text-[#00d9ff]"
             >
-              End game
+              Logout
             </button>
             <span className="whitespace-nowrap text-white" data-node-id="232:4452">
               Session Pin : <span className="font-mono font-bold text-[#00d9ff]">{pin}</span>
@@ -1322,6 +1368,34 @@ function HostDashboardContent() {
                     </div>
                   </div>
                 </div>
+              ) : state === 'FINAL_RESULTS' ? (
+                <div className="w-full max-w-[900px] text-center">
+                  <div className="mx-auto mb-6 inline-flex items-center gap-3 rounded-full border border-[#41d9ff]/45 bg-[linear-gradient(180deg,rgba(20,42,89,0.95)_0%,rgba(11,20,46,0.95)_100%)] px-8 py-3 shadow-[0_0_22px_rgba(0,217,255,0.2)]">
+                    <span className="text-base font-semibold uppercase tracking-[0.2em] text-[#8cdfff]">
+                      Game Complete
+                    </span>
+                  </div>
+
+                  <h2 className="text-5xl font-black leading-none text-white drop-shadow-[0_0_14px_rgba(123,194,255,0.45)] sm:text-6xl">
+                    Thank You For Playing
+                  </h2>
+                  <p className="mt-4 text-xl font-medium text-[#9de9ff] sm:text-2xl">
+                    The game has ended successfully.
+                  </p>
+                  <p className="mt-3 text-base text-white/60 sm:text-lg">
+                    Players and venue screens can now view the final end-of-game message.
+                  </p>
+
+                  <div className="mx-auto mt-10 flex max-w-[460px] flex-wrap justify-center gap-4">
+                    <button
+                      type="button"
+                      onClick={handleLogout}
+                      className="min-w-[180px] rounded-xl border border-[rgba(0,217,255,0.45)] bg-[linear-gradient(180deg,#3a4a68_0%,#1e2a42_100%)] px-8 py-4 text-sm font-bold uppercase tracking-[0.18em] text-white shadow-[0_0_18px_rgba(0,217,255,0.18)] transition hover:brightness-110"
+                    >
+                      Logout
+                    </button>
+                  </div>
+                </div>
               ) : (
                 <div className="text-center">
                   <p className="mb-2 text-2xl font-bold text-white/30">
@@ -1331,9 +1405,7 @@ function HostDashboardContent() {
                         ? 'Showing Scoreboard'
                         : state === 'BREAK'
                           ? 'Break Time'
-                          : state === 'FINAL_RESULTS'
-                            ? 'Game Over'
-                            : 'Waiting...'}
+                          : 'Waiting...'}
                   </p>
                   {state === 'LOBBY' ? (
                     <p className="text-sm text-white/40">
@@ -1412,11 +1484,12 @@ function HostDashboardContent() {
         </aside>
       </div>
 
-      <footer
-        data-name="Button Container"
-        data-node-id="232:4596"
-        className="shrink-0 border-t border-white/20 bg-[linear-gradient(180deg,#1e2538_0%,#0b0f1a_100%)] px-3 py-4"
-      >
+      {state !== 'FINAL_RESULTS' ? (
+        <footer
+          data-name="Button Container"
+          data-node-id="232:4596"
+          className="shrink-0 border-t border-white/20 bg-[linear-gradient(180deg,#1e2538_0%,#0b0f1a_100%)] px-3 py-4"
+        >
         <div className="mx-auto flex w-full max-w-[1920px] flex-wrap items-stretch justify-center gap-2">
           <HostFooterBtn
             icon={
@@ -1519,7 +1592,8 @@ function HostDashboardContent() {
         <p className="mt-2 text-center text-[10px] text-white/30">
           Space=Next · T=Timer · P=Pause · R=Reveal · S=Scoreboard
         </p>
-      </footer>
+        </footer>
+      ) : null}
 
       {/* ═══════ MODALS ═══════ */}
       {showRegisteredTeams ? (

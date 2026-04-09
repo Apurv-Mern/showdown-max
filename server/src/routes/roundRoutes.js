@@ -70,6 +70,12 @@ const roundRoutes = async (fastify) => {
       return error('Quiz not found', 404);
     }
 
+    const existingRoundCount = await Round.count({ where: { quizId } });
+    if (existingRoundCount >= 7) {
+      reply.status(400);
+      return error('A quiz can have a maximum of 7 rounds', 400);
+    }
+
     let nextOrder = order;
     if (nextOrder === undefined) {
       const max = await Round.max('order', { where: { quizId } });
@@ -154,6 +160,59 @@ const roundRoutes = async (fastify) => {
     }
 
     return success(round, 'Round fetched');
+  });
+
+  fastify.delete('/:id', {
+    preHandler: [validateParams(idParamSchema)],
+  }, async (request, reply) => {
+    const round = await Round.findOne({
+      where: { id: request.params.id },
+      include: [
+        {
+          model: Quiz,
+          as: 'quiz',
+          attributes: ['id'],
+          where: { isActive: { [Op.not]: false } },
+          required: true,
+        },
+        { model: Question, as: 'questions', attributes: ['id'] },
+      ],
+    });
+
+    if (!round) {
+      reply.status(404);
+      return error('Round not found', 404);
+    }
+
+    const quizId = round.quizId;
+    const roundOrder = round.order;
+
+    if (round.questions?.length) {
+      await Question.destroy({ where: { roundId: round.id } });
+    }
+
+    await round.destroy();
+
+    const remainingRounds = await Round.findAll({
+      where: { quizId },
+      order: [['order', 'ASC']],
+    });
+
+    await Promise.all(
+      remainingRounds.map((remainingRound, index) =>
+        remainingRound.update({ order: index }),
+      ),
+    );
+
+    return success(
+      {
+        deletedRoundId: request.params.id,
+        quizId,
+        deletedOrder: roundOrder,
+        remainingRounds: remainingRounds.length,
+      },
+      'Round deleted',
+    );
   });
 };
 

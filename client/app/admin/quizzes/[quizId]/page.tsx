@@ -162,9 +162,10 @@ export default function QuizDetailPage() {
   );
 
   const selectedRound = sortedRounds.find((r) => r.id === selectedRoundId) ?? null;
+  const canAddRound = sortedRounds.length < 7;
 
   const handleAddRound = async () => {
-    if (!quiz) return;
+    if (!quiz || !canAddRound) return;
     setAddingRound(true);
     try {
       const n = sortedRounds.length + 1;
@@ -181,6 +182,34 @@ export default function QuizDetailPage() {
       toast.error(e instanceof Error ? e.message : 'Failed to add round');
     } finally {
       setAddingRound(false);
+    }
+  };
+
+  const handleDeleteRound = async (roundId: number) => {
+    const roundToDelete = sortedRounds.find((round) => round.id === roundId);
+    if (!roundToDelete) return;
+    if (sortedRounds.length <= 1) {
+      toast.error('At least one round is required');
+      return;
+    }
+
+    const confirmed = confirm(
+      `Delete "${roundToDelete.name}" and all questions inside it?`,
+    );
+    if (!confirmed) return;
+
+    try {
+      await api.delete(`/api/rounds/${roundId}`);
+
+      const remainingRounds = sortedRounds.filter((round) => round.id !== roundId);
+      setSelectedRoundId((current) =>
+        current === roundId ? (remainingRounds[0]?.id ?? null) : current,
+      );
+
+      await fetchQuiz();
+      toast.success('Round deleted');
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to delete round');
     }
   };
 
@@ -382,25 +411,31 @@ export default function QuizDetailPage() {
             <Link href="/admin/quizzes">
               <Button variant="ghost">&larr; Back</Button>
             </Link>
-            <button
-              type="button"
-              onClick={handleAddRound}
-              disabled={addingRound}
-              className="flex h-12 items-center gap-3 rounded-[14px] bg-[#2e354c] px-5 text-base font-medium text-white transition-colors duration-200 hover:bg-[#3a4260] disabled:opacity-50"
-            >
-              <svg
-                width="20"
-                height="20"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
+            {canAddRound ? (
+              <button
+                type="button"
+                onClick={handleAddRound}
+                disabled={addingRound}
+                className="flex h-12 items-center gap-3 rounded-[14px] bg-[#2e354c] px-5 text-base font-medium text-white transition-colors duration-200 hover:bg-[#3a4260] disabled:opacity-50"
               >
-                <line x1="12" y1="5" x2="12" y2="19" />
-                <line x1="5" y1="12" x2="19" y2="12" />
-              </svg>
-              {addingRound ? 'Adding…' : 'Add Round'}
-            </button>
+                <svg
+                  width="20"
+                  height="20"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                >
+                  <line x1="12" y1="5" x2="12" y2="19" />
+                  <line x1="5" y1="12" x2="19" y2="12" />
+                </svg>
+                {addingRound ? 'Adding…' : 'Add Round'}
+              </button>
+            ) : (
+              <div className="rounded-[14px] border border-[rgba(0,217,255,0.3)] bg-[#252b45] px-4 py-3 text-sm text-white/70">
+                Maximum 7 rounds added
+              </div>
+            )}
           </div>
         </div>
 
@@ -468,10 +503,31 @@ export default function QuizDetailPage() {
                 onClick={() => setSelectedRoundId(round.id)}
                 className={`relative flex h-24 w-40 shrink-0 items-center justify-center rounded-[14px] border-2 text-base font-normal text-white transition-all duration-150 ${
                   active
-                    ? 'border-[rgba(0,217,255,0.6)] bg-[#252b45] shadow-[0_0_16px_rgba(0,217,255,0.15)]'
+                    ? 'border-[rgba(60,255,0,0.6)] bg-[#252b45] shadow-[0_0_16px_rgba(0,217,255,0.15)]'
                     : 'border-[rgba(0,217,255,0.3)] bg-[#252b45] hover:border-[rgba(0,217,255,0.45)]'
                 }`}
               >
+                {/* {sortedRounds.length > 1 && (
+                  <span
+                    role="button"
+                    tabIndex={0}
+                    aria-label={`Delete ${round.name}`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      void handleDeleteRound(round.id);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        void handleDeleteRound(round.id);
+                      }
+                    }}
+                    className="absolute right-2 top-2 z-10 flex size-6 items-center justify-center rounded-full border border-red-500/40 bg-red-500/15 text-sm text-red-300 transition hover:bg-red-500/25"
+                  >
+                    ×
+                  </span>
+                )} */}
                 <span className="pointer-events-none absolute right-2 top-2 text-[10px] text-white/40">
                   {idx + 1}
                 </span>
@@ -510,7 +566,20 @@ export default function QuizDetailPage() {
               'linear-gradient(167deg, rgb(26, 31, 53) 0%, rgb(25, 30, 50) 12.5%, rgb(23, 28, 48) 25%, rgb(22, 27, 45) 37.5%, rgb(20, 25, 42) 50%, rgb(19, 24, 40) 62.5%, rgb(18, 23, 37) 75%, rgb(16, 21, 35) 87.5%, rgb(15, 20, 32) 100%)',
           }}
         >
-          <h2 className="text-xl font-medium leading-7 text-[#00d9ff]">Round Configuration</h2>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <h2 className="text-xl font-medium leading-7 text-[#00d9ff]">
+              Round Configuration — {selectedRound.name}
+            </h2>
+            {sortedRounds.length > 1 && (
+              <button
+                type="button"
+                onClick={() => void handleDeleteRound(selectedRound.id)}
+                className="rounded-[12px] border border-red-500/40 bg-red-500/10 px-4 py-2 text-sm font-medium text-red-300 transition hover:bg-red-500/20"
+              >
+                Delete This Round
+              </button>
+            )}
+          </div>
           <div className="grid grid-cols-1 gap-6 lg:grid-cols-2 lg:gap-8">
             <div className="flex flex-col gap-2">
               <label className="text-sm font-medium leading-5 text-[#99a1af]">Round Type</label>

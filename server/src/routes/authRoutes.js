@@ -55,6 +55,15 @@ const authRoutes = async (fastify) => {
       return { success: false, error: 'No session assigned for this host account', statusCode: 403 };
     }
 
+    if (String(hostAccount.assignedSession.status || '').toLowerCase() === 'completed') {
+      reply.status(403);
+      return {
+        success: false,
+        error: 'This session is already completed',
+        statusCode: 403,
+      };
+    }
+
     const token = jwt.sign(
       { role, email, hostAccountId: hostAccount.id, sessionId: hostAccount.sessionId },
       env.JWT_SECRET,
@@ -93,6 +102,11 @@ const authRoutes = async (fastify) => {
         if (!hostAccount) {
           reply.status(401);
           return { success: false, error: 'Invalid or expired token', statusCode: 401 };
+        }
+
+        if (String(hostAccount.assignedSession?.status || '').toLowerCase() === 'completed') {
+          reply.status(403);
+          return { success: false, error: 'This session is already completed', statusCode: 403 };
         }
 
         return success({

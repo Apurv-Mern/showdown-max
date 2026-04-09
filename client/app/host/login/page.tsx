@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Montserrat } from 'next/font/google';
 import { useAuth } from '@/lib/auth';
@@ -15,12 +15,21 @@ const API_URL = PUBLIC_API_URL;
 
 export default function HostLoginPage() {
   const router = useRouter();
-  const { login, isAuthenticated, role, assignedSession } = useAuth();
+  const { login, logout, isAuthenticated, role, assignedSession } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [rememberMe, setRememberMe] = useState(true);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const assignedSessionCompleted =
+    String(assignedSession?.status || '').toLowerCase() === 'completed';
+
+  useEffect(() => {
+    if (isAuthenticated && role === 'host' && assignedSessionCompleted) {
+      logout();
+      setError('This session is already completed');
+    }
+  }, [assignedSessionCompleted, isAuthenticated, logout, role]);
 
   if (isAuthenticated && role === 'host' && assignedSession?.pin) {
     router.replace(`/host/dashboard?pin=${assignedSession.pin}&sessionId=${assignedSession.id}`);
@@ -44,7 +53,14 @@ export default function HostLoginPage() {
           headers: { Authorization: `Bearer ${localStorage.getItem('auth_token_host') || ''}` },
         });
         const meData = await meRes.json();
+        if (!meRes.ok) {
+          throw new Error(meData?.error || 'Login failed');
+        }
         const assigned = meData?.data?.assignedSession;
+        if (String(assigned?.status || '').toLowerCase() === 'completed') {
+          setError('This session is already completed');
+          return;
+        }
         if (assigned?.pin && assigned?.id) {
           router.replace(`/host/dashboard?pin=${assigned.pin}&sessionId=${assigned.id}`);
         } else {

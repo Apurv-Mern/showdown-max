@@ -8,6 +8,7 @@
     "start": "node src/index.js",
     "start:prod": "node dist/src/index.js",
     "build": "node ./scripts/build.cjs",
+    "logs:clear:local": "node ./scripts/clearLogs.cjs",
     "db:migrate": "npx sequelize-cli db:migrate",
     "db:seed": "npx sequelize-cli db:seed:all",
     "db:undo": "npx sequelize-cli db:migrate:undo:all"

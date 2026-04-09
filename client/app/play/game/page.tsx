@@ -6,6 +6,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useSocket } from '@/hooks/useSocket';
 import { useAudio } from '@/hooks/useAudio';
 import { usePlayerSession } from '../layout';
+import { clientLogger } from '@/lib/clientLogger';
 import { cn } from '@/lib/utils';
 import { PUBLIC_API_URL } from '@/lib/env';
 
@@ -329,6 +330,15 @@ export default function GamePage() {
   useEffect(() => {
     phaseRef.current = phase;
   }, [phase]);
+
+  useEffect(() => {
+    clientLogger.info('play', 'Mobile game phase changed', {
+      phase,
+      sessionPin: session.pin,
+      teamId: session.teamId,
+      questionId: question?.question?.id,
+    });
+  }, [phase, question?.question?.id, session.pin, session.teamId]);
 
   useEffect(() => {
     questionRef.current = question;

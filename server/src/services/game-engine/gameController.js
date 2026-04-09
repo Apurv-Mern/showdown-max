@@ -87,6 +87,14 @@ const startGame = async (io, pin, quiz, sessionId) => {
   }
 
   await redisStore.setGameState(pin, result.gameState);
+  logger.info('Game state transition', {
+    pin,
+    sessionId,
+    state: result.gameState.state,
+    roundIndex: result.gameState.currentRoundIndex,
+    totalRounds: result.gameState.rounds.length,
+    totalTeams: result.gameState.totalTeams,
+  });
   io.to(`session:${pin}`).emit(SOCKET_EVENTS.SESSION_STATE, sanitizeForClients(result.gameState));
   io.to(`session:${pin}`).emit(SOCKET_EVENTS.ROUND_INTRO, {
     round: stateMachine.getCurrentRound(result.gameState),
@@ -144,6 +152,14 @@ const nextQuestion = async (io, pin) => {
     incorrect: 0,
     noAnswer: gameState.activeTeamIds.length,
     total: gameState.activeTeamIds.length,
+  });
+  logger.info('Question activated', {
+    pin,
+    roundIndex: gameState.currentRoundIndex,
+    questionIndex: gameState.currentQuestionIndex,
+    questionId: question.id,
+    timerDuration: effectiveTimer,
+    roundType: round.type,
   });
 
   timerManager.startTimer(
@@ -211,6 +227,15 @@ const submitAnswer = async (io, pin, teamId, data) => {
     SOCKET_EVENTS.LIVE_RESPONSE_UPDATE,
     buildLiveResponseStats(gameState, question, responsesRaw),
   );
+  logger.info('Answer submitted', {
+    pin,
+    teamId,
+    questionId: question.id,
+    roundIndex: gameState.currentRoundIndex,
+    questionIndex: gameState.currentQuestionIndex,
+    responseCount: count,
+    totalTeams: gameState.totalTeams,
+  });
 
   if (count >= gameState.activeTeamIds.length) {
     timerManager.forceExpire(pin);
@@ -374,6 +399,15 @@ const revealAnswer = async (io, pin) => {
       isEliminated: t.isEliminated || false,
     })),
   });
+  logger.info('Answer revealed', {
+    pin,
+    roundIndex: gameState.currentRoundIndex,
+    questionIndex: gameState.currentQuestionIndex,
+    correctOptionIndex: correctIndex,
+    activeTeams: gameState.activeTeamIds.length,
+    eliminations: result.eliminations.length,
+    allWrong: result.allWrong,
+  });
 };
 
 /**
@@ -395,6 +429,11 @@ const endRound = async (io, pin, gameState) => {
   if (!result.valid) return;
 
   await redisStore.setGameState(pin, result.gameState);
+  logger.info('Round ended', {
+    pin,
+    roundIndex: gameState.currentRoundIndex,
+    totalTeams: Object.keys(result.gameState.teams).length,
+  });
 
   io.to(`session:${pin}`).emit(SOCKET_EVENTS.ROUND_END, {
     roundIndex: gameState.currentRoundIndex,
@@ -424,6 +463,10 @@ const advanceToNextRound = async (io, pin) => {
       await redisStore.setGameState(pin, finalResult.gameState);
       const sortedTeams = Object.values(finalResult.gameState.teams).sort((a, b) => b.score - a.score);
       io.to(`session:${pin}`).emit(SOCKET_EVENTS.GAME_END, { teams: sortedTeams });
+      logger.info('Final results emitted', {
+        pin,
+        totalTeams: sortedTeams.length,
+      });
 
       persistScoresToDB(finalResult.gameState.teams).catch((err) =>
         logger.error('Failed to persist scores on natural game end', { pin, error: err.message }),
@@ -460,6 +503,11 @@ const advanceToNextRound = async (io, pin) => {
   if (!transResult.valid) return;
 
   await redisStore.setGameState(pin, transResult.gameState);
+  logger.info('Advanced to round intro', {
+    pin,
+    roundIndex: transResult.gameState.currentRoundIndex,
+    totalRounds: transResult.gameState.rounds.length,
+  });
 
   io.to(`session:${pin}`).emit(SOCKET_EVENTS.ROUND_INTRO, {
     round: stateMachine.getCurrentRound(transResult.gameState),
@@ -477,10 +525,12 @@ const showScoreboard = async (io, pin) => {
 
   const sortedTeams = Object.values(gameState.teams).sort((a, b) => b.score - a.score);
   io.to(`session:${pin}`).emit(SOCKET_EVENTS.SCOREBOARD, { teams: sortedTeams, source: 'manual' });
+  logger.info('Scoreboard shown', { pin, teamCount: sortedTeams.length });
 };
 
 const hideScoreboard = async (io, pin) => {
   io.to(`session:${pin}`).emit(SOCKET_EVENTS.SCOREBOARD_HIDDEN, {});
+  logger.info('Scoreboard hidden', { pin });
 };
 
 /**
@@ -527,6 +577,11 @@ const startBreak = async (io, pin) => {
   io.to(`session:${pin}`).emit(SOCKET_EVENTS.BREAK_START, {
     duration: result.gameState.breakDuration,
   });
+  logger.info('Break started', {
+    pin,
+    breakDuration: result.gameState.breakDuration,
+    resumeState: gameState.breakResumeState?.state,
+  });
 };
 
 /**
@@ -559,6 +614,13 @@ const endBreak = async (io, pin) => {
     await redisStore.setGameState(pin, gameState);
     io.to(`session:${pin}`).emit(SOCKET_EVENTS.BREAK_END, {});
     io.to(`session:${pin}`).emit(SOCKET_EVENTS.SESSION_STATE, sanitizeForClients(gameState));
+    logger.info('Break ended and state restored', {
+      pin,
+      restoredState: gameState.state,
+      questionState: gameState.questionState,
+      roundIndex: gameState.currentRoundIndex,
+      questionIndex: gameState.currentQuestionIndex,
+    });
 
     if (gameState.state === GAME_STATES.QUESTION) {
       const round = stateMachine.getCurrentRound(gameState);
@@ -610,6 +672,10 @@ const endBreak = async (io, pin) => {
   await redisStore.setGameState(pin, result.gameState);
   io.to(`session:${pin}`).emit(SOCKET_EVENTS.BREAK_END, {});
   io.to(`session:${pin}`).emit(SOCKET_EVENTS.SESSION_STATE, sanitizeForClients(result.gameState));
+  logger.info('Break ended and returned to round intro', {
+    pin,
+    roundIndex: result.gameState.currentRoundIndex,
+  });
 
   io.to(`session:${pin}`).emit(SOCKET_EVENTS.ROUND_INTRO, {
     round: stateMachine.getCurrentRound(result.gameState),
@@ -664,6 +730,7 @@ const launchMiniGame = async (io, pin, gameType, config = {}) => {
 
   io.to(`session:${pin}`).emit(SOCKET_EVENTS.SESSION_STATE, sanitizeForClients(gameState));
   io.to(`session:${pin}`).emit(SOCKET_EVENTS.MINI_GAME_START, { game: gameType, ...config });
+  logger.info('Mini game launched', { pin, gameType });
 };
 
 /**
@@ -682,6 +749,7 @@ const endMiniGame = async (io, pin) => {
   await redisStore.setGameState(pin, gameState);
 
   io.to(`session:${pin}`).emit(SOCKET_EVENTS.MINI_GAME_END, { game, ...config });
+  logger.info('Mini game ended', { pin, game });
 
   setTimeout(() => {
     io.to(`session:${pin}`).emit(SOCKET_EVENTS.SESSION_STATE, sanitizeForClients(gameState));
@@ -694,6 +762,7 @@ const endMiniGame = async (io, pin) => {
 const pauseTimer = async (io, pin) => {
   const remaining = timerManager.pauseTimer(pin);
   io.to(`session:${pin}`).emit(SOCKET_EVENTS.TIMER_UPDATE, { remaining, paused: true });
+  logger.info('Timer paused', { pin, remaining });
 };
 
 /**
@@ -702,6 +771,7 @@ const pauseTimer = async (io, pin) => {
 const startTimer = async (io, pin) => {
   const timerState = timerManager.getTimerState(pin);
   if (timerState.remaining > 0 && !timerState.running) {
+    logger.info('Timer resumed', { pin, remaining: timerState.remaining });
     timerManager.resumeTimer(
       pin,
       (remaining) => {

@@ -1,4 +1,5 @@
 import { io, Socket } from 'socket.io-client';
+import { clientLogger } from './clientLogger';
 import { PUBLIC_SOCKET_URL } from './env';
 
 const SOCKET_URL = PUBLIC_SOCKET_URL;
@@ -19,6 +20,50 @@ export const getSocket = (): Socket => {
       reconnectionDelayMax: 5000,
       timeout: 20000,
     });
+
+    const originalEmit = socket.emit.bind(socket);
+    socket.emit = ((event: string, ...args: unknown[]) => {
+      clientLogger.debug('socket:outgoing', 'Socket event emitted', {
+        eventName: event,
+        payload: args[0],
+      });
+      return originalEmit(event, ...args);
+    }) as Socket['emit'];
+
+    socket.on('connect', () => {
+      clientLogger.info('socket', 'Socket connected', {
+        socketId: socket?.id,
+        url: SOCKET_URL,
+      });
+    });
+
+    socket.on('disconnect', (reason) => {
+      clientLogger.warn('socket', 'Socket disconnected', {
+        socketId: socket?.id,
+        reason,
+      });
+    });
+
+    socket.io.on('reconnect_attempt', (attempt) => {
+      clientLogger.warn('socket', 'Socket reconnect attempt', { attempt });
+    });
+
+    socket.io.on('reconnect', (attempt) => {
+      clientLogger.info('socket', 'Socket reconnected', { attempt, socketId: socket?.id });
+    });
+
+    socket.io.on('reconnect_error', (error) => {
+      clientLogger.error('socket', 'Socket reconnect error', {
+        error: error instanceof Error ? error.message : 'Unknown reconnect error',
+      });
+    });
+
+    socket.onAny((eventName, payload) => {
+      clientLogger.debug('socket:incoming', 'Socket event received', {
+        eventName,
+        payload,
+      });
+    });
   }
   return socket;
 };
@@ -26,6 +71,7 @@ export const getSocket = (): Socket => {
 export const connectSocket = (): Socket => {
   const s = getSocket();
   if (!s.connected) {
+    clientLogger.info('socket', 'Connecting socket', { url: SOCKET_URL });
     s.connect();
   }
   return s;
@@ -33,6 +79,7 @@ export const connectSocket = (): Socket => {
 
 export const disconnectSocket = (): void => {
   if (socket?.connected) {
+    clientLogger.info('socket', 'Disconnecting socket', { socketId: socket.id });
     socket.disconnect();
   }
 };

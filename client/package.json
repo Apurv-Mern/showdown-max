@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev -p 5002",
+    "dev": "next dev -p 5003",
     "build": "next build",
     "build:prod": "cross-env NODE_OPTIONS=--max-old-space-size=1024 next build --webpack",
     "start": "next start",

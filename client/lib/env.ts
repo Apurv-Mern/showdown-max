@@ -1,3 +1,5 @@
+import { clientLogger } from './clientLogger';
+
 const trimTrailingComma = (value: string) => value.replace(/,+\s*$/, '').trim();
 
 const resolvePublicUrl = (value: string | undefined, fallback: string, key: string) => {
@@ -5,8 +7,11 @@ const resolvePublicUrl = (value: string | undefined, fallback: string, key: stri
   if (cleaned) return cleaned;
 
   if (typeof window !== 'undefined') {
-    // Helps debug when NEXT_PUBLIC_* vars are not loaded by Next.
-    console.warn(`[env] ${key} is missing. Falling back to ${fallback}`);
+    const message =
+      process.env.NODE_ENV === 'production'
+        ? `${key} is missing in production. Using fallback ${fallback}`
+        : `${key} is missing. Falling back to ${fallback}`;
+    clientLogger.warn('env', message, { key, fallback });
   }
   return fallback;
 };
@@ -23,3 +28,9 @@ export const PUBLIC_SOCKET_URL = resolvePublicUrl(
   'NEXT_PUBLIC_SOCKET_URL',
 );
 
+if (typeof window !== 'undefined') {
+  clientLogger.info('env', 'Resolved public URLs', {
+    apiUrl: PUBLIC_API_URL,
+    socketUrl: PUBLIC_SOCKET_URL,
+  });
+}

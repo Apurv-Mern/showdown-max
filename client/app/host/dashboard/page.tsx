@@ -9,6 +9,7 @@ import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
 import { useTimerSound } from '@/hooks/useTimerSound';
 import { useAudio } from '@/hooks/useAudio';
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner';
+import { clientLogger } from '@/lib/clientLogger';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/lib/auth';
 import { PUBLIC_API_URL } from '@/lib/env';
@@ -341,6 +342,26 @@ function HostDashboardContent() {
   useEffect(() => {
     gameStateRef.current = gameState;
   }, [gameState]);
+
+  useEffect(() => {
+    clientLogger.info('host', 'Host dashboard state updated', {
+      pin,
+      gameState: gameState?.state,
+      questionState: gameState?.questionState,
+      roundIndex: gameState?.currentRoundIndex,
+      questionIndex: gameState?.currentQuestionIndex,
+      questionId: currentQuestion?.question?.id,
+      scoreboardVisible: isScoreboardVisible,
+    });
+  }, [
+    pin,
+    gameState?.state,
+    gameState?.questionState,
+    gameState?.currentRoundIndex,
+    gameState?.currentQuestionIndex,
+    currentQuestion?.question?.id,
+    isScoreboardVisible,
+  ]);
 
   const isMusicRound = currentQuestion?.roundType === 'MUSIC';
   const { playTick, playBuzz } = useTimerSound({ enabled: true, muted: isMusicRound });

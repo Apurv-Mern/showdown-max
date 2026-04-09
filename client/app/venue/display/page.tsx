@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { useSocket } from '@/hooks/useSocket';
 import { useTimerSound } from '@/hooks/useTimerSound';
 import { useAudio } from '@/hooks/useAudio';
+import { clientLogger } from '@/lib/clientLogger';
 import { cn } from '@/lib/utils';
 import { QRCodeSVG } from 'qrcode.react';
 import DynamicUnityGame from '@/components/mini-games/DynamicUnityGame';
@@ -166,6 +167,15 @@ function VenueDisplayContent() {
   }, [phase]);
 
   useEffect(() => {
+    clientLogger.info('venue', 'Venue phase changed', {
+      phase,
+      sessionPin,
+      questionId: question?.question?.id,
+      totalTeams,
+    });
+  }, [phase, question?.question?.id, sessionPin, totalTeams]);
+
+  useEffect(() => {
     questionRef.current = question;
   }, [question]);
 
@@ -281,14 +291,6 @@ function VenueDisplayContent() {
         MINI_GAME: 'mini_game',
         FINAL_RESULTS: 'game_end',
       };
-      if (data.activeMiniGame) {
-        setMiniGameType(data.activeMiniGame);
-        setPhase('mini_game');
-      } else if (data.activeMiniGame === null && data.state && stateToPhase[data.state]) {
-        setPhase(stateToPhase[data.state]);
-      } else if (data.state && stateToPhase[data.state]) {
-        setPhase(stateToPhase[data.state]);
-      }
       if (data.rounds && data.currentRoundIndex !== undefined) {
         const round = data.rounds[data.currentRoundIndex];
         if (round)
@@ -306,6 +308,26 @@ function VenueDisplayContent() {
         setLiveResponses({ correct: 0, incorrect: 0, noAnswer: total, total });
       } else if (data.state !== 'QUESTION') {
         setQuestion(null);
+      }
+
+      // Determine the correct phase from the server state
+      if (data.activeMiniGame) {
+        setMiniGameType(data.activeMiniGame);
+        setPhase('mini_game');
+      } else if (data.state === 'QUESTION') {
+        if (data.currentQuestion) {
+          setPhase('question');
+        } else if (phaseRef.current === 'reveal' || phaseRef.current === 'question') {
+          setPhase(phaseRef.current);
+        } else if (data.questionState === 'REVEALED') {
+          // Server says answer was already revealed — stay on question phase
+          // (reveal phase requires revealData from a separate answer_reveal event)
+          setPhase('question');
+        } else {
+          setPhase('question');
+        }
+      } else if (data.state && stateToPhase[data.state]) {
+        setPhase(stateToPhase[data.state]);
       }
     });
 

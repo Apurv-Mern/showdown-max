@@ -31,18 +31,24 @@ const errorHandler = (error, request, reply) => {
 
   if (statusCode >= 500) {
     logger.error('Unhandled server error', {
+      requestId: request.correlationId || request.id,
       error: error.message,
       stack: error.stack,
       url: request.url,
       method: request.method,
+      actorRole: request.user?.role,
+      actorEmail: request.user?.email,
     });
     message = 'Internal Server Error';
   } else {
     logger.warn('Request error', {
+      requestId: request.correlationId || request.id,
       statusCode,
       error: message,
       url: request.url,
       method: request.method,
+      actorRole: request.user?.role,
+      actorEmail: request.user?.email,
     });
   }
 
@@ -50,6 +56,7 @@ const errorHandler = (error, request, reply) => {
     success: false,
     error: message,
     statusCode,
+    requestId: request.correlationId || request.id,
   });
 };
 

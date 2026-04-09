@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useSocket } from '@/hooks/useSocket';
 import { useAudio } from '@/hooks/useAudio';
-import { usePlayerSession } from '../layout';
+import { usePlayerSession } from '../playerSession';
 import { clientLogger } from '@/lib/clientLogger';
 import { cn } from '@/lib/utils';
 import { PUBLIC_API_URL } from '@/lib/env';

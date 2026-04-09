@@ -4,7 +4,7 @@ import { useState, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { motion } from 'framer-motion';
 import { useSocket } from '@/hooks/useSocket';
-import { usePlayerSession } from '../layout';
+import { usePlayerSession } from '../playerSession';
 import { Button } from '@/components/shared/Button';
 
 const sanitizeTeamName = (name: string) => name.trim().replace(/\s+/g, ' ');

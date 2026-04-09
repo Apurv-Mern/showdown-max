@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
 import { useSocket } from '@/hooks/useSocket';
-import { usePlayerSession } from '../layout';
+import { usePlayerSession } from '../playerSession';
 
 export default function LobbyPage() {
   const router = useRouter();

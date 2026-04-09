@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useSocket } from '@/hooks/useSocket';
-import { usePlayerSession } from '../layout';
+import { usePlayerSession } from '../playerSession';
 import { Button } from '@/components/shared/Button';
 
 type MiniGameType = 'horse_race' | 'card_shuffle' | null;

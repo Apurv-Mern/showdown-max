@@ -1,30 +1,8 @@
 'use client';
 
-import { createContext, useContext, useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { useReconnect } from '@/hooks/useReconnect';
-
-interface PlayerSession {
-  pin: string;
-  teamId: number | null;
-  teamName: string;
-  score: number;
-}
-
-interface PlayerContextType {
-  session: PlayerSession;
-  setSession: (s: Partial<PlayerSession>) => void;
-  clearSession: () => void;
-}
-
-const defaultSession: PlayerSession = { pin: '', teamId: null, teamName: '', score: 0 };
-
-const PlayerContext = createContext<PlayerContextType>({
-  session: defaultSession,
-  setSession: () => {},
-  clearSession: () => {},
-});
-
-export const usePlayerSession = () => useContext(PlayerContext);
+import { PlayerContext, defaultSession, type PlayerSession } from './playerSession';
 
 function PlayerReconnector({ session, setSession }: { session: PlayerSession; setSession: (s: Partial<PlayerSession>) => void }) {
   const { isReconnecting } = useReconnect({

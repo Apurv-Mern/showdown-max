@@ -688,6 +688,13 @@ function VenueDisplayContent() {
         )}
 
         {/* Question Stats */}
+        {phase === 'question' && !question && (
+          <div className="w-full h-full flex flex-col items-center justify-center animate-fadeIn z-10 relative">
+            <div className="text-3xl text-white font-bold animate-pulse text-glow-cyan neon-border-strong rounded-2xl px-12 py-8 bg-surface/85">
+              Syncing Question Data with Host...
+            </div>
+          </div>
+        )}
         {phase === 'question' && question && (
           <div className="max-w-[75%] h-[95%] mx-auto mt-10">
             <div className="mx-auto w-full flex-1 rounded-2xl mt-4">
@@ -876,6 +883,14 @@ function VenueDisplayContent() {
                   </div>
                 </div>
               </div>
+            </div>
+          </div>
+        )}
+
+        {phase === 'reveal' && (!revealData || !question) && (
+          <div className="w-full h-full flex flex-col items-center justify-center animate-fadeIn z-10 relative">
+            <div className="text-3xl text-white font-bold animate-pulse text-glow-cyan neon-border-strong rounded-2xl px-12 py-8 bg-surface/85">
+              Processing Results...
             </div>
           </div>
         )}

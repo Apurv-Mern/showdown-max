@@ -5,6 +5,7 @@ import { Montserrat } from 'next/font/google';
 import { useAuth } from '@/lib/auth';
 import AdminTopBar from '@/components/admin/AdminTopBar';
 import AdminSidebar from '@/components/admin/AdminSidebar';
+import { Toaster } from 'react-hot-toast';
 
 const montserrat = Montserrat({
   subsets: ['latin'],
@@ -36,6 +37,22 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           {children}
         </main>
       </div>
+      <Toaster 
+        position="top-right" 
+        toastOptions={{
+          style: {
+            background: '#1a1f35',
+            color: '#fff',
+            border: '1px solid rgba(0,217,255,0.3)',
+          },
+          success: {
+            iconTheme: {
+              primary: '#00d9ff',
+              secondary: '#1a1f35',
+            },
+          },
+        }} 
+      />
     </div>
   );
 }

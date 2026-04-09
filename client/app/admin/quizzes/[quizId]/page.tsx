@@ -7,6 +7,7 @@ import { api, apiUpload } from '@/lib/api';
 import { Button } from '@/components/shared/Button';
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner';
 import { Modal } from '@/components/shared/Modal';
+import { toast } from 'react-hot-toast';
 import { PUBLIC_API_URL } from '@/lib/env';
 
 const API_URL = PUBLIC_API_URL;
@@ -121,22 +122,26 @@ export default function QuizDetailPage() {
   const [saving, setSaving] = useState(false);
   const [selectedRoundId, setSelectedRoundId] = useState<number | null>(null);
   const [addingRound, setAddingRound] = useState(false);
+  const [isEditingInfo, setIsEditingInfo] = useState(false);
+  const [editTitle, setEditTitle] = useState('');
+  const [editDescription, setEditDescription] = useState('');
+  const [savingInfo, setSavingInfo] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const fetchQuiz = useCallback(async () => {
+  const fetchQuiz = useCallback(async (isInitialLoad = false) => {
     try {
-      setLoading(true);
+      if (isInitialLoad) setLoading(true);
       const res = await api.get<Quiz>(`/api/quizzes/${quizId}`);
       setQuiz(res.data);
     } catch {
       router.push('/admin/quizzes');
     } finally {
-      setLoading(false);
+      if (isInitialLoad) setLoading(false);
     }
   }, [quizId, router]);
 
   useEffect(() => {
-    fetchQuiz();
+    fetchQuiz(true);
   }, [fetchQuiz]);
 
   useEffect(() => {
@@ -171,10 +176,39 @@ export default function QuizDetailPage() {
       });
       await fetchQuiz();
       setSelectedRoundId(res.data.id);
+      toast.success('Round added successfully');
     } catch (e: unknown) {
-      alert(e instanceof Error ? e.message : 'Failed to add round');
+      toast.error(e instanceof Error ? e.message : 'Failed to add round');
     } finally {
       setAddingRound(false);
+    }
+  };
+
+  const startEditingInfo = () => {
+    if (!quiz) return;
+    setEditTitle(quiz.title || '');
+    setEditDescription(quiz.description || '');
+    setIsEditingInfo(true);
+  };
+
+  const saveQuizInfo = async () => {
+    if (!editTitle.trim()) {
+      toast.error("Title is required");
+      return;
+    }
+    try {
+      setSavingInfo(true);
+      await api.put(`/api/quizzes/${quizId}`, {
+        title: editTitle.trim(),
+        description: editDescription.trim() || null,
+      });
+      await fetchQuiz();
+      setIsEditingInfo(false);
+      toast.success('Quiz info updated successfully');
+    } catch(err: any) {
+      toast.error(err.message || "Failed to update quiz info");
+    } finally {
+      setSavingInfo(false);
     }
   };
 
@@ -185,8 +219,9 @@ export default function QuizDetailPage() {
     try {
       await api.patch(`/api/rounds/${roundId}`, patch);
       await fetchQuiz();
+      toast.success('Round updated');
     } catch (e: unknown) {
-      alert(e instanceof Error ? e.message : 'Failed to update round');
+      toast.error(e instanceof Error ? e.message : 'Failed to update round');
     }
   };
 
@@ -232,8 +267,9 @@ export default function QuizDetailPage() {
         mediaUrl: data.data.url,
         mediaType: data.data.mediaType,
       }));
+      toast.success('File uploaded successfully');
     } catch (err: any) {
-      alert(err.message || 'Upload failed');
+      toast.error(err.message || 'Upload failed');
     } finally {
       setUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
@@ -245,13 +281,13 @@ export default function QuizDetailPage() {
 
     const validOptions = formData.options.filter((o) => o.text.trim());
     if (validOptions.length < 2) {
-      alert('At least 2 options with text are required');
+      toast.error('At least 2 options with text are required');
       return;
     }
 
     const correctCount = validOptions.filter((o) => o.isCorrect).length;
     if (correctCount < 1) {
-      alert('At least one option must be marked as correct');
+      toast.error('At least one option must be marked as correct');
       return;
     }
 
@@ -274,8 +310,9 @@ export default function QuizDetailPage() {
       }
       closeModal();
       fetchQuiz();
+      toast.success(editingQuestion ? 'Question updated' : 'Question added');
     } catch (err: any) {
-      alert(err.message || 'Failed to save question');
+      toast.error(err.message || 'Failed to save question');
     } finally {
       setSaving(false);
     }
@@ -286,8 +323,9 @@ export default function QuizDetailPage() {
     try {
       await api.delete(`/api/questions/${questionId}`);
       fetchQuiz();
+      toast.success('Question deleted');
     } catch (err: any) {
-      alert(err.message || 'Failed to delete question');
+      toast.error(err.message || 'Failed to delete question');
     }
   };
 
@@ -334,7 +372,7 @@ export default function QuizDetailPage() {
 
   return (
     <div className="flex flex-col gap-8 antialiased">
-      <div className="flex flex-col gap-1">
+      <div className="flex flex-col gap-3">
         <div className="flex min-h-12 flex-wrap items-center justify-between gap-4">
           <h1 className="text-[30px] font-medium leading-9 text-white">Quiz Builder</h1>
           <div className="flex shrink-0 flex-wrap items-center gap-2">
@@ -365,12 +403,51 @@ export default function QuizDetailPage() {
             </button>
           </div>
         </div>
-        <p className="text-sm text-white/60">{quiz.title}</p>
-        {quiz.description && <p className="text-sm text-white/40">{quiz.description}</p>}
-        <p className="text-xs text-white/35">
-          {quiz.rounds.length} rounds · {totalQuestions} questions
-        </p>
-      </div>
+
+        {isEditingInfo ? (
+          <div className="flex flex-col gap-3 rounded-xl border border-[rgba(0,217,255,0.3)] bg-[#252b45] p-5 w-full max-w-2xl">
+            <div className="flex flex-col gap-1">
+              <label className="text-sm text-white/70">Quiz Name</label>
+              <input
+                type="text"
+                value={editTitle}
+                onChange={(e) => setEditTitle(e.target.value)}
+                className="w-full rounded-lg border border-border bg-surface-light px-3 py-2 text-sm text-white outline-none focus:border-primary/50"
+              />
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-sm text-white/70">Description</label>
+              <textarea
+                value={editDescription}
+                onChange={(e) => setEditDescription(e.target.value)}
+                rows={2}
+                className="w-full rounded-lg border border-border bg-surface-light px-3 py-2 text-sm text-white outline-none focus:border-primary/50 resize-none"
+              />
+            </div>
+            <div className="flex gap-2 mt-2">
+              <Button onClick={saveQuizInfo} disabled={savingInfo || !editTitle.trim()}>
+                {savingInfo ? 'Saving...' : 'Save'}
+              </Button>
+              <Button variant="secondary" onClick={() => setIsEditingInfo(false)}>
+                Cancel
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <div className="flex items-start gap-4">
+            <div className="flex flex-col gap-1">
+              <p className="text-lg font-semibold text-white">{quiz.title}</p>
+              {quiz.description && <p className="text-sm text-white/60">{quiz.description}</p>}
+              <p className="text-xs text-white/40 mt-1">
+                {quiz.rounds.length} rounds · {totalQuestions} questions
+              </p>
+            </div>
+            <Button variant="ghost" size="sm" onClick={startEditingInfo} className='border' >
+              ✎ Edit Info
+            </Button>
+          </div>
+        )}
+      </div>  
 
       {/* Round Builder Timeline — Figma 232:1251 */}
       <section
@@ -402,7 +479,7 @@ export default function QuizDetailPage() {
               </button>
             );
           })}
-          <button
+          {/* <button
             type="button"
             onClick={handleAddRound}
             disabled={addingRound}
@@ -420,7 +497,7 @@ export default function QuizDetailPage() {
               <line x1="12" y1="5" x2="12" y2="19" />
               <line x1="5" y1="12" x2="19" y2="12" />
             </svg>
-          </button>
+          </button> */}
         </div>
       </section>
 

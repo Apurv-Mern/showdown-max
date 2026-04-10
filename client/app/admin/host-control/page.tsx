@@ -29,6 +29,11 @@ export default function HostControlPage() {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [editingHostId, setEditingHostId] = useState<number | null>(null);
+  const [editEmail, setEditEmail] = useState('');
+  const [editPassword, setEditPassword] = useState('');
+  const [editSessionId, setEditSessionId] = useState<number | ''>('');
+  const [updatingHostId, setUpdatingHostId] = useState<number | null>(null);
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -63,6 +68,15 @@ export default function HostControlPage() {
       (s) => s.status === 'pending' && !!s.quiz?.title && !assignedSessionIds.has(s.id),
     );
   }, [sessions, assignedSessionIds]);
+
+  const getAssignableSessionsForHost = (host: HostAccount) => {
+    return sessions.filter((s) => {
+      if (!s.quiz?.title) return false;
+      if (s.status !== 'pending') return false;
+      if (host.assignedSession?.id === s.id) return true;
+      return !assignedSessionIds.has(s.id);
+    });
+  };
 
   const createHost = async () => {
     if (!email.trim() || !password || !sessionId) {
@@ -104,6 +118,53 @@ export default function HostControlPage() {
       setHosts((prev) => prev.filter((h) => h.id !== host.id));
     } catch (err: unknown) {
       alert(err instanceof Error ? err.message : 'Failed to delete host account');
+    }
+  };
+
+  const startEditing = (host: HostAccount) => {
+    setEditingHostId(host.id);
+    setEditEmail(host.email);
+    setEditPassword('');
+    setEditSessionId(host.assignedSession?.id ?? '');
+  };
+
+  const cancelEditing = () => {
+    setEditingHostId(null);
+    setEditEmail('');
+    setEditPassword('');
+    setEditSessionId('');
+  };
+
+  const updateHost = async (host: HostAccount) => {
+    if (!editEmail.trim() || !editSessionId) {
+      alert('Email and session are required');
+      return;
+    }
+
+    try {
+      setUpdatingHostId(host.id);
+      const payload: {
+        email: string;
+        sessionId: number;
+        password?: string;
+      } = {
+        email: editEmail.trim(),
+        sessionId: Number(editSessionId),
+      };
+
+      if (editPassword.trim()) {
+        payload.password = editPassword;
+      }
+
+      const response = await api.patch<HostAccount>(`/api/hosts/${host.id}`, payload);
+      setHosts((prev) =>
+        prev.map((item) => (item.id === host.id ? response.data : item)),
+      );
+      cancelEditing();
+    } catch (err: unknown) {
+      alert(err instanceof Error ? err.message : 'Failed to update host account');
+    } finally {
+      setUpdatingHostId(null);
     }
   };
 
@@ -171,8 +232,54 @@ export default function HostControlPage() {
                     ? `Assigned: ${host.assignedSession.pin} - ${host.assignedSession.quiz?.title || 'Untitled Quiz'}`
                     : 'No session assigned'}
                 </p>
+
+                {editingHostId === host.id && (
+                  <div className="mt-4 grid md:grid-cols-3 gap-3 max-w-4xl">
+                    <input
+                      type="email"
+                      value={editEmail}
+                      onChange={(e) => setEditEmail(e.target.value)}
+                      placeholder="Host email"
+                      className="bg-surface-light border border-border rounded-lg px-4 py-2.5 text-foreground placeholder:text-foreground/40 focus:outline-none focus:ring-2 focus:ring-primary/50"
+                    />
+                    <input
+                      type="password"
+                      value={editPassword}
+                      onChange={(e) => setEditPassword(e.target.value)}
+                      placeholder="New password (optional)"
+                      className="bg-surface-light border border-border rounded-lg px-4 py-2.5 text-foreground placeholder:text-foreground/40 focus:outline-none focus:ring-2 focus:ring-primary/50"
+                    />
+                    <select
+                      value={editSessionId}
+                      onChange={(e) => setEditSessionId(e.target.value ? Number(e.target.value) : '')}
+                      className="bg-surface-light border border-border rounded-lg px-4 py-2.5 text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
+                    >
+                      <option value="">Select session...</option>
+                      {getAssignableSessionsForHost(host).map((s) => (
+                        <option key={s.id} value={s.id}>
+                          {s.pin} - {s.quiz?.title}
+                        </option>
+                      ))}
+                    </select>
+                    <div className="md:col-span-3 flex gap-2">
+                      <Button
+                        size="sm"
+                        onClick={() => updateHost(host)}
+                        disabled={updatingHostId === host.id}
+                      >
+                        {updatingHostId === host.id ? 'Saving...' : 'Save Changes'}
+                      </Button>
+                      <Button variant="secondary" size="sm" onClick={cancelEditing}>
+                        Cancel
+                      </Button>
+                    </div>
+                  </div>
+                )}
               </div>
               <div className="flex gap-2">
+                <Button variant="secondary" size="sm" onClick={() => startEditing(host)}>
+                  Edit
+                </Button>
                 <Button variant="secondary" size="sm" onClick={() => toggleActive(host)}>
                   {host.isActive ? 'Disable' : 'Enable'}
                 </Button>

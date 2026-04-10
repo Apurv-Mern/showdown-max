@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, useCallback, Suspense } from 'react';
 import Link from 'next/link';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { Montserrat } from 'next/font/google';
+import toast from 'react-hot-toast';
 import { useSocket } from '@/hooks/useSocket';
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
 import { useTimerSound } from '@/hooks/useTimerSound';
@@ -794,7 +795,11 @@ function HostDashboardContent() {
 
   const closeScoreboardModal = useCallback(() => {
     setShowScoreboardModal(false);
-  }, []);
+    if (isScoreboardVisible) {
+      emit('hide_scoreboard');
+      setIsScoreboardVisible(false);
+    }
+  }, [emit, isScoreboardVisible]);
 
   const closeTimerModal = useCallback(() => {
     setShowTimerModal(false);
@@ -807,7 +812,7 @@ function HostDashboardContent() {
     if (raw !== '') {
       const n = Number(raw);
       if (Number.isNaN(n)) {
-        alert('Please enter a valid number for score, or leave it empty.');
+        toast.error('Please enter a valid number for score, or leave it empty.');
         return;
       }
       score = n;

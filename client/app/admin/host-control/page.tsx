@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import toast from 'react-hot-toast';
 import { api } from '@/lib/api';
 import { Button } from '@/components/shared/Button';
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner';
@@ -80,7 +81,7 @@ export default function HostControlPage() {
 
   const createHost = async () => {
     if (!email.trim() || !password || !sessionId) {
-      alert('Email, password, and session are required');
+      toast.error('Email, password, and session are required');
       return;
     }
 
@@ -95,8 +96,9 @@ export default function HostControlPage() {
       setPassword('');
       setSessionId('');
       await fetchData();
+      toast.success('Host account created');
     } catch (err: unknown) {
-      alert(err instanceof Error ? err.message : 'Failed to create host account');
+      toast.error(err instanceof Error ? err.message : 'Failed to create host account');
     } finally {
       setSaving(false);
     }
@@ -106,8 +108,9 @@ export default function HostControlPage() {
     try {
       await api.patch(`/api/hosts/${host.id}`, { isActive: !host.isActive });
       setHosts((prev) => prev.map((h) => (h.id === host.id ? { ...h, isActive: !h.isActive } : h)));
+      toast.success(host.isActive ? 'Host disabled' : 'Host enabled');
     } catch (err: unknown) {
-      alert(err instanceof Error ? err.message : 'Failed to update host account');
+      toast.error(err instanceof Error ? err.message : 'Failed to update host account');
     }
   };
 
@@ -116,8 +119,9 @@ export default function HostControlPage() {
     try {
       await api.delete(`/api/hosts/${host.id}`);
       setHosts((prev) => prev.filter((h) => h.id !== host.id));
+      toast.success('Host account deleted');
     } catch (err: unknown) {
-      alert(err instanceof Error ? err.message : 'Failed to delete host account');
+      toast.error(err instanceof Error ? err.message : 'Failed to delete host account');
     }
   };
 
@@ -137,7 +141,7 @@ export default function HostControlPage() {
 
   const updateHost = async (host: HostAccount) => {
     if (!editEmail.trim() || !editSessionId) {
-      alert('Email and session are required');
+      toast.error('Email and session are required');
       return;
     }
 
@@ -161,8 +165,9 @@ export default function HostControlPage() {
         prev.map((item) => (item.id === host.id ? response.data : item)),
       );
       cancelEditing();
+      toast.success('Host account updated');
     } catch (err: unknown) {
-      alert(err instanceof Error ? err.message : 'Failed to update host account');
+      toast.error(err instanceof Error ? err.message : 'Failed to update host account');
     } finally {
       setUpdatingHostId(null);
     }

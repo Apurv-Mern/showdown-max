@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
+import toast from 'react-hot-toast';
 import { api } from '@/lib/api';
 import { Button } from '@/components/shared/Button';
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner';
@@ -93,7 +94,7 @@ export default function TeamManagerPage() {
       fetchTeams(selectedSessionId);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Failed to add team';
-      alert(message);
+      toast.error(message);
     } finally {
       setAdding(false);
     }
@@ -106,8 +107,9 @@ export default function TeamManagerPage() {
       await api.put(`/api/teams/${editingTeam.id}/score`, { score: editScore });
       setEditingTeam(null);
       fetchTeams(selectedSessionId);
+      toast.success('Team score updated');
     } catch {
-      alert('Failed to update score');
+      toast.error('Failed to update score');
     } finally {
       setSaving(false);
     }
@@ -119,8 +121,9 @@ export default function TeamManagerPage() {
       setDeletingId(teamId);
       await api.delete(`/api/teams/${teamId}`);
       fetchTeams(selectedSessionId);
+      toast.success('Team removed');
     } catch {
-      alert('Failed to remove team');
+      toast.error('Failed to remove team');
     } finally {
       setDeletingId(null);
     }

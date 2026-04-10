@@ -126,6 +126,7 @@ function VenueDisplayContent() {
   const [phase, setPhase] = useState<VenuePhase>('welcome');
   const [qrCodeData, setQrCodeData] = useState<string>('');
   const [teams, setTeams] = useState<Team[]>([]);
+  const [maxTeams, setMaxTeams] = useState(25);
   const [roundInfo, setRoundInfo] = useState<{
     round: any;
     roundIndex: number;
@@ -290,6 +291,9 @@ function VenueDisplayContent() {
     socket.on('session_state', (data: any) => {
       didReceiveSessionState = true;
       if (data.qrCodeData) setQrCodeData(data.qrCodeData);
+      if (Number.isFinite(Number(data.maxTeams)) && Number(data.maxTeams) > 0) {
+        setMaxTeams(Number(data.maxTeams));
+      }
       if (data.teams) {
         const teamList =
           typeof data.teams === 'object' && !Array.isArray(data.teams)
@@ -656,7 +660,7 @@ function VenueDisplayContent() {
                 TEAM REGISTRATION
               </h2>
               <p className="text-neon-cyan text-2xl font-semibold mt-1">
-                {teams.length} of 25 Teams Joined
+                {teams.length} of {maxTeams} Teams Joined
               </p>
             </div>
 
@@ -676,7 +680,7 @@ function VenueDisplayContent() {
             ) : null}
 
             <div className="flex-1 grid grid-cols-5 gap-3 content-start">
-              {Array.from({ length: 25 }).map((_, i) => {
+              {Array.from({ length: maxTeams }).map((_, i) => {
                 const team = teams[i];
                 return (
                   <div key={i} className="relative">
@@ -1076,7 +1080,7 @@ function VenueDisplayContent() {
                     response?.responseTime !== null && response?.responseTime !== undefined
                       ? Number(response.responseTime).toFixed(2)
                       : '--';
-                  const delta = revealData?.scores[String(team.teamId)] ?? 0;
+                  const totalScore = Number(team.score ?? 0);
 
                   return (
                     <div
@@ -1093,8 +1097,8 @@ function VenueDisplayContent() {
                       </div>
                       <div>{selectedLabel}</div>
                       <div className="text-[#00f0ff]">
-                        {delta >= 0 ? '+' : ''}
-                        {String(delta).padStart(3, '0')}
+                        {totalScore >= 0 ? '+' : ''}
+                        {String(totalScore).padStart(3, '0')}
                       </div>
                     </div>
                   );

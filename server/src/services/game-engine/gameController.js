@@ -72,8 +72,10 @@ const buildLiveResponseStats = (gameState, question, responsesRaw = {}) => {
 const startGame = async (io, pin, quiz, sessionId) => {
   const gameState = stateMachine.createInitialState(sessionId, quiz);
   const teams = await redisStore.getLobbyTeams(pin);
+  const session = await Session.findByPk(sessionId);
 
   gameState.totalTeams = teams.length;
+  gameState.maxTeams = session?.maxTeams || teams.length;
   gameState.activeTeamIds = teams.map((t) => t.teamId);
   gameState.teams = {};
   for (const team of teams) {
@@ -725,9 +727,13 @@ const launchMiniGame = async (io, pin, gameType, config = {}) => {
     
     // Attempt to fetch qrCodeData from session
     let qrCodeData = null;
+    let maxTeams = lobbyTeams.length;
     try {
       const sessionUrl = await Session.findOne({ where: { pin } });
-      if (sessionUrl) qrCodeData = sessionUrl.qrCodeData;
+      if (sessionUrl) {
+        qrCodeData = sessionUrl.qrCodeData;
+        maxTeams = sessionUrl.maxTeams || lobbyTeams.length;
+      }
     } catch (err) {
       logger.error('Failed to query session for qrCodeData', { error: err.message });
     }
@@ -745,6 +751,7 @@ const launchMiniGame = async (io, pin, gameType, config = {}) => {
       teams: teamsObj,
       activeTeamIds: lobbyTeams.map((t) => t.teamId),
       qrCodeData,
+      maxTeams,
     };
   }
 

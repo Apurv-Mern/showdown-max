@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import toast from 'react-hot-toast';
 import { api, apiUpload } from '@/lib/api';
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner';
 import { cn } from '@/lib/utils';
@@ -166,9 +167,10 @@ export default function MediaPage() {
       setUploading(true);
       await apiUpload('/api/media/upload', formData);
       await fetchFiles();
+      toast.success('Media uploaded');
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Upload failed';
-      alert(message);
+      toast.error(message);
     } finally {
       setUploading(false);
       if (browseInputRef.current) browseInputRef.current.value = '';
@@ -207,8 +209,10 @@ export default function MediaPage() {
     try {
       await api.delete(`/api/media/files/${filename}`);
       setFiles((prev) => prev.filter((f) => f.filename !== filename));
+      toast.success('Media deleted');
     } catch (err: unknown) {
       console.error('Failed to delete file:', err);
+      toast.error('Failed to delete file');
     }
   };
 

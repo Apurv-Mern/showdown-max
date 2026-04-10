@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import toast from 'react-hot-toast';
 import { api } from '@/lib/api';
 import { Button } from '@/components/shared/Button';
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner';
@@ -46,6 +47,7 @@ export default function SessionsPage() {
   const [selectedQuiz, setSelectedQuiz] = useState<number | ''>('');
   const [maxTeams, setMaxTeams] = useState(50);
   const [creating, setCreating] = useState(false);
+  const [createSessionError, setCreateSessionError] = useState('');
   const [createdSession, setCreatedSession] = useState<NewSession | null>(null);
   const [deletingSessionId, setDeletingSessionId] = useState<number | null>(null);
 
@@ -81,17 +83,25 @@ export default function SessionsPage() {
 
   const handleCreate = async () => {
     if (!selectedQuiz) return;
+    if (!Number.isFinite(maxTeams) || maxTeams <= 0) {
+      setCreateSessionError("Teams can't create with 0 teams");
+      return;
+    }
     try {
       setCreating(true);
+      setCreateSessionError('');
       const res = await api.post<NewSession>('/api/sessions', {
         quizId: Number(selectedQuiz),
         maxTeams,
       });
       setCreatedSession(res.data);
       setShowCreate(false);
+      setSelectedQuiz('');
+      setMaxTeams(50);
       fetchSessions();
+      toast.success('Session created');
     } catch (err: any) {
-      alert(err.message || 'Failed to create session');
+      setCreateSessionError(err.message || 'Failed to create session');
     } finally {
       setCreating(false);
     }
@@ -102,8 +112,10 @@ export default function SessionsPage() {
     try {
       await api.post(`/api/sessions/${id}/end`, {});
       fetchSessions();
+      toast.success('Session ended');
     } catch (err) {
       console.error('Failed to end session:', err);
+      toast.error('Failed to end session');
     }
   };
 
@@ -113,9 +125,10 @@ export default function SessionsPage() {
       setDeletingSessionId(id);
       await api.delete(`/api/sessions/${id}`);
       setSessions((prev) => prev.filter((s) => s.id !== id));
+      toast.success(`Session ${pin} deleted`);
     } catch (err) {
       console.error('Failed to delete session:', err);
-      alert('Failed to delete session');
+      toast.error('Failed to delete session');
     } finally {
       setDeletingSessionId(null);
     }
@@ -131,7 +144,14 @@ export default function SessionsPage() {
     <div>
       <div className="flex items-center justify-between mb-8">
         <h1 className="text-3xl font-bold">Sessions</h1>
-        <Button onClick={() => setShowCreate(true)}>+ New Session</Button>
+        <Button
+          onClick={() => {
+            setCreateSessionError('');
+            setShowCreate(true);
+          }}
+        >
+          + New Session
+        </Button>
       </div>
 
       {loading ? (
@@ -210,17 +230,43 @@ export default function SessionsPage() {
             <input
               type="number"
               value={maxTeams}
-              onChange={(e) => setMaxTeams(Number(e.target.value))}
+              onChange={(e) => {
+                const nextValue = Number(e.target.value);
+                setMaxTeams(nextValue);
+                if (Number.isFinite(nextValue) && nextValue > 0) {
+                  setCreateSessionError('');
+                } else {
+                  setCreateSessionError("Teams can't create with 0 teams");
+                }
+              }}
               min={1}
               max={500}
-              className="w-full bg-surface-light border border-border rounded-lg px-4 py-2.5 text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
+              className={`w-full bg-surface-light border rounded-lg px-4 py-2.5 text-foreground focus:outline-none focus:ring-2 ${
+                createSessionError
+                  ? 'border-danger focus:ring-danger/40'
+                  : 'border-border focus:ring-primary/50'
+              }`}
             />
+            {createSessionError ? (
+              <p className="mt-2 text-sm font-medium text-danger">{createSessionError}</p>
+            ) : null}
           </div>
           <div className="flex gap-3 pt-2">
-            <Button onClick={handleCreate} disabled={!selectedQuiz || creating}>
+            <Button
+              onClick={handleCreate}
+              disabled={!selectedQuiz || creating || !Number.isFinite(maxTeams) || maxTeams <= 0}
+            >
               {creating ? 'Creating...' : 'Create Session'}
             </Button>
-            <Button variant="secondary" onClick={() => setShowCreate(false)}>Cancel</Button>
+            <Button
+              variant="secondary"
+              onClick={() => {
+                setCreateSessionError('');
+                setShowCreate(false);
+              }}
+            >
+              Cancel
+            </Button>
           </div>
         </div>
       </Modal>

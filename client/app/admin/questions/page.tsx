@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState, useRef, useCallback } from 'react';
+import toast from 'react-hot-toast';
 import { api, apiUpload } from '@/lib/api';
 import { Button } from '@/components/shared/Button';
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner';
@@ -243,8 +244,9 @@ export default function QuestionsPage() {
         mediaUrl: data.data.url,
         mediaType: data.data.mediaType,
       }));
+      toast.success('Media uploaded');
     } catch (err: unknown) {
-      alert(err instanceof Error ? err.message : 'Upload failed');
+      toast.error(err instanceof Error ? err.message : 'Upload failed');
     } finally {
       setUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
@@ -256,18 +258,18 @@ export default function QuestionsPage() {
 
     const validOptions = formData.options.filter((o) => o.text.trim());
     if (validOptions.length < 2) {
-      alert('At least 2 options with text are required');
+      toast.error('At least 2 options with text are required');
       return;
     }
 
     const correctCount = validOptions.filter((o) => o.isCorrect).length;
     if (correctCount < 1) {
-      alert('At least one option must be marked as correct');
+      toast.error('At least one option must be marked as correct');
       return;
     }
 
     if (!formData.roundId) {
-      alert('Please select a round for this question');
+      toast.error('Please select a round for this question');
       return;
     }
 
@@ -291,8 +293,9 @@ export default function QuestionsPage() {
       closeModal();
       fetchQuestions();
       fetchRounds();
+      toast.success(editingQuestion ? 'Question updated' : 'Question created');
     } catch (err: unknown) {
-      alert(err instanceof Error ? err.message : 'Failed to save question');
+      toast.error(err instanceof Error ? err.message : 'Failed to save question');
     } finally {
       setSaving(false);
     }
@@ -305,8 +308,10 @@ export default function QuestionsPage() {
       setQuestions((prev) => prev.filter((q) => q.id !== id));
       setTotal((prev) => prev - 1);
       fetchRounds();
+      toast.success('Question deleted');
     } catch (err) {
       console.error('Failed to delete question:', err);
+      toast.error('Failed to delete question');
     }
   };
 

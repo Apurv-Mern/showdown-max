@@ -19,8 +19,15 @@ const venueHandlers = (_io, socket) => {
       socket.join(`session:${pin}`);
       socket.data = { pin, role: 'venue' };
 
-      const gameState = await redisStore.getGameState(pin);
+      let gameState = await redisStore.getGameState(pin);
       if (gameState) {
+        if (!Number.isFinite(Number(gameState.maxTeams)) || Number(gameState.maxTeams) <= 0) {
+          const session = await Session.findOne({ where: { pin } });
+          if (session) {
+            gameState.maxTeams = session.maxTeams;
+            await redisStore.setGameState(pin, gameState);
+          }
+        }
         socket.emit(SOCKET_EVENTS.SESSION_STATE, buildFullStatePayload(gameState, pin));
       } else {
         const session = await Session.findOne({ where: { pin, status: { [Op.in]: ['pending', 'active'] } } });
@@ -30,6 +37,7 @@ const venueHandlers = (_io, socket) => {
             pin,
             qrCodeData: session.qrCodeData,
             teams: [],
+            maxTeams: session.maxTeams,
           });
         }
       }
@@ -48,16 +56,25 @@ const venueHandlers = (_io, socket) => {
       socket.join(`session:${pin}`);
       socket.data = { pin, role: 'host' };
 
-      const gameState = await redisStore.getGameState(pin);
+      let gameState = await redisStore.getGameState(pin);
       if (gameState) {
+        if (!Number.isFinite(Number(gameState.maxTeams)) || Number(gameState.maxTeams) <= 0) {
+          const session = await Session.findOne({ where: { pin } });
+          if (session) {
+            gameState.maxTeams = session.maxTeams;
+            await redisStore.setGameState(pin, gameState);
+          }
+        }
         socket.emit(SOCKET_EVENTS.SESSION_STATE, buildFullStatePayload(gameState, pin));
       } else {
+        const session = await Session.findOne({ where: { pin } });
         const lobbyTeams = await redisStore.getLobbyTeams(pin);
         socket.emit(SOCKET_EVENTS.SESSION_STATE, {
           state: 'LOBBY',
           pin,
           teams: lobbyTeams.reduce((acc, t) => { acc[t.teamId] = t; return acc; }, {}),
           totalTeams: lobbyTeams.length,
+          maxTeams: session?.maxTeams || lobbyTeams.length,
         });
       }
 
@@ -110,6 +127,7 @@ const buildFullStatePayload = (gameState, pin) => {
     breakDuration: gameState.breakDuration,
     breakRemaining: gameState.breakRemaining,
     activeMiniGame: gameState.activeMiniGame,
+    maxTeams: Number(gameState.maxTeams || 0),
     currentQuestion: currentQuestion
       ? {
           questionIndex: gameState.currentQuestionIndex,

@@ -557,13 +557,14 @@ function VenueDisplayContent() {
   );
 
   const liveTotalTeams = Math.max(0, liveResponses.total || totalTeams || 0);
-  const liveQuestionPoints =
-    question?.roundType === 'WAGER' || question?.roundType === 'FINAL_WAGER'
-      ? '--'
-      : String(
-          (question?.pointsForQuestion ?? 10) * (liveResponses.correct || 0) -
-            2 * (liveResponses.incorrect || 0),
-        );
+  const liveQuestionPoints = (() => {
+    const roundType = (question?.roundType || '').toUpperCase();
+    if (roundType === 'WAGER') return '0-50';
+    if (roundType === 'FINAL_WAGER') return '0-100%';
+    if (roundType === 'MAJORITY_RULES') return '50';
+    if (roundType === 'ELIMINATION') return String(question?.pointsForQuestion ?? 10);
+    return String(question?.pointsForQuestion ?? 10);
+  })();
 
   if (!isPinReady || !sessionPin) {
     return (

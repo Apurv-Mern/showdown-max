@@ -3,10 +3,21 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Unity, useUnityContext } from 'react-unity-webgl';
 
+type UnityGameType = 'Kangaroo_race' | 'card_shuffle';
+
+export interface MiniGameUnityCommand {
+  id: number;
+  game: 'card_shuffle';
+  command: 'start_game' | 'next_round';
+  roundNumber?: 1 | 2 | 3 | 4;
+}
+
 export interface UnityWrapperProps {
-  gameType: 'Kangaroo_race' | 'card_shuffle';
+  gameType: UnityGameType;
   onPlayerAction?: (action: string, value: unknown) => void;
   onGameComplete?: (result: unknown) => void;
+  onReady?: (gameType: UnityGameType) => void;
+  command?: MiniGameUnityCommand | null;
   className?: string;
 }
 
@@ -37,7 +48,14 @@ const GAME_CONFIGS: Record<string, { loaderUrl: string; dataUrl: string; framewo
  *   - `GameManager.StartGame(jsonConfig)` to initialise with team data
  *   - `GameManager.ResetGame()` to reset state for replay
  */
-export default function UnityWrapper({ gameType, onPlayerAction, onGameComplete, className }: UnityWrapperProps) {
+export default function UnityWrapper({
+  gameType,
+  onPlayerAction,
+  onGameComplete,
+  onReady,
+  command,
+  className,
+}: UnityWrapperProps) {
   const config = GAME_CONFIGS[gameType];
   const [loadError, setLoadError] = useState(false);
 
@@ -96,11 +114,41 @@ export default function UnityWrapper({ gameType, onPlayerAction, onGameComplete,
   }, [unload]);
 
   /* ─── Web → Unity: public commands ─── */
+  const sendUnityMessageDeferred = useCallback(
+    (objectName: string, methodName: string, message: string) => {
+      if (!isLoaded) return;
+
+      const initialDelay = gameType === 'card_shuffle' ? 150 : 0;
+      const sendWithRetry = (attempt: number) => {
+        window.setTimeout(
+          () => {
+            try {
+              sendMessage(objectName, methodName, message);
+            } catch (error) {
+              console.warn('[UnityWrapper] SendMessage failed', {
+                gameType,
+                objectName,
+                methodName,
+                attempt,
+                error,
+              });
+              if (attempt < 3) sendWithRetry(attempt + 1);
+            }
+          },
+          attempt === 1 ? initialDelay : 450,
+        );
+      };
+
+      sendWithRetry(1);
+    },
+    [gameType, isLoaded, sendMessage],
+  );
+
   const startGame = useCallback(
     (config: Record<string, unknown>) => {
       if (!isLoaded) return;
       if (gameType === 'card_shuffle') {
-        sendMessage(
+        sendUnityMessageDeferred(
           'GameManager',
           'OnMessageFromReact',
           JSON.stringify({ type: 'MINIGAME_START', payload: config }),
@@ -109,13 +157,13 @@ export default function UnityWrapper({ gameType, onPlayerAction, onGameComplete,
       }
       sendMessage('GameManager', 'StartGame', JSON.stringify(config));
     },
-    [gameType, isLoaded, sendMessage],
+    [gameType, isLoaded, sendMessage, sendUnityMessageDeferred],
   );
 
   const resetGame = useCallback(() => {
     if (!isLoaded) return;
     if (gameType === 'card_shuffle') {
-      sendMessage(
+      sendUnityMessageDeferred(
         'GameManager',
         'OnMessageFromReact',
         JSON.stringify({ type: 'MINIGAME_NEXT_ROUND', payload: {} }),
@@ -123,13 +171,46 @@ export default function UnityWrapper({ gameType, onPlayerAction, onGameComplete,
       return;
     }
     sendMessage('GameManager', 'ResetGame', '');
-  }, [gameType, isLoaded, sendMessage]);
+  }, [gameType, isLoaded, sendMessage, sendUnityMessageDeferred]);
 
   useEffect(() => {
-    if (isLoaded) {
+    if (isLoaded && gameType !== 'card_shuffle') {
       startGame({ gameType, timestamp: Date.now() });
     }
   }, [isLoaded, gameType, startGame]);
+
+  useEffect(() => {
+    if (!isLoaded) return;
+
+    const emitReady = () => {
+      onReady?.(gameType);
+    };
+    const timer = window.setTimeout(emitReady, gameType === 'card_shuffle' ? 900 : 0);
+    const interval =
+      gameType === 'card_shuffle' ? window.setInterval(emitReady, 3000) : undefined;
+
+    return () => {
+      window.clearTimeout(timer);
+      if (interval) window.clearInterval(interval);
+    };
+  }, [gameType, isLoaded, onReady]);
+
+  useEffect(() => {
+    if (!isLoaded || gameType !== 'card_shuffle' || !command || command.game !== 'card_shuffle') {
+      return;
+    }
+
+    const type =
+      command.command === 'start_game' ? 'MINIGAME_START' : 'MINIGAME_NEXT_ROUND';
+    const payload =
+      command.command === 'next_round' ? { roundNumber: command.roundNumber } : {};
+
+    sendUnityMessageDeferred(
+      'GameManager',
+      'OnMessageFromReact',
+      JSON.stringify({ type, payload }),
+    );
+  }, [command, gameType, isLoaded, sendUnityMessageDeferred]);
 
   useEffect(() => {
     const timer = setTimeout(() => {

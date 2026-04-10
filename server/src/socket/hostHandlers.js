@@ -136,7 +136,7 @@ const hostHandlers = (io, socket) => {
 
   socket.on(SOCKET_EVENTS.END_MINI_GAME, async (data) => {
     try {
-      await gameController.endMiniGame(io, data.pin);
+      await gameController.endMiniGame(io, data.pin, data.config || {});
     } catch (err) {
       logger.error('end_mini_game error', { error: err.message });
     }

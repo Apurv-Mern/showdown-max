@@ -323,9 +323,13 @@ function HostDashboardContent() {
   const [showKangarooRaceModal, setShowKangarooRaceModal] = useState(false);
   const [winningKangaroo, setWinningKangaroo] = useState(3);
   const [kangarooBetCounts, setKangarooBetCounts] = useState([0, 0, 0, 0, 0, 0]);
-  const [showCardShuffleModal, setShowCardShuffleModal] = useState(false);
   const [winningCard, setWinningCard] = useState(2);
   const [cardPickCounts, setCardPickCounts] = useState([0, 0, 0]);
+  const [cardShuffleVenueReady, setCardShuffleVenueReady] = useState(false);
+  const [cardShuffleGameStarted, setCardShuffleGameStarted] = useState(false);
+  const [cardShuffleActiveRound, setCardShuffleActiveRound] = useState<1 | 2 | 3 | 4 | null>(
+    null,
+  );
   const [activeMiniGameLocal, setActiveMiniGameLocal] = useState<string | null>(null);
   const [miniGameLoading, setMiniGameLoading] = useState(false);
   const [miniGameRevealing, setMiniGameRevealing] = useState(false);
@@ -576,12 +580,23 @@ function HostDashboardContent() {
     socket.on('mini_game_start', (data: { game: string }) => {
       setActiveMiniGameLocal(data.game);
       setMiniGameLoading(false);
+      setCardShuffleVenueReady(false);
+    });
+
+    socket.on('mini_game_ready', (data: { game?: string; ready?: boolean }) => {
+      if (data?.game !== 'card_shuffle') return;
+      setCardShuffleVenueReady(data.ready !== false);
     });
 
     socket.on(
       'mini_game_end',
       (data: { game?: string; winningCard?: number; winningKangaroo?: number }) => {
         setMiniGameLoading(false);
+        if (data?.game === 'card_shuffle' || !data?.game) {
+          setCardShuffleVenueReady(false);
+          setCardShuffleGameStarted(false);
+          setCardShuffleActiveRound(null);
+        }
         if (data?.game) {
           setMiniGameRevealing(true);
           setTimeout(() => {
@@ -643,6 +658,7 @@ function HostDashboardContent() {
         'team_removed',
         'team_updated',
         'mini_game_start',
+        'mini_game_ready',
         'mini_game_end',
       ].forEach((e) => socket.off(e));
     };
@@ -692,18 +708,70 @@ function HostDashboardContent() {
     setShowKangarooRaceModal(false);
   };
 
-  const handleCardShuffleSave = () => {
+  const launchCardShuffleOnVenue = useCallback(() => {
     setCardPickCounts([0, 0, 0]);
+    setCardShuffleVenueReady(false);
+    setCardShuffleGameStarted(false);
+    setCardShuffleActiveRound(null);
     setMiniGameLoading(true);
     emit('launch_mini_game', {
       game: 'card_shuffle',
       config: { winningCard },
     });
-    setShowCardShuffleModal(false);
+    setActiveMiniGameLocal('card_shuffle');
+  }, [emit, winningCard]);
+
+  const handleOpenCardShuffleControls = () => {
+    if (activeMiniGameLocal !== 'card_shuffle' && !miniGameLoading) {
+      launchCardShuffleOnVenue();
+    }
+  };
+
+  const handleCardShuffleCommand = (
+    command: 'start_game' | 'next_round',
+    roundNumber?: 1 | 2 | 3 | 4,
+  ) => {
+    if (!cardShuffleVenueReady) return;
+    if (command === 'next_round' && !cardShuffleGameStarted) return;
+    emit('mini_game_command', {
+      game: 'card_shuffle',
+      command,
+      ...(roundNumber ? { roundNumber } : {}),
+    });
+    if (command === 'next_round' && roundNumber) {
+      setCardShuffleActiveRound(roundNumber);
+    }
+  };
+
+  const handleCardShuffleStartGame = () => {
+    if (!cardShuffleVenueReady) return;
+    setCardShuffleGameStarted(true);
+    setCardShuffleActiveRound(1);
+    emit('mini_game_command', {
+      game: 'card_shuffle',
+      command: 'start_game',
+    });
+    window.setTimeout(() => {
+      emit('mini_game_command', {
+        game: 'card_shuffle',
+        command: 'next_round',
+        roundNumber: 1,
+      });
+    }, 350);
   };
 
   const handleExitMiniGame = () => {
-    emit('end_mini_game');
+    setCardShuffleVenueReady(false);
+    setCardShuffleGameStarted(false);
+    setCardShuffleActiveRound(null);
+    emit(
+      'end_mini_game',
+      activeMiniGameLocal === 'card_shuffle'
+        ? { config: { winningCard } }
+        : activeMiniGameLocal === 'horse_race'
+          ? { config: { winningKangaroo } }
+          : undefined,
+    );
   };
 
   const closeAddTeamModal = useCallback(() => {
@@ -722,10 +790,6 @@ function HostDashboardContent() {
 
   const closeKangarooRaceModal = useCallback(() => {
     setShowKangarooRaceModal(false);
-  }, []);
-
-  const closeCardShuffleModal = useCallback(() => {
-    setShowCardShuffleModal(false);
   }, []);
 
   const closeScoreboardModal = useCallback(() => {
@@ -823,15 +887,6 @@ function HostDashboardContent() {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [showKangarooRaceModal, closeKangarooRaceModal]);
-
-  useEffect(() => {
-    if (!showCardShuffleModal) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') closeCardShuffleModal();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [showCardShuffleModal, closeCardShuffleModal]);
 
   useEffect(() => {
     if (!showScoreboardModal) return;
@@ -1050,7 +1105,7 @@ function HostDashboardContent() {
                       <path d="M4 4h16v4H4V4zm0 6h10v10H4V10zm12 0h4v4h-4v-4zm0 6h4v4h-4v-4z" />
                     </svg>
                   }
-                  onClick={handleCardShuffleSave}
+                  onClick={handleOpenCardShuffleControls}
                 />
               </div>
             </section>
@@ -1153,6 +1208,71 @@ function HostDashboardContent() {
                   <p className="text-sm text-white/50">
                     Players are choosing Left, Middle, or Right on their phones
                   </p>
+
+                  <div className="w-full max-w-3xl rounded-2xl border border-[#00d9ff]/25 bg-[#080d1c]/80 p-4 shadow-[0_0_24px_rgba(0,217,255,0.12)]">
+                    <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                      <div>
+                        <p className="text-xs font-bold uppercase tracking-[0.22em] text-[#00d9ff]">
+                          Card Shuffle Controls
+                        </p>
+                        <p className="mt-1 text-sm text-white/50">
+                          {cardShuffleVenueReady
+                            ? cardShuffleGameStarted
+                              ? `Round ${cardShuffleActiveRound || 1} is active.`
+                              : 'Venue is ready. Click Start Game to unlock rounds.'
+                            : 'Loading on venue. Controls will unlock automatically.'}
+                        </p>
+                      </div>
+                      <span
+                        className={cn(
+                          'rounded-full border px-3 py-1 text-xs font-bold uppercase tracking-wider',
+                          cardShuffleVenueReady
+                            ? 'border-green-500/45 bg-green-500/15 text-green-300'
+                            : 'border-white/15 bg-white/5 text-white/45',
+                        )}
+                      >
+                        {cardShuffleVenueReady ? 'Ready' : 'Waiting'}
+                      </span>
+                    </div>
+
+                    <button
+                      type="button"
+                      disabled={!cardShuffleVenueReady}
+                      onClick={handleCardShuffleStartGame}
+                      className={cn(
+                        'mb-3 h-14 w-full rounded-xl border px-5 text-lg font-black uppercase tracking-wide transition',
+                        cardShuffleVenueReady
+                          ? 'border-[#00d9ff]/70 bg-[linear-gradient(180deg,#00a9df_0%,#075a89_100%)] text-white shadow-[0_0_22px_rgba(0,217,255,0.28)] hover:brightness-110'
+                          : 'cursor-not-allowed border-white/10 bg-white/8 text-white/30 grayscale',
+                      )}
+                    >
+                      Start Game
+                    </button>
+
+                    <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+                      {([1, 2, 3, 4] as const).map((roundNumber) => (
+                        <button
+                          key={roundNumber}
+                          type="button"
+                          disabled={!cardShuffleVenueReady || !cardShuffleGameStarted}
+                          onClick={() => handleCardShuffleCommand('next_round', roundNumber)}
+                          className={cn(
+                            'h-12 rounded-lg border px-3 text-sm font-extrabold uppercase tracking-wide transition',
+                            cardShuffleVenueReady &&
+                              cardShuffleGameStarted &&
+                              cardShuffleActiveRound === roundNumber
+                              ? 'border-green-400/80 bg-[linear-gradient(180deg,#0f8f4d_0%,#064422_100%)] text-white shadow-[0_0_18px_rgba(34,197,94,0.38)] hover:brightness-110'
+                              : cardShuffleVenueReady && cardShuffleGameStarted
+                                ? 'border-[#ffc400]/55 bg-[linear-gradient(180deg,#7a3cff_0%,#31116f_100%)] text-white shadow-[0_0_16px_rgba(122,60,255,0.24)] hover:brightness-110'
+                              : 'cursor-not-allowed border-white/10 bg-white/7 text-white/28 grayscale',
+                          )}
+                        >
+                          Start Round {roundNumber}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
                   <div className="mt-2 flex gap-4">
                     {CARD_SHUFFLE_SLOTS.map((n, i) => (
                       <div
@@ -1956,146 +2076,6 @@ function HostDashboardContent() {
                   className="h-[50px] min-w-[140px] rounded-lg border border-red-500/40 bg-[linear-gradient(180deg,#dc2626_0%,#7f1d1d_100%)] px-8 text-base font-bold uppercase tracking-wide text-white shadow-[0_4px_16px_rgba(0,0,0,0.4)] transition hover:brightness-110"
                 >
                   <span data-node-id="232:3104">Save</span>
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      ) : null}
-
-      {showCardShuffleModal ? (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-[rgba(0,0,0,0.5)] p-4 backdrop-blur-[5px]"
-          data-name="Host Control Card Shuffle"
-          data-node-id="232:3407"
-          onClick={closeCardShuffleModal}
-          role="presentation"
-        >
-          <div
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="card-shuffle-title"
-            className="relative z-10 flex max-h-[min(92vh,520px)] w-full max-w-[1008px] flex-col rounded-2xl border-2 border-[rgba(0,217,255,0.55)] bg-[rgba(26,31,46,0.98)] shadow-[0_0_30px_rgba(0,217,255,0.18)]"
-            data-node-id="232:3412"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <button
-              type="button"
-              data-name="maki:cross"
-              data-node-id="232:3413"
-              onClick={closeCardShuffleModal}
-              className="absolute right-4 top-4 z-10 flex size-7 items-center justify-center rounded-md text-red-500 transition-colors hover:bg-red-500/10 hover:text-red-400"
-              aria-label="Close"
-            >
-              <svg
-                width="18"
-                height="18"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2.5"
-                strokeLinecap="round"
-              >
-                <path d="M18 6L6 18M6 6l12 12" />
-              </svg>
-            </button>
-
-            <div className="flex items-center gap-2 px-6 pb-2 pt-8 pr-14">
-              <h2
-                id="card-shuffle-title"
-                className="text-[25px] font-semibold text-white"
-                data-node-id="232:3462"
-              >
-                Card Shuffle
-              </h2>
-              <span
-                className="flex size-8 shrink-0 items-center justify-center text-[#00d9ff]"
-                data-node-id="232:3463"
-                aria-hidden
-              >
-                <svg viewBox="0 0 24 24" className="size-7" fill="currentColor">
-                  <path d="M4 4h16v4H4V4zm0 6h10v10H4V10zm12 0h4v4h-4v-4zm0 6h4v4h-4v-4z" />
-                </svg>
-              </span>
-            </div>
-
-            <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-6" data-node-id="232:3423">
-              <p className="mb-3 text-xl font-semibold text-white" data-node-id="232:3446">
-                User Inputs
-              </p>
-              <div
-                className="mb-8 overflow-hidden rounded-lg border border-white/10"
-                data-node-id="232:3424"
-              >
-                {CARD_SHUFFLE_SLOTS.map((n, i) => {
-                  const count = cardPickCounts[i] ?? 0;
-                  const isWinRow = winningCard === n;
-                  const rightLabel =
-                    count === 0 ? 'Not Selected' : count === 1 ? '1 Team' : `${count} Teams`;
-                  const rowNodeId =
-                    n === 1 ? '232:3425' : n === 2 ? '232:3432' : n === 3 ? '232:3439' : undefined;
-                  return (
-                    <button
-                      key={n}
-                      type="button"
-                      data-node-id={rowNodeId}
-                      onClick={() => setWinningCard(n)}
-                      className={cn(
-                        'flex h-[57px] w-full items-center gap-4 border-b border-white/10 px-4 text-left transition-colors last:border-b-0',
-                        isWinRow ? 'bg-[#0d2818]' : 'bg-[#151b2e] hover:bg-[#1a2235]',
-                      )}
-                    >
-                      <span
-                        className="text-xl font-medium text-white"
-                        data-node-id={n === 1 ? '232:3430' : undefined}
-                      >
-                        {CARD_POSITION_LABELS[n] ?? `Card`}
-                      </span>
-                      <div
-                        className={cn(
-                          'flex size-[34px] shrink-0 items-center justify-center rounded text-lg font-semibold text-white',
-                          isWinRow
-                            ? 'border border-white/50 bg-[#008122] shadow-[0_3px_3px_rgba(0,0,0,0.3)]'
-                            : 'bg-[#2e354c]',
-                        )}
-                        data-name="Container"
-                        data-node-id={
-                          n === 1
-                            ? '232:3428'
-                            : n === 2
-                              ? '232:3435'
-                              : n === 3
-                                ? '232:3442'
-                                : undefined
-                        }
-                      >
-                        {n}
-                      </div>
-                      <span className="ml-auto text-xl font-bold text-[#00d9ff]">{rightLabel}</span>
-                    </button>
-                  );
-                })}
-              </div>
-
-              <div
-                className="flex flex-wrap justify-center gap-4 sm:justify-start"
-                data-node-id="232:3415"
-              >
-                <button
-                  type="button"
-                  data-node-id="232:3417"
-                  onClick={closeCardShuffleModal}
-                  className="h-[50px] min-w-[140px] rounded-lg border border-white/15 bg-[linear-gradient(180deg,#2e354c_0%,#1a2030_100%)] px-8 text-base font-medium uppercase tracking-wide text-white/80 shadow-[0_4px_12px_rgba(0,0,0,0.35)] transition hover:brightness-110"
-                >
-                  <span data-node-id="232:3419">CANCLE</span>
-                </button>
-                <button
-                  type="button"
-                  data-node-id="232:3421"
-                  onClick={handleCardShuffleSave}
-                  className="h-[50px] min-w-[140px] rounded-lg border border-red-500/40 bg-[linear-gradient(180deg,#dc2626_0%,#7f1d1d_100%)] px-8 text-base font-bold uppercase tracking-wide text-white shadow-[0_4px_16px_rgba(0,0,0,0.4)] transition hover:brightness-110"
-                >
-                  <span data-node-id="232:3422">Save</span>
                 </button>
               </div>
             </div>

@@ -102,6 +102,13 @@ const getRoundScoringLines = (roundType?: string) => {
   return { positive: '10 points for correct answers', negative: '2 points for incorrect answers' };
 };
 
+type MiniGameCommand = {
+  id: number;
+  game: 'card_shuffle';
+  command: 'start_game' | 'next_round';
+  roundNumber?: 1 | 2 | 3 | 4;
+};
+
 const normalizeRoundTitle = (name?: string) => {
   if (!name) return '';
   return name.replace(/^round\s*\d+\s*-\s*/i, '').trim();
@@ -138,6 +145,7 @@ function VenueDisplayContent() {
   const [scoreboard, setScoreboard] = useState<Team[]>([]);
   const [breakDuration, setBreakDuration] = useState(360);
   const [miniGameType, setMiniGameType] = useState<string | null>(null);
+  const [miniGameCommand, setMiniGameCommand] = useState<MiniGameCommand | null>(null);
   const [miniGameResult, setMiniGameResult] = useState<{
     game: string;
     winningCard?: number;
@@ -253,6 +261,14 @@ function VenueDisplayContent() {
     [socket],
   );
 
+  const handleUnityReady = useCallback(
+    (gameType: 'Kangaroo_race' | 'card_shuffle') => {
+      if (!socket || gameType !== 'card_shuffle') return;
+      socket.emit('mini_game_ready', { game: 'card_shuffle', ready: true, source: 'venue' });
+    },
+    [socket],
+  );
+
   useEffect(() => {
     if (!socket || !sessionPin || !isPinReady) return;
 
@@ -313,6 +329,7 @@ function VenueDisplayContent() {
       // Determine the correct phase from the server state
       if (data.activeMiniGame) {
         setMiniGameType(data.activeMiniGame);
+        if (data.activeMiniGame !== 'card_shuffle') setMiniGameCommand(null);
         setPhase('mini_game');
       } else if (data.state === 'QUESTION') {
         if (data.currentQuestion) {
@@ -432,9 +449,27 @@ function VenueDisplayContent() {
 
     socket.on('mini_game_start', (data: { game: string }) => {
       setMiniGameType(data.game);
+      setMiniGameCommand(null);
       setMiniGameResult(null);
       setPhase('mini_game');
     });
+
+    socket.on(
+      'mini_game_command',
+      (data: {
+        game?: string;
+        command?: 'start_game' | 'next_round';
+        roundNumber?: 1 | 2 | 3 | 4;
+      }) => {
+        if (data?.game !== 'card_shuffle' || !data.command) return;
+        setMiniGameCommand({
+          id: Date.now(),
+          game: 'card_shuffle',
+          command: data.command,
+          roundNumber: data.roundNumber,
+        });
+      },
+    );
 
     socket.on('music_control', (data: { action: 'play' | 'pause' | 'stop'; mediaUrl?: string }) => {
       const action = data?.action;
@@ -494,6 +529,7 @@ function VenueDisplayContent() {
         'break_start',
         'break_end',
         'mini_game_start',
+        'mini_game_command',
         'mini_game_end',
         'game_end',
       ].forEach((e) => socket.off(e));
@@ -1087,6 +1123,8 @@ function VenueDisplayContent() {
                 gameType={miniGameType as 'Kangaroo_race' | 'card_shuffle'}
                 onPlayerAction={handleUnityPlayerAction}
                 onGameComplete={handleUnityGameComplete}
+                onReady={handleUnityReady}
+                command={miniGameCommand}
                 className="rounded-2xl overflow-hidden"
               />
             </div>

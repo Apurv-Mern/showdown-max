@@ -737,12 +737,12 @@ const launchMiniGame = async (io, pin, gameType, config = {}) => {
  * Clear mini-game after Unity reports completion or host manually ends it.
  * Sends the winning config so venue/players can show the result screen.
  */
-const endMiniGame = async (io, pin) => {
+const endMiniGame = async (io, pin, overrideConfig = {}) => {
   const gameState = await redisStore.getGameState(pin);
   if (!gameState) return;
 
   const game = gameState.activeMiniGame;
-  const config = gameState.miniGameConfig || {};
+  const config = { ...(gameState.miniGameConfig || {}), ...(overrideConfig || {}) };
 
   gameState.activeMiniGame = null;
   gameState.miniGameConfig = null;

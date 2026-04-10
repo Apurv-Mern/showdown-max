@@ -321,7 +321,7 @@ function VenueDisplayContent() {
         setTimerDuration(data.currentQuestion.timerDuration || data.timerDuration || 30);
         setTimerRemaining(data.timerRemaining ?? data.currentQuestion.timerDuration ?? 0);
         const total = Number(data.totalTeams ?? 0);
-        setLiveResponses({ correct: 0, incorrect: 0, noAnswer: total, total });
+        setLiveResponses({ correct: 0, incorrect: 0, noAnswer: 0, total });
       } else if (data.state !== 'QUESTION') {
         setQuestion(null);
       }
@@ -372,7 +372,7 @@ function VenueDisplayContent() {
       setLiveResponses({
         correct: 0,
         incorrect: 0,
-        noAnswer: Math.max(totalTeams, 0),
+        noAnswer: 0,
         total: Math.max(totalTeams, 0),
       });
       setRevealData(null);
@@ -1092,7 +1092,6 @@ function VenueDisplayContent() {
                         {team.teamName}
                       </div>
                       <div>{selectedLabel}</div>
-                      <div>{timeText}</div>
                       <div className="text-[#00f0ff]">
                         {delta >= 0 ? '+' : ''}
                         {String(delta).padStart(3, '0')}

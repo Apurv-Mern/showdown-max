@@ -7,10 +7,12 @@ import { useAuth } from '@/lib/auth';
 
 function HostNav() {
   const searchParams = useSearchParams();
+  const pathname = usePathname();
   const router = useRouter();
   const { logout, assignedSession } = useAuth();
   const pin = searchParams.get('pin') || assignedSession?.pin || '';
   const sessionId = searchParams.get('sessionId') || (assignedSession?.id ? String(assignedSession.id) : '');
+  const isDashboardPage = pathname === '/host/dashboard';
 
   const qs = pin ? `?pin=${pin}${sessionId ? `&sessionId=${sessionId}` : ''}` : '';
 
@@ -26,6 +28,15 @@ function HostNav() {
         <span className="text-foreground/30 text-sm ml-2 font-normal">Host Control</span>
       </Link>
       <nav className="flex items-center gap-4">
+        {!isDashboardPage && pin && (
+          <button
+            onClick={() => router.push(`/host/dashboard${qs}`)}
+            className="inline-flex items-center gap-2 rounded-lg border border-neon-cyan/25 bg-neon-cyan/8 px-3 py-1 text-sm font-medium text-neon-cyan hover:bg-neon-cyan/14 transition-colors"
+          >
+            <span aria-hidden="true">←</span>
+            <span>Back</span>
+          </button>
+        )}
         {pin && (
           <span className="font-mono text-neon-cyan font-bold text-sm bg-neon-cyan/10 border border-neon-cyan/20 px-3 py-1 rounded-lg">
             PIN: {pin}

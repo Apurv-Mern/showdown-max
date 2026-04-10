@@ -150,7 +150,7 @@ const nextQuestion = async (io, pin) => {
   io.to(`session:${pin}`).emit(SOCKET_EVENTS.LIVE_RESPONSE_UPDATE, {
     correct: 0,
     incorrect: 0,
-    noAnswer: gameState.activeTeamIds.length,
+    noAnswer: 0,
     total: gameState.activeTeamIds.length,
   });
   logger.info('Question activated', {
@@ -175,6 +175,14 @@ const nextQuestion = async (io, pin) => {
         gs.timerRunning = false;
         gs.timerRemaining = 0;
         await redisStore.setGameState(pin, gs);
+        const expiredQuestion = stateMachine.getCurrentQuestion(gs);
+        if (expiredQuestion) {
+          const responsesRaw = await redisStore.getResponses(pin, expiredQuestion.id);
+          io.to(`session:${pin}`).emit(
+            SOCKET_EVENTS.LIVE_RESPONSE_UPDATE,
+            buildLiveResponseStats(gs, expiredQuestion, responsesRaw),
+          );
+        }
       }
       logger.info('Timer expired for question, waiting for host to reveal', {
         pin,

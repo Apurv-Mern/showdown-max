@@ -4,25 +4,25 @@ import { useCallback, useEffect, useState } from 'react';
 import { Unity, useUnityContext } from 'react-unity-webgl';
 
 export interface UnityWrapperProps {
-  gameType: 'horse_race' | 'card_shuffle';
+  gameType: 'Kangaroo_race' | 'card_shuffle';
   onPlayerAction?: (action: string, value: unknown) => void;
   onGameComplete?: (result: unknown) => void;
   className?: string;
 }
 
 const GAME_CONFIGS: Record<string, { loaderUrl: string; dataUrl: string; frameworkUrl: string; codeUrl: string }> = {
-  horse_race: {
-    loaderUrl: '/games/horse-race/Build/horse-race.loader.js',
-    dataUrl: '/games/horse-race/Build/horse-race.data',
-    frameworkUrl: '/games/horse-race/Build/horse-race.framework.js',
-    codeUrl: '/games/horse-race/Build/horse-race.wasm',
+  Kangaroo_race: {
+    loaderUrl: '/games/Kangaroo-race/Build/Kangaroo-race.loader.js',
+    dataUrl: '/games/Kangaroo-race/Build/Kangaroo-race.data',
+    frameworkUrl: '/games/Kangaroo-race/Build/Kangaroo-race.framework.js',
+    codeUrl: '/games/Kangaroo-race/Build/Kangaroo-race.wasm',
   },
   /** WebGL build from repo `CardGame/` → copied to `client/public/CardGame/Build/` */
   card_shuffle: {
     loaderUrl: '/CardGame/Build/CardGame.loader.js',
-    dataUrl: '/CardGame/Build/CardGame.data.br',
-    frameworkUrl: '/CardGame/Build/CardGame.framework.js.br',
-    codeUrl: '/CardGame/Build/CardGame.wasm.br',
+    dataUrl: '/CardGame/Build/CardGame.data',
+    frameworkUrl: '/CardGame/Build/CardGame.framework.js',
+    codeUrl: '/CardGame/Build/CardGame.wasm',
   },
 };
 
@@ -51,7 +51,7 @@ export default function UnityWrapper({ gameType, onPlayerAction, onGameComplete,
     unload,
   } = useUnityContext({
     ...config,
-    productName: gameType === 'horse_race' ? 'Horse Race' : 'Card Shuffle',
+    productName: gameType === 'Kangaroo_race' ? 'Kangaroo Race' : 'Card Shuffle',
     companyName: 'MaxShowdown',
   });
 
@@ -99,15 +99,31 @@ export default function UnityWrapper({ gameType, onPlayerAction, onGameComplete,
   const startGame = useCallback(
     (config: Record<string, unknown>) => {
       if (!isLoaded) return;
+      if (gameType === 'card_shuffle') {
+        sendMessage(
+          'GameManager',
+          'OnMessageFromReact',
+          JSON.stringify({ type: 'MINIGAME_START', payload: config }),
+        );
+        return;
+      }
       sendMessage('GameManager', 'StartGame', JSON.stringify(config));
     },
-    [isLoaded, sendMessage],
+    [gameType, isLoaded, sendMessage],
   );
 
   const resetGame = useCallback(() => {
     if (!isLoaded) return;
+    if (gameType === 'card_shuffle') {
+      sendMessage(
+        'GameManager',
+        'OnMessageFromReact',
+        JSON.stringify({ type: 'MINIGAME_NEXT_ROUND', payload: {} }),
+      );
+      return;
+    }
     sendMessage('GameManager', 'ResetGame', '');
-  }, [isLoaded, sendMessage]);
+  }, [gameType, isLoaded, sendMessage]);
 
   useEffect(() => {
     if (isLoaded) {
@@ -136,9 +152,9 @@ export default function UnityWrapper({ gameType, onPlayerAction, onGameComplete,
       {!isLoaded && (
         <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-background/80">
           <div className="text-4xl mb-4">
-            {gameType === 'horse_race' ? '🏇' : '🃏'}
+            {gameType === 'Kangaroo_race' ? '🏇' : '🃏'}
           </div>
-          <p className="text-lg font-semibold mb-3">Loading {gameType === 'horse_race' ? 'Horse Race' : 'Card Shuffle'}</p>
+          <p className="text-lg font-semibold mb-3">Loading {gameType === 'Kangaroo_race' ? 'Kangaroo Race' : 'Card Shuffle'}</p>
           <div className="w-48 h-2 bg-surface-light rounded-full overflow-hidden">
             <div
               className="h-full bg-primary rounded-full transition-all duration-300"
@@ -165,16 +181,16 @@ function FallbackView({ gameType }: { gameType: string }) {
   return (
     <div className="w-full h-full flex flex-col items-center justify-center text-center gap-4 bg-surface/50 rounded-2xl border border-border">
       <div className="text-7xl">
-        {gameType === 'horse_race' ? '🏇' : '🃏'}
+        {gameType === 'Kangaroo_race' ? '🏇' : '🃏'}
       </div>
       <h3 className="text-3xl font-black">
-        {gameType === 'horse_race' ? 'Horse Race' : 'Card Shuffle'}
+        {gameType === 'Kangaroo_race' ? 'Kangaroo Race' : 'Card Shuffle'}
       </h3>
       <p className="text-foreground/40 max-w-md">
         Unity WebGL build not found. Place your build files at:
       </p>
       <code className="text-xs font-mono bg-surface-light px-4 py-2 rounded-lg text-primary">
-        {gameType === 'horse_race' ? '/public/games/horse-race/Build/' : '/public/CardGame/Build/'}
+        {gameType === 'Kangaroo_race' ? '/public/games/Kangaroo-race/Build/' : '/public/CardGame/Build/'}
       </code>
       <div className="mt-4 bg-primary/10 border border-primary/20 rounded-xl px-6 py-3">
         <p className="text-sm text-foreground/50">

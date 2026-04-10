@@ -1075,16 +1075,16 @@ function VenueDisplayContent() {
 
         {/* ── MINI GAME ── */}
         {phase === 'mini_game' && miniGameType && (
-          <div className="w-full h-full flex flex-col animate-fadeIn">
+          <div className=" flex flex-col animate-fadeIn">
             <div className="px-6 py-3 flex items-center justify-between border-b border-border/30">
               <h2 className="text-2xl font-black text-neon-cyan text-glow-cyan">
-                {miniGameType === 'horse_race' ? '🏇 Horse Race' : '🃏 Card Shuffle'}
+                {miniGameType === 'Kangaroo_race' ? '🏇 Kangaroo Race' : '🃏 Card Shuffle'}
               </h2>
               <p className="text-foreground/40 text-sm">Players pick on their devices</p>
             </div>
             <div className="flex-1 p-4">
               <DynamicUnityGame
-                gameType={miniGameType as 'horse_race' | 'card_shuffle'}
+                gameType={miniGameType as 'Kangaroo_race' | 'card_shuffle'}
                 onPlayerAction={handleUnityPlayerAction}
                 onGameComplete={handleUnityGameComplete}
                 className="rounded-2xl overflow-hidden"
@@ -1141,7 +1141,7 @@ function VenueDisplayContent() {
                 </div>
               </>
             )}
-            {miniGameResult.game === 'horse_race' && miniGameResult.winningKangaroo && (
+            {miniGameResult.game === 'Kangaroo_race' && miniGameResult.winningKangaroo && (
               <>
                 <div className="text-7xl mb-6">🦘</div>
                 <h2 className="text-5xl font-black mb-4 text-glow-cyan">Winning Kangaroo</h2>

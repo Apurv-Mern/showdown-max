@@ -52,12 +52,12 @@
       }
 
       var buildUrl = "Build";
-      var loaderUrl = buildUrl + "/CardGame.loader.js";
+      var loaderUrl = buildUrl + "/Card Shuffle.loader.js";
       var config = {
         arguments: [],
-        dataUrl: buildUrl + "/CardGame.data.gz",
-        frameworkUrl: buildUrl + "/CardGame.framework.js.gz",
-        codeUrl: buildUrl + "/CardGame.wasm.gz",
+        dataUrl: buildUrl + "/Card Shuffle.data",
+        frameworkUrl: buildUrl + "/Card Shuffle.framework.js",
+        codeUrl: buildUrl + "/Card Shuffle.wasm",
         streamingAssetsUrl: "StreamingAssets",
         companyName: "DefaultCompany",
         productName: "CardSuffle",
@@ -116,18 +116,31 @@
         createUnityInstance(canvas, config, (progress) => {
           document.querySelector("#unity-progress-bar-full").style.width = 100 * progress + "%";
               }).then((unityInstance) => {
+               
+                // CHANGE 1: Unity Instance ko bahar ke buttons se connect karne ke liye
+                window.myUnityInstance = unityInstance;
+               
                 document.querySelector("#unity-loading-bar").style.display = "none";
                 document.querySelector("#unity-fullscreen-button").onclick = () => {
                   unityInstance.SetFullscreen(1);
                 };
-
+ 
               }).catch((message) => {
                 alert(message);
               });
             };
-
+ 
       document.body.appendChild(script);
-
+ 
     </script>
+   
+    <!-- CHANGE 2: Test Button directly page par float karega -->
+    <button onclick="window.myUnityInstance.SendMessage('GameManager', 'OnMessageFromReact', '{\&quot;type\&quot;:\&quot;MINIGAME_START\&quot;, \&quot;payload\&quot;:\&quot;{}\&quot;}')" style="position: absolute; top: 10px; left: 10px; z-index: 9999; padding: 15px; font-weight: bold; cursor: pointer; background: green; color: white;">
+        START GAME FROM WEB
+    </button>
+<button onclick="window.myUnityInstance.SendMessage('GameManager', 'OnMessageFromReact', '{\&quot;type\&quot;:\&quot;MINIGAME_NEXT_ROUND\&quot;, \&quot;payload\&quot;:\&quot;{}\&quot;}')" style="position: absolute; top: 10px; left: 240px; z-index: 9999; padding: 15px; font-weight: bold; cursor: pointer; background: orange; color: white;">
+    NEXT ROUND (WEB)
+</button>
+ 
   </body>
 </html>

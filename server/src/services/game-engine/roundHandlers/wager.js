@@ -8,6 +8,10 @@ const calculate = ({ question, responses }) => {
   const correctIndex = question.options.findIndex((o) => o.isCorrect);
 
   for (const [teamId, response] of Object.entries(responses)) {
+    if (!response || Number(response.selectedOptionIndex) < 0) {
+      scores[teamId] = 0;
+      continue;
+    }
     const wager = Math.min(
       Math.max(response.wagerAmount || 0, SCORING.WAGER.MIN),
       SCORING.WAGER.MAX,

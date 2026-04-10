@@ -9,6 +9,10 @@ const calculate = ({ question, responses, teams }) => {
   const correctIndex = question.options.findIndex((o) => o.isCorrect);
 
   for (const [teamId, response] of Object.entries(responses)) {
+    if (!response || Number(response.selectedOptionIndex) < 0) {
+      scores[teamId] = 0;
+      continue;
+    }
     const team = teams[teamId];
     const currentScore = team?.score || 0;
 

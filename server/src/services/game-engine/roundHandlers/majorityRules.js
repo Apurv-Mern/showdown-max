@@ -10,6 +10,7 @@ const calculate = ({ responses }) => {
   const voteCounts = {};
   for (const [, response] of Object.entries(responses)) {
     const idx = response.selectedOptionIndex;
+    if (!Number.isFinite(Number(idx)) || Number(idx) < 0) continue;
     voteCounts[idx] = (voteCounts[idx] || 0) + 1;
   }
 
@@ -20,6 +21,10 @@ const calculate = ({ responses }) => {
     .map(([idx]) => Number(idx));
 
   for (const [teamId, response] of Object.entries(responses)) {
+    if (!response || Number(response.selectedOptionIndex) < 0 || majorityOptions.length === 0) {
+      scores[teamId] = 0;
+      continue;
+    }
     const isMajority = majorityOptions.includes(response.selectedOptionIndex);
     scores[teamId] = isMajority
       ? SCORING.MAJORITY_RULES.MAJORITY

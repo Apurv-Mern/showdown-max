@@ -550,7 +550,7 @@ export default function GamePage() {
         setSelectedOption(null);
       }
       const teamIdStr = String(session.teamId);
-      if (data.scores[teamIdStr] !== undefined) setPointsGained(data.scores[teamIdStr]);
+      setPointsGained(data.scores[teamIdStr] ?? 0);
       const myTeam = data.teams.find((t) => t.teamId === session.teamId);
       if (myTeam) setSession({ score: myTeam.score });
       if (data.eliminations.includes(session.teamId!)) setIsEliminated(true);
@@ -670,7 +670,7 @@ export default function GamePage() {
 
   const handleSelectOption = useCallback(
     (index: number) => {
-      if (selectedOption !== null || !socket || isEliminated) return;
+      if (selectedOption !== null || !socket || isEliminated || timerRemaining <= 0 || phaseRef.current !== 'question') return;
       setSelectedOption(index);
       setPhase('answered');
       socket.emit('submit_answer', {
@@ -678,7 +678,7 @@ export default function GamePage() {
         wagerAmount: wagerSubmitted ? wagerAmount : undefined,
       });
     },
-    [selectedOption, socket, isEliminated, wagerAmount, wagerSubmitted],
+    [selectedOption, socket, isEliminated, timerRemaining, wagerAmount, wagerSubmitted],
   );
 
   const handleSubmitWager = () => {
@@ -699,6 +699,12 @@ export default function GamePage() {
   const optionCount = question?.question?.options?.length || 0;
   const optionHeightClass = optionCount <= 4 ? 'h-[116px]' : 'h-[116px]';
   const optionTextClass = optionCount <= 4 ? 'text-[22px]' : 'text-[22px]';
+  const isAnswerSelectionLocked =
+    selectedOption !== null || isEliminated || timerRemaining <= 0 || phase !== 'question';
+  const showTimeExpiredState =
+    timerRemaining <= 0 &&
+    (phase === 'question' || phase === 'answered') &&
+    selectedOption === null;
 
   return (
     <div className="flex-1 h-full min-h-0 w-full bg-[#050017]">
@@ -962,15 +968,15 @@ export default function GamePage() {
                 >
                   {question.question.options.map((opt, i) => {
                     const isSelected = selectedOption === i;
-                    const isLocked = selectedOption !== null;
+                    const isLocked = isAnswerSelectionLocked;
 
                     return (
                       <motion.button
                         key={i}
                         variants={staggerItem}
-                        whileTap={!isLocked && !isEliminated ? { scale: 0.96 } : undefined}
+                        whileTap={!isLocked ? { scale: 0.96 } : undefined}
                         onClick={() => handleSelectOption(i)}
-                        disabled={isLocked || isEliminated}
+                        disabled={isLocked}
                         className={cn(
                           optionHeightClass,
                           'w-full rounded-2xl px-5 text-center text-white font-bold shadow-[inset_0_0_18px_rgba(255,255,255,0.22),0_0_30px_rgba(0,0,0,0.45)] flex items-center justify-center',
@@ -979,7 +985,8 @@ export default function GamePage() {
                           isSelected &&
                             'ring-2 ring-white/80 shadow-[0_0_36px_rgba(255,255,255,0.58)] scale-[1.02]',
                           isLocked && !isSelected && 'opacity-30',
-                          isEliminated && 'opacity-20 cursor-not-allowed',
+                          // showTimeExpiredState && 'saturate-[0.2]',
+                          isLocked && 'cursor-not-allowed',
                         )}
                       >
                         <span
@@ -994,6 +1001,18 @@ export default function GamePage() {
                     );
                   })}
                 </motion.div>
+
+                {showTimeExpiredState && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="text-center mt-3 shrink-0"
+                  >
+                    <p className="text-[#ff5252] text-[25px] font-extrabold leading-none drop-shadow-[0_0_10px_rgba(255,82,82,0.55)]">
+                      Time is over
+                    </p>
+                  </motion.div>
+                )}
 
                 {phase === 'answered' && (
                   <motion.div
@@ -1109,14 +1128,18 @@ export default function GamePage() {
                   <p
                     className={cn(
                       'text-[28px] font-extrabold leading-none',
-                      selectedOption !== null && selectedOption === revealData.correctOptionIndex
+                      selectedOption === null
+                        ? 'text-white drop-shadow-[0_0_15px_rgba(255,255,255,0.45)]'
+                        : selectedOption === revealData.correctOptionIndex
                         ? 'text-[#53ff57] drop-shadow-[0_0_15px_rgba(67,255,89,0.9)]' // Stronger Green Glow
                         : 'text-[#ff2525] drop-shadow-[0_0_15px_rgba(255,45,45,0.9)]', // Stronger Red Glow
                     )}
                   >
-                    {selectedOption !== null && selectedOption === revealData.correctOptionIndex
-                      ? `That's Correct !! (+${Math.max(pointsGained ?? 0, 0)})`
-                      : `Oops Wrong Answer !! (${pointsGained ?? -2})`}
+                    {selectedOption === null
+                      ? 'No Answer Submitted !! (0)'
+                      : selectedOption === revealData.correctOptionIndex
+                        ? `That's Correct !! (+${Math.max(pointsGained ?? 0, 0)})`
+                        : `Oops Wrong Answer !! (${pointsGained ?? 0})`}
                   </p>
                 </motion.div>
               </motion.div>

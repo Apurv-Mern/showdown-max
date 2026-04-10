@@ -193,6 +193,22 @@ const submitAnswer = async (io, pin, teamId, data) => {
   const gameState = await redisStore.getGameState(pin);
   if (!gameState || gameState.questionState !== QUESTION_STATES.ACTIVE) return;
 
+  const timerState = timerManager.getTimerState(pin);
+  const effectiveRemaining = timerState.remaining > 0
+    ? timerState.remaining
+    : Number.isFinite(Number(gameState.timerRemaining))
+      ? Number(gameState.timerRemaining)
+      : 0;
+  if (effectiveRemaining <= 0) {
+    logger.info('Rejected late answer after timer expiry', {
+      pin,
+      teamId,
+      roundIndex: gameState.currentRoundIndex,
+      questionIndex: gameState.currentQuestionIndex,
+    });
+    return;
+  }
+
   const question = stateMachine.getCurrentQuestion(gameState);
   if (!question) return;
 

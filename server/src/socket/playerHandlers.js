@@ -194,6 +194,7 @@ const playerHandlers = (io, socket) => {
           responseCount: gameState.responseCount,
           totalTeams: gameState.totalTeams,
           activeMiniGame: gameState.activeMiniGame,
+          miniGameState: gameState.miniGameState || null,
           teams: gameState.teams,
         } : null,
       };
@@ -250,6 +251,16 @@ const playerHandlers = (io, socket) => {
         }
         if (gameState.activeMiniGame) {
           socket.emit(SOCKET_EVENTS.MINI_GAME_START, { game: gameState.activeMiniGame });
+          if (gameState.miniGameState?.game === 'card_shuffle' && gameState.miniGameState?.revealed) {
+            socket.emit(SOCKET_EVENTS.MINI_GAME_REVEAL, {
+              game: 'card_shuffle',
+              correctPosition: Number(gameState.miniGameState.correctPosition),
+              roundNumber: gameState.miniGameState.activeRound || undefined,
+              cardPositions: Array.isArray(gameState.miniGameState.cardPositions)
+                ? gameState.miniGameState.cardPositions
+                : [],
+            });
+          }
         }
         if (gameState.state === 'FINAL_RESULTS') {
           socket.emit(SOCKET_EVENTS.GAME_END, {

@@ -62,6 +62,18 @@ const buildLiveResponseStats = (gameState, question, responsesRaw = {}) => {
   return { correct, incorrect, noAnswer, total };
 };
 
+const createCardShuffleState = (roundNumber = null) => ({
+  game: 'card_shuffle',
+  ready: false,
+  gameStarted: false,
+  activeRound: roundNumber,
+  revealed: false,
+  correctPosition: null,
+  cardPositions: [],
+  selections: {},
+  pickCounts: { 1: 0, 2: 0, 3: 0 },
+});
+
 /**
  * Start a game session
  * @param {import('socket.io').Server} io
@@ -757,6 +769,8 @@ const launchMiniGame = async (io, pin, gameType, config = {}) => {
 
   gameState.activeMiniGame = gameType;
   gameState.miniGameConfig = config;
+  gameState.miniGameState =
+    gameType === 'card_shuffle' ? createCardShuffleState() : { game: gameType };
   await redisStore.setGameState(pin, gameState);
 
   io.to(`session:${pin}`).emit(SOCKET_EVENTS.SESSION_STATE, sanitizeForClients(gameState));
@@ -777,6 +791,7 @@ const endMiniGame = async (io, pin, overrideConfig = {}) => {
 
   gameState.activeMiniGame = null;
   gameState.miniGameConfig = null;
+  gameState.miniGameState = null;
   await redisStore.setGameState(pin, gameState);
 
   io.to(`session:${pin}`).emit(SOCKET_EVENTS.MINI_GAME_END, { game, ...config });

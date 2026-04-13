@@ -8,7 +8,7 @@ type UnityGameType = 'Kangaroo_race' | 'card_shuffle';
 export interface MiniGameUnityCommand {
   id: number;
   game: 'card_shuffle';
-  command: 'start_game' | 'next_round';
+  command: 'start_game' | 'next_round' | 'reveal_cards';
   roundNumber?: 1 | 2 | 3 | 4;
 }
 
@@ -30,10 +30,10 @@ const GAME_CONFIGS: Record<string, { loaderUrl: string; dataUrl: string; framewo
   },
   /** WebGL build from repo `CardGame/` → copied to `client/public/CardGame/Build/` */
   card_shuffle: {
-    loaderUrl: '/CardGame/Build/CardGame.loader.js',
-    dataUrl: '/CardGame/Build/CardGame.data',
-    frameworkUrl: '/CardGame/Build/CardGame.framework.js',
-    codeUrl: '/CardGame/Build/CardGame.wasm',
+    loaderUrl: '/CardGame/Build/CardGame.loader.js?v=root-build',
+    dataUrl: '/CardGame/Build/CardGame.data?v=root-build',
+    frameworkUrl: '/CardGame/Build/CardGame.framework.js?v=root-build',
+    codeUrl: '/CardGame/Build/CardGame.wasm?v=root-build',
   },
 };
 
@@ -42,7 +42,7 @@ const GAME_CONFIGS: Record<string, { loaderUrl: string; dataUrl: string; framewo
  *
  * JSLib bridge contract (Unity C# → JS):
  *   - `SendPlayerAction(string jsonPayload)` called from Unity when a player makes a choice
- *   - `SendGameResult(string jsonPayload)` called when the mini-game finishes
+ *   - `SendGameResult(string jsonPayload)` called when the mini-game reports reveal/result data
  *
  * Web → Unity (via SendMessage):
  *   - `GameManager.StartGame(jsonConfig)` to initialise with team data
@@ -201,7 +201,11 @@ export default function UnityWrapper({
     }
 
     const type =
-      command.command === 'start_game' ? 'MINIGAME_START' : 'MINIGAME_NEXT_ROUND';
+      command.command === 'start_game'
+        ? 'MINIGAME_START'
+        : command.command === 'reveal_cards'
+          ? 'MINIGAME_REVEAL'
+          : 'MINIGAME_NEXT_ROUND';
     const payload =
       command.command === 'next_round' ? { roundNumber: command.roundNumber } : {};
 

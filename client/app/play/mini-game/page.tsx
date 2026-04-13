@@ -60,6 +60,7 @@ export default function MiniGamePage() {
   const [selectedChoice, setSelectedChoice] = useState<number | null>(null);
   const [resultPhase, setResultPhase] = useState<ResultPhase>(null);
   const [winningValue, setWinningValue] = useState<number | null>(null);
+  const [roundOpen, setRoundOpen] = useState(false);
 
   useEffect(() => {
     if (!session.pin || !session.teamId) {
@@ -76,21 +77,46 @@ export default function MiniGamePage() {
       setSelectedChoice(null);
       setResultPhase(null);
       setWinningValue(null);
+      setRoundOpen(false);
     });
+
+    socket.on(
+      'mini_game_command',
+      (data: { game?: string; command?: 'start_game' | 'next_round' | 'reveal_cards' }) => {
+        if (data?.game !== 'card_shuffle') return;
+        if (data.command === 'start_game' || data.command === 'next_round') {
+          setSelectedChoice(null);
+          setResultPhase(null);
+          setWinningValue(null);
+          setRoundOpen(true);
+        }
+      },
+    );
+
+    socket.on(
+      'mini_game_reveal',
+      (data: { game?: string; correctPosition?: number }) => {
+        if (data?.game !== 'card_shuffle') return;
+        const winning = Number.isFinite(Number(data.correctPosition))
+          ? Number(data.correctPosition)
+          : null;
+        setWinningValue(winning);
+        setRoundOpen(false);
+        if (winning !== null && selectedChoice !== null) {
+          setResultPhase(selectedChoice === winning ? 'winner' : 'loser');
+        } else {
+          setResultPhase('loser');
+        }
+      },
+    );
 
     socket.on('mini_game_end', (data: { winningCard?: number; winningKangaroo?: number }) => {
       const winning = data.winningCard ?? data.winningKangaroo ?? null;
       setWinningValue(winning);
-
-      if (winning !== null && selectedChoice !== null) {
-        setResultPhase(selectedChoice === winning ? 'winner' : 'loser');
-      } else {
-        setResultPhase('loser');
-      }
-
-      setTimeout(() => {
-        router.push('/play/game');
-      }, 5000);
+      setSelectedChoice(null);
+      setResultPhase(null);
+      setRoundOpen(false);
+      router.push('/play/game');
     });
 
     socket.on('break_end', () => {
@@ -108,6 +134,8 @@ export default function MiniGamePage() {
 
     return () => {
       socket.off('mini_game_start');
+      socket.off('mini_game_command');
+      socket.off('mini_game_reveal');
       socket.off('mini_game_end');
       socket.off('break_end');
       socket.off('round_intro');
@@ -116,7 +144,7 @@ export default function MiniGamePage() {
   }, [socket, router, selectedChoice, clearSession]);
 
   const handleChoice = (choiceId: number) => {
-    if (selectedChoice !== null || !socket) return;
+    if (!roundOpen || selectedChoice !== null || !socket) return;
     setSelectedChoice(choiceId);
     socket.emit('mini_game_action', {
       action: 'select',
@@ -157,7 +185,9 @@ export default function MiniGamePage() {
                 </p>
               </>
             )}
-            <p className="text-xs text-foreground/30 mt-6">Returning to game...</p>
+            <p className="text-xs text-foreground/30 mt-6">
+              Waiting for the host to start the next round...
+            </p>
           </div>
         </div>
       </MobileFrame>
@@ -174,7 +204,9 @@ export default function MiniGamePage() {
             <p className="text-foreground/50 text-sm mb-6">
               {selectedChoice
                 ? 'Your bet is locked! Watch the race on the big screen.'
-                : 'Pick a horse to bet on!'}
+                : roundOpen
+                  ? 'Pick a horse to bet on!'
+                  : 'Waiting for the host to start the round...'}
             </p>
 
             <div className="grid grid-cols-2 gap-3">
@@ -182,11 +214,11 @@ export default function MiniGamePage() {
                 <button
                   key={horse.id}
                   onClick={() => handleChoice(horse.id)}
-                  disabled={selectedChoice !== null}
+                  disabled={!roundOpen || selectedChoice !== null}
                   className={`${horse.color} rounded-xl p-5 text-white font-bold text-center transition-all active:scale-95 ${
                     selectedChoice === horse.id
                       ? 'ring-4 ring-white/50 scale-105'
-                      : selectedChoice !== null
+                      : !roundOpen || selectedChoice !== null
                         ? 'opacity-30'
                         : 'hover:scale-105'
                   }`}
@@ -206,7 +238,9 @@ export default function MiniGamePage() {
             <p className="text-foreground/50 text-sm mb-6">
               {selectedChoice
                 ? 'Your pick is locked! Watch the shuffle on the big screen.'
-                : 'Which card is yours?'}
+                : roundOpen
+                  ? 'Which card is yours?'
+                  : 'Waiting for the host to start the round...'}
             </p>
 
             <div className="flex gap-3 justify-center">
@@ -215,11 +249,11 @@ export default function MiniGamePage() {
                   key={pos.id}
                   type="button"
                   onClick={() => handleChoice(pos.id)}
-                  disabled={selectedChoice !== null}
+                  disabled={!roundOpen || selectedChoice !== null}
                   className={`flex-1 max-w-[130px] rounded-xl border-2 bg-surface px-3 py-6 text-center transition-all active:scale-95 ${
                     selectedChoice === pos.id
                       ? 'border-primary bg-primary/10 scale-105 ring-2 ring-primary/30'
-                      : selectedChoice !== null
+                      : !roundOpen || selectedChoice !== null
                         ? 'border-border opacity-30'
                         : 'border-border hover:border-primary/50 hover:scale-[1.03]'
                   }`}

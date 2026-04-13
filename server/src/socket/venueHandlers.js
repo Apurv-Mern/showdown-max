@@ -4,6 +4,60 @@ const logger = require('../utils/logger');
 const redisStore = require('../services/redisSessionStore');
 const { Session } = require('../models');
 
+const parseStoredResponse = (raw) => {
+  if (!raw) return { selectedOptionIndex: -1, responseTime: null };
+  try {
+    const parsed = JSON.parse(raw);
+    const selectedOptionIndex = Number(parsed.selectedOptionIndex);
+    const responseTime = Number(parsed.responseTime);
+    return {
+      selectedOptionIndex: Number.isFinite(selectedOptionIndex) ? selectedOptionIndex : -1,
+      responseTime: Number.isFinite(responseTime) ? responseTime : null,
+    };
+  } catch {
+    const selectedOptionIndex = Number(raw);
+    return {
+      selectedOptionIndex: Number.isFinite(selectedOptionIndex) ? selectedOptionIndex : -1,
+      responseTime: null,
+    };
+  }
+};
+
+const buildReconnectRevealPayload = async (pin, gameState, currentQuestion) => {
+  const responsesRaw = currentQuestion?.id
+    ? await redisStore.getResponses(pin, currentQuestion.id)
+    : {};
+  const teams = Object.values(gameState.teams || {}).map((team) => ({
+    teamId: Number(team.teamId),
+    teamName: String(team.teamName || ''),
+    score: Number(team.score || 0),
+    isEliminated: Boolean(team.isEliminated),
+  }));
+  const responseDetails = teams.map((team) => {
+    const parsed = parseStoredResponse(responsesRaw[String(team.teamId)]);
+    return {
+      teamId: team.teamId,
+      selectedOptionIndex: parsed.selectedOptionIndex,
+      responseTime: parsed.responseTime,
+    };
+  });
+  const correctOptionIndex = (currentQuestion?.options || []).findIndex((option) => option?.isCorrect);
+  const allWrong =
+    correctOptionIndex < 0
+      ? true
+      : responseDetails.every((response) => response.selectedOptionIndex !== correctOptionIndex);
+
+  return {
+    correctOptionIndex,
+    correctText: currentQuestion?.options?.[correctOptionIndex]?.text || '',
+    scores: {},
+    responseDetails,
+    eliminations: teams.filter((team) => team.isEliminated).map((team) => team.teamId),
+    allWrong,
+    teams,
+  };
+};
+
 /**
  * Registers venue display and host reconnection socket event handlers.
  * On refresh, the full game state is pushed back so UI can re-render the correct phase.
@@ -29,6 +83,17 @@ const venueHandlers = (_io, socket) => {
           }
         }
         socket.emit(SOCKET_EVENTS.SESSION_STATE, buildFullStatePayload(gameState, pin));
+        const currentRound = gameState.rounds?.[gameState.currentRoundIndex];
+        const currentQuestion = currentRound?.questions?.[gameState.currentQuestionIndex] || null;
+        if (
+          gameState.state === 'QUESTION' &&
+          gameState.questionState === 'REVEALED' &&
+          currentQuestion
+        ) {
+          const revealPayload = await buildReconnectRevealPayload(pin, gameState, currentQuestion);
+          socket.emit(SOCKET_EVENTS.ANSWER_REVEAL, revealPayload);
+          socket.emit(SOCKET_EVENTS.TIMER_UPDATE, { remaining: 0 });
+        }
       } else {
         const session = await Session.findOne({ where: { pin, status: { [Op.in]: ['pending', 'active'] } } });
         if (session) {
@@ -66,6 +131,17 @@ const venueHandlers = (_io, socket) => {
           }
         }
         socket.emit(SOCKET_EVENTS.SESSION_STATE, buildFullStatePayload(gameState, pin));
+        const currentRound = gameState.rounds?.[gameState.currentRoundIndex];
+        const currentQuestion = currentRound?.questions?.[gameState.currentQuestionIndex] || null;
+        if (
+          gameState.state === 'QUESTION' &&
+          gameState.questionState === 'REVEALED' &&
+          currentQuestion
+        ) {
+          const revealPayload = await buildReconnectRevealPayload(pin, gameState, currentQuestion);
+          socket.emit(SOCKET_EVENTS.ANSWER_REVEAL, revealPayload);
+          socket.emit(SOCKET_EVENTS.TIMER_UPDATE, { remaining: 0 });
+        }
       } else {
         const session = await Session.findOne({ where: { pin } });
         const lobbyTeams = await redisStore.getLobbyTeams(pin);
@@ -127,6 +203,7 @@ const buildFullStatePayload = (gameState, pin) => {
     breakDuration: gameState.breakDuration,
     breakRemaining: gameState.breakRemaining,
     activeMiniGame: gameState.activeMiniGame,
+    miniGameState: gameState.miniGameState || null,
     maxTeams: Number(gameState.maxTeams || 0),
     currentQuestion: currentQuestion
       ? {

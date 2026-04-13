@@ -61,23 +61,12 @@ interface RevealData {
 // };
 
 const OPTION_BG: Record<number, string> = {
-  // A - Blue: #006FFF -> #3AC9FF -> #006FFF
-  0: 'bg-gradient-to-b from-[#006FFF] via-[#3AC9FF] to-[#006FFF]',
-
-  // B - Orange: #E86130 -> #EB8800 -> #E86130
-  1: 'bg-gradient-to-b from-[#E86130] via-[#EB8800] to-[#E86130]',
-
-  // C - Green: #227E00 -> #2FB000 -> #227E00
-  2: 'bg-gradient-to-b from-[#227E00] via-[#2FB000] to-[#227E00]',
-
-  // D - Yellow: #CA9C00 -> #FFD900 -> #CA9C00
-  3: 'bg-gradient-to-b from-[#CA9C00] via-[#FFD900] to-[#CA9C00]',
-
-  // E - Purple: #460073 -> #5C0098 -> #460073
-  4: 'bg-gradient-to-b from-[#460073] via-[#5C0098] to-[#460073]',
-
-  // F - Red: #990003 -> #D20023 -> #990003
-  5: 'bg-gradient-to-b from-[#990003] via-[#D20023] to-[#990003]',
+  0: 'bg-linear-to-b from-[#0190F5] to-[#015FB4]',
+  1: 'bg-linear-to-b from-[#FF6F00] to-[#994200]',
+  2: 'bg-linear-to-b from-[#2DA600] to-[#227E00]',
+  3: 'bg-linear-to-b from-[#F29B00] to-[#B97700]',
+  4: 'bg-linear-to-b from-[#460073] to-[#5C0098]',
+  5: 'bg-linear-to-b from-[#990003] to-[#D20023]',
 };
 
 const OPTION_LETTERS = ['A', 'B', 'C', 'D', 'E', 'F'];
@@ -237,49 +226,17 @@ const getRoundScoringLines = (roundType?: string) => {
   };
 };
 
-function MobileTimerRing({ remaining, total }: { remaining: number; total: number }) {
-  const size = 80;
-  const radius = (size - 10) / 2;
-  const circumference = 2 * Math.PI * radius;
-  const progress = total > 0 ? remaining / total : 0;
-  const offset = circumference * (1 - progress);
-
-  const getColor = () => {
-    if (remaining <= 5) return '#ff1744';
-    if (remaining <= 10) return '#ffc400';
-    if (progress > 0.5) return '#00ff6a';
-    return '#ffc400';
-  };
-
+function HeaderCapsule({ icon, value, className }: { icon: string; value: string | number; className?: string }) {
   return (
-    <div className="timer-ring" style={{ width: size, height: size }}>
-      <svg width={size} height={size}>
-        <circle
-          className="timer-ring-track"
-          cx={size / 2}
-          cy={size / 2}
-          r={radius}
-          strokeWidth={6}
-        />
-        <circle
-          className="timer-ring-progress"
-          cx={size / 2}
-          cy={size / 2}
-          r={radius}
-          strokeWidth={6}
-          stroke={getColor()}
-          strokeDasharray={circumference}
-          strokeDashoffset={offset}
-          style={{ filter: `drop-shadow(0 0 6px ${getColor()})` }}
-        />
-      </svg>
-      <span
-        className={cn(
-          'text-2xl font-black font-mono',
-          remaining <= 5 ? 'text-neon-red text-glow-red' : 'text-neon-cyan text-glow-cyan',
-        )}
-      >
-        {remaining}
+    <div className={cn(
+      "relative flex items-center min-w-27.5 h-11 rounded-full border border-[#ff2b68] bg-[linear-gradient(180deg,#FF0000_0%,#801669_100%)] pl-10 pr-4 shadow-[0_4px_10px_rgba(0,0,0,0.3)]",
+      className
+    )}>
+      <div className="absolute -left-3 top-4.5 -translate-y-1/2 w-14 h-14 flex items-center justify-center">
+        <img src={icon} alt="icon" className="w-full h-full object-contain drop-shadow-md" />
+      </div>
+      <span className="w-full text-center font-black text-white text-xl leading-none">
+        {value}
       </span>
     </div>
   );
@@ -771,7 +728,6 @@ export default function GamePage() {
             )}
 
             {/* ── WAITING ── */}
-            {/* Waiting */}
             {phase === 'waiting' && (
               <motion.div
                 key="waiting"
@@ -835,6 +791,7 @@ export default function GamePage() {
                 </div>
               </motion.div>
             )}
+
             {/* ── WAGER INPUT ── */}
             {phase === 'wager_input' && question && (
               <motion.div
@@ -887,128 +844,110 @@ export default function GamePage() {
 
             {/* ── QUESTION / ANSWERED ── */}
             {(phase === 'question' || phase === 'answered') && question && (
-              <motion.div key="question" {...pageTransition} className="flex-1 flex flex-col p-4">
-                {/* Timer + question number */}
-                <div className="flex items-center justify-between mb-3 shrink-0">
-                  <MobileTimerRing remaining={timerRemaining} total={timerDuration} />
-                  <div className="text-right">
-                    <p className="text-white/60 text-sm font-semibold">
-                      Q{(question.questionIndex || 0) + 1} / {question.totalQuestions}
-                    </p>
-                    {question.roundType === 'WAGER' && wagerSubmitted && (
-                      <p className="text-amber-300 text-xs font-bold">
-                        Wager Locked: {wagerAmount} pts
-                      </p>
-                    )}
-                    {question.pointsForQuestion && (
-                      <p className="text-neon-cyan text-xs font-bold">
-                        {question.pointsForQuestion} pts
-                      </p>
-                    )}
+              <motion.div key="question" {...pageTransition} className="flex-1 flex flex-col p-4 mt-4">
+                {/* Header: Timer, Q Index, Score */}
+                <div className="flex items-center justify-between mb-5 px-1">
+                  <HeaderCapsule 
+                    icon="/Clock.png" 
+                    value={timerRemaining.toString().padStart(2, '0')} 
+                  />
+                  <div className="flex flex-col items-center">
+                    <span className="text-white text-2xl font-black drop-shadow-lg">
+                      {(question.questionIndex || 0) + 1}/{question.totalQuestions}
+                    </span>
                   </div>
+                  <HeaderCapsule 
+                    icon="/trophy.png" 
+                    value={session.score} 
+                  />
                 </div>
 
-                {isImageMedia(question.question.mediaType, question.question.mediaUrl) &&
-                question.question.mediaUrl ? (
-                  <div className="mb-3 shrink-0">
-                    <QuestionImage mediaUrl={question.question.mediaUrl} />
-                    <div className="mt-3 rounded-2xl border border-[#11a7ff] bg-[#0f1a56]/80 px-4 py-3 text-center shadow-[0_0_12px_rgba(17,167,255,0.26)]">
-                      <h2 className="text-[22px] font-extrabold leading-snug text-white">
-                        {question.question.text}
-                      </h2>
-                    </div>
-                  </div>
-                ) : (question.question.mediaType || '').toLowerCase() === 'mp4' &&
+                <div className="mb-4 ">
+                  <h2 className="text-[20px] font-black leading-snug text-white text-center drop-shadow-md">
+                    {question.question.text}
+                  </h2>
+                </div>
+
+                <div className="flex flex-col gap-4">
+                  {isImageMedia(question.question.mediaType, question.question.mediaUrl) &&
                   question.question.mediaUrl ? (
-                  <div className="mb-3 shrink-0">
-                    <video
-                      src={resolveMediaUrl(question.question.mediaUrl)}
-                      className="w-full rounded-2xl border border-[#11a7ff] object-cover max-h-[190px]"
-                      controls
-                    />
-                    <div className="mt-3 rounded-2xl border border-[#11a7ff] bg-[#0f1a56]/80 px-4 py-3 text-center shadow-[0_0_12px_rgba(17,167,255,0.26)]">
-                      <h2 className="text-[22px] font-extrabold leading-snug text-white">
-                        {question.question.text}
-                      </h2>
+                    <div className="shrink-0">
+                      <div className="rounded-2xl border-2 border-[#11a7ff] overflow-hidden shadow-[0_0_20px_rgba(17,167,255,0.3)]">
+                        <QuestionImage mediaUrl={question.question.mediaUrl} />
+                      </div>
                     </div>
-                  </div>
-                ) : (question.question.mediaType || '').toLowerCase() === 'mp3' ||
-                  question.roundType === 'MUSIC' ? (
-                  <div className="mb-3 shrink-0">
-                    <img
-                      src="/musicbg.png"
-                      alt="Music round placeholder"
-                      className="w-full rounded-xl border border-[#11a7ff] object-cover max-h-[190px]"
-                    />
-                    <p className="mt-2 text-center text-white font-semibold">
-                      {isPlayerMp3Playing
-                        ? 'Audio is playing on Venue Screen'
-                        : 'Waiting for host to play music'}
-                    </p>
-                    <div className="mt-3 rounded-2xl border border-[#11a7ff] bg-[#0f1a56]/80 px-4 py-3 text-center shadow-[0_0_12px_rgba(17,167,255,0.26)]">
-                      <h2 className="text-[22px] font-extrabold leading-snug text-white">
-                        {question.question.text}
-                      </h2>
+                  ) : (question.question.mediaType || '').toLowerCase() === 'mp4' &&
+                    question.question.mediaUrl ? (
+                    <div className="shrink-0">
+                       <div className="rounded-2xl border-2 border-[#11a7ff] overflow-hidden shadow-[0_0_20px_rgba(17,167,255,0.3)]">
+                        <video
+                          src={resolveMediaUrl(question.question.mediaUrl)}
+                          className="w-full object-cover max-h-55"
+                          controls
+                        />
+                      </div>
                     </div>
-                  </div>
-                ) : (
-                  <div className="mb-3 shrink-0">
-                    <h2 className="rounded-2xl border border-[#11a7ff] bg-[#0f1a56]/80 px-4 py-3 text-center text-[22px] font-extrabold leading-snug text-white shadow-[0_0_12px_rgba(17,167,255,0.26)]">
-                      {question.question.text}
-                    </h2>
-                  </div>
-                )}
+                  ) : (question.question.mediaType || '').toLowerCase() === 'mp3' ||
+                    question.roundType === 'MUSIC' ? (
+                    <div className="shrink-0">
+                      <div className="rounded-2xl border-2 border-[#11a7ff] overflow-hidden shadow-[0_0_20px_rgba(17,167,255,0.3)]">
+                        <img
+                          src="/musicbg.png"
+                          alt="Music round placeholder"
+                          className="w-full object-cover max-h-55"
+                        />
+                      </div>
+                      <p className="mt-2 text-center text-white font-semibold">
+                        {isPlayerMp3Playing
+                          ? 'Audio is playing on Venue Screen'
+                          : 'Waiting for host to play music'}
+                      </p>
+                    </div>
+                  ) : null}
 
-                {/* Options - hexagonal style */}
-                <motion.div
-                  variants={staggerContainer}
-                  initial="initial"
-                  animate="animate"
-                  className="grid grid-cols-2 gap-3"
-                >
-                  {question.question.options.map((opt, i) => {
-                    const isSelected = selectedOption === i;
-                    const isLocked = isAnswerSelectionLocked;
+                  {/* Options - Single column vertical list */}
+                  <motion.div
+                    variants={staggerContainer}
+                    initial="initial"
+                    animate="animate"
+                    className="flex flex-col gap-4 mt-4"
+                  >
+                    {question.question.options.map((opt, i) => {
+                      const isSelected = selectedOption === i;
+                      const isLocked = isAnswerSelectionLocked;
 
-                    return (
-                      <motion.button
-                        key={i}
-                        variants={staggerItem}
-                        whileTap={!isLocked ? { scale: 0.96 } : undefined}
-                        onClick={() => handleSelectOption(i)}
-                        disabled={isLocked}
-                        className={cn(
-                          optionHeightClass,
-                          'w-full rounded-2xl px-5 text-center text-white font-bold shadow-[inset_0_0_18px_rgba(255,255,255,0.22),0_0_30px_rgba(0,0,0,0.45)] flex items-center justify-center',
-                          'transition-all touch-manipulation select-none',
-                          OPTION_BG[i] || 'bg-[#1565c0]',
-                          isSelected &&
-                            'ring-2 ring-white/80 shadow-[0_0_36px_rgba(255,255,255,0.58)] scale-[1.02]',
-                          isLocked && !isSelected && 'opacity-30',
-                          // showTimeExpiredState && 'saturate-[0.2]',
-                          isLocked && 'cursor-not-allowed',
-                        )}
-                      >
-                        <span
+                      return (
+                        <motion.button
+                          key={i}
+                          variants={staggerItem}
+                          whileTap={!isLocked ? { scale: 0.98 } : undefined}
+                          onClick={() => handleSelectOption(i)}
+                          disabled={isLocked}
                           className={cn(
-                            optionTextClass,
-                            'leading-tight font-extrabold opacity-95 drop-shadow-[0_0_12px_rgba(255,255,255,0.58)]',
+                            'w-full min-h-15 rounded-xl px-6 text-white font-bold shadow-[0_4px_10px_rgba(0,0,0,0.5),inset_0_1px_1px_rgba(255,255,255,0.2)]',
+                            'transition-all touch-manipulation select-none flex items-center justify-start',
+                            OPTION_BG[i] || 'bg-[#1565c0]',
+                            isSelected && 'ring-4 ring-white shadow-[0_0_25px_rgba(255,255,255,0.5)]',
+                            isLocked && !isSelected && 'opacity-60 grayscale-[0.3]',
+                            isLocked && 'cursor-not-allowed',
                           )}
                         >
-                          {OPTION_LETTERS[i]}. {opt.text}
-                        </span>
-                      </motion.button>
-                    );
-                  })}
-                </motion.div>
+                          <span className="text-[20px] leading-tight font-black drop-shadow-md">
+                            {OPTION_LETTERS[i]}. {opt.text}
+                          </span>
+                        </motion.button>
+                      );
+                    })}
+                  </motion.div>
+                </div>
 
                 {showTimeExpiredState && (
                   <motion.div
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
-                    className="text-center mt-3 shrink-0"
+                    className="text-center mt-6"
                   >
-                    <p className="text-[#ff5252] text-[25px] font-extrabold leading-none drop-shadow-[0_0_10px_rgba(255,82,82,0.55)]">
+                    <p className="text-[#ff5252] text-[28px] font-black leading-none drop-shadow-[0_0_10px_rgba(255,82,82,0.6)]">
                       Time is over
                     </p>
                   </motion.div>
@@ -1018,9 +957,9 @@ export default function GamePage() {
                   <motion.div
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
-                    className="text-center mt-3 shrink-0"
+                    className="text-center mt-6"
                   >
-                    <p className="text-white text-[25px] font-extrabold leading-none drop-shadow-[0_0_8px_rgba(255,255,255,0.35)]">
+                    <p className="text-white text-[28px] font-black leading-none drop-shadow-[0_0_10px_rgba(255,255,255,0.4)]">
                       Answer Submitted !!
                     </p>
                   </motion.div>
@@ -1030,109 +969,90 @@ export default function GamePage() {
 
             {/* ── REVEAL ── */}
             {phase === 'reveal' && revealData && question && (
-              <motion.div key="reveal" {...pageTransition} className="flex-1 flex flex-col p-4  ">
-                {/*  Trophy and clock section */}
-                {/* Parent container ensuring it stays within your main content width */}
-                <div className="flex items-center gap-35 mt-10 mb-3 shrink-0">
-                  {/* Timer Pill */}
-                  <div className="relative flex items-center min-w-32.5 h-10 rounded-full border border-[#ff2b68] bg-[linear-gradient(180deg,#FF0000_0%,#801669_100%)] pl-10 pr-4 shadow-[0_0_12px_rgba(255,25,93,0.35)]">
-                    <img
-                      src={'/Clock.png'}
-                      className="absolute -left-2 w-14 h-14 object-contain"
-                      style={{ top: '40%', transform: 'translateY(-50%)' }}
-                      alt="clock"
-                    />
-                    <p className="w-full text-center font-extrabold text-white text-xl leading-none">
-                      00:{timerRemaining.toString().padStart(2, '0')}
-                    </p>
+              <motion.div key="reveal" {...pageTransition} className="flex-1 flex flex-col p-4 mt-4">
+                {/* Header: Timer, Q Index, Score */}
+                <div className="flex items-center justify-between mb-5 px-1">
+                  <HeaderCapsule 
+                    icon="/Clock.png" 
+                    value="00:00" 
+                  />
+                  <div className="flex flex-col items-center">
+                    <span className="text-white text-2xl font-black drop-shadow-lg">
+                      {(question.questionIndex || 0) + 1}/{question.totalQuestions}
+                    </span>
                   </div>
-
-                  {/* Score Pill */}
-                  <div className="relative flex items-center min-w-32.5 h-10 rounded-full border border-[#ff2b68] bg-[linear-gradient(180deg,#FF0000_0%,#801669_100%)] pl-10 pr-4 shadow-[0_0_12px_rgba(255,25,93,0.35)]">
-                    <img
-                      src={'/trophy.png'}
-                      className="absolute -left-1 w-14 h-14 object-contain"
-                      style={{ top: '50%', transform: 'translateY(-50%)' }}
-                      alt="trophy"
-                    />
-                    <p className="w-full text-center font-extrabold text-white text-xl leading-none">
-                      {session.score}
-                    </p>
-                  </div>
+                  <HeaderCapsule 
+                    icon="/trophy.png" 
+                    value={session.score} 
+                  />
                 </div>
 
-                <div className="text-white/95 font-semibold text-base mt-2 mb-2 shrink-0">
-                  Question {(question.questionIndex || 0) + 1}/{question.totalQuestions}
+                <div className="mb-4">
+                  <h2 className="text-[20px] font-black leading-snug text-white text-center drop-shadow-md">
+                    {question.question.text}
+                  </h2>
                 </div>
 
-                {isImageMedia(question.question.mediaType, question.question.mediaUrl) &&
-                  question.question.mediaUrl && (
-                    <div className="mb-3 shrink-0">
-                      <QuestionImage mediaUrl={question.question.mediaUrl} />
+                <div className="flex flex-col gap-4">
+                  {isImageMedia(question.question.mediaType, question.question.mediaUrl) &&
+                  question.question.mediaUrl ? (
+                    <div className="shrink-0">
+                      <div className="rounded-2xl border-2 border-[#11a7ff] overflow-hidden shadow-[0_0_20px_rgba(17,167,255,0.3)]">
+                        <QuestionImage mediaUrl={question.question.mediaUrl} />
+                      </div>
                     </div>
-                  )}
-                {((question.question.mediaType || '').toLowerCase() === 'mp3' ||
-                  question.roundType === 'MUSIC') && (
-                  <div className="mb-3 shrink-0">
-                    <img
-                      src="/musicbg.png"
-                      alt="Music round placeholder"
-                      className="w-full rounded-xl border border-[#11a7ff] object-cover max-h-47.5"
-                    />
-                  </div>
-                )}
-                <div className="neon-border rounded-xl px-4 py-3 mb-6 bg-surface/60 text-center shrink-0">
-                  <h2 className="text-lg font-bold leading-snug">{question.question.text}</h2>
-                </div>
-                <motion.div
-                  variants={staggerContainer}
-                  initial="initial"
-                  animate="animate"
-                  className="grid grid-cols-2 gap-7"
-                >
-                  {question.question.options.map((opt, i) => {
-                    const isCorrectOption = i === revealData.correctOptionIndex;
-                    const isSelectedOption = selectedOption === i;
-                    const isSelectedWrong = isSelectedOption && !isCorrectOption;
-                    const shouldDim =
-                      selectedOption !== null && !isCorrectOption && !isSelectedWrong;
+                  ) : null}
 
-                    return (
-                      <motion.div
-                        key={i}
-                        variants={staggerItem}
-                        className={cn(
-                          'h-30 w-full rounded-2xl px-5 text-center text-white font-bold text-[22px]  flex items-center justify-center',
-                          'transition-all select-none',
-                          OPTION_BG[i] || 'bg-[#1565c0]',
-                          isCorrectOption &&
-                            'shadow-[0_0_40px_rgba(0,255,92,0.8),0_0_20px_rgba(0,255,92,1)]',
-                          isSelectedWrong &&
-                            'shadow-[0_0_40px_rgba(255,27,27,0.8),0_0_20px_rgba(255,27,27,1)]',
-                          shouldDim && 'opacity-30 blur-xs saturate-[0.55]',
-                        )}
-                      >
-                        <span className="text-[22px]! leading-tight font-extrabold opacity-95 drop-shadow-[0_0_12px_rgba(255,255,255,0.58)]">
-                          {OPTION_LETTERS[i]}. {opt.text}
-                        </span>
-                      </motion.div>
-                    );
-                  })}
-                </motion.div>
+                  {/* Options - Single column vertical list */}
+                  <motion.div
+                    variants={staggerContainer}
+                    initial="initial"
+                    animate="animate"
+                    className="flex flex-col gap-4 mt-4"
+                  >
+                    {question.question.options.map((opt, i) => {
+                      const isCorrectOption = i === revealData.correctOptionIndex;
+                      const isSelectedOption = selectedOption === i;
+                      const isSelectedWrong = isSelectedOption && !isCorrectOption;
+                      const shouldDim =
+                        selectedOption !== null && !isCorrectOption && !isSelectedWrong;
+
+                      return (
+                        <motion.div
+                          key={i}
+                          variants={staggerItem}
+                          className={cn(
+                            'w-full min-h-15 rounded-xl px-6 text-white font-bold ',
+                            'transition-all touch-manipulation select-none flex items-center justify-start',
+                            OPTION_BG[i] || 'bg-[#1565c0]',
+                            isCorrectOption && 'shadow-[0_0_8px_8px_rgba(57,255,74,0.9),_0_0_0px_rgba(57,255,74,0.5)]',
+                            isSelectedWrong && 'shadow-[0_0_8px_8px_rgba(255,37,37,0.8),_0_0_0px_rgba(255,37,37,0.5)]',
+                            shouldDim && 'opacity-30 brightness-50 scale-[0.98]',
+                          )}
+                        >
+                          <span className="text-[20px] leading-tight font-black drop-shadow-md">
+                            {OPTION_LETTERS[i]}. {opt.text}
+                          </span>
+                        </motion.div>
+                      );
+                    })}
+                  </motion.div>
+                </div>
+
                 <motion.div
-                  initial={{ opacity: 0, y: 8 }}
+                  initial={{ opacity: 0, y: 15 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: 0.2 }}
-                  className="mt-4 mb-1 text-center shrink-0"
+                  className="mt-8 text-center"
                 >
                   <p
                     className={cn(
-                      'text-[28px] font-extrabold leading-none',
+                      'text-[20px] font-black leading-none',
                       selectedOption === null
-                        ? 'text-white drop-shadow-[0_0_15px_rgba(255,255,255,0.45)]'
+                        ? 'text-white drop-shadow-[0_0_15px_rgba(255,255,255,0.4)]'
                         : selectedOption === revealData.correctOptionIndex
-                        ? 'text-[#53ff57] drop-shadow-[0_0_15px_rgba(67,255,89,0.9)]' // Stronger Green Glow
-                        : 'text-[#ff2525] drop-shadow-[0_0_15px_rgba(255,45,45,0.9)]', // Stronger Red Glow
+                        ? 'text-[#53ff57] drop-shadow-[0_0_15px_rgba(83,255,87,0.8)]'
+                        : 'text-[#ff2525] drop-shadow-[0_0_15px_rgba(255,37,37,0.8)]',
                     )}
                   >
                     {selectedOption === null
@@ -1144,7 +1064,7 @@ export default function GamePage() {
                 </motion.div>
               </motion.div>
             )}
-
+         
             {/* â”€â”€ ELIMINATED â”€â”€ */}
             {phase === 'eliminated' && (
               <motion.div
@@ -1180,7 +1100,7 @@ export default function GamePage() {
 
             {/* ── SCOREBOARD ── */}
             {phase === 'scoreboard' && (
-              <motion.div key="scoreboard" {...pageTransition} className="flex-1 flex flex-col p-4">
+              <motion.div key="scoreboard" {...pageTransition} className="flex-1 flex flex-col p-4 mt-4">
                 <div className="mb-4 text-center">
                   <h2 className="text-[52px] leading-none font-extrabold text-white tracking-wide drop-shadow-[0_0_10px_rgba(255,255,255,0.2)]">
                     🏅 LEADERBOARD 🏅
@@ -1243,6 +1163,7 @@ export default function GamePage() {
                 </motion.div>
               </motion.div>
             )}
+
             {/* Break */}
             {phase === 'break' && (
               <motion.div
@@ -1251,7 +1172,7 @@ export default function GamePage() {
                 className="flex-1 relative overflow-hidden mobile-play-bg"
               >
                 <div className="absolute inset-0 opacity-25 bg-[radial-gradient(circle_at_22%_16%,rgba(145,105,255,0.36)_0_4px,transparent_4px)] [background-size:110px_110px]" />
-                <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-[290px] h-[180px] opacity-55 bg-[radial-gradient(circle,rgba(0,229,255,0.26)_0_2px,transparent_2px)] [background-size:14px_14px]" />
+                <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-72.5 h-45 opacity-55 bg-[radial-gradient(circle,rgba(0,229,255,0.26)_0_2px,transparent_2px)] [background-size:14px_14px]" />
 
                 <div className="relative z-10 h-full w-full flex flex-col items-center justify-center px-5 text-center">
                   <h2 className="text-[54px] leading-none font-extrabold text-white">

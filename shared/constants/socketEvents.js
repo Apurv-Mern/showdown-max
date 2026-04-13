@@ -47,6 +47,7 @@ const SOCKET_EVENTS = Object.freeze({
   MINI_GAME_START: 'mini_game_start',
   MINI_GAME_READY: 'mini_game_ready',
   MINI_GAME_UPDATE: 'mini_game_update',
+  MINI_GAME_REVEAL: 'mini_game_reveal',
   MINI_GAME_END: 'mini_game_end',
   ROUND_INTRO: 'round_intro',
   ROUND_END: 'round_end',

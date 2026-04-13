@@ -112,7 +112,7 @@
 
       var script = document.createElement("script");
       script.src = loaderUrl;
-      script.onload = () => {
+        script.onload = () => {
         createUnityInstance(canvas, config, (progress) => {
           document.querySelector("#unity-progress-bar-full").style.width = 100 * progress + "%";
               }).then((unityInstance) => {
@@ -134,13 +134,19 @@
  
     </script>
    
-    <!-- CHANGE 2: Test Button directly page par float karega -->
-    <button onclick="window.myUnityInstance.SendMessage('GameManager', 'OnMessageFromReact', '{\&quot;type\&quot;:\&quot;MINIGAME_START\&quot;, \&quot;payload\&quot;:\&quot;{}\&quot;}')" style="position: absolute; top: 10px; left: 10px; z-index: 9999; padding: 15px; font-weight: bold; cursor: pointer; background: green; color: white;">
+    <!-- CHANGE 2: Test Buttons directly page par float karenge -->
+    <button onclick="window.myUnityInstance.SendMessage('GameManager', 'OnMessageFromReact', '{\&quot;type\&quot;:\&quot;MINIGAME_START\&quot;, \&quot;payload\&quot;:\&quot;{}\&quot;}')" style="position: absolute; top: 10px; left: 10px; z-index: 9999; padding: 15px; font-weight: bold; cursor: pointer; background: green; color: white; border: none; border-radius: 5px;">
         START GAME FROM WEB
     </button>
-<button onclick="window.myUnityInstance.SendMessage('GameManager', 'OnMessageFromReact', '{\&quot;type\&quot;:\&quot;MINIGAME_NEXT_ROUND\&quot;, \&quot;payload\&quot;:\&quot;{}\&quot;}')" style="position: absolute; top: 10px; left: 240px; z-index: 9999; padding: 15px; font-weight: bold; cursor: pointer; background: orange; color: white;">
-    NEXT ROUND (WEB)
-</button>
+    
+    <button onclick="window.myUnityInstance.SendMessage('GameManager', 'OnMessageFromReact', '{\&quot;type\&quot;:\&quot;MINIGAME_NEXT_ROUND\&quot;, \&quot;payload\&quot;:\&quot;{}\&quot;}')" style="position: absolute; top: 10px; left: 200px; z-index: 9999; padding: 15px; font-weight: bold; cursor: pointer; background: orange; color: white; border: none; border-radius: 5px;">
+        NEXT ROUND (WEB)
+    </button>
+    
+    <!-- YE RAHA AAPKA NAYA REVEAL BUTTON -->
+    <button onclick="window.myUnityInstance.SendMessage('GameManager', 'OnMessageFromReact', '{\&quot;type\&quot;:\&quot;MINIGAME_REVEAL\&quot;, \&quot;payload\&quot;:\&quot;{}\&quot;}')" style="position: absolute; top: 10px; left: 390px; z-index: 9999; padding: 15px; font-weight: bold; cursor: pointer; background: purple; color: white; border: none; border-radius: 5px;">
+        REVEAL CARDS (WEB)
+    </button>
  
   </body>
 </html>

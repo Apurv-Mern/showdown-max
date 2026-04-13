@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState, useCallback, Suspense } from 'react';
+import { motion } from 'framer-motion';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useSocket } from '@/hooks/useSocket';
 import { useTimerSound } from '@/hooks/useTimerSound';
@@ -61,12 +62,12 @@ interface RevealData {
 
 const OPTION_LETTERS = ['A', 'B', 'C', 'D', 'E', 'F'];
 const VENUE_OPTION_COLOR_CLASSES = [
-  'border-[#2ad4ff] bg-linear-to-l from-[#32b7ff] via-[#3AC9FF] to-[#1f7ce8]',
-  'border-[#ff9d2e] bg-linear-to-l from-[#E86130] via-[#EB8800] to-[#EB8800]',
-  'border-[#43ef35] bg-linear-to-l from-[#227E00] via-[#2FB000] to-[#227E00]',
-  'border-[#ffe24a] bg-linear-to-l from-[#CA9C00] via-[#FFD900] to-[#CA9C00]',
-  'border-[#ad49ff] bg-linear-to-l from-[#460073] via-[#5C0098] to-[#460073]',
-  'border-[#ff3d56] bg-linear-to-l from-[#990003] via-[#D20023] to-[#990003]',
+  'border-0 bg-linear-to-b from-[#0190F5] to-[#015FB4]',
+  'border-0 bg-linear-to-b from-[#FF6F00]  to-[#994200]',
+  'border-0 bg-linear-to-b from-[#2DA600]  to-[#227E00]',
+  'border-0 bg-linear-to-b from-[#F29B00]  to-[#B97700]',
+  'border-0 bg-linear-to-b from-[#460073]  to-[#5C0098]',
+  'border-0 bg-linear-to-b from-[#990003]  to-[#D20023]',
 ];
 
 const resolveMediaUrl = (mediaUrl?: string) => {
@@ -105,8 +106,15 @@ const getRoundScoringLines = (roundType?: string) => {
 type MiniGameCommand = {
   id: number;
   game: 'card_shuffle';
-  command: 'start_game' | 'next_round';
+  command: 'start_game' | 'next_round' | 'reveal_cards';
   roundNumber?: 1 | 2 | 3 | 4;
+};
+
+type MiniGameReveal = {
+  game: 'card_shuffle';
+  correctPosition: 1 | 2 | 3;
+  roundNumber?: 1 | 2 | 3 | 4;
+  cardPositions?: number[];
 };
 
 const normalizeRoundTitle = (name?: string) => {
@@ -147,6 +155,7 @@ function VenueDisplayContent() {
   const [breakDuration, setBreakDuration] = useState(360);
   const [miniGameType, setMiniGameType] = useState<string | null>(null);
   const [miniGameCommand, setMiniGameCommand] = useState<MiniGameCommand | null>(null);
+  const [miniGameReveal, setMiniGameReveal] = useState<MiniGameReveal | null>(null);
   const [miniGameResult, setMiniGameResult] = useState<{
     game: string;
     winningCard?: number;
@@ -334,6 +343,18 @@ function VenueDisplayContent() {
       if (data.activeMiniGame) {
         setMiniGameType(data.activeMiniGame);
         if (data.activeMiniGame !== 'card_shuffle') setMiniGameCommand(null);
+        if (data.miniGameState?.game === 'card_shuffle' && data.miniGameState?.revealed) {
+          setMiniGameReveal({
+            game: 'card_shuffle',
+            correctPosition: Number(data.miniGameState.correctPosition) as 1 | 2 | 3,
+            roundNumber: data.miniGameState.activeRound || undefined,
+            cardPositions: Array.isArray(data.miniGameState.cardPositions)
+              ? data.miniGameState.cardPositions
+              : [],
+          });
+        } else {
+          setMiniGameReveal(null);
+        }
         setPhase('mini_game');
       } else if (data.state === 'QUESTION') {
         if (data.currentQuestion) {
@@ -454,6 +475,7 @@ function VenueDisplayContent() {
     socket.on('mini_game_start', (data: { game: string }) => {
       setMiniGameType(data.game);
       setMiniGameCommand(null);
+      setMiniGameReveal(null);
       setMiniGameResult(null);
       setPhase('mini_game');
     });
@@ -462,16 +484,38 @@ function VenueDisplayContent() {
       'mini_game_command',
       (data: {
         game?: string;
-        command?: 'start_game' | 'next_round';
+        command?: 'start_game' | 'next_round' | 'reveal_cards';
         roundNumber?: 1 | 2 | 3 | 4;
       }) => {
         if (data?.game !== 'card_shuffle' || !data.command) return;
+        if (data.command === 'next_round' || data.command === 'start_game') {
+          setMiniGameReveal(null);
+        }
         setMiniGameCommand({
           id: Date.now(),
           game: 'card_shuffle',
           command: data.command,
           roundNumber: data.roundNumber,
         });
+      },
+    );
+
+    socket.on(
+      'mini_game_reveal',
+      (data: {
+        game?: string;
+        correctPosition?: number;
+        roundNumber?: 1 | 2 | 3 | 4;
+        cardPositions?: number[];
+      }) => {
+        if (data?.game !== 'card_shuffle' || !data.correctPosition) return;
+        setMiniGameReveal({
+          game: 'card_shuffle',
+          correctPosition: Number(data.correctPosition) as 1 | 2 | 3,
+          roundNumber: data.roundNumber,
+          cardPositions: Array.isArray(data.cardPositions) ? data.cardPositions : [],
+        });
+        setPhase('mini_game');
       },
     );
 
@@ -497,8 +541,13 @@ function VenueDisplayContent() {
       'mini_game_end',
       (data: { game: string; winningCard?: number; winningKangaroo?: number }) => {
         if (data.game) {
-          setMiniGameResult(data);
-          setPhase('mini_game_result');
+          setMiniGameReveal(null);
+          if (data.game === 'card_shuffle') {
+            setMiniGameCommand(null);
+          } else {
+            setMiniGameResult(data);
+            setPhase('mini_game_result');
+          }
         }
       },
     );
@@ -534,6 +583,7 @@ function VenueDisplayContent() {
         'break_end',
         'mini_game_start',
         'mini_game_command',
+        'mini_game_reveal',
         'mini_game_end',
         'game_end',
       ].forEach((e) => socket.off(e));
@@ -667,10 +717,7 @@ function VenueDisplayContent() {
             {sessionPin ? (
               <div className="mx-auto mb-4 rounded-xl border border-neon-cyan/45 bg-[#051230]/85 px-4 py-3 shadow-[0_0_20px_rgba(0,229,255,0.18)] flex items-center gap-3">
                 <div className="w-20 h-20 rounded bg-white p-1 flex items-center justify-center">
-                  <QRCodeSVG
-                    value={`http://localhost:5002/play/join`}
-                    size={72}
-                  />
+                  <QRCodeSVG value={`http://localhost:5002/play/join`} size={72} />
                 </div>
                 <div className="text-left">
                   <p className="text-neon-cyan font-bold text-sm">SCAN TO JOIN</p>
@@ -718,6 +765,7 @@ function VenueDisplayContent() {
           </div>
         )}
 
+        {/* Round Intro */}
         {phase === 'round_intro' && roundInfo && (
           <div className="w-full h-full flex items-center justify-center animate-fadeIn px-6">
             <div className="relative w-full max-w-[1240px] h-[720px]">
@@ -758,8 +806,11 @@ function VenueDisplayContent() {
             </div>
           </div>
         )}
+
+        {/* Question */}
         {phase === 'question' && question && (
-          <div className="max-w-[75%] h-[95%] mx-auto mt-10">
+          <div className="max-w-[65%] h-[95%] mx-auto mt-10">
+            {/* Response Stats */}
             <div className="mx-auto w-full flex-1 rounded-2xl mt-4">
               <div className="rounded-xl mb-3 flex items-center gap-4 justify-between">
                 <div className="flex items-center gap-4 flex-1 border  border-[#00C8FF] rounded-xl max-w-2xl ">
@@ -950,6 +1001,7 @@ function VenueDisplayContent() {
           </div>
         )}
 
+        {/* Processing Results */}
         {phase === 'reveal' && (!revealData || !question) && (
           <div className="w-full h-full flex flex-col items-center justify-center animate-fadeIn z-10 relative">
             <div className="text-3xl text-white font-bold animate-pulse text-glow-cyan neon-border-strong rounded-2xl px-12 py-8 bg-surface/85">
@@ -958,91 +1010,201 @@ function VenueDisplayContent() {
           </div>
         )}
 
+        {/* Reveal */}
         {phase === 'reveal' && revealData && question && (
-          <div className="w-full h-full flex flex-col p-4 animate-fadeIn">
-            <div className="mx-auto w-full max-w-265 flex-1 rounded-2xl border  bg-[#060f2a]/78 shadow-[0_0_24px_rgba(0,229,255,0.22)] p-3">
-              <div className="rounded-xl border  bg-[#08142f]/90 px-4 py-2 mb-3 flex items-center justify-between">
-                <div className="text-[11px] text-neon-cyan font-semibold tracking-wide">
-                  ANSWER REVEALED
-                </div>
-                <div className="text-sm font-bold text-neon-cyan">
-                  Correct: {OPTION_LETTERS[revealData.correctOptionIndex]}
-                </div>
-              </div>
+          <div className="max-w-[65%] h-[95%] mx-auto mt-10">
+            {/* Response Stats */}
+            <div className="mx-auto w-full flex-1 rounded-2xl mt-4">
+              <div className="rounded-xl mb-3 flex items-center gap-4 justify-between">
+                <div className="flex items-center gap-4 flex-1 border border-[#00C8FF] rounded-xl max-w-2xl">
+                  <div className="relative w-12 h-12 rounded-full flex items-center justify-center shrink-0 overflow-hidden">
+                    <div className="absolute inset-0 bg-linear-to-br from-purple-500/20 to-transparent" />
+                    <svg
+                      viewBox="0 0 24 24"
+                      className="w-7 h-7 text-[#20e7ff] relative z-10"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2.5"
+                    >
+                      <path d="M3 5h18M3 12h14M3 19h10" />
+                    </svg>
+                  </div>
 
-              <div className="relative rounded-2xl border border-white/20 overflow-hidden">
-                <div className="absolute left-4 top-3 z-10 text-white/90 text-2xl font-semibold">
-                  Question {(question.questionIndex || 0) + 1}/{question.totalQuestions}
+                  {/* ── DISTRIBUTION BARS ── */}
+                  <div className="flex-1 max-w-2xl rounded-xl px-4">
+                    {[
+                      {
+                        key: 'correct',
+                        color: 'from-[#00ff00] to-[#008000]',
+                        track: 'bg-[#3d7a3d]/60',
+                        value: liveResponses.correct,
+                        icon: '✓',
+                        iconBg: 'bg-green-500',
+                      },
+                      {
+                        key: 'incorrect',
+                        color: 'from-[#ff0000] to-[#800000]',
+                        track: 'bg-[#7a3d3d]/60',
+                        value: liveResponses.incorrect,
+                        icon: '×',
+                        iconBg: 'bg-red-500',
+                      },
+                      {
+                        key: 'no_answer',
+                        color: 'from-[#3b82f6] to-[#1e3a8a]',
+                        track: 'bg-[#3d507a]/60',
+                        value: liveResponses.noAnswer,
+                        icon: '?',
+                        iconBg: 'bg-blue-500',
+                      },
+                    ].map((item) => {
+                      const total = Math.max(1, liveResponses.total || totalTeams || 1);
+                      const width = Math.max(
+                        0,
+                        Math.min(100, Math.round((item.value / total) * 100)),
+                      );
+                      return (
+                        <div key={item.key} className="flex items-center gap-3">
+                          <div
+                            className={`${item.iconBg} h-4 w-4 rounded-full flex items-center justify-center text-[10px] text-white font-bold border border-white/20`}
+                          >
+                            {item.icon}
+                          </div>
+                          <div
+                            className={`flex-1 h-4 rounded-full ${item.track} overflow-hidden border border-white/10`}
+                          >
+                            <motion.div
+                              className={`h-full rounded-full bg-linear-to-r ${item.color} shadow-[0_0_12px_rgba(255,255,255,0.4)]`}
+                              initial={{ width: 0 }}
+                              animate={{ width: `${width}%` }}
+                              transition={{ duration: 0.5 }}
+                              style={{ minWidth: item.value > 0 ? '8px' : '0px' }}
+                            />
+                          </div>
+                          <span className="w-6 text-right text-lg font-black text-[#47f3ff] italic">
+                            {item.value}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
 
-                <div className="h-75 bg-[#020b22]">
-                  {resolveMediaUrl(question.question.mediaUrl) &&
-                  (question.question.mediaType || '').toLowerCase() === 'image' ? (
-                    <img
-                      src={resolveMediaUrl(question.question.mediaUrl)}
-                      alt="Question media"
-                      className="w-full h-full object-cover"
-                    />
-                  ) : resolveMediaUrl(question.question.mediaUrl) &&
-                    (question.question.mediaType || '').toLowerCase() === 'mp4' ? (
-                    <video
-                      src={resolveMediaUrl(question.question.mediaUrl)}
-                      autoPlay
-                      muted={false}
-                      playsInline
-                      className="w-full h-full object-cover"
-                    />
-                  ) : (
-                    <img
-                      src={
-                        isMusicRound || (question.question.mediaType || '').toLowerCase() === 'mp3'
-                          ? '/musicbg.png'
-                          : '/withoutImagequestion.png'
-                      }
-                      alt="Question fallback"
-                      className="w-full h-full object-cover"
-                    />
-                  )}
-                </div>
-
-                <div className="absolute left-1/2 -translate-x-1/2 -bottom-10 z-20 w-[124px] h-[124px] rounded-full p-1.25 bg-linear-to-r from-[#ff4a4a] via-[#ffd400] to-[#00ff6a] shadow-[0_0_16px_rgba(0,229,255,0.4)]">
-                  <div className="w-full h-full rounded-full bg-[#1a0b5d] border border-white/20 flex items-center justify-center">
-                    <span className="text-6xl font-black text-white">0</span>
+                <div className="flex items-center gap-5 shrink-0 pr-1">
+                  <div className="flex items-center gap-2">
+                    <div className="w-10 h-10 rounded-full border border-[#1de8ff]/70 bg-[#11154f] flex items-center justify-center shadow-[0_0_12px_rgba(29,232,255,0.35)]">
+                      <svg
+                        viewBox="0 0 24 24"
+                        className="w-5 h-5 text-[#1de8ff]"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                      >
+                        <path d="M17 21v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2" />
+                        <circle cx="9" cy="7" r="3" />
+                        <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+                        <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+                      </svg>
+                    </div>
+                    <span className="text-5xl font-black text-white leading-none">
+                      {liveTotalTeams}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="w-10 h-10 rounded-full border border-[#1de8ff]/70 bg-[#11154f] flex items-center justify-center shadow-[0_0_12px_rgba(29,232,255,0.35)]">
+                      <svg
+                        viewBox="0 0 24 24"
+                        className="w-5 h-5 text-[#19d9ff]"
+                        fill="currentColor"
+                      >
+                        <path d="M19 4h-3V2H8v2H5a1 1 0 0 0-1 1v3a5 5 0 0 0 4 4.9V16H6v2h12v-2h-2v-3.1A5 5 0 0 0 20 8V5a1 1 0 0 0-1-1Zm-1 4a3 3 0 0 1-2 2.82V6h2v2ZM6 8V6h2v4.82A3 3 0 0 1 6 8Z" />
+                      </svg>
+                    </div>
+                    <span className="text-5xl font-black text-white leading-none">
+                      {liveQuestionPoints}
+                    </span>
                   </div>
                 </div>
               </div>
+            </div>
 
-              <div className="mt-12 rounded-xl border  bg-[#1a0f61]/85 px-5 py-4">
-                <p className="text-2xl font-bold text-white">
-                  Q{(question.questionIndex || 0) + 1}. {question.question.text}
-                </p>
-              </div>
+            {/* ── QUESTION CARD ── */}
+            <div className="w-full h-[85%] flex flex-col animate-fadeIn">
+              <div className="mx-auto w-full flex-1 rounded-2xl flex flex-col border border-white/20">
+                {/* Media Section */}
+                <div className="relative rounded-t-2xl overflow-hidden shrink-0">
+                  <div className="absolute left-4 top-3 z-10 text-white text-2xl font-semibold drop-shadow-md">
+                    Question {(question.questionIndex || 0) + 1}/{question.totalQuestions}
+                  </div>
+                  <div className="h-96">
+                    {resolveMediaUrl(question.question.mediaUrl) &&
+                    (question.question.mediaType || '').toLowerCase() === 'image' ? (
+                      <img
+                        src={resolveMediaUrl(question.question.mediaUrl)}
+                        className="w-full h-full object-cover"
+                        alt="media"
+                      />
+                    ) : (
+                      <img
+                        src="/withoutImagequestion.png"
+                        className="w-full h-full object-cover"
+                        alt="fallback"
+                      />
+                    )}
+                  </div>
 
-              <div className="mt-3 grid grid-cols-2 gap-3">
-                {question.question.options.map((opt, i) => {
-                  const isCorrect = i === revealData.correctOptionIndex;
-                  return (
-                    <div
-                      key={i}
-                      className={cn(
-                        'rounded-lg border px-4 py-3 text-white font-bold text-2xl flex items-center transition-all duration-500 shadow-[0_8px_18px_rgba(0,0,0,0.35)]',
-                        VENUE_OPTION_COLOR_CLASSES[i % VENUE_OPTION_COLOR_CLASSES.length],
-                        isCorrect
-                          ? 'ring-2 ring-[#39ff4a] shadow-[0_0_22px_rgba(57,255,74,0.65)] scale-[1.01]'
-                          : 'opacity-35 blur-[1.6px] saturate-50',
-                      )}
-                    >
-                      <span className="font-black mr-3">{OPTION_LETTERS[i]}.</span>
-                      <span className="truncate">{opt.text}</span>
-                      {isCorrect && <span className="ml-auto text-2xl">&#10003;</span>}
+                  {/* Timer Arch (Shows 0) */}
+                  <div className="absolute left-1/2 -translate-x-1/2 bottom-px z-30 w-64 h-32 overflow-hidden">
+                    <div className="absolute top-6 left-0 w-50 h-50 rounded-full p-2 bg-linear-to-r from-green-500 to-green-700 shadow-[0_0_20px_rgba(34,197,94,0.6)]">
+                      <div className="relative w-full h-full rounded-full bg-[#030818] border border-white/10 flex justify-center overflow-hidden">
+                        <span className="mt-6 text-6xl font-black text-white relative z-10 tracking-tighter drop-shadow-[0_0_10px_rgba(255,255,255,0.3)]">
+                          0
+                        </span>
+                      </div>
                     </div>
-                  );
-                })}
+                  </div>
+                </div>
+
+                {/* Questions/Options Section */}
+                <div className="relative rounded-2xl border-t-2 border-t-white/50 flex-1 bg-linear-to-b from-[#100048] to-[#000000] z-20 pt-10 px-5 pb-5 ">
+                  <div className="mb-4">
+                    <p className="text-2xl font-bold text-white">
+                      Q{(question.questionIndex || 0) + 1}. {question.question.text}
+                    </p>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    {question.question.options.map((opt, i) => {
+                      const isCorrect = i === revealData.correctOptionIndex;
+                      return (
+                        <div
+                          key={i}
+                          className={cn(
+                            'rounded-lg border px-4 py-4 text-white font-bold text-2xl flex items-center transition-all duration-500 shadow-[0_8px_18px_rgba(0,0,0,0.35)]',
+                            VENUE_OPTION_COLOR_CLASSES[i % VENUE_OPTION_COLOR_CLASSES.length],
+                            isCorrect
+                              ? 'shadow-[0_0_8px_8px_rgba(57,255,74,0.9)] z-10 scale-[1.02]'
+                              : 'opacity-30 brightness-50 contrast-75 scale-[0.98]',
+                          )}
+                        >
+                          <span className="font-black mr-3">{OPTION_LETTERS[i]}.</span>
+                          <span className="truncate">{opt.text}</span>
+                          {isCorrect && (
+                            <div className="ml-auto w-8 h-8 rounded-full bg-green-500 flex items-center justify-center border-2 border-white shadow-lg">
+                              <span className="text-white text-xl">✓</span>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
               </div>
             </div>
           </div>
         )}
 
+        {/* Scoreboard */}
         {phase === 'scoreboard' && (
           <div className="w-full h-full flex flex-col items-center justify-center p-6 animate-fadeIn">
             <div className="w-full max-w-5xl rounded-[24px] border border-[#9fbeff]/70 bg-[linear-gradient(180deg,rgba(24,9,76,0.95)_0%,rgba(12,6,48,0.95)_100%)] shadow-[0_0_24px_rgba(0,216,255,0.25)] px-8 py-6">

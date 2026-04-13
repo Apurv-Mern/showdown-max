@@ -80,6 +80,15 @@ interface GameState {
   teams: Record<string, Team>;
   activeTeamIds: number[];
   activeMiniGame?: string | null;
+  miniGameState?: {
+    game?: string;
+    ready?: boolean;
+    gameStarted?: boolean;
+    activeRound?: 1 | 2 | 3 | 4 | null;
+    revealed?: boolean;
+    correctPosition?: number | null;
+    pickCounts?: Record<string, number>;
+  } | null;
   currentQuestion?: QuestionData | null;
 }
 
@@ -109,6 +118,15 @@ interface RevealData {
 }
 
 const OPTION_LETTERS = ['A', 'B', 'C', 'D', 'E', 'F'];
+
+const VENUE_OPTION_COLOR_CLASSES = [
+  'border-[#00ffff] bg-[linear-gradient(180deg,#008cff_0%,#003366_100%)]', // Blue
+  'border-[#ff8c00] bg-[linear-gradient(180deg,#ff4500_0%,#8b2500_100%)]', // Orange
+  'border-[#32cd32] bg-[linear-gradient(180deg,#008000_0%,#003300_100%)]', // Green
+  'border-[#ffd700] bg-[linear-gradient(180deg,#daa520_0%,#664d00_100%)]', // Gold
+  'border-[#9400d3] bg-[linear-gradient(180deg,#4b0082_0%,#24003d_100%)]', // Purple
+  'border-[#ff1493] bg-[linear-gradient(180deg,#c71585_0%,#5c0a3d_100%)]', // Pink
+];
 
 const resolveMediaUrl = (mediaUrl?: string) => {
   if (!mediaUrl) return '';
@@ -313,6 +331,12 @@ function HostDashboardContent() {
   const [timerRemaining, setTimerRemaining] = useState(0);
   const [timerDuration, setTimerDuration] = useState(30);
   const [timerPaused, setTimerPaused] = useState(false);
+  const [liveResponses, setLiveResponses] = useState({
+    correct: 0,
+    incorrect: 0,
+    noAnswer: 0,
+    total: 0,
+  });
 
   const [addTeamName, setAddTeamName] = useState('');
   const [addTeamScore, setAddTeamScore] = useState('');
@@ -324,13 +348,11 @@ function HostDashboardContent() {
   const [showKangarooRaceModal, setShowKangarooRaceModal] = useState(false);
   const [winningKangaroo, setWinningKangaroo] = useState(3);
   const [kangarooBetCounts, setKangarooBetCounts] = useState([0, 0, 0, 0, 0, 0]);
-  const [winningCard, setWinningCard] = useState(2);
   const [cardPickCounts, setCardPickCounts] = useState([0, 0, 0]);
   const [cardShuffleVenueReady, setCardShuffleVenueReady] = useState(false);
   const [cardShuffleGameStarted, setCardShuffleGameStarted] = useState(false);
-  const [cardShuffleActiveRound, setCardShuffleActiveRound] = useState<1 | 2 | 3 | 4 | null>(
-    null,
-  );
+  const [cardShuffleActiveRound, setCardShuffleActiveRound] = useState<1 | 2 | 3 | 4 | null>(null);
+  const [cardShuffleRevealPosition, setCardShuffleRevealPosition] = useState<number | null>(null);
   const [activeMiniGameLocal, setActiveMiniGameLocal] = useState<string | null>(null);
   const [miniGameLoading, setMiniGameLoading] = useState(false);
   const [miniGameRevealing, setMiniGameRevealing] = useState(false);
@@ -416,9 +438,33 @@ function HostDashboardContent() {
       if (data?.activeMiniGame) {
         setActiveMiniGameLocal(data.activeMiniGame);
         setMiniGameLoading(false);
+        if (data.miniGameState?.game === 'card_shuffle') {
+          setCardShuffleVenueReady(Boolean(data.miniGameState.ready));
+          setCardShuffleGameStarted(Boolean(data.miniGameState.gameStarted));
+          setCardShuffleActiveRound(
+            (data.miniGameState.activeRound as 1 | 2 | 3 | 4 | null | undefined) ?? null,
+          );
+          setCardShuffleRevealPosition(
+            Number.isFinite(Number(data.miniGameState.correctPosition))
+              ? Number(data.miniGameState.correctPosition)
+              : null,
+          );
+          setCardPickCounts(
+            [1, 2, 3].map((slot) => Number(data.miniGameState?.pickCounts?.[slot] || 0)),
+          );
+          if (data.miniGameState.revealed) {
+            setMiniGameRevealing(false);
+          }
+        }
       } else if (data?.activeMiniGame === null) {
         setActiveMiniGameLocal(null);
         setMiniGameLoading(false);
+        setCardShuffleVenueReady(false);
+        setCardShuffleGameStarted(false);
+        setCardShuffleActiveRound(null);
+        setCardShuffleRevealPosition(null);
+        setCardPickCounts([0, 0, 0]);
+        setMiniGameRevealing(false);
       }
     });
 
@@ -451,6 +497,10 @@ function HostDashboardContent() {
       setGameState((prev) =>
         prev ? { ...prev, responseCount: data.count, totalTeams: data.total } : prev,
       );
+    });
+
+    socket.on('live_responses_update', (data) => {
+      setLiveResponses(data);
     });
 
     socket.on('round_intro', (data: { roundIndex?: number }) => {
@@ -590,6 +640,20 @@ function HostDashboardContent() {
     });
 
     socket.on(
+      'mini_game_reveal',
+      (data: { game?: string; correctPosition?: number; roundNumber?: 1 | 2 | 3 | 4 }) => {
+        if (data?.game !== 'card_shuffle') return;
+        setMiniGameRevealing(false);
+        setCardShuffleRevealPosition(
+          Number.isFinite(Number(data.correctPosition)) ? Number(data.correctPosition) : null,
+        );
+        if (data.roundNumber) {
+          setCardShuffleActiveRound(data.roundNumber);
+        }
+      },
+    );
+
+    socket.on(
       'mini_game_end',
       (data: { game?: string; winningCard?: number; winningKangaroo?: number }) => {
         setMiniGameLoading(false);
@@ -597,6 +661,8 @@ function HostDashboardContent() {
           setCardShuffleVenueReady(false);
           setCardShuffleGameStarted(false);
           setCardShuffleActiveRound(null);
+          setCardShuffleRevealPosition(null);
+          setCardPickCounts([0, 0, 0]);
         }
         if (data?.game) {
           setMiniGameRevealing(true);
@@ -660,6 +726,7 @@ function HostDashboardContent() {
         'team_updated',
         'mini_game_start',
         'mini_game_ready',
+        'mini_game_reveal',
         'mini_game_end',
       ].forEach((e) => socket.off(e));
     };
@@ -714,13 +781,15 @@ function HostDashboardContent() {
     setCardShuffleVenueReady(false);
     setCardShuffleGameStarted(false);
     setCardShuffleActiveRound(null);
+    setCardShuffleRevealPosition(null);
+    setMiniGameRevealing(false);
     setMiniGameLoading(true);
     emit('launch_mini_game', {
       game: 'card_shuffle',
-      config: { winningCard },
+      config: {},
     });
     setActiveMiniGameLocal('card_shuffle');
-  }, [emit, winningCard]);
+  }, [emit]);
 
   const handleOpenCardShuffleControls = () => {
     if (activeMiniGameLocal !== 'card_shuffle' && !miniGameLoading) {
@@ -729,18 +798,30 @@ function HostDashboardContent() {
   };
 
   const handleCardShuffleCommand = (
-    command: 'start_game' | 'next_round',
+    command: 'start_game' | 'next_round' | 'reveal_cards',
     roundNumber?: 1 | 2 | 3 | 4,
   ) => {
     if (!cardShuffleVenueReady) return;
     if (command === 'next_round' && !cardShuffleGameStarted) return;
+    if (
+      command === 'reveal_cards' &&
+      (!cardShuffleGameStarted || cardShuffleRevealPosition !== null)
+    ) {
+      return;
+    }
     emit('mini_game_command', {
       game: 'card_shuffle',
       command,
       ...(roundNumber ? { roundNumber } : {}),
     });
     if (command === 'next_round' && roundNumber) {
+      setCardPickCounts([0, 0, 0]);
+      setCardShuffleRevealPosition(null);
       setCardShuffleActiveRound(roundNumber);
+      setMiniGameRevealing(false);
+    }
+    if (command === 'reveal_cards') {
+      setMiniGameRevealing(true);
     }
   };
 
@@ -748,6 +829,9 @@ function HostDashboardContent() {
     if (!cardShuffleVenueReady) return;
     setCardShuffleGameStarted(true);
     setCardShuffleActiveRound(1);
+    setCardPickCounts([0, 0, 0]);
+    setCardShuffleRevealPosition(null);
+    setMiniGameRevealing(false);
     emit('mini_game_command', {
       game: 'card_shuffle',
       command: 'start_game',
@@ -765,13 +849,10 @@ function HostDashboardContent() {
     setCardShuffleVenueReady(false);
     setCardShuffleGameStarted(false);
     setCardShuffleActiveRound(null);
+    setCardShuffleRevealPosition(null);
     emit(
       'end_mini_game',
-      activeMiniGameLocal === 'card_shuffle'
-        ? { config: { winningCard } }
-        : activeMiniGameLocal === 'horse_race'
-          ? { config: { winningKangaroo } }
-          : undefined,
+      activeMiniGameLocal === 'horse_race' ? { config: { winningKangaroo } } : undefined,
     );
   };
 
@@ -1223,7 +1304,11 @@ function HostDashboardContent() {
                         <p className="mt-1 text-sm text-white/50">
                           {cardShuffleVenueReady
                             ? cardShuffleGameStarted
-                              ? `Round ${cardShuffleActiveRound || 1} is active.`
+                              ? cardShuffleRevealPosition
+                                ? `Round ${cardShuffleActiveRound || 1} revealed on venue.`
+                                : miniGameRevealing
+                                  ? `Revealing round ${cardShuffleActiveRound || 1}...`
+                                  : `Round ${cardShuffleActiveRound || 1} is active.`
                               : 'Venue is ready. Click Start Game to unlock rounds.'
                             : 'Loading on venue. Controls will unlock automatically.'}
                         </p>
@@ -1269,13 +1354,35 @@ function HostDashboardContent() {
                               ? 'border-green-400/80 bg-[linear-gradient(180deg,#0f8f4d_0%,#064422_100%)] text-white shadow-[0_0_18px_rgba(34,197,94,0.38)] hover:brightness-110'
                               : cardShuffleVenueReady && cardShuffleGameStarted
                                 ? 'border-[#ffc400]/55 bg-[linear-gradient(180deg,#7a3cff_0%,#31116f_100%)] text-white shadow-[0_0_16px_rgba(122,60,255,0.24)] hover:brightness-110'
-                              : 'cursor-not-allowed border-white/10 bg-white/7 text-white/28 grayscale',
+                                : 'cursor-not-allowed border-white/10 bg-white/7 text-white/28 grayscale',
                           )}
                         >
                           Start Round {roundNumber}
                         </button>
                       ))}
                     </div>
+
+                    <button
+                      type="button"
+                      disabled={
+                        !cardShuffleVenueReady ||
+                        !cardShuffleGameStarted ||
+                        miniGameRevealing ||
+                        cardShuffleRevealPosition !== null
+                      }
+                      onClick={() => handleCardShuffleCommand('reveal_cards')}
+                      className={cn(
+                        'mt-3 h-12 w-full rounded-lg border px-4 text-sm font-extrabold uppercase tracking-wide transition',
+                        cardShuffleVenueReady &&
+                          cardShuffleGameStarted &&
+                          !miniGameRevealing &&
+                          cardShuffleRevealPosition === null
+                          ? 'border-[#ff68ff]/65 bg-[linear-gradient(180deg,#b100d5_0%,#6b0a90_100%)] text-white shadow-[0_0_18px_rgba(255,67,255,0.26)] hover:brightness-110'
+                          : 'cursor-not-allowed border-white/10 bg-white/7 text-white/28 grayscale',
+                      )}
+                    >
+                      {miniGameRevealing ? 'Revealing...' : 'Reveal Cards'}
+                    </button>
                   </div>
 
                   <div className="mt-2 flex gap-4">
@@ -1284,7 +1391,7 @@ function HostDashboardContent() {
                         key={n}
                         className={cn(
                           'flex flex-col items-center gap-2 rounded-xl border-2 px-6 py-4 transition-all',
-                          winningCard === n
+                          cardShuffleRevealPosition === n
                             ? 'border-green-500/60 bg-green-500/10'
                             : 'border-white/10 bg-white/5',
                         )}
@@ -1302,14 +1409,14 @@ function HostDashboardContent() {
                       </div>
                     ))}
                   </div>
-                  {winningCard && (
-                    <p className="text-xs text-white/30 mt-2">
+                  {cardShuffleRevealPosition ? (
+                    <p className="text-xs text-white/50 mt-2">
                       Winning position:{' '}
                       <span className="text-green-400 font-semibold">
-                        {CARD_POSITION_LABELS[winningCard]}
+                        {CARD_POSITION_LABELS[cardShuffleRevealPosition]}
                       </span>
                     </p>
-                  )}
+                  ) : null}
                 </div>
               ) : activeMiniGameLocal === 'horse_race' ? (
                 <div className="flex flex-1 flex-col items-center justify-center gap-6">
@@ -1344,122 +1451,120 @@ function HostDashboardContent() {
               ) : null}
             </div>
           ) : currentQuestion ? (
-            <div className="flex min-h-0 flex-1 flex-col rounded-2xl border-2 border-[rgba(0,217,255,0.45)] bg-[linear-gradient(180deg,rgba(26,31,46,0.85)_0%,rgba(11,15,26,0.92)_100%)] p-4 shadow-[0_0_28px_rgba(0,217,255,0.12)] sm:p-6">
-              <div
-                className="mb-4 flex shrink-0 items-center justify-between"
-                data-node-id="232:4519"
-              >
-                <h2 className="text-2xl font-semibold text-white sm:text-[30px]">
-                  Question {(currentQuestion.questionIndex || 0) + 1}/
-                  {currentQuestion.totalQuestions}
-                </h2>
-                {currentQuestion.pointsForQuestion ? (
-                  <span className="text-sm font-bold text-[#00d9ff]">
-                    {currentQuestion.pointsForQuestion} pts
-                  </span>
-                ) : null}
-              </div>
+            <div className="flex min-h-0 flex-1 flex-col animate-fadeIn">
+              <div className="mx-auto flex h-full w-full flex-col overflow-hidden rounded-2xl border border-white/10 shadow-[0_0_28px_rgba(0,0,0,0.5)]">
+                {/* Media Section */}
+                <div className="relative shrink-0 bg-black/40">
+                  <div className="absolute left-4 top-3 z-10 text-xl font-bold text-white/90 drop-shadow-md">
+                    Question {(currentQuestion.questionIndex || 0) + 1}/
+                    {currentQuestion.totalQuestions}
+                  </div>
+                  {currentQuestion.pointsForQuestion ? (
+                    <div className="absolute right-4 top-3 z-10 text-lg font-black italic text-[#00d9ff]">
+                      {currentQuestion.pointsForQuestion} PTS
+                    </div>
+                  ) : null}
 
-              <div
-                className="relative mx-auto mb-4 w-full max-w-4xl overflow-hidden rounded-[24px] border border-[rgba(0,217,255,0.35)] bg-black/50 sm:rounded-[30px]"
-                data-name="Main Image"
-                data-node-id="232:4521"
-              >
-                {currentQuestion.question.mediaUrl &&
-                isImageMedia(
-                  currentQuestion.question.mediaType,
-                  currentQuestion.question.mediaUrl,
-                ) ? (
-                  <img
-                    src={resolveMediaUrl(currentQuestion.question.mediaUrl)}
-                    alt=""
-                    className="max-h-[min(50vh,420px)] w-full object-cover"
-                  />
-                ) : null}
-                {currentQuestion.question.mediaUrl &&
-                (currentQuestion.question.mediaType || '').toLowerCase() === 'mp4' ? (
-                  <video
-                    src={resolveMediaUrl(currentQuestion.question.mediaUrl)}
-                    className="max-h-[min(50vh,420px)] w-full object-contain"
-                    controls={mp4Playing}
-                    autoPlay={mp4Playing}
-                    muted={false}
-                  />
-                ) : null}
-                {!currentQuestion.question.mediaUrl ||
-                (currentQuestion.question.mediaType || '').toLowerCase() === 'mp3' ? (
-                  <div className="flex min-h-[200px] items-center justify-center bg-[linear-gradient(180deg,#1a2238_0%,#0f1420_100%)]">
-                    {(currentQuestion.question.mediaType || '').toLowerCase() === 'mp3' ? (
-                      <p className="text-sm text-[#00d9ff]">Audio question — use Play/Pause MP3</p>
+                  {/* Media Content */}
+                  <div className="h-64 w-full sm:h-80 lg:h-96">
+                    {currentQuestion.question.mediaUrl &&
+                    isImageMedia(
+                      currentQuestion.question.mediaType,
+                      currentQuestion.question.mediaUrl,
+                    ) ? (
+                      <img
+                        src={resolveMediaUrl(currentQuestion.question.mediaUrl)}
+                        className="h-full w-full object-cover"
+                        alt="Question media"
+                      />
+                    ) : currentQuestion.question.mediaUrl &&
+                      (currentQuestion.question.mediaType || '').toLowerCase() === 'mp4' ? (
+                      <video
+                        src={resolveMediaUrl(currentQuestion.question.mediaUrl)}
+                        className="h-full w-full bg-black object-contain"
+                        controls={mp4Playing}
+                        autoPlay={mp4Playing}
+                      />
                     ) : (
-                      <p className="text-sm text-white/40">No media for this question</p>
+                      <div className="relative flex h-full w-full items-center justify-center overflow-hidden">
+                        <img
+                          src="/withoutImagequestion.png"
+                          className="h-full w-full object-cover opacity-60"
+                          alt="placeholder"
+                        />
+                        {(currentQuestion.question.mediaType || '').toLowerCase() === 'mp3' && (
+                          <div className="absolute inset-0 flex items-center justify-center bg-blue-900/20">
+                            <span className="text-lg font-bold text-white">Audio Question</span>
+                          </div>
+                        )}
+                        {!currentQuestion.question.mediaUrl && (
+                          <div className="absolute inset-0 flex items-center justify-center">
+                            <span className="text-[120px] font-black text-white/5 opacity-40">
+                              ?
+                            </span>
+                          </div>
+                        )}
+                      </div>
                     )}
                   </div>
-                ) : null}
-                <div
-                  className="pointer-events-none absolute inset-x-0 bottom-0 flex flex-col items-center gap-1"
-                  data-name="Timer Container"
-                  data-node-id="232:4523"
-                >
-                  <div className="relative w-48 h-24 overflow-hidden z-30">
-                    <div className="absolute top-0 left-0 w-48 h-48 rounded-full p-2 bg-linear-to-r from-[#ff0000] via-[#ddff00] via-[#ffaa00] to-[#00ff00] shadow-[0_0_20px_rgba(0,0,0,0.6)]">
-                      <div className="relative w-full h-full rounded-full bg-[#050B20] border border-white/10 flex justify-center overflow-hidden">
-                        <div
-                          className="absolute inset-0 opacity-20 pointer-events-none"
-                          style={{
-                            backgroundImage:
-                              'radial-gradient(circle, #ffffff 1px, transparent 1px)',
-                            backgroundSize: '8px 8px',
-                          }}
-                        />
-                        <span className="pt-8 text-5xl font-black text-white relative z-10 tracking-tighter drop-shadow-[0_0_10px_rgba(255,255,255,0.3)]">
+
+                  {/* Circular Timer Overlay */}
+                  <div className="pointer-events-none absolute bottom-0 left-1/2 z-30 h-24 w-48 -translate-x-1/2 overflow-hidden">
+                    <div className="absolute left-0 top-0 h-48 w-48 rounded-full p-1.5 shadow-[0_4px_24px_rgba(0,0,0,0.6)] bg-linear-to-r from-[#ff0000] via-[#ddff00] via-[#ffaa00] to-[#00ff00]">
+                      <div className="relative flex h-full w-full overflow-hidden rounded-full border border-white/10 bg-[#030818] justify-center pt-6">
+                        <span className="relative z-10 text-5xl font-black tracking-tighter text-white drop-shadow-[0_0_10px_rgba(255,255,255,0.4)]">
                           {timerRemaining}
                         </span>
                       </div>
                     </div>
                   </div>
                 </div>
-              </div>
 
-              <div className="mb-4 px-1 text-center" data-node-id="232:4530">
-                <p className="text-lg font-semibold text-white sm:text-[25px]">
-                  Q{(currentQuestion.questionIndex || 0) + 1}. {currentQuestion.question.text}
-                </p>
-              </div>
+                {/* Content Section */}
+                <div className="relative z-20 flex-1 border-t-2 border-t-white/20 bg-[linear-gradient(180deg,#0a0f2b_0%,#04060e_100%)] px-6 pb-6 pt-14 shadow-inner">
+                  <div className="mb-6 text-center">
+                    <p className="text-xl font-black leading-tight text-white sm:text-2xl">
+                      Q{(currentQuestion.questionIndex || 0) + 1}. {currentQuestion.question.text}
+                    </p>
+                  </div>
 
-              <div
-                className="grid shrink-0 grid-cols-2 gap-3"
-                data-name="Choices Container"
-                data-node-id="232:4531"
-              >
-                {currentQuestion.question.options.map((opt, i) => {
-                  const isCorrect = revealData && i === revealData.correctOptionIndex;
-                  const isWrong = revealData && i !== revealData.correctOptionIndex;
-                  return (
-                    <div
-                      key={i}
-                      className={cn(
-                        'rounded-xl border-2 px-4 py-3.5 text-base font-bold text-white transition-all sm:text-[22px]',
-                        isCorrect
-                          ? 'border-[#00ff88] bg-[linear-gradient(180deg,#00c853_0%,#0d4d26_100%)] shadow-[0_0_20px_rgba(0,255,106,0.35)]'
-                          : isWrong
-                            ? 'border-white/10 bg-[#151b2e]/90 opacity-40'
-                            : 'border-[rgba(0,217,255,0.35)] bg-[#151b2e]',
-                      )}
-                    >
-                      <span className="mr-2 font-mono opacity-90">{OPTION_LETTERS[i]}.</span>
-                      {opt.text}
-                      {isCorrect ? <span className="ml-2">✓</span> : null}
+                  <div className="grid grid-cols-2 gap-3 pb-2 pt-2">
+                    {currentQuestion.question.options.map((opt, i) => {
+                      const isCorrect = revealData && i === revealData.correctOptionIndex;
+                      return (
+                        <div
+                          key={i}
+                          className={cn(
+                            'flex h-[57px] items-center rounded-xl border-2 px-4 py-4 text-base font-black text-white transition-all shadow-[0_4px_12px_rgba(0,0,0,0.5)]',
+                            VENUE_OPTION_COLOR_CLASSES[i % VENUE_OPTION_COLOR_CLASSES.length],
+                            isCorrect
+                              ? 'z-10 scale-[1.03] shadow-[0_0_12px_8px_rgba(57,255,74,0.8)]'
+                              : revealData
+                                ? 'scale-[0.98] brightness-50 contrast-75 opacity-30'
+                                : '',
+                          )}
+                        >
+                          <span className="mr-3 font-black text-white/50">
+                            {OPTION_LETTERS[i]}.
+                          </span>
+                          <span className="flex-1 truncate">{opt.text}</span>
+                          {isCorrect && (
+                            <div className="ml-2 flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-white bg-green-500 shadow-lg">
+                              <span className="text-sm text-white">✓</span>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {revealData?.allWrong && (
+                    <div className="mt-4 animate-pulse rounded-xl border border-orange-500/30 bg-orange-500/10 px-4 py-2.5 text-center text-sm font-bold text-orange-400">
+                      All teams answered incorrectly — no eliminations
                     </div>
-                  );
-                })}
-              </div>
-
-              {revealData?.allWrong && (
-                <div className="mt-3 bg-neon-gold/10 border border-neon-gold/30 text-neon-gold rounded-lg px-4 py-2 text-sm text-center shrink-0">
-                  All teams answered incorrectly — no eliminations
+                  )}
                 </div>
-              )}
+              </div>
             </div>
           ) : (
             <div className="flex flex-1 items-center justify-center rounded-2xl border border-[rgba(0,217,255,0.25)] bg-[#151b2e]/40 p-8">
@@ -1554,21 +1659,78 @@ function HostDashboardContent() {
                 className="rounded-xl border border-[rgba(0,217,255,0.25)] bg-[#151b2e]/80 px-4 py-4"
                 data-name="Response Progress Container"
               >
-                <p className="mb-3 text-lg text-white" data-node-id="232:4555">
+                <p className="mb-4 text-lg text-white" data-node-id="232:4555">
                   <span className="font-bold text-[#00d9ff]">{gameState?.responseCount ?? 0}</span>{' '}
                   <span className="font-medium">
                     of {gameState?.totalTeams ?? 0} Teams responded
                   </span>
                 </p>
-                <div
-                  className="relative h-2 overflow-hidden rounded-full bg-white/90"
-                  data-name="Response Progress Bar"
-                >
-                  <div
-                    className="absolute left-0 top-0 h-full rounded-full bg-[linear-gradient(90deg,#00d9ff,#008cff)] transition-all duration-300"
-                    style={{ width: `${responsePct}%` }}
-                    data-name="Response Bar"
-                  />
+
+                <div className="space-y-4">
+                  {[
+                    {
+                      label: 'Correct',
+                      value: liveResponses.correct,
+                      color: 'from-[#00ff00] to-[#008000]',
+                      track: 'bg-[#3d7a3d]/60',
+                      icon: '✓',
+                      iconBg: 'bg-green-500',
+                    },
+                    {
+                      label: 'Incorrect',
+                      value: liveResponses.incorrect,
+                      color: 'from-[#ff0000] to-[#800000]',
+                      track: 'bg-[#7a3d3d]/60',
+                      icon: '×',
+                      iconBg: 'bg-red-500',
+                    },
+                    {
+                      label: 'No Answer',
+                      value: liveResponses.noAnswer,
+                      color: 'from-[#3b82f6] to-[#1e3a8a]',
+                      track: 'bg-[#3d507a]/60',
+                      icon: '?',
+                      iconBg: 'bg-blue-500',
+                    },
+                  ].map((item) => {
+                    const total = Math.max(1, gameState?.totalTeams || 1);
+                    const width = Math.max(
+                      0,
+                      Math.min(100, Math.round((item.value / total) * 100)),
+                    );
+                    return (
+                      <div key={item.label} className="flex flex-col gap-1.5">
+                        <div className="flex items-center justify-between text-[11px] font-bold uppercase tracking-wider text-white/70">
+                          <div className="flex items-center gap-2">
+                            <div
+                              className={cn(
+                                item.iconBg,
+                                'flex h-4 w-4 items-center justify-center rounded-full text-[10px] text-white border border-white/20',
+                              )}
+                            >
+                              {item.icon}
+                            </div>
+                            <span>{item.label}</span>
+                          </div>
+                          <span className="text-[#00d9ff] italic text-sm">{item.value}</span>
+                        </div>
+                        <div
+                          className={cn(
+                            'h-2.5 rounded-full overflow-hidden border border-white/10',
+                            item.track,
+                          )}
+                        >
+                          <div
+                            className={cn(
+                              'h-full rounded-full bg-linear-to-r shadow-[0_0_12px_rgba(255,255,255,0.2)] transition-all duration-500',
+                              item.color,
+                            )}
+                            style={{ width: `${width}%`, minWidth: item.value > 0 ? '6px' : '0px' }}
+                          />
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             </section>
@@ -1615,108 +1777,111 @@ function HostDashboardContent() {
           data-node-id="232:4596"
           className="shrink-0 border-t border-white/20 bg-[linear-gradient(180deg,#1e2538_0%,#0b0f1a_100%)] px-3 py-4"
         >
-        <div className="mx-auto flex w-full max-w-[1920px] flex-wrap items-stretch justify-center gap-2">
-          <HostFooterBtn
-            icon={
-              <svg viewBox="0 0 24 24" fill="currentColor" className="text-[#00d9ff]">
-                <path d="M6 11h2v2H6v-2zm4 0h2v2h-2v-2zm8-6V5H4v14h14v-6h2V5zm0 8h-2v2h2v-2z" />
-              </svg>
-            }
-            disabled={!(state === 'LOBBY' || state === 'ROUND_INTRO')}
-            onClick={() => {
-              if (state === 'LOBBY') handleStartGame();
-              else if (state === 'ROUND_INTRO') handleNextQuestion();
-            }}
-          >
-            {state === 'LOBBY' ? 'Start Game' : 'Start Round'}
-          </HostFooterBtn>
-          <HostFooterBtn
-            emphasis={state === 'QUESTION' && questionState === 'REVEALED'}
-            icon={
-              <svg viewBox="0 0 24 24" fill="currentColor" className="text-[#00d9ff]">
-                <path d="M6 18l8.5-6L6 6v12zm8-12v12h2V6h-2z" />
-              </svg>
-            }
-            disabled={!(state === 'QUESTION' && questionState === 'REVEALED')}
-            onClick={handleNextQuestion}
-          >
-            Next Question
-          </HostFooterBtn>
-          <HostFooterBtn
-            emphasis={showTimerModal}
-            icon={
-              <svg viewBox="0 0 24 24" fill="currentColor" className="text-[#00d9ff]">
-                {state === 'QUESTION' && questionState === 'ACTIVE' && !timerPaused ? (
-                  <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z" />
-                ) : (
-                  <path d="M8 5v14l11-7L8 5z" />
-                )}
-              </svg>
-            }
-            disabled={
-              !(state === 'QUESTION' && (questionState === 'WAITING' || questionState === 'ACTIVE'))
-            }
-            onClick={() => {
-              setShowTimerModal(true);
-              if (state === 'QUESTION' && questionState === 'ACTIVE' && !timerPaused) {
-                handlePauseTimer();
-                return;
+          <div className="mx-auto flex w-full max-w-[1920px] flex-wrap items-stretch justify-center gap-2">
+            <HostFooterBtn
+              icon={
+                <svg viewBox="0 0 24 24" fill="currentColor" className="text-[#00d9ff]">
+                  <path d="M6 11h2v2H6v-2zm4 0h2v2h-2v-2zm8-6V5H4v14h14v-6h2V5zm0 8h-2v2h2v-2z" />
+                </svg>
               }
-              handleStartTimer();
-            }}
-          >
-            {state === 'QUESTION' && questionState === 'ACTIVE' && !timerPaused
-              ? 'Pause Timer'
-              : 'Start Timer'}
-          </HostFooterBtn>
-          <HostFooterBtn
-            icon={
-              <svg viewBox="0 0 24 24" fill="currentColor" className="text-[#00d9ff]">
-                <path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z" />
-              </svg>
-            }
-            disabled={!(state === 'QUESTION' && questionState === 'ACTIVE')}
-            onClick={handleRevealAnswer}
-          >
-            Reveal Answer
-          </HostFooterBtn>
-          <HostFooterBtn
-            icon={
-              <svg viewBox="0 0 24 24" fill="currentColor" className="text-[#00d9ff]">
-                <path d="M4 19h16v2H4v-2zm2-4h12v2H6v-2zm4-4h4v2h-4v-2zm2-10.5c.83 0 1.5.67 1.5 1.5s-.67 1.5-1.5 1.5S11 6.83 11 6s.67-1.5 1.5-1.5z" />
-              </svg>
-            }
-            disabled={state === 'LOBBY' || state === 'FINAL_RESULTS'}
-            onClick={() => (state === 'BREAK' ? handleEndBreak() : handleStartBreak())}
-          >
-            {state === 'BREAK' ? 'End Break' : 'Start Break'}
-          </HostFooterBtn>
-          <HostFooterBtn
-            emphasis={isScoreboardVisible}
-            icon={
-              <svg viewBox="0 0 24 24" fill="currentColor" className="text-[#00d9ff]">
-                <path d="M5 3h4v2H5V3zm0 6h4v2H5V9zm0 6h4v2H5v-2zm6-12h10v2H11V3zm0 6h10v2H11V9zm0 6h10v2H11v-2z" />
-              </svg>
-            }
-            onClick={handleShowScoreboard}
-          >
-            {isScoreboardVisible ? 'Hide Scoreboard' : 'Show Scoreboard'}
-          </HostFooterBtn>
-          <HostFooterBtn
-            icon={
-              <svg viewBox="0 0 24 24" fill="currentColor" className="text-[#00d9ff]">
-                <path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z" />
-              </svg>
-            }
-            disabled={state !== 'SCOREBOARD'}
-            onClick={handleAdvanceRound}
-          >
-            Next Round
-          </HostFooterBtn>
-        </div>
-        <p className="mt-2 text-center text-[10px] text-white/30">
-          Space=Next · T=Timer · P=Pause · R=Reveal · S=Scoreboard
-        </p>
+              disabled={!(state === 'LOBBY' || state === 'ROUND_INTRO')}
+              onClick={() => {
+                if (state === 'LOBBY') handleStartGame();
+                else if (state === 'ROUND_INTRO') handleNextQuestion();
+              }}
+            >
+              {state === 'LOBBY' ? 'Start Game' : 'Start Round'}
+            </HostFooterBtn>
+            <HostFooterBtn
+              emphasis={state === 'QUESTION' && questionState === 'REVEALED'}
+              icon={
+                <svg viewBox="0 0 24 24" fill="currentColor" className="text-[#00d9ff]">
+                  <path d="M6 18l8.5-6L6 6v12zm8-12v12h2V6h-2z" />
+                </svg>
+              }
+              disabled={!(state === 'QUESTION' && questionState === 'REVEALED')}
+              onClick={handleNextQuestion}
+            >
+              Next Question
+            </HostFooterBtn>
+            <HostFooterBtn
+              emphasis={showTimerModal}
+              icon={
+                <svg viewBox="0 0 24 24" fill="currentColor" className="text-[#00d9ff]">
+                  {state === 'QUESTION' && questionState === 'ACTIVE' && !timerPaused ? (
+                    <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z" />
+                  ) : (
+                    <path d="M8 5v14l11-7L8 5z" />
+                  )}
+                </svg>
+              }
+              disabled={
+                !(
+                  state === 'QUESTION' &&
+                  (questionState === 'WAITING' || questionState === 'ACTIVE')
+                )
+              }
+              onClick={() => {
+                setShowTimerModal(true);
+                if (state === 'QUESTION' && questionState === 'ACTIVE' && !timerPaused) {
+                  handlePauseTimer();
+                  return;
+                }
+                handleStartTimer();
+              }}
+            >
+              {state === 'QUESTION' && questionState === 'ACTIVE' && !timerPaused
+                ? 'Pause Timer'
+                : 'Start Timer'}
+            </HostFooterBtn>
+            <HostFooterBtn
+              icon={
+                <svg viewBox="0 0 24 24" fill="currentColor" className="text-[#00d9ff]">
+                  <path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z" />
+                </svg>
+              }
+              disabled={!(state === 'QUESTION' && questionState === 'ACTIVE')}
+              onClick={handleRevealAnswer}
+            >
+              Reveal Answer
+            </HostFooterBtn>
+            <HostFooterBtn
+              icon={
+                <svg viewBox="0 0 24 24" fill="currentColor" className="text-[#00d9ff]">
+                  <path d="M4 19h16v2H4v-2zm2-4h12v2H6v-2zm4-4h4v2h-4v-2zm2-10.5c.83 0 1.5.67 1.5 1.5s-.67 1.5-1.5 1.5S11 6.83 11 6s.67-1.5 1.5-1.5z" />
+                </svg>
+              }
+              disabled={state === 'LOBBY' || state === 'FINAL_RESULTS'}
+              onClick={() => (state === 'BREAK' ? handleEndBreak() : handleStartBreak())}
+            >
+              {state === 'BREAK' ? 'End Break' : 'Start Break'}
+            </HostFooterBtn>
+            <HostFooterBtn
+              emphasis={isScoreboardVisible}
+              icon={
+                <svg viewBox="0 0 24 24" fill="currentColor" className="text-[#00d9ff]">
+                  <path d="M5 3h4v2H5V3zm0 6h4v2H5V9zm0 6h4v2H5v-2zm6-12h10v2H11V3zm0 6h10v2H11V9zm0 6h10v2H11v-2z" />
+                </svg>
+              }
+              onClick={handleShowScoreboard}
+            >
+              {isScoreboardVisible ? 'Hide Scoreboard' : 'Show Scoreboard'}
+            </HostFooterBtn>
+            <HostFooterBtn
+              icon={
+                <svg viewBox="0 0 24 24" fill="currentColor" className="text-[#00d9ff]">
+                  <path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z" />
+                </svg>
+              }
+              disabled={state !== 'SCOREBOARD'}
+              onClick={handleAdvanceRound}
+            >
+              Next Round
+            </HostFooterBtn>
+          </div>
+          <p className="mt-2 text-center text-[10px] text-white/30">
+            Space=Next · T=Timer · P=Pause · R=Reveal · S=Scoreboard
+          </p>
         </footer>
       ) : null}
 

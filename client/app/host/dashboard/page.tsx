@@ -431,6 +431,15 @@ function HostDashboardContent() {
         setTimerRemaining(data.timerRemaining || 0);
         setTimerPaused(data.timerRunning === false);
         setCurrentQuestion(data.currentQuestion || null);
+        setLiveResponses((prev) => ({
+          correct:
+            data.state === 'QUESTION' && data.questionState === 'ACTIVE' ? prev.correct : 0,
+          incorrect:
+            data.state === 'QUESTION' && data.questionState === 'ACTIVE' ? prev.incorrect : 0,
+          noAnswer:
+            data.state === 'QUESTION' && data.questionState === 'ACTIVE' ? prev.noAnswer : 0,
+          total: Number(data.totalTeams || 0),
+        }));
         if (data.questionState !== 'REVEALED') {
           setRevealData(null);
         }
@@ -474,6 +483,12 @@ function HostDashboardContent() {
       setTimerDuration(data.timerDuration);
       setTimerRemaining(data.timerRemaining ?? data.timerDuration);
       setIsScoreboardVisible(false);
+      setLiveResponses({
+        correct: 0,
+        incorrect: 0,
+        noAnswer: 0,
+        total: Number(gameStateRef.current?.totalTeams || 0),
+      });
       setMp3Playing(false);
       stopMp3();
       setGameState((prev) =>
@@ -499,14 +514,33 @@ function HostDashboardContent() {
       );
     });
 
-    socket.on('live_responses_update', (data) => {
-      setLiveResponses(data);
-    });
+    const onLiveResponseUpdate = (data: {
+      correct?: number;
+      incorrect?: number;
+      noAnswer?: number;
+      total?: number;
+    }) => {
+      setLiveResponses({
+        correct: Number(data?.correct || 0),
+        incorrect: Number(data?.incorrect || 0),
+        noAnswer: Number(data?.noAnswer || 0),
+        total: Number(data?.total || 0),
+      });
+    };
+
+    socket.on('live_response_update', onLiveResponseUpdate);
+    socket.on('live_responses_update', onLiveResponseUpdate);
 
     socket.on('round_intro', (data: { roundIndex?: number }) => {
       setCurrentQuestion(null);
       setRevealData(null);
       setIsScoreboardVisible(false);
+      setLiveResponses({
+        correct: 0,
+        incorrect: 0,
+        noAnswer: 0,
+        total: Number(gameStateRef.current?.totalTeams || 0),
+      });
       setMp3Playing(false);
       stopMp3();
       setGameState((prev) =>
@@ -707,6 +741,8 @@ function HostDashboardContent() {
     return () => {
       socket.off('connect', joinHost);
       socket.off('mini_game_update', onMiniGameUpdate);
+      socket.off('live_response_update', onLiveResponseUpdate);
+      socket.off('live_responses_update', onLiveResponseUpdate);
       [
         'session_state',
         'question_active',

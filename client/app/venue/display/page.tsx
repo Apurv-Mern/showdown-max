@@ -811,9 +811,9 @@ function VenueDisplayContent() {
         {phase === 'question' && question && (
           <div className="max-w-[65%] h-[95%] mx-auto mt-10">
             {/* Response Stats */}
-            <div className="mx-auto w-full flex-1 rounded-2xl mt-4">
+            <div className="mx-auto w-full flex-1 rounded-2xl mt-4 bg-[#000000]">
               <div className="rounded-xl mb-3 flex items-center gap-4 justify-between">
-                <div className="flex items-center gap-4 flex-1 border  border-[#00C8FF] rounded-xl max-w-2xl ">
+                <div className="flex items-center gap-4 flex-1 border   border-[#00C8FF] rounded-xl max-w-2xl ">
                   <div className="relative w-12 h-12 rounded-full flex items-center justify-center shrink-0 overflow-hidden">
                     <div className="absolute inset-0 bg-linear-to-br from-purple-500/20 to-transparent" />
                     <svg

@@ -7,6 +7,7 @@ const { calculateScores } = require('./scoringEngine');
 const knockoutEngine = require('./knockoutEngine');
 const timerManager = require('./timerManager');
 const redisStore = require('../redisSessionStore');
+const { buildRevealSnapshot } = require('../revealSnapshot');
 const { Team, Session } = require('../../models');
 const logger = require('../../utils/logger');
 
@@ -480,9 +481,17 @@ const endRound = async (io, pin, gameState) => {
   const sortedTeams = Object.values(result.gameState.teams)
     .sort((a, b) => b.score - a.score);
 
+  let revealSnapshot = null;
+  try {
+    revealSnapshot = await buildRevealSnapshot(pin, result.gameState);
+  } catch (err) {
+    logger.warn('buildRevealSnapshot failed (round_end scoreboard)', { pin, error: err.message });
+  }
+
   io.to(`session:${pin}`).emit(SOCKET_EVENTS.SCOREBOARD, {
     teams: sortedTeams,
     source: 'round_end',
+    ...(revealSnapshot ? { revealSnapshot } : {}),
   });
 };
 
@@ -627,25 +636,17 @@ const showScoreboard = async (io, pin) => {
   if (!gameState) return;
 
   const sortedTeams = Object.values(gameState.teams).sort((a, b) => b.score - a.score);
-  // #region agent log
-  fetch('http://127.0.0.1:7668/ingest/a0939c7c-6b4b-458b-abf6-c1b2f0a79714', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': 'ba526a' },
-    body: JSON.stringify({
-      sessionId: 'ba526a',
-      location: 'gameController.js:showScoreboard',
-      message: 'scoreboard payload team ids (includes disconnected if still in gameState.teams)',
-      data: {
-        pin,
-        teamIds: sortedTeams.map((t) => t.teamId),
-        activeTeamIds: gameState.activeTeamIds,
-      },
-      timestamp: Date.now(),
-      hypothesisId: 'H2',
-    }),
-  }).catch(() => {});
-  // #endregion
-  io.to(`session:${pin}`).emit(SOCKET_EVENTS.SCOREBOARD, { teams: sortedTeams, source: 'manual' });
+  let revealSnapshot = null;
+  try {
+    revealSnapshot = await buildRevealSnapshot(pin, gameState);
+  } catch (err) {
+    logger.warn('buildRevealSnapshot failed (manual scoreboard)', { pin, error: err.message });
+  }
+  io.to(`session:${pin}`).emit(SOCKET_EVENTS.SCOREBOARD, {
+    teams: sortedTeams,
+    source: 'manual',
+    ...(revealSnapshot ? { revealSnapshot } : {}),
+  });
   logger.info('Scoreboard shown', { pin, teamCount: sortedTeams.length });
 };
 
@@ -730,11 +731,14 @@ const endBreak = async (io, pin) => {
       gameState.timerRemaining = Number(resume.timerRemaining);
     }
     gameState.timerRunning = false;
+    if (gameState.state === GAME_STATES.QUESTION && gameState.questionState === QUESTION_STATES.REVEALED) {
+      gameState.timerRemaining = 0;
+    }
     delete gameState.breakResumeState;
 
     await redisStore.setGameState(pin, gameState);
     io.to(`session:${pin}`).emit(SOCKET_EVENTS.BREAK_END, {});
-    io.to(`session:${pin}`).emit(SOCKET_EVENTS.SESSION_STATE, sanitizeForClients(gameState));
+    io.to(`session:${pin}`).emit(SOCKET_EVENTS.SESSION_STATE, clientPayloadFromGameState(gameState));
     logger.info('Break ended and state restored', {
       pin,
       restoredState: gameState.state,
@@ -748,32 +752,38 @@ const endBreak = async (io, pin) => {
       const question = stateMachine.getCurrentQuestion(gameState);
       if (round && question) {
         const effectiveTimer = Number(question.timerDuration || round.timerDuration || 30);
-        io.to(`session:${pin}`).emit(SOCKET_EVENTS.QUESTION_ACTIVE, {
-          questionIndex: gameState.currentQuestionIndex,
-          totalQuestions: round.questions.length,
-          question: {
-            id: question.id,
-            text: question.text,
-            options: question.options.map((o) => ({ text: o.text })),
-            mediaUrl: question.mediaUrl,
-            mediaType: question.mediaType,
-          },
-          timerDuration: effectiveTimer,
-          timerRemaining:
-            Number.isFinite(Number(gameState.timerRemaining)) && Number(gameState.timerRemaining) > 0
-              ? Number(gameState.timerRemaining)
-              : effectiveTimer,
-          roundType: round.type,
-          pointsForQuestion:
-            round.type === ROUND_TYPES.ELIMINATION
-              ? require('shared/constants/scoring').getEliminationPoints(gameState.currentQuestionIndex)
-              : null,
-        });
-        const responsesRaw = await redisStore.getResponses(pin, question.id);
-        io.to(`session:${pin}`).emit(
-          SOCKET_EVENTS.LIVE_RESPONSE_UPDATE,
-          buildLiveResponseStats(gameState, question, responsesRaw),
-        );
+        const trStored = Number(gameState.timerRemaining);
+        const timerRemainingForEmit =
+          gameState.questionState === QUESTION_STATES.REVEALED
+            ? 0
+            : Number.isFinite(trStored) && trStored >= 0
+              ? trStored
+              : effectiveTimer;
+        if (gameState.questionState === QUESTION_STATES.ACTIVE) {
+          io.to(`session:${pin}`).emit(SOCKET_EVENTS.QUESTION_ACTIVE, {
+            questionIndex: gameState.currentQuestionIndex,
+            totalQuestions: round.questions.length,
+            question: {
+              id: question.id,
+              text: question.text,
+              options: question.options.map((o) => ({ text: o.text })),
+              mediaUrl: question.mediaUrl,
+              mediaType: question.mediaType,
+            },
+            timerDuration: effectiveTimer,
+            timerRemaining: timerRemainingForEmit,
+            roundType: round.type,
+            pointsForQuestion:
+              round.type === ROUND_TYPES.ELIMINATION
+                ? require('shared/constants/scoring').getEliminationPoints(gameState.currentQuestionIndex)
+                : null,
+          });
+          const responsesRaw = await redisStore.getResponses(pin, question.id);
+          io.to(`session:${pin}`).emit(
+            SOCKET_EVENTS.LIVE_RESPONSE_UPDATE,
+            buildLiveResponseStats(gameState, question, responsesRaw),
+          );
+        }
       }
     }
 
@@ -1002,6 +1012,29 @@ const sanitizeForClients = (gameState) => {
     }));
   }
   return sanitized;
+};
+
+/** Full client payload for QUESTION (includes currentQuestion) — matches venue host_connect shape. */
+const clientPayloadFromGameState = (gameState) => {
+  const base = sanitizeForClients(gameState);
+  if (gameState.state !== GAME_STATES.QUESTION) return base;
+  const round = stateMachine.getCurrentRound(gameState);
+  const cq = stateMachine.getCurrentQuestion(gameState);
+  if (!round || !cq) return base;
+  base.currentQuestion = {
+    questionIndex: gameState.currentQuestionIndex,
+    totalQuestions: round.questions.length,
+    question: {
+      id: cq.id,
+      text: cq.text,
+      options: (cq.options || []).map((o) => ({ text: o.text })),
+      mediaUrl: cq.mediaUrl,
+      mediaType: cq.mediaType,
+    },
+    timerDuration: cq.timerDuration || round.timerDuration || 30,
+    roundType: round.type || '',
+  };
+  return base;
 };
 
 module.exports = {

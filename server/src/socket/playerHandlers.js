@@ -3,6 +3,7 @@ const { SOCKET_EVENTS } = require('shared/constants/socketEvents');
 const logger = require('../utils/logger');
 const gameController = require('../services/game-engine/gameController');
 const redisStore = require('../services/redisSessionStore');
+const { buildRevealSnapshot } = require('../services/revealSnapshot');
 const { Session, Team } = require('../models');
 const { joinSessionSchema } = require('shared/schemas/session');
 const { normalizeTeamName, sanitizeTeamName } = require('../utils/teamName');
@@ -13,60 +14,6 @@ const { normalizeTeamName, sanitizeTeamName } = require('../utils/teamName');
  * @param {import('socket.io').Socket} socket
  */
 const playerHandlers = (io, socket) => {
-  const parseStoredResponse = (raw) => {
-    if (!raw) return { selectedOptionIndex: -1, responseTime: null };
-    try {
-      const parsed = JSON.parse(raw);
-      const selectedOptionIndex = Number(parsed.selectedOptionIndex);
-      const responseTime = Number(parsed.responseTime);
-      return {
-        selectedOptionIndex: Number.isFinite(selectedOptionIndex) ? selectedOptionIndex : -1,
-        responseTime: Number.isFinite(responseTime) ? responseTime : null,
-      };
-    } catch {
-      const selectedOptionIndex = Number(raw);
-      return {
-        selectedOptionIndex: Number.isFinite(selectedOptionIndex) ? selectedOptionIndex : -1,
-        responseTime: null,
-      };
-    }
-  };
-
-  const buildReconnectRevealPayload = async (pin, gameState, currentQuestion) => {
-    const responsesRaw = currentQuestion?.id
-      ? await redisStore.getResponses(pin, currentQuestion.id)
-      : {};
-    const teams = Object.values(gameState.teams || {}).map((team) => ({
-      teamId: Number(team.teamId),
-      teamName: String(team.teamName || ''),
-      score: Number(team.score || 0),
-      isEliminated: Boolean(team.isEliminated),
-    }));
-    const responseDetails = teams.map((team) => {
-      const parsed = parseStoredResponse(responsesRaw[String(team.teamId)]);
-      return {
-        teamId: team.teamId,
-        selectedOptionIndex: parsed.selectedOptionIndex,
-        responseTime: parsed.responseTime,
-      };
-    });
-    const correctOptionIndex = (currentQuestion?.options || []).findIndex((o) => o?.isCorrect);
-    const allWrong =
-      correctOptionIndex < 0
-        ? true
-        : responseDetails.every((r) => r.selectedOptionIndex !== correctOptionIndex);
-
-    return {
-      correctOptionIndex,
-      correctText: currentQuestion?.options?.[correctOptionIndex]?.text || '',
-      scores: {},
-      responseDetails,
-      eliminations: teams.filter((t) => t.isEliminated).map((t) => t.teamId),
-      allWrong,
-      teams,
-    };
-  };
-
   const getLockedWager = (gameState, round, teamId) => {
     if (!gameState || !round || round.type !== 'WAGER') return null;
     const value = gameState.roundWagers?.[String(round.id)]?.[String(teamId)];
@@ -158,7 +105,9 @@ const playerHandlers = (io, socket) => {
         await redisStore.setGameState(pin, gameState);
       }
       const currentRound = gameState?.rounds?.[gameState.currentRoundIndex];
-      const currentQuestion = currentRound?.questions?.[gameState.currentQuestionIndex] || null;
+      const currentQuestionRow = currentRound?.questions?.[gameState.currentQuestionIndex] || null;
+      const currentQuestion =
+        gameState?.state === 'QUESTION' && currentQuestionRow ? currentQuestionRow : null;
 
       const sessionPayload = {
         joined: true,
@@ -227,23 +176,26 @@ const playerHandlers = (io, socket) => {
               mediaType: currentQuestion.mediaType,
             },
             timerDuration: currentQuestion.timerDuration || round.timerDuration || 30,
+            timerRemaining: Number.isFinite(Number(gameState.timerRemaining))
+              ? Number(gameState.timerRemaining)
+              : Number(currentQuestion.timerDuration || round.timerDuration || 30),
             roundType: round.type,
             lockedWagerAmount: getLockedWager(gameState, round, team.id),
           });
           socket.emit(SOCKET_EVENTS.TIMER_UPDATE, { remaining: gameState.timerRemaining });
         }
-        if (
-          gameState.state === 'QUESTION' &&
-          gameState.questionState === 'REVEALED' &&
-          currentQuestion
-        ) {
-          const revealPayload = await buildReconnectRevealPayload(pin, gameState, currentQuestion);
-          socket.emit(SOCKET_EVENTS.ANSWER_REVEAL, revealPayload);
-          socket.emit(SOCKET_EVENTS.TIMER_UPDATE, { remaining: 0 });
+        if (gameState.state === 'QUESTION' && gameState.questionState === 'REVEALED') {
+          const revealPayload = await buildRevealSnapshot(pin, gameState);
+          if (revealPayload) {
+            socket.emit(SOCKET_EVENTS.ANSWER_REVEAL, revealPayload);
+            socket.emit(SOCKET_EVENTS.TIMER_UPDATE, { remaining: 0 });
+          }
         }
         if (gameState.state === 'SCOREBOARD') {
+          const revealSnapshot = await buildRevealSnapshot(pin, gameState);
           socket.emit(SOCKET_EVENTS.SCOREBOARD, {
             teams: Object.values(gameState.teams).sort((a, b) => b.score - a.score),
+            ...(revealSnapshot ? { revealSnapshot } : {}),
           });
         }
         if (gameState.state === 'BREAK') {
@@ -327,49 +279,9 @@ const playerHandlers = (io, socket) => {
   socket.on(SOCKET_EVENTS.DISCONNECT, async () => {
     try {
       const { pin, teamId } = socket.data || {};
-      // #region agent log
-      if (!pin || !teamId) {
-        fetch('http://127.0.0.1:7668/ingest/a0939c7c-6b4b-458b-abf6-c1b2f0a79714', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': 'ba526a' },
-          body: JSON.stringify({
-            sessionId: 'ba526a',
-            location: 'playerHandlers.js:DISCONNECT',
-            message: 'disconnect early return (no pin/teamId in socket.data)',
-            data: { hasPin: Boolean(pin), hasTeamId: Boolean(teamId) },
-            timestamp: Date.now(),
-            hypothesisId: 'H3',
-          }),
-        }).catch(() => {});
-        return;
-      }
-      // #endregion
+      if (!pin || !teamId) return;
 
       await gameController.handlePlayerSocketDisconnect(io, pin, teamId);
-
-      const gameStateAfter = await redisStore.getGameState(pin);
-      // #region agent log
-      fetch('http://127.0.0.1:7668/ingest/a0939c7c-6b4b-458b-abf6-c1b2f0a79714', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': 'ba526a' },
-        body: JSON.stringify({
-          sessionId: 'ba526a',
-          runId: 'post-fix',
-          location: 'playerHandlers.js:DISCONNECT',
-          message: 'disconnect after handlePlayerSocketDisconnect',
-          data: {
-            pin,
-            teamId,
-            emitsTeamRemoved: true,
-            teamIdsStillInGameState: gameStateAfter
-              ? Object.keys(gameStateAfter.teams || {}).map(Number)
-              : [],
-          },
-          timestamp: Date.now(),
-          hypothesisId: 'H1',
-        }),
-      }).catch(() => {});
-      // #endregion
 
       logger.info('Player disconnected', { pin, teamId });
     } catch (err) {

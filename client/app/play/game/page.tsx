@@ -159,7 +159,7 @@ function QuestionImage({ mediaUrl }: { mediaUrl: string }) {
 
   if (!candidates.length || failed) {
     return (
-      <div className="w-full rounded-xl border border-[#11a7ff] max-h-[190px] min-h-[140px] bg-[#0b1338]/70 flex items-center justify-center text-white/70 text-sm">
+      <div className="flex max-h-[min(42vh,220px)] min-h-[120px] w-full items-center justify-center rounded-xl border border-[#11a7ff] bg-[#0b1338]/70 text-sm text-white/70 sm:min-h-[140px] md:max-h-[min(38vh,260px)]">
         Image unavailable
       </div>
     );
@@ -169,7 +169,7 @@ function QuestionImage({ mediaUrl }: { mediaUrl: string }) {
     <img
       src={candidates[index]}
       alt="Question media"
-      className="w-full rounded-xl border border-[#11a7ff] object-cover max-h-[190px]"
+      className="max-h-[min(42vh,220px)] w-full rounded-xl border border-[#11a7ff] object-cover md:max-h-[min(38vh,260px)]"
       onError={() => {
         const next = index + 1;
         if (next < candidates.length) {
@@ -283,14 +283,16 @@ function HeaderCapsule({
   return (
     <div
       className={cn(
-        'relative flex items-center min-w-27.5 h-11 rounded-full border border-[#ff2b68] bg-[linear-gradient(180deg,#FF0000_0%,#801669_100%)] pl-10 pr-4 shadow-[0_4px_10px_rgba(0,0,0,0.3)]',
+        'relative flex h-10 min-w-[6.5rem] items-center rounded-full border border-[#ff2b68] bg-[linear-gradient(180deg,#FF0000_0%,#801669_100%)] pl-9 pr-3 shadow-[0_4px_10px_rgba(0,0,0,0.3)] sm:h-11 sm:min-w-27.5 sm:pl-10 sm:pr-4',
         className,
       )}
     >
-      <div className="absolute -left-3 top-4.5 -translate-y-1/2 w-14 h-14 flex items-center justify-center">
-        <img src={icon} alt="icon" className="w-full h-full object-contain drop-shadow-md" />
+      <div className="absolute -left-2.5 top-1/2 flex h-11 w-11 -translate-y-1/2 items-center justify-center sm:-left-3 sm:h-14 sm:w-14">
+        <img src={icon} alt="" className="h-full w-full object-contain drop-shadow-md" />
       </div>
-      <span className="w-full text-center font-black text-white text-xl leading-none">{value}</span>
+      <span className="w-full text-center text-base font-black leading-none text-white sm:text-lg md:text-xl">
+        {value}
+      </span>
     </div>
   );
 }
@@ -715,9 +717,6 @@ export default function GamePage() {
   const breakRemainingLength = breakCircumference * breakProgress;
   const breakMinutes = Math.floor(breakRemaining / 60);
   const breakSeconds = breakRemaining % 60;
-  const optionCount = question?.question?.options?.length || 0;
-  const optionHeightClass = optionCount <= 4 ? 'h-[116px]' : 'h-[116px]';
-  const optionTextClass = optionCount <= 4 ? 'text-[22px]' : 'text-[22px]';
   const isAnswerSelectionLocked =
     selectedOption !== null || isEliminated || timerRemaining <= 0 || phase !== 'question';
   const showTimeExpiredState =
@@ -748,23 +747,23 @@ export default function GamePage() {
               <motion.div
                 key="round_intro"
                 {...pageTransition}
-                className="flex-1 flex items-center justify-center p-4"
+                className="flex flex-1 items-center justify-center p-3 sm:p-4 md:p-6"
               >
                 <motion.div
                   initial={{ opacity: 0, scale: 0.94 }}
                   animate={{ opacity: 1, scale: 1 }}
                   transition={{ delay: 0.1 }}
-                  className="relative w-full max-w-100"
+                  className="relative w-full max-w-[min(26rem,92vw)] md:max-w-[34rem] lg:max-w-[38rem]"
                 >
                   <img src="/Venue Round Intro.png" alt="Round intro" className="w-full h-auto" />
 
                   <div className="pointer-events-none absolute inset-0">
                     {/* Solid fill masks baked-in "ROUND N" text inside round intro.png so only live data shows */}
-                    <div className="absolute left-1/2 top-[22%] h-[40%] w-[58%] -translate-x-1/2 rounded-full flex flex-col items-center justify-center text-center px-3">
-                      <p className="relative z-10 text-[40px] font-extrabold leading-[0.95] bg-linear-to-b from-[#FFFFFF] to-[#FFC870] bg-clip-text text-transparent">
+                    <div className="absolute left-1/2 top-[22%] flex h-[40%] w-[58%] -translate-x-1/2 flex-col items-center justify-center rounded-full px-2 text-center sm:px-3">
+                      <p className="relative z-10 bg-linear-to-b from-[#FFFFFF] to-[#FFC870] bg-clip-text text-[clamp(1.65rem,5.2vw,2.65rem)] font-extrabold leading-[0.95] text-transparent md:text-[clamp(2rem,4vw,2.85rem)]">
                         ROUND {(roundInfo.roundIndex || 0) + 1}
                       </p>
-                      <p className="relative z-10 mt-1 max-w-[88%] text-[13px] font-bold leading-[1.1] text-[#00d8ff]">
+                      <p className="relative z-10 mt-1 max-w-[92%] text-[clamp(0.95rem,3.2vw,1.35rem)] font-bold leading-[1.15] text-[#00d8ff] sm:max-w-[90%] sm:text-lg md:text-xl">
                         {normalizeRoundIntroTitle(
                           roundInfo.round?.name,
                           roundInfo.round?.type,
@@ -773,19 +772,27 @@ export default function GamePage() {
                       </p>
                     </div>
 
-                    <div className="absolute top-[74%] left-[10%] w-full">
-                      <p className="text-[20px] font-bold text-[#00ff4a]">
+                    <div className="absolute left-1/2 top-[71%] flex w-[calc(100%-1.25rem)] max-w-xl -translate-x-1/2 flex-col items-stretch gap-2 px-2 text-center sm:top-[73%] sm:w-[min(92%,36rem)] sm:gap-2.5 sm:px-3 md:max-w-2xl md:px-4">
+                      <div className="flex min-w-0 w-full flex-col items-center gap-1.5 sm:flex-row sm:justify-center sm:gap-2.5">
                         <img
                           src="/plus10.png"
-                          alt="Checkmark"
-                          className="inline-block w-6  h-6 mr-2"
+                          alt=""
+                          className="h-6 w-6 shrink-0 sm:h-7 sm:w-7 md:h-8 md:w-8"
                         />
-                        {getRoundScoringLines(roundInfo.round?.type).positive}
-                      </p>
-                      <p className="mt-1 text-[20px] font-bold text-[#ff0037]">
-                        <img src="/minus2.png" alt="Cross" className="inline-block w-6 h-6 mr-2" />
-                        {getRoundScoringLines(roundInfo.round?.type).negative}
-                      </p>
+                        <span className="max-w-2xl text-center text-pretty text-[clamp(0.8rem,2.8vw+0.4rem,1.35rem)] font-bold leading-snug text-[#00ff4a] md:text-xs md:leading-tight lg:text-xs">
+                          {getRoundScoringLines(roundInfo.round?.type).positive}
+                        </span>
+                      </div>
+                      <div className="flex min-w-0 w-full flex-col items-center gap-1.5 sm:flex-row sm:justify-center sm:gap-2.5">
+                        <img
+                          src="/minus2.png"
+                          alt=""
+                          className="h-6 w-6 shrink-0 sm:h-7 sm:w-7 md:h-8 md:w-8"
+                        />
+                        <span className="min-w-0 w-full max-w-full text-center text-pretty text-[clamp(0.8rem,2.8vw+0.4rem,1.35rem)] font-bold leading-snug text-[#ff0037] wrap-anywhere sm:max-w-[min(100%,28rem)] sm:text-[clamp(0.85rem,1.9vw+0.35rem,1.5rem)] md:text-lg md:leading-tight lg:text-xl">
+                          {getRoundScoringLines(roundInfo.round?.type).negative}
+                        </span>
+                      </div>
                     </div>
                   </div>
                 </motion.div>
@@ -800,12 +807,16 @@ export default function GamePage() {
                 className="flex-1 relative overflow-hidden mobile-play-bg"
               >
                 <div className="absolute inset-0 opacity-25 bg-[radial-gradient(circle_at_22%_16%,rgba(145,105,255,0.36)_0_4px,transparent_4px)] [background-size:110px_110px]" />
-                <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-[280px] h-42.5 opacity-55 bg-[radial-gradient(circle,rgba(0,229,255,0.26)_0_2px,transparent_2px)] [background-size:14px_14px]" />
+                <div className="absolute bottom-0 left-1/2 h-42.5 w-[min(92vw,280px)] -translate-x-1/2 opacity-55 bg-[radial-gradient(circle,rgba(0,229,255,0.26)_0_2px,transparent_2px)] [background-size:14px_14px] md:w-[min(92vw,360px)]" />
 
-                <div className="relative z-10 h-full flex items-center justify-center p-4">
-                  <div className="w-full max-w-[420px] border-2 border-[#00d8ff] bg-[linear-gradient(180deg,rgba(45,13,121,0.72)_0%,rgba(15,8,66,0.82)_100%)] px-6 py-8 text-center shadow-[0_0_26px_rgba(0,216,255,0.24)]">
-                    <div className="mx-auto mb-6 flex h-[84px] w-[84px] items-center justify-center rounded-full border-2 border-[#00d8ff] bg-[rgba(5,14,34,0.75)] shadow-[0_0_18px_rgba(0,216,255,0.35)]">
-                      <svg width="44" height="44" viewBox="0 0 24 24" fill="none">
+                <div className="relative z-10 flex h-full items-center justify-center p-3 sm:p-4 md:p-6">
+                  <div className="w-full max-w-sm border-2 border-[#00d8ff] bg-[linear-gradient(180deg,rgba(45,13,121,0.72)_0%,rgba(15,8,66,0.82)_100%)] px-5 py-7 text-center shadow-[0_0_26px_rgba(0,216,255,0.24)] sm:max-w-md sm:px-6 sm:py-8 md:max-w-lg">
+                    <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-full border-2 border-[#00d8ff] bg-[rgba(5,14,34,0.75)] shadow-[0_0_18px_rgba(0,216,255,0.35)] sm:mb-6 sm:h-20 sm:w-20 md:h-[5.25rem] md:w-[5.25rem]">
+                      <svg
+                        className="h-10 w-10 sm:h-11 sm:w-11 md:h-12 md:w-12"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                      >
                         <path
                           d="M16 21v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2"
                           stroke="#00d8ff"
@@ -831,18 +842,18 @@ export default function GamePage() {
                       </svg>
                     </div>
 
-                    <h2 className="text-[54px] leading-[0.95] font-extrabold text-white">
+                    <h2 className="text-[clamp(2rem,7vw,3.4rem)] font-extrabold leading-[0.95] text-white sm:text-[clamp(2.25rem,5.5vw,3.5rem)] md:text-6xl">
                       Waiting for game
                       <br />
                       to start
                     </h2>
-                    <p className="mt-3 text-[22px] leading-tight text-white/70">
+                    <p className="mt-3 text-base leading-tight text-white/70 sm:text-lg md:text-xl">
                       The host will start the game shortly
                     </p>
 
                     <button
                       onClick={() => setShowExitConfirm(true)}
-                      className="mt-5 text-[#ff4f61] text-[19px] font-medium"
+                      className="mt-5 text-base font-medium text-[#ff4f61] sm:text-lg"
                     >
                       Leave Game
                     </button>
@@ -858,9 +869,9 @@ export default function GamePage() {
               <motion.div
                 key="wager"
                 {...pageTransition}
-                className="flex-1 flex flex-col items-center justify-center p-6 text-center"
+                className="flex flex-1 flex-col items-center justify-center p-4 text-center sm:p-6 md:p-8"
               >
-                <div className="w-full max-w-sm">
+                <div className="w-full max-w-sm md:max-w-md">
                   <motion.h2
                     initial={{ opacity: 0, y: -10 }}
                     animate={{ opacity: 1, y: 0 }}
@@ -868,11 +879,23 @@ export default function GamePage() {
                   >
                     Place Your Wager
                   </motion.h2>
-                  <p className="text-foreground/40 text-sm mb-6">
-                    {question.roundType === 'FINAL_WAGER'
-                      ? `Wager 0–100% of your ${session.score} points`
-                      : 'Wager 0–50 points'}
-                  </p>
+                  {question.roundType === 'FINAL_WAGER' ? (
+                    <p className="text-foreground/40 text-sm mb-6">
+                      Wager 0–100% of your {session.score} points
+                    </p>
+                  ) : (
+                    <div className="mb-6 space-y-2 rounded-xl border border-white/10 bg-black/25 px-4 py-3 text-left text-sm leading-snug text-white/75 sm:text-center">
+                      <p>
+                        Players select a fixed wager (0–50 points) before the question is revealed.
+                      </p>
+                      <p>
+                        <span className="font-semibold text-neon-green/90">Correct</span> = gain
+                        wagered amount.{' '}
+                        <span className="font-semibold text-red-400/90">Incorrect</span> = lose
+                        wagered amount.
+                      </p>
+                    </div>
+                  )}
                   <motion.div
                     initial={{ opacity: 0, scale: 0.95 }}
                     animate={{ opacity: 1, scale: 1 }}
@@ -908,29 +931,29 @@ export default function GamePage() {
               <motion.div
                 key="question"
                 {...pageTransition}
-                className="flex-1 flex flex-col p-4 mt-4"
+                className="mt-2 flex flex-1 flex-col px-3 pb-4 pt-2 sm:mt-4 sm:px-4 sm:pb-6 md:px-6"
               >
                 {/* Header: Timer, Q Index, Score */}
-                <div className="flex items-center justify-between mb-5 px-1">
+                <div className="mb-4 flex items-center justify-between gap-2 px-0.5 sm:mb-5 sm:px-1">
                   <HeaderCapsule
                     icon="/Clock.png"
                     value={timerRemaining.toString().padStart(2, '0')}
                   />
                   <div className="flex flex-col items-center">
-                    <span className="text-white text-2xl font-black drop-shadow-lg">
+                    <span className="text-xl font-black text-white drop-shadow-lg sm:text-2xl md:text-3xl">
                       {(question.questionIndex || 0) + 1}/{question.totalQuestions}
                     </span>
                   </div>
                   <HeaderCapsule icon="/trophy.png" value={session.score} />
                 </div>
 
-                <div className="mb-4 ">
-                  <h2 className="text-[20px] font-black leading-snug text-white text-center drop-shadow-md">
+                <div className="mb-3 sm:mb-4">
+                  <h2 className="text-center text-[clamp(1rem,3.8vw,1.35rem)] font-black leading-snug text-white drop-shadow-md sm:text-lg md:text-xl">
                     {question.question.text}
                   </h2>
                 </div>
 
-                <div className="flex flex-col gap-4">
+                <div className="flex flex-col gap-3 sm:gap-4">
                   {isImageMedia(question.question.mediaType, question.question.mediaUrl) &&
                   question.question.mediaUrl ? (
                     <div className="shrink-0">
@@ -944,7 +967,7 @@ export default function GamePage() {
                       <div className="rounded-2xl border-2 border-[#11a7ff] overflow-hidden shadow-[0_0_20px_rgba(17,167,255,0.3)]">
                         <video
                           src={resolveMediaUrl(question.question.mediaUrl)}
-                          className="w-full object-cover max-h-55"
+                          className="max-h-[min(42vh,220px)] w-full object-cover md:max-h-[min(38vh,280px)]"
                           controls
                         />
                       </div>
@@ -956,10 +979,10 @@ export default function GamePage() {
                         <img
                           src="/musicbg.png"
                           alt="Music round placeholder"
-                          className="w-full object-cover max-h-55"
+                          className="max-h-[min(42vh,220px)] w-full object-cover md:max-h-[min(38vh,280px)]"
                         />
                       </div>
-                      <p className="mt-2 text-center text-white font-semibold">
+                      <p className="mt-2 text-center text-sm font-semibold text-white sm:text-base">
                         {isPlayerMp3Playing
                           ? 'Audio is playing on Venue Screen'
                           : 'Waiting for host to play music'}
@@ -972,7 +995,7 @@ export default function GamePage() {
                     variants={staggerContainer}
                     initial="initial"
                     animate="animate"
-                    className="flex flex-col gap-4 mt-4"
+                    className="mt-3 flex flex-col gap-3 sm:mt-4 sm:gap-4"
                   >
                     {question.question.options.map((opt, i) => {
                       const isSelected = selectedOption === i;
@@ -986,8 +1009,8 @@ export default function GamePage() {
                           onClick={() => handleSelectOption(i)}
                           disabled={isLocked}
                           className={cn(
-                            'w-full min-h-15 rounded-xl px-6 text-white font-bold shadow-[0_4px_10px_rgba(0,0,0,0.5),inset_0_1px_1px_rgba(255,255,255,0.2)]',
-                            'transition-all touch-manipulation select-none flex items-center justify-start',
+                            'flex min-h-14 w-full items-center justify-start rounded-xl px-4 py-3 text-white font-bold shadow-[0_4px_10px_rgba(0,0,0,0.5),inset_0_1px_1px_rgba(255,255,255,0.2)] sm:min-h-16 sm:px-6 sm:py-4 md:min-h-[4.75rem]',
+                            'touch-manipulation select-none transition-all',
                             OPTION_BG[i] || 'bg-[#1565c0]',
                             isSelected &&
                               'ring-4 ring-white shadow-[0_0_25px_rgba(255,255,255,0.5)]',
@@ -995,7 +1018,7 @@ export default function GamePage() {
                             isLocked && 'cursor-not-allowed',
                           )}
                         >
-                          <span className="text-[20px] leading-tight font-black drop-shadow-md">
+                          <span className="text-left text-base font-black leading-tight drop-shadow-md sm:text-lg md:text-xl">
                             {OPTION_LETTERS[i]}. {opt.text}
                           </span>
                         </motion.button>
@@ -1010,7 +1033,7 @@ export default function GamePage() {
                     animate={{ opacity: 1, y: 0 }}
                     className="text-center mt-6"
                   >
-                    <p className="text-[#ff5252] text-[28px] font-black leading-none drop-shadow-[0_0_10px_rgba(255,82,82,0.6)]">
+                    <p className="text-2xl font-black leading-none text-[#ff5252] drop-shadow-[0_0_10px_rgba(255,82,82,0.6)] sm:text-3xl md:text-4xl">
                       Time is over
                     </p>
                   </motion.div>
@@ -1022,7 +1045,7 @@ export default function GamePage() {
                     animate={{ opacity: 1, y: 0 }}
                     className="text-center mt-6"
                   >
-                    <p className="text-white text-[28px] font-black leading-none drop-shadow-[0_0_10px_rgba(255,255,255,0.4)]">
+                    <p className="text-2xl font-black leading-none text-white drop-shadow-[0_0_10px_rgba(255,255,255,0.4)] sm:text-3xl md:text-4xl">
                       Answer Submitted !!
                     </p>
                   </motion.div>
@@ -1035,26 +1058,26 @@ export default function GamePage() {
               <motion.div
                 key="reveal"
                 {...pageTransition}
-                className="flex-1 flex flex-col p-4 mt-4"
+                className="mt-2 flex flex-1 flex-col px-3 pb-4 pt-2 sm:mt-4 sm:px-4 sm:pb-6 md:px-6"
               >
                 {/* Header: Timer, Q Index, Score */}
-                <div className="flex items-center justify-between mb-5 px-1">
+                <div className="mb-4 flex items-center justify-between gap-2 px-0.5 sm:mb-5 sm:px-1">
                   <HeaderCapsule icon="/Clock.png" value="00:00" />
                   <div className="flex flex-col items-center">
-                    <span className="text-white text-2xl font-black drop-shadow-lg">
+                    <span className="text-xl font-black text-white drop-shadow-lg sm:text-2xl md:text-3xl">
                       {(question.questionIndex || 0) + 1}/{question.totalQuestions}
                     </span>
                   </div>
                   <HeaderCapsule icon="/trophy.png" value={session.score} />
                 </div>
 
-                <div className="mb-4">
-                  <h2 className="text-[20px] font-black leading-snug text-white text-center drop-shadow-md">
+                <div className="mb-3 sm:mb-4">
+                  <h2 className="text-center text-[clamp(1rem,3.8vw,1.35rem)] font-black leading-snug text-white drop-shadow-md sm:text-lg md:text-xl">
                     {question.question.text}
                   </h2>
                 </div>
 
-                <div className="flex flex-col gap-4">
+                <div className="flex flex-col gap-3 sm:gap-4">
                   {isImageMedia(question.question.mediaType, question.question.mediaUrl) &&
                   question.question.mediaUrl ? (
                     <div className="shrink-0">
@@ -1069,7 +1092,7 @@ export default function GamePage() {
                     variants={staggerContainer}
                     initial="initial"
                     animate="animate"
-                    className="flex flex-col gap-4 mt-4"
+                    className="mt-3 flex flex-col gap-3 sm:mt-4 sm:gap-4"
                   >
                     {question.question.options.map((opt, i) => {
                       const isCorrectOption = i === revealData.correctOptionIndex;
@@ -1084,8 +1107,8 @@ export default function GamePage() {
                           key={i}
                           variants={staggerItem}
                           className={cn(
-                            'w-full min-h-15 rounded-xl px-6 text-white font-bold ',
-                            'transition-all touch-manipulation select-none flex items-center justify-start',
+                            'flex min-h-14 w-full items-center justify-start rounded-xl px-4 py-3 text-white font-bold sm:min-h-16 sm:px-6 sm:py-4 md:min-h-[4.75rem]',
+                            'touch-manipulation select-none transition-all',
                             OPTION_BG[i] || 'bg-[#1565c0]',
                             isCorrectOption &&
                               'shadow-[0_0_8px_8px_rgba(57,255,74,0.9),_0_0_0px_rgba(57,255,74,0.5)]',
@@ -1094,7 +1117,7 @@ export default function GamePage() {
                             shouldDim && 'opacity-30 brightness-50 contrast-75 scale-[0.98]',
                           )}
                         >
-                          <span className="text-[20px] leading-tight font-black drop-shadow-md">
+                          <span className="text-left text-base font-black leading-tight drop-shadow-md sm:text-lg md:text-xl">
                             {OPTION_LETTERS[i]}. {opt.text}
                           </span>
                         </motion.div>
@@ -1111,7 +1134,7 @@ export default function GamePage() {
                 >
                   <p
                     className={cn(
-                      'text-[20px] font-black leading-none',
+                      'text-lg font-black leading-none sm:text-xl md:text-2xl',
                       selectedOption === null
                         ? 'text-white drop-shadow-[0_0_15px_rgba(255,255,255,0.4)]'
                         : selectedOption === revealData.correctOptionIndex
@@ -1167,10 +1190,10 @@ export default function GamePage() {
               <motion.div
                 key="scoreboard"
                 {...pageTransition}
-                className="flex-1 flex flex-col p-4 mt-4"
+                className="mt-2 flex flex-1 flex-col px-3 pb-4 pt-2 sm:mt-4 sm:px-4 md:px-6"
               >
-                <div className="mb-4 text-center">
-                  <h2 className="text-[52px] leading-none font-extrabold text-white tracking-wide drop-shadow-[0_0_10px_rgba(255,255,255,0.2)]">
+                <div className="mb-3 text-center sm:mb-4">
+                  <h2 className="text-[clamp(1.75rem,6vw,3.25rem)] font-extrabold leading-none tracking-wide text-white drop-shadow-[0_0_10px_rgba(255,255,255,0.2)]">
                     🏅 LEADERBOARD 🏅
                   </h2>
                 </div>
@@ -1187,15 +1210,15 @@ export default function GamePage() {
                         key={team.teamId}
                         variants={staggerItem}
                         className={cn(
-                          'relative flex items-center justify-between rounded-2xl border px-3 py-4 shadow-[0_0_18px_rgba(0,229,255,0.3)]',
+                          'relative flex items-center justify-between rounded-2xl border px-2 py-3 shadow-[0_0_18px_rgba(0,229,255,0.3)] sm:px-3 sm:py-4',
                           'border-[#12ddff]/70 bg-[linear-gradient(90deg,#2d12a0_0%,#9a0dbd_100%)]',
                           isMe && 'ring-2 ring-[#35f6ff] shadow-[0_0_22px_rgba(53,246,255,0.5)]',
                         )}
                       >
-                        <div className="flex items-center gap-3 min-w-0">
+                        <div className="flex min-w-0 items-center gap-2 sm:gap-3">
                           <span
                             className={cn(
-                              'w-11 h-11 rounded-lg flex items-center justify-center text-2xl font-black border',
+                              'flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border text-lg font-black sm:h-11 sm:w-11 sm:text-2xl',
                               idx === 0 &&
                                 'bg-[linear-gradient(180deg,#ffd35e_0%,#ff9f0a_100%)] text-white border-[#ffdf7f]',
                               idx === 1 &&
@@ -1209,7 +1232,7 @@ export default function GamePage() {
                           </span>
                           <span
                             className={cn(
-                              'font-bold text-[36px] truncate text-white',
+                              'truncate text-xl font-bold text-white sm:text-2xl md:text-3xl',
                               isMe && 'text-[#8af7ff]',
                             )}
                           >
@@ -1218,7 +1241,7 @@ export default function GamePage() {
                         </div>
                         <span
                           className={cn(
-                            'font-extrabold text-[42px] leading-none text-white',
+                            'shrink-0 pl-2 text-2xl font-extrabold leading-none text-white sm:text-3xl md:text-4xl',
                             isMe && 'text-[#8af7ff]',
                           )}
                         >
@@ -1242,15 +1265,15 @@ export default function GamePage() {
                 <div className="absolute inset-0 opacity-25 bg-[radial-gradient(circle_at_22%_16%,rgba(145,105,255,0.36)_0_4px,transparent_4px)] [background-size:110px_110px]" />
                 <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-72.5 h-45 opacity-55 bg-[radial-gradient(circle,rgba(0,229,255,0.26)_0_2px,transparent_2px)] [background-size:14px_14px]" />
 
-                <div className="relative z-10 h-full w-full flex flex-col items-center justify-center px-5 text-center">
-                  <h2 className="text-[54px] leading-none font-extrabold text-white">
+                <div className="relative z-10 flex h-full w-full flex-col items-center justify-center px-4 text-center sm:px-6">
+                  <h2 className="text-[clamp(2rem,7vw,3.4rem)] font-extrabold leading-none text-white sm:text-[clamp(2.25rem,5vw,3.5rem)]">
                     TAKE A BREAK !!
                   </h2>
-                  <p className="mt-3 text-[33px] font-semibold text-white">
-                    We'll be back shortly...
+                  <p className="mt-2 text-lg font-semibold text-white sm:mt-3 sm:text-2xl md:text-3xl">
+                    {"We'll be back shortly..."}
                   </p>
 
-                  <div className="relative mt-10 h-[320px] w-[320px]">
+                  <div className="relative mx-auto mt-6 aspect-square w-[min(88vw,320px)] max-w-[360px] sm:mt-8 sm:w-[min(82vw,340px)] md:mt-10 md:max-w-[400px]">
                     <svg className="absolute inset-0" viewBox="0 0 300 300">
                       <defs>
                         <linearGradient id="breakRingGradient" x1="0%" y1="0%" x2="100%" y2="100%">
@@ -1283,11 +1306,11 @@ export default function GamePage() {
                       </g>
                     </svg>
 
-                    <div className="absolute inset-[28px] rounded-full bg-[radial-gradient(circle_at_50%_35%,rgba(44,23,101,0.92)_0%,rgba(10,7,40,0.96)_100%)] border border-[#00d8ff]/25 flex flex-col items-center justify-center">
-                      <p className="text-[74px] leading-none font-black text-white font-mono">
+                    <div className="absolute inset-[8%] flex flex-col items-center justify-center rounded-full border border-[#00d8ff]/25 bg-[radial-gradient(circle_at_50%_35%,rgba(44,23,101,0.92)_0%,rgba(10,7,40,0.96)_100%)] sm:inset-[9%]">
+                      <p className="font-mono text-[clamp(2.5rem,11vw,4.5rem)] font-black leading-none text-white">
                         {String(breakMinutes)}:{String(breakSeconds).padStart(2, '0')}
                       </p>
-                      <p className="mt-2 text-[34px] font-extrabold tracking-[0.06em] text-[#00e8ff]">
+                      <p className="mt-1 text-sm font-extrabold tracking-[0.06em] text-[#00e8ff] sm:mt-2 sm:text-base md:text-lg lg:text-xl">
                         TIME REMAINING
                       </p>
                     </div>
@@ -1301,14 +1324,14 @@ export default function GamePage() {
               <motion.div
                 key="game_end"
                 {...pageTransition}
-                className="flex-1 flex flex-col items-center justify-center p-6 text-center"
+                className="flex flex-1 flex-col items-center justify-center p-4 text-center sm:p-6 md:p-8"
               >
-                <div className="w-full max-w-sm">
+                <div className="w-full max-w-sm md:max-w-md">
                   <motion.div
                     initial={{ scale: 0, rotate: -30 }}
                     animate={{ scale: 1, rotate: 0 }}
                     transition={{ type: 'spring', stiffness: 200, delay: 0.1 }}
-                    className="text-5xl mb-4"
+                    className="mb-4 text-5xl sm:text-6xl"
                   >
                     🏆
                   </motion.div>
@@ -1316,7 +1339,7 @@ export default function GamePage() {
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
                     transition={{ delay: 0.3 }}
-                    className="text-3xl font-bold mb-2 text-glow-cyan"
+                    className="mb-2 text-2xl font-bold text-glow-cyan sm:text-3xl md:text-4xl"
                   >
                     Thank You For Playing!
                   </motion.h2>
@@ -1404,9 +1427,9 @@ export default function GamePage() {
             <motion.div
               initial={{ opacity: 0, scale: 0.9 }}
               animate={{ opacity: 1, scale: 1 }}
-              className="neon-border bg-surface rounded-2xl p-6 max-w-xs w-full text-center"
+              className="neon-border bg-surface w-full max-w-xs rounded-2xl p-5 text-center sm:max-w-sm sm:p-6"
             >
-              <h3 className="text-lg font-bold mb-2">Leave Game?</h3>
+              <h3 className="mb-2 text-lg font-bold sm:text-xl">Leave Game?</h3>
               <p className="text-foreground/50 text-sm mb-6">
                 You will be removed from the active game. You can rejoin with the same team name.
               </p>

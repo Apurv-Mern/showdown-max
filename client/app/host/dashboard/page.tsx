@@ -455,9 +455,13 @@ function HostDashboardContent() {
           setHostBreakRemaining(safeR);
         }
         setIsScoreboardVisible(data.state === 'SCOREBOARD');
-        setTimerRemaining(data.timerRemaining || 0);
+        setTimerRemaining(
+          data.state === 'QUESTION' && data.questionState === 'REVEALED'
+            ? 0
+            : Number(data.timerRemaining ?? 0),
+        );
         setTimerPaused(data.timerRunning === false);
-        setCurrentQuestion(data.currentQuestion || null);
+        setCurrentQuestion(data.state === 'QUESTION' ? (data.currentQuestion ?? null) : null);
         setLiveResponses((prev) => ({
           correct: data.state === 'QUESTION' && data.questionState === 'ACTIVE' ? prev.correct : 0,
           incorrect:
@@ -507,7 +511,10 @@ function HostDashboardContent() {
       setCurrentQuestion(data);
       setRevealData(null);
       setTimerDuration(data.timerDuration);
-      setTimerRemaining(data.timerRemaining ?? data.timerDuration);
+      const tr = data.timerRemaining;
+      setTimerRemaining(
+        typeof tr === 'number' && Number.isFinite(tr) ? tr : Number(data.timerDuration ?? 30),
+      );
       setIsScoreboardVisible(false);
       setLiveResponses({
         correct: 0,
@@ -531,7 +538,32 @@ function HostDashboardContent() {
 
     socket.on('answer_reveal', (data: RevealData) => {
       setRevealData(data);
-      setGameState((prev) => (prev ? { ...prev, questionState: 'REVEALED' } : prev));
+      setGameState((prev) => {
+        if (!prev) return prev;
+        const nextTeams = { ...prev.teams };
+        for (const t of data.teams || []) {
+          const key = String(t.teamId);
+          const existing = nextTeams[key];
+          nextTeams[key] = existing
+            ? {
+                ...existing,
+                score: t.score,
+                isEliminated: t.isEliminated ?? existing.isEliminated,
+              }
+            : {
+                teamId: t.teamId,
+                teamName: t.teamName,
+                score: t.score,
+                isEliminated: t.isEliminated ?? false,
+              };
+        }
+        return {
+          ...prev,
+          questionState: 'REVEALED',
+          teams: nextTeams,
+          totalTeams: Object.keys(nextTeams).length,
+        };
+      });
     });
 
     socket.on('response_count', (data: { count: number; total: number }) => {
@@ -583,7 +615,7 @@ function HostDashboardContent() {
       );
     });
 
-    socket.on('scoreboard', () => {
+    socket.on('scoreboard', (payload?: { teams?: Team[] }) => {
       setIsScoreboardVisible(true);
       setGameState((prev) => {
         if (!prev) return prev;
@@ -593,7 +625,33 @@ function HostDashboardContent() {
             questionState: prev.questionState,
           };
         }
-        return { ...prev, state: 'SCOREBOARD' };
+        const teamsPayload = payload?.teams;
+        if (!teamsPayload?.length) {
+          return { ...prev, state: 'SCOREBOARD' };
+        }
+        const nextTeams = { ...prev.teams };
+        for (const t of teamsPayload) {
+          const key = String(t.teamId);
+          const existing = nextTeams[key];
+          nextTeams[key] = existing
+            ? {
+                ...existing,
+                score: t.score,
+                isEliminated: t.isEliminated ?? existing.isEliminated,
+              }
+            : {
+                teamId: t.teamId,
+                teamName: t.teamName,
+                score: t.score,
+                isEliminated: t.isEliminated ?? false,
+              };
+        }
+        return {
+          ...prev,
+          state: 'SCOREBOARD',
+          teams: nextTeams,
+          totalTeams: Object.keys(nextTeams).length,
+        };
       });
     });
 
@@ -1528,7 +1586,7 @@ function HostDashboardContent() {
                 </div>
               ) : null}
             </div>
-          ) : currentQuestion ? (
+          ) : state === 'QUESTION' && currentQuestion ? (
             <div className="flex min-h-0 flex-1 flex-col animate-fadeIn">
               <div className="mx-auto flex h-full w-full flex-col overflow-hidden rounded-2xl border border-white/10 shadow-[0_0_28px_rgba(0,0,0,0.5)]">
                 {/* Media Section */}
@@ -1657,10 +1715,10 @@ function HostDashboardContent() {
 
                     <div className="absolute inset-0 pointer-events-none text-center">
                       <div className="absolute left-1/2 top-[40%] w-[62%] -translate-x-1/2 -translate-y-1/2">
-                        <h2 className="text-[72px] leading-none font-black text-[#fff4c2] drop-shadow-[0_0_18px_rgba(255,225,120,0.65)]">
+                        <h2 className="text-[65px] leading-none font-black text-[#fff4c2] drop-shadow-[0_0_18px_rgba(255,225,120,0.65)]">
                           ROUND {(gameState?.currentRoundIndex || 0) + 1}
                         </h2>
-                        <p className="mt-2 text-[38px] leading-[1.05] font-extrabold text-[#25eaff] drop-shadow-[0_0_16px_rgba(37,234,255,0.55)]">
+                        <p className="mt-2 text-[28px] leading-[1.05] font-extrabold text-[#25eaff] drop-shadow-[0_0_16px_rgba(37,234,255,0.55)]">
                           {normalizeRoundTitle(currentRound?.name) ||
                             formatRoundTypeLabel(currentRound?.type || 'MULTIPLE_CHOICE')}
                         </p>
@@ -1668,10 +1726,10 @@ function HostDashboardContent() {
 
                       <div className="absolute left-1/2 top-[79.5%] w-[74%] -translate-x-1/2 -translate-y-1/2">
                         <p className="mb-5 text-[30px] font-black leading-none text-[#39ff14] drop-shadow-[0_0_8px_rgba(57,255,20,0.45)]">
-                          + {getRoundScoringLines(currentRound?.type).positive}
+                          {getRoundScoringLines(currentRound?.type).positive}
                         </p>
                         <p className="text-[30px] font-black leading-none text-[#ff3e3e] drop-shadow-[0_0_8px_rgba(255,62,62,0.45)]">
-                          - {getRoundScoringLines(currentRound?.type).negative}
+                          {getRoundScoringLines(currentRound?.type).negative}
                         </p>
                       </div>
                     </div>
@@ -1761,14 +1819,34 @@ function HostDashboardContent() {
                     </div>
                   </div>
                 </div>
+              ) : state === 'SCOREBOARD' ? (
+                <div className="flex w-full max-w-[720px] flex-col items-center justify-center gap-6 py-8 text-center animate-fadeIn">
+                  <div className="inline-flex items-center gap-3 rounded-full border border-[#41d9ff]/45 bg-[linear-gradient(180deg,rgba(20,42,89,0.95)_0%,rgba(11,20,46,0.95)_100%)] px-8 py-3 shadow-[0_0_22px_rgba(0,217,255,0.2)]">
+                    <span className="text-sm font-semibold uppercase tracking-[0.22em] text-[#8cdfff]">
+                      Round complete
+                    </span>
+                  </div>
+                  <h2 className="text-4xl font-black leading-tight text-white drop-shadow-[0_0_14px_rgba(123,194,255,0.35)] sm:text-5xl">
+                    {currentRound
+                      ? normalizeRoundTitle(currentRound.name) ||
+                        formatRoundTypeLabel(currentRound.type || 'MULTIPLE_CHOICE')
+                      : 'This round is finished'}
+                  </h2>
+                  <p className="max-w-md text-base text-[#9de9ff]/90 sm:text-lg">
+                    All questions in this round are done. When you are ready, go to the next round.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={handleAdvanceRound}
+                    className="mt-2 min-w-[260px] rounded-xl border border-[rgba(0,217,255,0.55)] bg-[linear-gradient(180deg,#3a4a68_0%,#1e2a42_100%)] px-10 py-4 text-base font-black uppercase tracking-[0.14em] text-white shadow-[0_0_24px_rgba(0,217,255,0.22)] transition hover:brightness-110"
+                  >
+                    Start next round
+                  </button>
+                </div>
               ) : (
                 <div className="text-center">
                   <p className="mb-2 text-2xl font-bold text-white/30">
-                    {state === 'LOBBY'
-                      ? 'Waiting for teams to join...'
-                      : state === 'SCOREBOARD'
-                        ? 'Showing Scoreboard'
-                        : 'Waiting...'}
+                    {state === 'LOBBY' ? 'Waiting for teams to join...' : 'Waiting...'}
                   </p>
                   {state === 'LOBBY' ? (
                     <p className="text-sm text-white/40">
@@ -1937,7 +2015,7 @@ function HostDashboardContent() {
             >
               Next Question
             </HostFooterBtn>
-            <HostFooterBtn
+            {/* <HostFooterBtn
               emphasis={showTimerModal}
               icon={
                 <svg viewBox="0 0 24 24" fill="currentColor" className="text-[#00d9ff]">
@@ -1966,7 +2044,7 @@ function HostDashboardContent() {
               {state === 'QUESTION' && questionState === 'ACTIVE' && !timerPaused
                 ? 'Pause Timer'
                 : 'Start Timer'}
-            </HostFooterBtn>
+            </HostFooterBtn> */}
             <HostFooterBtn
               icon={
                 <svg viewBox="0 0 24 24" fill="currentColor" className="text-[#00d9ff]">
@@ -2209,7 +2287,7 @@ function HostDashboardContent() {
 
                     <div className="pointer-events-none absolute inset-0 text-center">
                       <div className="absolute left-1/2 top-[34%] w-[64%] -translate-x-1/2 -translate-y-1/2">
-                        <h2 className="text-[68px] leading-none font-black text-[#fff4c2] drop-shadow-[0_0_18px_rgba(255,225,120,0.65)]">
+                        <h2 className="text-[55px] leading-none font-black text-[#fff4c2] drop-shadow-[0_0_18px_rgba(255,225,120,0.65)]">
                           ROUND {(gameState?.currentRoundIndex ?? 0) + 1}
                         </h2>
                         <p className="mt-2 text-[34px] leading-[1.05] font-extrabold text-[#25eaff] drop-shadow-[0_0_16px_rgba(37,234,255,0.55)]">
@@ -2220,10 +2298,10 @@ function HostDashboardContent() {
 
                       <div className="absolute left-1/2 top-[79.5%] w-[74%] -translate-x-1/2 -translate-y-1/2">
                         <p className="mb-5 text-[28px] font-black leading-none text-[#39ff14] drop-shadow-[0_0_8px_rgba(57,255,20,0.45)]">
-                          + {getRoundScoringLines(currentRound?.type).positive}
+                          {getRoundScoringLines(currentRound?.type).positive}
                         </p>
                         <p className="text-[28px] font-black leading-none text-[#ff3e3e] drop-shadow-[0_0_8px_rgba(255,62,62,0.45)]">
-                          - {getRoundScoringLines(currentRound?.type).negative}
+                          {getRoundScoringLines(currentRound?.type).negative}
                         </p>
                       </div>
                     </div>

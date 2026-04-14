@@ -163,20 +163,20 @@ export default function MiniGamePage() {
 
     return (
       <MobileFrame>
-        <div className="flex-1 flex items-center justify-center p-6">
-          <div className="w-full max-w-sm text-center">
+        <div className="flex flex-1 items-center justify-center p-4 sm:p-6 md:p-8">
+          <div className="w-full max-w-sm text-center sm:max-w-md">
             {isWinner ? (
               <>
-                <div className="text-6xl mb-4">WIN</div>
-                <h2 className="text-3xl font-black text-[#ffd700] mb-2">You Won!</h2>
+                <div className="mb-4 text-5xl sm:text-6xl">WIN</div>
+                <h2 className="mb-2 text-2xl font-black text-[#ffd700] sm:text-3xl">You Won!</h2>
                 <p className="text-foreground/60 text-sm mb-4">
                   You picked <span className="font-bold text-[#ffd700]">{winLabel}</span> and it was correct.
                 </p>
               </>
             ) : (
               <>
-                <div className="text-6xl mb-4">LOSE</div>
-                <h2 className="text-3xl font-black text-foreground/60 mb-2">Better Luck Next Time</h2>
+                <div className="mb-4 text-5xl sm:text-6xl">LOSE</div>
+                <h2 className="mb-2 text-2xl font-black text-foreground/60 sm:text-3xl">Better Luck Next Time</h2>
                 <p className="text-foreground/40 text-sm mb-4">
                   The winning choice was <span className="font-bold text-primary">{winLabel}</span>
                   {selectedChoice
@@ -196,11 +196,11 @@ export default function MiniGamePage() {
 
   return (
     <MobileFrame>
-      <div className="flex-1 flex items-center justify-center p-6">
+      <div className="flex flex-1 items-center justify-center p-4 sm:p-6 md:p-8">
         {gameType === 'horse_race' && (
-          <div className="w-full max-w-sm text-center">
-            <div className="text-4xl mb-3">RACE</div>
-            <h2 className="text-2xl font-bold mb-2">Horse Race</h2>
+          <div className="w-full max-w-sm text-center sm:max-w-md">
+            <div className="mb-3 text-3xl sm:text-4xl">RACE</div>
+            <h2 className="mb-2 text-xl font-bold sm:text-2xl">Horse Race</h2>
             <p className="text-foreground/50 text-sm mb-6">
               {selectedChoice
                 ? 'Your bet is locked! Watch the race on the big screen.'
@@ -209,13 +209,13 @@ export default function MiniGamePage() {
                   : 'Waiting for the host to start the round...'}
             </p>
 
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-2 gap-2 sm:gap-3">
               {HORSES.map((horse) => (
                 <button
                   key={horse.id}
                   onClick={() => handleChoice(horse.id)}
                   disabled={!roundOpen || selectedChoice !== null}
-                  className={`${horse.color} rounded-xl p-5 text-white font-bold text-center transition-all active:scale-95 ${
+                  className={`${horse.color} rounded-xl p-4 text-center text-sm font-bold text-white transition-all active:scale-95 sm:p-5 sm:text-base ${
                     selectedChoice === horse.id
                       ? 'ring-4 ring-white/50 scale-105'
                       : !roundOpen || selectedChoice !== null
@@ -223,8 +223,8 @@ export default function MiniGamePage() {
                         : 'hover:scale-105'
                   }`}
                 >
-                  <div className="text-3xl mb-1">Horse</div>
-                  <div className="text-sm">{horse.name}</div>
+                  <div className="mb-1 text-2xl sm:text-3xl">Horse</div>
+                  <div className="text-xs sm:text-sm">{horse.name}</div>
                 </button>
               ))}
             </div>
@@ -232,9 +232,9 @@ export default function MiniGamePage() {
         )}
 
         {gameType === 'card_shuffle' && (
-          <div className="w-full max-w-md text-center">
-            <div className="text-4xl mb-3">CARD</div>
-            <h2 className="text-2xl font-bold mb-2">Card Shuffle</h2>
+          <div className="w-full max-w-md text-center md:max-w-lg">
+            <div className="mb-3 text-3xl sm:text-4xl">CARD</div>
+            <h2 className="mb-2 text-xl font-bold sm:text-2xl">Card Shuffle</h2>
             <p className="text-foreground/50 text-sm mb-6">
               {selectedChoice
                 ? 'Your pick is locked! Watch the shuffle on the big screen.'

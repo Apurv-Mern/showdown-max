@@ -76,23 +76,21 @@ export default function LobbyPage() {
         }}
       >
         <div className="relative z-10 flex h-full flex-col">
-          <div className="flex-1 flex flex-col items-center justify-center px-6">
+          <div className="flex flex-1 flex-col items-center justify-center px-4 sm:px-6 md:px-8">
             <motion.div
               initial={{ opacity: 0, scale: 0.85 }}
               animate={{ opacity: 1, scale: 1 }}
               transition={{ delay: 0.2, duration: 0.35 }}
-              className="mb-6 flex h-[86px] w-[86px] items-center justify-center rounded-full border-2 border-[#00d8ff] bg-[rgba(5,14,34,0.75)] shadow-[0_0_18px_rgba(0,216,255,0.35)]"
+              className="mb-5 flex h-20 w-20 items-center justify-center rounded-full border-2 border-[#00d8ff] bg-[rgba(5,14,34,0.75)] shadow-[0_0_18px_rgba(0,216,255,0.35)] sm:mb-6 sm:h-[86px] sm:w-[86px]"
             >
               <svg
-                width="42"
-                height="42"
                 viewBox="0 0 24 24"
                 fill="none"
                 stroke="#00d8ff"
                 strokeWidth="2"
                 strokeLinecap="round"
                 strokeLinejoin="round"
-                className="drop-shadow-[0_0_8px_rgba(0,216,255,0.55)]"
+                className="h-10 w-10 drop-shadow-[0_0_8px_rgba(0,216,255,0.55)] sm:h-[42px] sm:w-[42px]"
                 aria-hidden
               >
                 <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
@@ -106,7 +104,7 @@ export default function LobbyPage() {
               initial={{ opacity: 0, y: 8 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.28 }}
-              className="text-[41px] font-bold leading-[1.05] text-white"
+              className="text-[clamp(1.75rem,6vw,2.6rem)] font-bold leading-[1.05] text-white md:text-[clamp(2rem,4vw,2.75rem)]"
             >
               The Quiz Wizards
             </motion.h1>
@@ -114,15 +112,15 @@ export default function LobbyPage() {
               initial={{ opacity: 0, y: 8 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.38 }}
-              className="mt-2 text-[22px] font-medium leading-[1.2] text-white/70"
+              className="mt-2 text-base font-medium leading-[1.2] text-white/70 sm:text-lg md:text-xl"
             >
               You are in
-              <p className="text-[22px] font-medium leading-[1.2] text-white/70">
+              <p className="mt-0.5 text-base font-medium leading-[1.2] text-white/70 sm:text-lg md:text-xl">
                 The host will start the game shortly
               </p>
             </motion.p>
 
-            <LoadingDots className="mt-8" />
+            <LoadingDots className="mt-6 sm:mt-8" />
           </div>
         </div>
 
@@ -131,7 +129,7 @@ export default function LobbyPage() {
           animate={{ opacity: 0.8 }}
           transition={{ delay: 0.7 }}
           onClick={() => setShowExitConfirm(true)}
-          className="absolute bottom-3 left-1/2 z-20 -translate-x-1/2 text-xs text-[#ff6f94] underline underline-offset-2 transition-colors hover:text-[#ff1744]"
+          className="absolute bottom-[max(0.75rem,env(safe-area-inset-bottom,0px))] left-1/2 z-20 -translate-x-1/2 text-xs text-[#ff6f94] underline underline-offset-2 transition-colors hover:text-[#ff1744] sm:text-sm"
         >
           Leave Game
         </motion.button>
@@ -142,7 +140,7 @@ export default function LobbyPage() {
           <motion.div
             initial={{ opacity: 0, scale: 0.9 }}
             animate={{ opacity: 1, scale: 1 }}
-            className="neon-border bg-surface rounded-2xl p-6 max-w-xs w-full text-center"
+            className="neon-border bg-surface w-full max-w-xs rounded-2xl p-5 text-center sm:max-w-sm sm:p-6"
           >
             <h3 className="text-lg font-bold mb-2">Leave Game?</h3>
             <p className="text-foreground/50 text-sm mb-6">

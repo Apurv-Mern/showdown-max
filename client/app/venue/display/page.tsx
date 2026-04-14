@@ -183,7 +183,8 @@ function VenueDisplayContent() {
     if (typeof window !== 'undefined') {
       return `${window.location.origin}/play/join?pin=${pin}`;
     }
-    return `http://localhost:3000/play/join?pin=${pin}`;
+    // return `http://localhost:3000/play/join?pin=${pin}`;
+    return `${PUBLIC_API_URL}/play/join?pin=${pin}`;
   }, [sessionPin]);
 
   const isMusicRound = question?.roundType === 'MUSIC';
@@ -482,11 +483,14 @@ function VenueDisplayContent() {
       setPhase('reveal');
     });
 
-    socket.on('scoreboard', (data: { teams: Team[] }) => {
+    socket.on('scoreboard', (data: { teams: Team[]; revealSnapshot?: RevealData | null }) => {
       if (phaseRef.current !== 'scoreboard') {
         previousPhaseBeforeScoreboardRef.current = phaseRef.current;
       }
       setScoreboard(data.teams.sort((a, b) => b.score - a.score));
+      if (data.revealSnapshot) {
+        setRevealData(data.revealSnapshot);
+      }
       setPhase('scoreboard');
       setIsVenueMp3Playing(false);
       stopMp3();
@@ -889,20 +893,20 @@ function VenueDisplayContent() {
               />
 
               <div className="absolute inset-0 pointer-events-none text-center">
-                <div className="absolute left-1/2 top-[34%] w-[62%] -translate-x-1/2 -translate-y-1/2">
-                  <h2 className="text-[75px] leading-none font-black text-[#fff4c2] drop-shadow-[0_0_18px_rgba(255,225,120,0.65)]">
+                <div className="absolute left-1/2 top-[44%] w-[62%] -translate-x-1/2 -translate-y-1/2">
+                  <h1 className="text-[60px]  leading-none font-black text-[#fff4c2] drop-shadow-[0_0_18px_rgba(255,225,120,0.65)]">
                     ROUND {(roundInfo.roundIndex || 0) + 1}
-                  </h2>
-                  <p className="mt-2 text-[40px] leading-[1.05] font-extrabold text-[#25eaff] drop-shadow-[0_0_16px_rgba(37,234,255,0.55)]">
+                  </h1>
+                  <p className="mt-2 text-[30px] leading-[1.05] font-extrabold text-[#25eaff] drop-shadow-[0_0_16px_rgba(37,234,255,0.55)]">
                     {normalizeRoundTitle(roundInfo.round?.name)}
                   </p>
                 </div>
 
-                <div className="absolute left-1/2 top-[80%] w-[74%] -translate-x-1/2 -translate-y-1/2">
-                  <p className="text-[32px] font-black text-[#39ff14] leading-none mb-5 drop-shadow-[0_0_8px_rgba(57,255,20,0.45)]">
+                <div className="absolute left-1/2 top-[83%] w-[74%] -translate-x-1/2 -translate-y-1/2">
+                  <p className="text-[28px] font-black text-[#39ff14] leading-none mb-5 drop-shadow-[0_0_8px_rgba(57,255,20,0.45)]">
                     + {getRoundScoringLines(roundInfo.round?.type).positive}
                   </p>
-                  <p className="text-[32px] font-black text-[#ff3e3e] leading-none drop-shadow-[0_0_8px_rgba(255,62,62,0.45)]">
+                  <p className="text-[28px] font-black text-[#ff3e3e] leading-none drop-shadow-[0_0_8px_rgba(255,62,62,0.45)]">
                     - {getRoundScoringLines(roundInfo.round?.type).negative}
                   </p>
                 </div>
@@ -1328,13 +1332,21 @@ function VenueDisplayContent() {
                   The Correct Answer is :
                 </p>
                 <p className="text-[50px] font-extrabold text-[#39ff4a] leading-none mt-2">
-                  {revealData
-                    ? `${OPTION_LETTERS[revealData.correctOptionIndex]}. ${revealData.correctText}`
-                    : '-'}
+                  {(() => {
+                    if (!revealData) return '-';
+                    const idx = revealData.correctOptionIndex;
+                    const letter =
+                      idx >= 0 && idx < OPTION_LETTERS.length ? OPTION_LETTERS[idx] : null;
+                    const text = (revealData.correctText || '').trim();
+                    if (letter && text) return `${letter}. ${text}`;
+                    if (text) return text;
+                    if (letter) return `${letter}.`;
+                    return '-';
+                  })()}
                 </p>
               </div>
 
-              <div className="grid grid-cols-[110px_1.5fr_1fr_1fr_1fr] items-center px-5 mb-3 text-white text-[30px] font-bold">
+              <div className="grid grid-cols-[110px_1.5fr_1fr_1fr] items-center px-5 mb-3 text-white text-[30px] font-bold">
                 <div>Rank</div>
                 <div>Team Name</div>
                 <div>Option</div>
@@ -1344,23 +1356,19 @@ function VenueDisplayContent() {
               <div className="space-y-3">
                 {scoreboard.slice(0, 8).map((team, idx) => {
                   const response = revealData?.responseDetails?.find(
-                    (r) => r.teamId === team.teamId,
+                    (r) => Number(r.teamId) === Number(team.teamId),
                   );
                   const selectedOptionIndex = response?.selectedOptionIndex ?? -1;
                   const selectedLabel =
                     selectedOptionIndex >= 0 && selectedOptionIndex < OPTION_LETTERS.length
                       ? OPTION_LETTERS[selectedOptionIndex]
                       : '-';
-                  const timeText =
-                    response?.responseTime !== null && response?.responseTime !== undefined
-                      ? Number(response.responseTime).toFixed(2)
-                      : '--';
                   const totalScore = Number(team.score ?? 0);
 
                   return (
                     <div
                       key={team.teamId}
-                      className="grid grid-cols-[110px_1.5fr_1fr_1fr_1fr] items-center rounded-[10px] border border-[#2ec7ff]/50 bg-[linear-gradient(90deg,#2c00a8_0%,#9a00b8_100%)] px-5 py-3 text-white text-[28px] font-semibold"
+                      className="grid grid-cols-[110px_1.5fr_1fr_1fr] items-center rounded-[10px] border border-[#2ec7ff]/50 bg-[linear-gradient(90deg,#2c00a8_0%,#9a00b8_100%)] px-5 py-3 text-white text-[28px] font-semibold"
                     >
                       <div>
                         <span className="inline-flex h-10 min-w-10 items-center justify-center rounded bg-[#080327] px-3 text-[24px] font-bold">
@@ -1373,7 +1381,7 @@ function VenueDisplayContent() {
                       <div>{selectedLabel}</div>
                       <div className="text-[#00f0ff]">
                         {totalScore >= 0 ? '+' : ''}
-                        {String(totalScore).padStart(3, '0')}
+                        {totalScore}
                       </div>
                     </div>
                   );

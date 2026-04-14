@@ -105,7 +105,7 @@ function JoinContent() {
         initial={{ opacity: 0, y: 24 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.45, ease: 'easeOut' }}
-        className="relative h-full min-h-0 w-full overflow-hidden mobile-play-bg px-5 pt-22.5"
+        className="relative h-full min-h-0 w-full overflow-hidden mobile-play-bg px-4 pt-[clamp(4.5rem,14vh,7rem)] sm:px-6 sm:pt-24 md:px-8 md:pt-28"
         style={{
           backgroundImage: "url('/Mobile_BG.png')",
           backgroundSize: '100% 100%',
@@ -124,13 +124,13 @@ function JoinContent() {
             <img
               src="/logo.png"
               alt="Max Showdown logo"
-              className="mx-auto w-[92%] max-w-82.5 drop-shadow-[0_0_18px_rgba(0,229,255,0.22)]"
+              className="mx-auto w-[min(92%,28rem)] max-w-full drop-shadow-[0_0_18px_rgba(0,229,255,0.22)] sm:w-[88%] md:max-w-md"
             />
-            <div className="px-1 pb-14 pt-5 text-center">
-              <h1 className="text-[30px] font-black uppercase leading-none text-[#00d8ff]">
+            <div className="px-1 pb-12 pt-4 text-center sm:pb-14 sm:pt-5">
+              <h1 className="text-[clamp(1.25rem,5vw,1.9rem)] font-black uppercase leading-none text-[#00d8ff] sm:text-3xl md:text-4xl">
                 LIVE TRIVIA EXPERIENCE
               </h1>
-              <p className="mt-2 text-[27px] font-semibold leading-[1.15] text-white">
+              <p className="mt-2 text-[clamp(1.1rem,4.2vw,1.7rem)] font-semibold leading-[1.15] text-white sm:text-2xl md:text-3xl">
                 Get ready-the game is about to begin
               </p>
             </div>
@@ -141,7 +141,7 @@ function JoinContent() {
             initial={{ opacity: 0, y: 14 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.35, ease: 'easeOut' }}
-            className="relative z-10"
+            className="relative z-10 mx-auto w-full max-w-md md:max-w-lg"
           >
             <motion.img
               initial={{ opacity: 0, scale: 0.95 }}
@@ -149,10 +149,10 @@ function JoinContent() {
               transition={{ delay: 0.1, duration: 0.4 }}
               src="/logo.png"
               alt="Max Showdown logo"
-              className="mx-auto w-[94%] max-w-85 drop-shadow-[0_0_18px_rgba(0,229,255,0.22)]"
+              className="mx-auto w-[min(94%,26rem)] max-w-full drop-shadow-[0_0_18px_rgba(0,229,255,0.22)] sm:w-[90%]"
             />
 
-            <div className="mt-8 space-y-5 text-left">
+            <div className="mt-6 space-y-4 text-left sm:mt-8 sm:space-y-5">
               {error && (
                 <motion.div
                   initial={{ opacity: 0, height: 0 }}
@@ -164,7 +164,7 @@ function JoinContent() {
               )}
 
               <div>
-                <label className="mb-2 block text-[20px] font-semibold leading-none text-white">
+                <label className="mb-2 block text-base font-semibold leading-none text-white sm:text-lg">
                   Enter Session PIN
                 </label>
                 <input
@@ -173,14 +173,14 @@ function JoinContent() {
                   placeholder="Enter Session PIN"
                   value={pin}
                   onChange={(e) => setPin(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                  className="h-14 w-full rounded-[10px] border border-[#00d8ff]/70 bg-[rgba(10,18,40,0.92)] px-4 text-[17px] font-medium tracking-[0.06em] text-white placeholder:text-[#93a0b5] focus:outline-none focus:shadow-[0_0_14px_rgba(0,216,255,0.35)]"
+                  className="h-12 w-full rounded-[10px] border border-[#00d8ff]/70 bg-[rgba(10,18,40,0.92)] px-4 text-base font-medium tracking-[0.06em] text-white placeholder:text-[#93a0b5] focus:outline-none focus:shadow-[0_0_14px_rgba(0,216,255,0.35)] sm:h-14 sm:text-[17px]"
                   maxLength={6}
                   autoFocus
                 />
               </div>
 
               <div>
-                <label className="mb-2 block text-[20px] font-semibold leading-none text-white">
+                <label className="mb-2 block text-base font-semibold leading-none text-white sm:text-lg">
                   Enter your Team Name
                 </label>
                 <input
@@ -188,7 +188,7 @@ function JoinContent() {
                   placeholder="Enter Team Name"
                   value={teamName}
                   onChange={(e) => setTeamName(e.target.value.replace(/\s{2,}/g, ' '))}
-                  className="h-14 w-full rounded-[10px] border border-[#00d8ff]/70 bg-[rgba(10,18,40,0.92)] px-4 text-[17px] font-medium text-white placeholder:text-[#93a0b5] focus:outline-none focus:shadow-[0_0_14px_rgba(0,216,255,0.35)]"
+                  className="h-12 w-full rounded-[10px] border border-[#00d8ff]/70 bg-[rgba(10,18,40,0.92)] px-4 text-base font-medium text-white placeholder:text-[#93a0b5] focus:outline-none focus:shadow-[0_0_14px_rgba(0,216,255,0.35)] sm:h-14 sm:text-[17px]"
                   maxLength={50}
                 />
               </div>
@@ -196,7 +196,7 @@ function JoinContent() {
               <Button
                 onClick={handleJoin}
                 disabled={joining || !pin || !teamName.trim()}
-                className="h-14 w-full rounded-[10px] border border-[#ff4d4d] bg-gradient-to-b from-[#ff001f] to-[#7f0010] text-[20px] font-bold uppercase tracking-[0.04em] text-white shadow-[0_4px_16px_rgba(255,0,31,0.32)] hover:brightness-110 disabled:opacity-45"
+                className="h-12 w-full rounded-[10px] border border-[#ff4d4d] bg-gradient-to-b from-[#ff001f] to-[#7f0010] text-base font-bold uppercase tracking-[0.04em] text-white shadow-[0_4px_16px_rgba(255,0,31,0.32)] hover:brightness-110 disabled:opacity-45 sm:h-14 sm:text-lg"
               >
                 {joining ? 'Joining...' : 'JOIN GAME'}
               </Button>

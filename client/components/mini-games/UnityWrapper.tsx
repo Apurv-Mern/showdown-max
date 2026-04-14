@@ -30,10 +30,10 @@ const GAME_CONFIGS: Record<string, { loaderUrl: string; dataUrl: string; framewo
   },
   /** WebGL build from repo `CardGame/` → copied to `client/public/CardGame/Build/` */
   card_shuffle: {
-    loaderUrl: '/CardGame/Build/CardGame.loader.js?v=root-build',
-    dataUrl: '/CardGame/Build/CardGame.data?v=root-build',
-    frameworkUrl: '/CardGame/Build/CardGame.framework.js?v=root-build',
-    codeUrl: '/CardGame/Build/CardGame.wasm?v=root-build',
+    loaderUrl: '/CardGame/Build/Card%20Shuffle.loader.js?v=root-build-v2',
+    dataUrl: '/CardGame/Build/Card%20Shuffle.data?v=root-build-v2',
+    frameworkUrl: '/CardGame/Build/Card%20Shuffle.framework.js?v=root-build-v2',
+    codeUrl: '/CardGame/Build/Card%20Shuffle.wasm?v=root-build-v2',
   },
 };
 

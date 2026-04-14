@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState, useCallback, Suspense } from 'react';
+import { useEffect, useRef, useState, useCallback, useMemo, Suspense } from 'react';
 import { motion } from 'framer-motion';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useSocket } from '@/hooks/useSocket';
@@ -126,6 +126,7 @@ function VenueDisplayContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const initialPin = (searchParams.get('pin') || '').replace(/\D/g, '').slice(0, 6);
+  const shouldPlayIntro = searchParams.get('intro') === '1';
 
   const { socket, isConnected } = useSocket();
 
@@ -161,15 +162,29 @@ function VenueDisplayContent() {
     winningCard?: number;
     winningKangaroo?: number;
   } | null>(null);
-  const [showVenueSplash, setShowVenueSplash] = useState(true);
+  const [showVenueSplash, setShowVenueSplash] = useState(shouldPlayIntro);
+  /** Stay on the green welcome / video screen until the operator clicks Continue. */
+  const [welcomeHold, setWelcomeHold] = useState(true);
+  const [welcomeQrImageFailed, setWelcomeQrImageFailed] = useState(false);
   const [showIntroVideoFallback, setShowIntroVideoFallback] = useState(false);
   const [isVenueMp3Playing, setIsVenueMp3Playing] = useState(false);
   const [showBreakEndedNotice, setShowBreakEndedNotice] = useState(false);
   const questionMediaUrlRef = useRef<string | undefined>(undefined);
   const phaseRef = useRef<VenuePhase>('welcome');
+  const showVenueSplashRef = useRef(showVenueSplash);
+  const welcomeHoldRef = useRef(welcomeHold);
+  const deferredVenuePhaseRef = useRef<VenuePhase | null>(null);
   const previousPhaseBeforeScoreboardRef = useRef<VenuePhase | null>(null);
   const questionRef = useRef<QuestionData | null>(null);
   const revealDataRef = useRef<RevealData | null>(null);
+
+  const playerJoinUrl = useMemo(() => {
+    const pin = encodeURIComponent(sessionPin);
+    if (typeof window !== 'undefined') {
+      return `${window.location.origin}/play/join?pin=${pin}`;
+    }
+    return `http://localhost:3000/play/join?pin=${pin}`;
+  }, [sessionPin]);
 
   const isMusicRound = question?.roundType === 'MUSIC';
   const { playTick, playBuzz } = useTimerSound({ enabled: true, muted: isMusicRound });
@@ -183,6 +198,9 @@ function VenueDisplayContent() {
   useEffect(() => {
     phaseRef.current = phase;
   }, [phase]);
+
+  showVenueSplashRef.current = showVenueSplash;
+  welcomeHoldRef.current = welcomeHold;
 
   useEffect(() => {
     clientLogger.info('venue', 'Venue phase changed', {
@@ -227,6 +245,10 @@ function VenueDisplayContent() {
   }, [sessionPin]);
 
   useEffect(() => {
+    setWelcomeQrImageFailed(false);
+  }, [sessionPin, qrCodeData]);
+
+  useEffect(() => {
     if (timerRemaining > 0 && timerRemaining !== prevTimerRef.current) {
       playTick(timerRemaining <= 5);
     }
@@ -236,11 +258,25 @@ function VenueDisplayContent() {
     prevTimerRef.current = timerRemaining;
   }, [timerRemaining, playTick, playBuzz]);
 
+  // Start the 5s logo splash only once the PIN gate has cleared; then the green
+  // welcome screen stays until the operator clicks Continue.
   useEffect(() => {
-    if (!showVenueSplash) return;
-    const timer = setTimeout(() => setShowVenueSplash(false), 5000);
+    if (!showVenueSplash || !isPinReady || !/^\d{6}$/.test(sessionPin)) return;
+    const timer = setTimeout(() => {
+      setShowVenueSplash(false);
+      router.replace(`/venue/display?pin=${sessionPin}`);
+    }, 5000);
     return () => clearTimeout(timer);
-  }, [showVenueSplash]);
+  }, [router, sessionPin, showVenueSplash, isPinReady]);
+
+  const handleWelcomeContinue = useCallback(() => {
+    if (!welcomeHoldRef.current) return;
+    welcomeHoldRef.current = false;
+    setWelcomeHold(false);
+    const next = deferredVenuePhaseRef.current;
+    deferredVenuePhaseRef.current = null;
+    setPhase(next ?? 'lobby');
+  }, []);
 
   useEffect(() => {
     questionMediaUrlRef.current = question?.question?.mediaUrl;
@@ -296,6 +332,18 @@ function VenueDisplayContent() {
     };
     joinVenue();
     socket.on('connect', joinVenue);
+
+    const applyVenuePhaseFromSession = (next: VenuePhase) => {
+      if (next === 'welcome') {
+        setPhase('welcome');
+        return;
+      }
+      if (showVenueSplashRef.current || welcomeHoldRef.current) {
+        deferredVenuePhaseRef.current = next;
+        return;
+      }
+      setPhase(next);
+    };
 
     socket.on('session_state', (data: any) => {
       didReceiveSessionState = true;
@@ -355,21 +403,21 @@ function VenueDisplayContent() {
         } else {
           setMiniGameReveal(null);
         }
-        setPhase('mini_game');
+        applyVenuePhaseFromSession('mini_game');
       } else if (data.state === 'QUESTION') {
         if (data.currentQuestion) {
-          setPhase('question');
+          applyVenuePhaseFromSession('question');
         } else if (phaseRef.current === 'reveal' || phaseRef.current === 'question') {
-          setPhase(phaseRef.current);
+          applyVenuePhaseFromSession(phaseRef.current);
         } else if (data.questionState === 'REVEALED') {
           // Server says answer was already revealed — stay on question phase
           // (reveal phase requires revealData from a separate answer_reveal event)
-          setPhase('question');
+          applyVenuePhaseFromSession('question');
         } else {
-          setPhase('question');
+          applyVenuePhaseFromSession('question');
         }
       } else if (data.state && stateToPhase[data.state]) {
-        setPhase(stateToPhase[data.state]);
+        applyVenuePhaseFromSession(stateToPhase[data.state]);
       }
     });
 
@@ -381,6 +429,10 @@ function VenueDisplayContent() {
     socket.on('team_removed', ({ teamId }: { teamId: number }) => {
       setTeams((prev) => prev.filter((t) => t.teamId !== teamId));
       setTotalTeams((prev) => Math.max(0, prev - 1));
+      setLiveResponses((prev) => ({
+        ...prev,
+        total: Math.max(0, (prev.total || 0) - 1),
+      }));
     });
 
     socket.on('round_intro', (data) => {
@@ -591,11 +643,19 @@ function VenueDisplayContent() {
   }, [socket, sessionPin, isPinReady, router, playMp3, setMp3Source, stopMp3]);
 
   const QROverlay = () => {
-    if (!qrCodeData || phase === 'game_end' || phase === 'lobby') return null;
+    if (
+      showVenueSplash ||
+      !qrCodeData ||
+      phase === 'game_end' ||
+      phase === 'lobby' ||
+      phase === 'welcome'
+    ) {
+      return null;
+    }
     return (
       <div className="absolute bottom-4 right-4 z-50 flex flex-col items-center gap-1">
         <div className="neon-border rounded-lg p-1 bg-surface/80 bg-white">
-          <QRCodeSVG value={`http://localhost:5002/play/join`} size={96} className="rounded" />
+          <QRCodeSVG value={playerJoinUrl} size={96} className="rounded" />
         </div>
         <span className="font-mono text-xs text-neon-cyan/60">{sessionPin}</span>
       </div>
@@ -610,7 +670,21 @@ function VenueDisplayContent() {
     </div>
   );
 
-  const liveTotalTeams = Math.max(0, liveResponses.total || totalTeams || 0);
+  /** Roster from session_state + team_removed / team_joined — authoritative for “teams in session”. */
+  const rosterTeamCount = Math.max(teams.length, totalTeams);
+  /**
+   * liveResponses.total can stay stale (e.g. disconnect during REVEAL — server may not re-emit
+   * live_response_update). Never show a headcount above roster or below it when roster is 0.
+   */
+  const liveTotalTeams = Math.max(
+    0,
+    Math.min(
+      typeof liveResponses.total === 'number' && liveResponses.total > 0
+        ? liveResponses.total
+        : Number.POSITIVE_INFINITY,
+      rosterTeamCount,
+    ),
+  );
   const liveQuestionPoints = (() => {
     const roundType = (question?.roundType || '').toUpperCase();
     if (roundType === 'WAGER') return '0-50';
@@ -638,6 +712,31 @@ function VenueDisplayContent() {
       <div className="relative z-10 w-full h-full">
         <ConnectionDot />
         <QROverlay />
+        {/* Logo splash must sit above all phases: session_state switches to lobby immediately
+            and would otherwise unmount the welcome-only splash before 5s elapses. */}
+        {showVenueSplash ? (
+          <div
+            className="absolute inset-0 z-[200] flex items-center justify-center overflow-hidden bg-[#050218] animate-fadeIn pointer-events-auto"
+            aria-hidden
+          >
+            <img
+              src="/venue-stage-bg.png"
+              alt=""
+              className="absolute inset-0 w-full h-full object-cover"
+            />
+            <div className="absolute inset-0 bg-black/10" />
+            <img
+              src="/platform.png"
+              alt=""
+              className="absolute left-1/2 -translate-x-1/2 bottom-[4%] w-[84%] max-w-[1150px] object-contain pointer-events-none"
+            />
+            <img
+              src="/logo.png"
+              alt="Max Showdown"
+              className="absolute left-1/2 -translate-x-1/2 top-[16%] w-[58%] max-w-[760px] object-contain drop-shadow-[0_0_24px_rgba(0,229,255,0.35)] pointer-events-none"
+            />
+          </div>
+        ) : null}
         {showBreakEndedNotice ? (
           <div className="absolute top-8 left-1/2 -translate-x-1/2 z-50 rounded-2xl border border-[#2bdcff]/60 bg-[rgba(8,20,56,0.92)] px-8 py-4 shadow-[0_0_22px_rgba(43,220,255,0.35)]">
             <p className="text-3xl font-extrabold text-[#2be9ff] tracking-wide">Break Ended</p>
@@ -647,56 +746,66 @@ function VenueDisplayContent() {
         {/* ── WELCOME ── */}
         {phase === 'welcome' && (
           <div className="w-full h-full relative overflow-hidden animate-fadeIn">
-            {showVenueSplash ? (
-              <div className="w-full h-full relative">
-                <img
-                  src="/venue-stage-bg.png"
-                  alt="Venue background"
-                  className="absolute inset-0 w-full h-full object-cover"
-                />
-                <div className="absolute inset-0 bg-black/10" />
-                <img
-                  src="/platform.png"
-                  alt="Splash platform"
-                  className="absolute left-1/2 -translate-x-1/2 bottom-[4%] w-[84%] max-w-[1150px] object-contain"
-                />
-                <img
-                  src="/logo.png"
-                  alt="Max Showdown logo"
-                  className="absolute left-1/2 -translate-x-1/2 top-[16%] w-[58%] max-w-[760px] object-contain drop-shadow-[0_0_24px_rgba(0,229,255,0.35)]"
-                />
-              </div>
-            ) : (
-              <div
-                className="w-full h-full relative bg-cover bg-center"
-                style={{ backgroundImage: "url('/venue-stage-bg.png')" }}
-              >
-                <div className="absolute inset-0 bg-black/10" />
+            <div
+              className="w-full h-full relative bg-cover bg-center"
+              style={{ backgroundImage: "url('/venue-stage-bg.png')" }}
+            >
+              <div className="absolute inset-0 bg-black/10" />
 
-                <div className="absolute inset-0 flex items-center justify-center px-8 pb-8">
-                  <div className="w-full max-w-[820px] aspect-video rounded-xl border-4 border-[#00d9ff] shadow-[0_0_30px_rgba(0,217,255,0.35)] overflow-hidden bg-[#39ff14]">
-                    {!showIntroVideoFallback ? (
-                      <video
-                        src="/venue-intro.mp4"
-                        autoPlay
-                        muted
-                        loop
-                        playsInline
-                        className="w-full h-full object-cover"
-                        onError={() => setShowIntroVideoFallback(true)}
-                      />
-                    ) : null}
-                  </div>
+              <div className="absolute inset-0 flex flex-col items-center justify-center px-8 pb-8 gap-6">
+                <div className="w-full max-w-[820px] aspect-video rounded-xl border-4 border-[#00d9ff] shadow-[0_0_30px_rgba(0,217,255,0.35)] overflow-hidden bg-[#39ff14] shrink-0">
+                  {!showIntroVideoFallback ? (
+                    <video
+                      src="/venue-intro.mp4"
+                      autoPlay
+                      muted
+                      loop
+                      playsInline
+                      className="w-full h-full object-cover"
+                      onError={() => setShowIntroVideoFallback(true)}
+                    />
+                  ) : null}
                 </div>
               </div>
-            )}
+            </div>
 
-            <div className="absolute left-1/2 -translate-x-1/2 bottom-6 w-full max-w-xl px-4">
-              <div className="neon-border-strong rounded-2xl px-8 py-5 bg-surface/85 text-center">
-                <p className="text-foreground/40 text-sm mb-1">Session PIN</p>
-                <p className="text-4xl font-mono font-black tracking-[0.28em] text-neon-cyan text-glow-cyan">
-                  {sessionPin}
-                </p>
+            <div className="absolute left-1/2 -translate-x-1/2 bottom-6 w-full max-w-2xl px-4">
+              <div className="neon-border-strong rounded-2xl px-6 py-5 bg-surface/85 flex flex-col items-center gap-4 sm:flex-row sm:items-center sm:justify-center sm:gap-8">
+                <div className="shrink-0 rounded-xl border border-neon-cyan/40 p-2 shadow-[0_0_20px_rgba(0,229,255,0.15)]">
+                  {qrCodeData &&
+                  !welcomeQrImageFailed &&
+                  (qrCodeData.startsWith('data:') || /^https?:\/\//i.test(qrCodeData)) ? (
+                    // Server QR is white-on-transparent; must sit on a dark surface (not white).
+                    <div className="flex h-[104px] w-[104px] items-center justify-center rounded-lg bg-[#060818]">
+                      <img
+                        src={qrCodeData}
+                        alt="QR code to join this session"
+                        className="max-h-[100px] max-w-[100px] object-contain"
+                        onError={() => setWelcomeQrImageFailed(true)}
+                      />
+                    </div>
+                  ) : (
+                    <div className="flex h-[104px] w-[104px] items-center justify-center rounded-lg bg-white">
+                      <QRCodeSVG value={playerJoinUrl} size={100} className="rounded" />
+                    </div>
+                  )}
+                </div>
+                <div className="text-center sm:text-left min-w-0">
+                  <p className="text-neon-cyan font-bold text-lg tracking-wide">SCAN TO JOIN</p>
+                  <p className="text-foreground/50 text-sm mt-1">Session PIN</p>
+                  <p className="text-4xl font-mono font-black tracking-[0.2em] text-neon-cyan text-glow-cyan">
+                    {sessionPin}
+                  </p>
+                </div>
+                {welcomeHold && !showVenueSplash ? (
+                  <button
+                    type="button"
+                    onClick={handleWelcomeContinue}
+                    className="rounded-xl border-2 border-neon-cyan bg-neon-cyan/20 px-14 py-5 text-xs font-black tracking-[0.2em] text-neon-cyan uppercase shadow-[0_0_28px_rgba(0,229,255,0.45)] transition hover:bg-neon-cyan/30 focus:outline-none focus-visible:ring-2 focus-visible:ring-neon-cyan focus-visible:ring-offset-2 focus-visible:ring-offset-[#030818]"
+                  >
+                    Continue
+                  </button>
+                ) : null}
               </div>
             </div>
           </div>
@@ -704,8 +813,8 @@ function VenueDisplayContent() {
 
         {/* ── LOBBY ── */}
         {phase === 'lobby' && (
-          <div className="w-full h-full flex flex-col px-6 py-5 animate-fadeIn">
-            <div className="text-center mb-4">
+          <div className="w-full h-full min-h-0 flex flex-col px-6 py-5 animate-fadeIn">
+            <div className="text-center mb-4 shrink-0">
               <h2 className="text-6xl font-black tracking-wide text-white text-glow-cyan">
                 TEAM REGISTRATION
               </h2>
@@ -715,9 +824,9 @@ function VenueDisplayContent() {
             </div>
 
             {sessionPin ? (
-              <div className="mx-auto mb-4 rounded-xl border border-neon-cyan/45 bg-[#051230]/85 px-4 py-3 shadow-[0_0_20px_rgba(0,229,255,0.18)] flex items-center gap-3">
+              <div className="mx-auto mb-4 shrink-0 rounded-xl border border-neon-cyan/45 bg-[#051230]/85 px-4 py-3 shadow-[0_0_20px_rgba(0,229,255,0.18)] flex items-center gap-3">
                 <div className="w-20 h-20 rounded bg-white p-1 flex items-center justify-center">
-                  <QRCodeSVG value={`http://localhost:5002/play/join`} size={72} />
+                  <QRCodeSVG value={playerJoinUrl} size={72} />
                 </div>
                 <div className="text-left">
                   <p className="text-neon-cyan font-bold text-sm">SCAN TO JOIN</p>
@@ -726,41 +835,45 @@ function VenueDisplayContent() {
               </div>
             ) : null}
 
-            <div className="flex-1 grid grid-cols-5 gap-3 content-start">
-              {Array.from({ length: maxTeams }).map((_, i) => {
-                const team = teams[i];
-                return (
-                  <div key={i} className="relative">
-                    <div className="absolute -top-2 right-1 z-10 w-5 h-5 rounded-full bg-[#0c4ac4] border border-neon-cyan/40 text-[10px] font-black text-white flex items-center justify-center shadow-[0_0_8px_rgba(0,229,255,0.25)]">
-                      {i + 1}
+            <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden pr-1 pb-2 [scrollbar-gutter:stable]">
+              <div className="grid grid-cols-5 gap-3 content-start mt-5">
+                {Array.from({ length: maxTeams }).map((_, i) => {
+                  const team = teams[i];
+                  return (
+                    <div key={i} className="relative">
+                      <div className="absolute -top-2 right-1 z-10 w-5 h-5 rounded-full bg-[#0c4ac4] border border-neon-cyan/40 text-[10px] font-black text-white flex items-center justify-center shadow-[0_0_8px_rgba(0,229,255,0.25)]">
+                        {i + 1}
+                      </div>
+                      <div
+                        className={cn(
+                          'h-[56px] rounded-xl border px-3 flex items-center gap-2 transition-all duration-500 backdrop-blur-sm',
+                          team
+                            ? 'bg-gradient-to-r from-[#0f4bc2]/85 via-[#0a2a92]/80 to-[#9f0ed2]/80 border-neon-cyan/65 shadow-[0_0_14px_rgba(0,229,255,0.25)]'
+                            : 'bg-[#130f2e]/55 border-white/25 border-dashed',
+                        )}
+                      >
+                        {team ? (
+                          <>
+                            <div className="w-5 h-5 rounded-full bg-[#00be57] flex items-center justify-center text-white text-[11px] font-black">
+                              {'\u2713'}
+                            </div>
+                            <div className="min-w-0">
+                              <p className="text-sm font-bold text-white truncate">
+                                {team.teamName}
+                              </p>
+                              <p className="text-[10px] text-[#66ffb2] font-semibold -mt-0.5">
+                                Ready
+                              </p>
+                            </div>
+                          </>
+                        ) : (
+                          <p className="w-full text-center text-white/70 text-sm">Waiting...</p>
+                        )}
+                      </div>
                     </div>
-                    <div
-                      className={cn(
-                        'h-[56px] rounded-xl border px-3 flex items-center gap-2 transition-all duration-500 backdrop-blur-sm',
-                        team
-                          ? 'bg-gradient-to-r from-[#0f4bc2]/85 via-[#0a2a92]/80 to-[#9f0ed2]/80 border-neon-cyan/65 shadow-[0_0_14px_rgba(0,229,255,0.25)]'
-                          : 'bg-[#130f2e]/55 border-white/25 border-dashed',
-                      )}
-                    >
-                      {team ? (
-                        <>
-                          <div className="w-5 h-5 rounded-full bg-[#00be57] flex items-center justify-center text-white text-[11px] font-black">
-                            {'\u2713'}
-                          </div>
-                          <div className="min-w-0">
-                            <p className="text-sm font-bold text-white truncate">{team.teamName}</p>
-                            <p className="text-[10px] text-[#66ffb2] font-semibold -mt-0.5">
-                              Ready
-                            </p>
-                          </div>
-                        </>
-                      ) : (
-                        <p className="w-full text-center text-white/70 text-sm">Waiting...</p>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
+                  );
+                })}
+              </div>
             </div>
           </div>
         )}
@@ -1478,17 +1591,23 @@ function BreakView({
   const minutes = Math.floor(remaining / 60);
   const seconds = remaining % 60;
   const total = Math.max(1, duration);
-  const remainingDeg = Math.max(0, Math.min(360, (remaining / total) * 360));
+  /** Elapsed wedge grows clockwise from 12 o'clock; remaining arc keeps the spectrum. */
+  const elapsedDeg = Math.max(0, Math.min(360, ((total - remaining) / total) * 360));
+  const span = Math.max(0, 360 - elapsedDeg);
+  const s1 = elapsedDeg + span * 0.22;
+  const s2 = elapsedDeg + span * 0.44;
+  const s3 = elapsedDeg + span * 0.66;
+  const s4 = elapsedDeg + span * 0.88;
   const ringStyle = {
     background: `conic-gradient(
-      #ff2424 0deg,
-      #ff2424 92deg,
-      #ff9b00 136deg,
-      #fff100 188deg,
-      #b7ff00 244deg,
-      #78ff00 ${Math.max(250, remainingDeg)}deg,
-      #f5f7ff ${Math.max(250, remainingDeg)}deg,
-      #f5f7ff 360deg
+      #141a33 0deg,
+      #141a33 ${elapsedDeg}deg,
+      #ff2424 ${elapsedDeg}deg,
+      #ff9b00 ${s1}deg,
+      #fff100 ${s2}deg,
+      #b7ff00 ${s3}deg,
+      #78ff00 ${s4}deg,
+      #78ff00 360deg
     )`,
   } as const;
 

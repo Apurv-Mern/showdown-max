@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
 import { useSocket } from '@/hooks/useSocket';
 import { usePlayerSession } from '../playerSession';
+import { LoadingDots } from '../LoadingDots';
 
 export default function LobbyPage() {
   const router = useRouter();
@@ -29,7 +30,8 @@ export default function LobbyPage() {
       if (data) sessionStorage.setItem('questionActive', JSON.stringify(data));
       router.push('/play/game');
     };
-    const handleMiniGameStart = (data: { game: string }) => router.push(`/play/mini-game?game=${data.game}`);
+    const handleMiniGameStart = (data: { game: string }) =>
+      router.push(`/play/mini-game?game=${data.game}`);
     const handleGameStarted = () => router.push('/play/game');
     const handleGameEnd = () => {
       clearSession();
@@ -66,7 +68,12 @@ export default function LobbyPage() {
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.5 }}
         className="relative h-full min-h-0 w-full overflow-hidden mobile-play-bg text-center"
-        style={{ backgroundImage: "url('/Mobile_BG.png')", backgroundSize: '100% 100%', backgroundPosition: 'center', backgroundRepeat: 'no-repeat' }}
+        style={{
+          backgroundImage: "url('/Mobile_BG.png')",
+          backgroundSize: '100% 100%',
+          backgroundPosition: 'center',
+          backgroundRepeat: 'no-repeat',
+        }}
       >
         <div className="relative z-10 flex h-full flex-col">
           <div className="flex-1 flex flex-col items-center justify-center px-6">
@@ -101,7 +108,7 @@ export default function LobbyPage() {
               transition={{ delay: 0.28 }}
               className="text-[41px] font-bold leading-[1.05] text-white"
             >
-              Waiting for game to start
+              The Quiz Wizards
             </motion.h1>
             <motion.p
               initial={{ opacity: 0, y: 8 }}
@@ -109,14 +116,13 @@ export default function LobbyPage() {
               transition={{ delay: 0.38 }}
               className="mt-2 text-[22px] font-medium leading-[1.2] text-white/70"
             >
-              The host will start the game shortly
+              You are in
+              <p className="text-[22px] font-medium leading-[1.2] text-white/70">
+                The host will start the game shortly
+              </p>
             </motion.p>
 
-            <div className="mt-8 flex items-center gap-3">
-              <span className="h-3.5 w-3.5 rounded-full bg-[#00d8ff] shadow-[0_0_9px_rgba(0,216,255,0.6)]" />
-              <span className="h-3.5 w-3.5 rounded-full bg-[#00d8ff]/65 shadow-[0_0_8px_rgba(0,216,255,0.45)]" />
-              <span className="h-3.5 w-3.5 rounded-full bg-[#00d8ff]/35" />
-            </div>
+            <LoadingDots className="mt-8" />
           </div>
         </div>
 

@@ -24,6 +24,11 @@ function formatRoundTypeLabel(type: string): string {
     .join(' ');
 }
 
+function normalizeRoundTitle(name?: string): string {
+  if (!name) return '';
+  return name.replace(/^round\s*\d+\s*-\s*/i, '').trim();
+}
+
 function getRoundScoringLines(roundType?: string) {
   const type = (roundType || '').toUpperCase();
   if (type === 'WAGER') {
@@ -76,6 +81,8 @@ interface GameState {
   timerRunning: boolean;
   responseCount: number;
   totalTeams: number;
+  breakDuration?: number;
+  breakRemaining?: number;
   rounds: { id: number; name: string; type: string; timerDuration: number; questions: unknown[] }[];
   teams: Record<string, Team>;
   activeTeamIds: number[];
@@ -177,7 +184,8 @@ function HostTimerRing({
   const radius = (size - stroke * 2) / 2;
   const circumference = 2 * Math.PI * radius;
   const progress = total > 0 ? remaining / total : 0;
-  const offset = circumference * (1 - progress);
+  /** Arc length for remaining time; SVG is rotated -90deg in CSS so this draws clockwise from top. */
+  const arcLength = circumference * progress;
 
   const getColor = () => {
     if (remaining <= 5) return '#ff1744';
@@ -206,8 +214,8 @@ function HostTimerRing({
           r={radius}
           strokeWidth={stroke}
           stroke={color}
-          strokeDasharray={circumference}
-          strokeDashoffset={offset}
+          strokeDasharray={`${arcLength} ${circumference}`}
+          strokeDashoffset={0}
           style={{ filter: `drop-shadow(0 0 6px ${color})` }}
         />
       </svg>
@@ -361,6 +369,9 @@ function HostDashboardContent() {
   const [showTimerModal, setShowTimerModal] = useState(false);
   const [mp3Playing, setMp3Playing] = useState(false);
   const [mp4Playing, setMp4Playing] = useState(false);
+  /** Local break countdown (synced from break_start / session_state; ticks every second). */
+  const [hostBreakDuration, setHostBreakDuration] = useState(360);
+  const [hostBreakRemaining, setHostBreakRemaining] = useState(0);
 
   const gameStateRef = useRef<GameState | null>(null);
   const previousStateBeforeScoreboardRef = useRef<{ state: string; questionState: string } | null>(
@@ -369,6 +380,14 @@ function HostDashboardContent() {
   useEffect(() => {
     gameStateRef.current = gameState;
   }, [gameState]);
+
+  useEffect(() => {
+    if (gameState?.state !== 'BREAK') return;
+    const t = setInterval(() => {
+      setHostBreakRemaining((prev) => (prev > 0 ? prev - 1 : 0));
+    }, 1000);
+    return () => clearInterval(t);
+  }, [gameState?.state]);
 
   useEffect(() => {
     clientLogger.info('host', 'Host dashboard state updated', {
@@ -427,13 +446,20 @@ function HostDashboardContent() {
     socket.on('session_state', (data: GameState) => {
       if (data?.state) {
         setGameState(data);
+        if (data.state === 'BREAK') {
+          const bd = Number(data.breakDuration ?? 360);
+          const br = Number(data.breakRemaining ?? data.breakDuration ?? 360);
+          const safeD = bd > 0 ? bd : 360;
+          const safeR = Number.isFinite(br) && br >= 0 ? Math.min(br, safeD) : safeD;
+          setHostBreakDuration(safeD);
+          setHostBreakRemaining(safeR);
+        }
         setIsScoreboardVisible(data.state === 'SCOREBOARD');
         setTimerRemaining(data.timerRemaining || 0);
         setTimerPaused(data.timerRunning === false);
         setCurrentQuestion(data.currentQuestion || null);
         setLiveResponses((prev) => ({
-          correct:
-            data.state === 'QUESTION' && data.questionState === 'ACTIVE' ? prev.correct : 0,
+          correct: data.state === 'QUESTION' && data.questionState === 'ACTIVE' ? prev.correct : 0,
           incorrect:
             data.state === 'QUESTION' && data.questionState === 'ACTIVE' ? prev.incorrect : 0,
           noAnswer:
@@ -590,9 +616,17 @@ function HostDashboardContent() {
       setGameState((prev) => (prev ? { ...prev, state: 'SCOREBOARD' } : prev));
     });
 
-    socket.on('break_start', () => {
+    socket.on('break_start', (payload?: { duration?: number; breakDuration?: number }) => {
       setIsScoreboardVisible(false);
-      setGameState((prev) => (prev ? { ...prev, state: 'BREAK' } : prev));
+      const d = Number(
+        payload?.duration ?? payload?.breakDuration ?? gameStateRef.current?.breakDuration ?? 360,
+      );
+      const safe = d > 0 ? d : 360;
+      setHostBreakDuration(safe);
+      setHostBreakRemaining(safe);
+      setGameState((prev) =>
+        prev ? { ...prev, state: 'BREAK', breakDuration: safe, breakRemaining: safe } : prev,
+      );
     });
     socket.on('break_end', () => {
       // Exact phase/state is restored by server via session_state.
@@ -1033,6 +1067,14 @@ function HostDashboardContent() {
   const questionState = gameState?.questionState || 'WAITING';
   const teamList = gameState?.teams ? Object.values(gameState.teams) : [];
   const sortedTeams = [...teamList].sort((a, b) => b.score - a.score);
+  const hostBreakProgress =
+    hostBreakDuration > 0 ? Math.max(0, Math.min(1, hostBreakRemaining / hostBreakDuration)) : 0;
+  const hostBreakRadius = 90;
+  const hostBreakCircumference = 2 * Math.PI * hostBreakRadius;
+  /** Remaining arc; with rotate(-90) the stroke runs clockwise from 12 o'clock. */
+  const hostBreakArcLength = hostBreakCircumference * hostBreakProgress;
+  const hostBreakMinutes = Math.floor(hostBreakRemaining / 60);
+  const hostBreakSeconds = hostBreakRemaining % 60;
   const responsePct =
     gameState && gameState.totalTeams > 0
       ? Math.min(100, ((gameState.responseCount || 0) / gameState.totalTeams) * 100)
@@ -1594,43 +1636,44 @@ function HostDashboardContent() {
                     })}
                   </div>
 
-                  {revealData?.allWrong && (
+                  {/* {revealData?.allWrong && (
                     <div className="mt-4 animate-pulse rounded-xl border border-orange-500/30 bg-orange-500/10 px-4 py-2.5 text-center text-sm font-bold text-orange-400">
                       All teams answered incorrectly — no eliminations
                     </div>
-                  )}
+                  )} */}
                 </div>
               </div>
             </div>
           ) : (
             <div className="flex flex-1 items-center justify-center rounded-2xl border border-[rgba(0,217,255,0.25)] bg-[#151b2e]/40 p-8">
               {state === 'ROUND_INTRO' ? (
-                <div className="w-full max-w-[980px] animate-fadeIn text-center">
-                  <div className="mx-auto mb-7 inline-flex items-center gap-3 rounded-full border border-[#41d9ff]/45 bg-[linear-gradient(180deg,rgba(20,42,89,0.95)_0%,rgba(11,20,46,0.95)_100%)] px-8 py-3 shadow-[0_0_22px_rgba(0,217,255,0.2)]">
-                    <span className="text-base font-semibold uppercase tracking-[0.2em] text-[#8cdfff]">
-                      Round {(gameState?.currentRoundIndex || 0) + 1}
-                    </span>
-                    <span className="h-2 w-2 rounded-full bg-[#00ffcc]" />
-                    <span className="text-base font-semibold uppercase tracking-[0.18em] text-[#8cdfff]">
-                      {formatRoundTypeLabel(currentRound?.type || 'MULTIPLE_CHOICE')}
-                    </span>
-                  </div>
+                <div className="w-full max-w-[1120px] animate-fadeIn">
+                  <div className="relative mx-auto h-[680px] w-full max-w-[860px]">
+                    <img
+                      src="/Venue Round Intro.png"
+                      alt="Round intro background"
+                      className="absolute inset-0 h-full w-full object-contain drop-shadow-[0_0_26px_rgba(0,0,0,0.6)]"
+                    />
 
-                  <h2 className="text-6xl font-black leading-none text-white drop-shadow-[0_0_14px_rgba(123,194,255,0.45)]">
-                    {currentRound?.name || 'Get Ready'}
-                  </h2>
-                  <p className="mt-3 text-[26px] font-semibold text-[#9de9ff]">
-                    Next question set is about to start
-                  </p>
+                    <div className="absolute inset-0 pointer-events-none text-center">
+                      <div className="absolute left-1/2 top-[40%] w-[62%] -translate-x-1/2 -translate-y-1/2">
+                        <h2 className="text-[72px] leading-none font-black text-[#fff4c2] drop-shadow-[0_0_18px_rgba(255,225,120,0.65)]">
+                          ROUND {(gameState?.currentRoundIndex || 0) + 1}
+                        </h2>
+                        <p className="mt-2 text-[38px] leading-[1.05] font-extrabold text-[#25eaff] drop-shadow-[0_0_16px_rgba(37,234,255,0.55)]">
+                          {normalizeRoundTitle(currentRound?.name) ||
+                            formatRoundTypeLabel(currentRound?.type || 'MULTIPLE_CHOICE')}
+                        </p>
+                      </div>
 
-                  <div className="mx-auto mt-10 w-full max-w-[820px] rounded-3xl p-[3px] bg-gradient-to-r from-[#2cd7ff] via-[#1588ff] to-[#2cd7ff] shadow-[0_0_26px_rgba(44,215,255,0.35)]">
-                    <div className="rounded-[22px] bg-gradient-to-r from-[#1e0a88]/95 to-[#5a14a8]/95 px-10 py-8 text-left">
-                      <p className="text-[46px] font-black text-[#39ff14] leading-none mb-4">
-                        {getRoundScoringLines(currentRound?.type).positive}
-                      </p>
-                      <p className="text-[46px] font-black text-[#ff2d2d] leading-none">
-                        {getRoundScoringLines(currentRound?.type).negative}
-                      </p>
+                      <div className="absolute left-1/2 top-[79.5%] w-[74%] -translate-x-1/2 -translate-y-1/2">
+                        <p className="mb-5 text-[30px] font-black leading-none text-[#39ff14] drop-shadow-[0_0_8px_rgba(57,255,20,0.45)]">
+                          + {getRoundScoringLines(currentRound?.type).positive}
+                        </p>
+                        <p className="text-[30px] font-black leading-none text-[#ff3e3e] drop-shadow-[0_0_8px_rgba(255,62,62,0.45)]">
+                          - {getRoundScoringLines(currentRound?.type).negative}
+                        </p>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -1662,6 +1705,62 @@ function HostDashboardContent() {
                     </button>
                   </div>
                 </div>
+              ) : state === 'BREAK' ? (
+                <div className="flex w-full max-w-[640px] flex-col items-center justify-center gap-2 py-4 animate-fadeIn">
+                  <h2 className="text-4xl font-black tracking-tight text-white drop-shadow-[0_0_12px_rgba(255,255,255,0.25)] sm:text-5xl">
+                    TAKE A BREAK !!
+                  </h2>
+                  <p className="text-base font-medium text-[#9de9ff] sm:text-lg">
+                    We&apos;ll be back shortly...
+                  </p>
+                  <div className="relative mt-4 h-[260px] w-[260px] sm:h-[300px] sm:w-[300px]">
+                    <svg className="absolute inset-0" viewBox="0 0 300 300">
+                      <defs>
+                        <linearGradient
+                          id="hostBreakRingGradient"
+                          x1="0%"
+                          y1="0%"
+                          x2="100%"
+                          y2="100%"
+                        >
+                          <stop offset="0%" stopColor="#ff0f0f" />
+                          <stop offset="46%" stopColor="#ffffff" />
+                          <stop offset="100%" stopColor="#83ff00" />
+                        </linearGradient>
+                      </defs>
+                      <circle
+                        cx="150"
+                        cy="150"
+                        r={hostBreakRadius}
+                        stroke="rgba(255,255,255,0.22)"
+                        strokeWidth="10"
+                        fill="none"
+                      />
+                      <g transform="rotate(-90 150 150)">
+                        <circle
+                          cx="150"
+                          cy="150"
+                          r={hostBreakRadius}
+                          stroke="url(#hostBreakRingGradient)"
+                          strokeWidth="10"
+                          fill="none"
+                          strokeLinecap="round"
+                          strokeDasharray={`${hostBreakArcLength} ${hostBreakCircumference}`}
+                          strokeDashoffset={0}
+                          style={{ filter: 'drop-shadow(0 0 10px rgba(0,229,255,0.35))' }}
+                        />
+                      </g>
+                    </svg>
+                    <div className="absolute inset-[22px] rounded-full bg-[radial-gradient(circle_at_50%_35%,rgba(44,23,101,0.92)_0%,rgba(10,7,40,0.96)_100%)] border border-[#00d8ff]/25 flex flex-col items-center justify-center sm:inset-[26px]">
+                      <p className="text-5xl font-black leading-none text-white font-mono sm:text-6xl">
+                        {String(hostBreakMinutes)}:{String(hostBreakSeconds).padStart(2, '0')}
+                      </p>
+                      <p className="mt-2 text-sm font-extrabold tracking-[0.12em] text-[#00e8ff] sm:text-base">
+                        TIME REMAINING
+                      </p>
+                    </div>
+                  </div>
+                </div>
               ) : (
                 <div className="text-center">
                   <p className="mb-2 text-2xl font-bold text-white/30">
@@ -1669,9 +1768,7 @@ function HostDashboardContent() {
                       ? 'Waiting for teams to join...'
                       : state === 'SCOREBOARD'
                         ? 'Showing Scoreboard'
-                        : state === 'BREAK'
-                          ? 'Break Time'
-                          : 'Waiting...'}
+                        : 'Waiting...'}
                   </p>
                   {state === 'LOBBY' ? (
                     <p className="text-sm text-white/40">
@@ -2101,38 +2198,47 @@ function HostDashboardContent() {
             </div>
 
             <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-6" data-node-id="232:2649">
-              <div
-                className="rounded-xl border border-white/10 bg-[#151b2e] px-5 py-6 sm:px-8"
-                data-node-id="232:2650"
-              >
-                {currentRound ? (
-                  <>
-                    <p className="mb-4 text-center text-xl text-white" data-node-id="232:2651">
-                      <span className="font-medium">
-                        Round {(gameState?.currentRoundIndex ?? 0) + 1} -
-                      </span>
-                      <span className="font-semibold text-[#00d9ff]">
-                        {' '}
-                        {formatRoundTypeLabel(currentRound.type)}
-                      </span>
-                    </p>
-                    <p
-                      className="text-[15px] font-medium leading-relaxed text-white"
-                      data-node-id="232:2652"
-                    >
-                      {currentRound.name}. This is what players see on the venue screen during round
-                      intro—title, type badge, and progress. Use{' '}
-                      <span className="text-[#00d9ff]/90">Round Intro</span> to push the live
-                      display, or <span className="text-[#00d9ff]/90">Start Round</span> when you
-                      are ready to begin questions.
-                    </p>
-                  </>
-                ) : (
+              {currentRound ? (
+                <div className="flex items-center justify-center">
+                  <div className="relative h-[640px] w-full max-w-[780px]">
+                    <img
+                      src="/Venue Round Intro.png"
+                      alt="Round intro background"
+                      className="absolute inset-0 h-full w-full object-contain drop-shadow-[0_0_26px_rgba(0,0,0,0.6)]"
+                    />
+
+                    <div className="pointer-events-none absolute inset-0 text-center">
+                      <div className="absolute left-1/2 top-[34%] w-[64%] -translate-x-1/2 -translate-y-1/2">
+                        <h2 className="text-[68px] leading-none font-black text-[#fff4c2] drop-shadow-[0_0_18px_rgba(255,225,120,0.65)]">
+                          ROUND {(gameState?.currentRoundIndex ?? 0) + 1}
+                        </h2>
+                        <p className="mt-2 text-[34px] leading-[1.05] font-extrabold text-[#25eaff] drop-shadow-[0_0_16px_rgba(37,234,255,0.55)]">
+                          {normalizeRoundTitle(currentRound?.name) ||
+                            formatRoundTypeLabel(currentRound?.type || 'MULTIPLE_CHOICE')}
+                        </p>
+                      </div>
+
+                      <div className="absolute left-1/2 top-[79.5%] w-[74%] -translate-x-1/2 -translate-y-1/2">
+                        <p className="mb-5 text-[28px] font-black leading-none text-[#39ff14] drop-shadow-[0_0_8px_rgba(57,255,20,0.45)]">
+                          + {getRoundScoringLines(currentRound?.type).positive}
+                        </p>
+                        <p className="text-[28px] font-black leading-none text-[#ff3e3e] drop-shadow-[0_0_8px_rgba(255,62,62,0.45)]">
+                          - {getRoundScoringLines(currentRound?.type).negative}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div
+                  className="rounded-xl border border-white/10 bg-[#151b2e] px-5 py-6 sm:px-8"
+                  data-node-id="232:2650"
+                >
                   <p className="text-center text-[15px] text-white/60">
                     No round data yet. Start the session from the lobby to load the quiz rounds.
                   </p>
-                )}
-              </div>
+                </div>
+              )}
             </div>
           </div>
         </div>

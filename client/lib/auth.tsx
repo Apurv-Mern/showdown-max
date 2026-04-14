@@ -19,6 +19,8 @@ interface AuthContextValue extends AuthState {
   logout: () => void;
   isAuthenticated: boolean;
   hydrated: boolean;
+  /** False until the first `/api/auth/me` attempt finishes (host needs this before session guard). */
+  meFetched: boolean;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -92,39 +94,53 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     assignedSession: null,
   });
   const [hydrated, setHydrated] = useState(false);
+  const [meFetched, setMeFetched] = useState(false);
 
   useEffect(() => {
     const stored = readStoredAuth(scopedRole);
     setState(stored);
+    setMeFetched(false);
 
-    if (stored.token && stored.role) {
-      fetch(`${API_URL}/api/auth/me`, {
-        headers: { Authorization: `Bearer ${stored.token}` },
-      })
-        .then((res) => res.json())
-        .then((data) => {
-          if (data.success) {
-            localStorage.setItem(TOKEN_KEYS[stored.role!], stored.token!);
-            localStorage.setItem(EMAIL_KEYS[stored.role!], data.data.email || '');
-            localStorage.setItem(ACTIVE_ROLE_KEY, stored.role!);
-            setState({
-              token: stored.token,
-              role: data.data.role,
-              email: data.data.email,
-              assignedSession: data.data.assignedSession || null,
-            });
-          } else {
-            localStorage.removeItem(TOKEN_KEYS[stored.role!]);
-            localStorage.removeItem(EMAIL_KEYS[stored.role!]);
-            setState(readStoredAuth(scopedRole));
-          }
-        })
-        .catch(() => {
-          // Keep local token if server is temporarily unreachable.
-        });
+    if (!stored.token || !stored.role) {
+      setMeFetched(true);
+      setHydrated(true);
+      return;
     }
 
+    let cancelled = false;
+    fetch(`${API_URL}/api/auth/me`, {
+      headers: { Authorization: `Bearer ${stored.token}` },
+    })
+      .then((res) => res.json())
+      .then((data) => {
+        if (cancelled) return;
+        if (data.success) {
+          localStorage.setItem(TOKEN_KEYS[stored.role!], stored.token!);
+          localStorage.setItem(EMAIL_KEYS[stored.role!], data.data.email || '');
+          localStorage.setItem(ACTIVE_ROLE_KEY, stored.role!);
+          setState({
+            token: stored.token,
+            role: data.data.role,
+            email: data.data.email,
+            assignedSession: data.data.assignedSession || null,
+          });
+        } else {
+          localStorage.removeItem(TOKEN_KEYS[stored.role!]);
+          localStorage.removeItem(EMAIL_KEYS[stored.role!]);
+          setState(readStoredAuth(scopedRole));
+        }
+      })
+      .catch(() => {
+        // Keep local token if server is temporarily unreachable.
+      })
+      .finally(() => {
+        if (!cancelled) setMeFetched(true);
+      });
+
     setHydrated(true);
+    return () => {
+      cancelled = true;
+    };
   }, [scopedRole]);
 
   const login = useCallback(
@@ -184,7 +200,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   return (
     <AuthContext.Provider
-      value={{ ...state, login, logout, isAuthenticated: !!state.token, hydrated }}
+      value={{ ...state, login, logout, isAuthenticated: !!state.token, hydrated, meFetched }}
     >
       {children}
     </AuthContext.Provider>

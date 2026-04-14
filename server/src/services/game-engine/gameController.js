@@ -555,6 +555,71 @@ const advanceToNextRound = async (io, pin) => {
 };
 
 /**
+ * Player socket gone (tab close, network loss, or leave_session). Team row and score stay in MySQL for rejoin;
+ * removed from Redis lobby, live gameState, and host/venue UIs via team_removed.
+ */
+const handlePlayerSocketDisconnect = async (io, pin, teamIdRaw) => {
+  const teamId = Number(teamIdRaw);
+  if (!pin || !Number.isFinite(teamId)) return;
+
+  await Team.update({ isConnected: false, socketId: null }, { where: { id: teamId } });
+  await redisStore.removeTeamFromLobby(pin, teamId);
+
+  const gameState = await redisStore.getGameState(pin);
+  if (gameState) {
+    if (gameState.teams && gameState.teams[teamId]) {
+      delete gameState.teams[teamId];
+    }
+    gameState.activeTeamIds = (Array.isArray(gameState.activeTeamIds) ? gameState.activeTeamIds : [])
+      .map(Number)
+      .filter((id) => id !== teamId);
+    gameState.totalTeams = Object.keys(gameState.teams || {}).length;
+
+    if (eliminationStates.has(pin)) {
+      const es = eliminationStates.get(pin);
+      es.activeTeamIds = (es.activeTeamIds || []).map(Number).filter((id) => id !== teamId);
+    }
+
+    await redisStore.setGameState(pin, gameState);
+
+    if (
+      gameState.state === GAME_STATES.QUESTION &&
+      gameState.questionState === QUESTION_STATES.ACTIVE
+    ) {
+      const question = stateMachine.getCurrentQuestion(gameState);
+      if (question) {
+        const count = await redisStore.getResponseCount(pin, question.id);
+        gameState.responseCount = count;
+        await redisStore.setGameState(pin, gameState);
+
+        const responsesRaw = await redisStore.getResponses(pin, question.id);
+        io.to(`session:${pin}`).emit(SOCKET_EVENTS.RESPONSE_COUNT, {
+          count,
+          total: gameState.totalTeams,
+        });
+        io.to(`session:${pin}`).emit(
+          SOCKET_EVENTS.LIVE_RESPONSE_UPDATE,
+          buildLiveResponseStats(gameState, question, responsesRaw),
+        );
+
+        if (gameState.activeTeamIds.length > 0 && count >= gameState.activeTeamIds.length) {
+          timerManager.forceExpire(pin);
+          io.to(`session:${pin}`).emit(SOCKET_EVENTS.TIMER_UPDATE, { remaining: 0 });
+          io.to(`session:${pin}`).emit(SOCKET_EVENTS.TIMER_EXPIRED, {});
+          gameState.timerRunning = false;
+          gameState.timerRemaining = 0;
+          await redisStore.setGameState(pin, gameState);
+          io.to(`session:${pin}`).emit(SOCKET_EVENTS.AUTO_REVEAL, {});
+        }
+      }
+    }
+  }
+
+  io.to(`session:${pin}`).emit(SOCKET_EVENTS.TEAM_REMOVED, { teamId });
+  logger.info('Player socket disconnected — removed from live session views', { pin, teamId });
+};
+
+/**
  * Show scoreboard on demand
  */
 const showScoreboard = async (io, pin) => {
@@ -562,6 +627,24 @@ const showScoreboard = async (io, pin) => {
   if (!gameState) return;
 
   const sortedTeams = Object.values(gameState.teams).sort((a, b) => b.score - a.score);
+  // #region agent log
+  fetch('http://127.0.0.1:7668/ingest/a0939c7c-6b4b-458b-abf6-c1b2f0a79714', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': 'ba526a' },
+    body: JSON.stringify({
+      sessionId: 'ba526a',
+      location: 'gameController.js:showScoreboard',
+      message: 'scoreboard payload team ids (includes disconnected if still in gameState.teams)',
+      data: {
+        pin,
+        teamIds: sortedTeams.map((t) => t.teamId),
+        activeTeamIds: gameState.activeTeamIds,
+      },
+      timestamp: Date.now(),
+      hypothesisId: 'H2',
+    }),
+  }).catch(() => {});
+  // #endregion
   io.to(`session:${pin}`).emit(SOCKET_EVENTS.SCOREBOARD, { teams: sortedTeams, source: 'manual' });
   logger.info('Scoreboard shown', { pin, teamCount: sortedTeams.length });
 };
@@ -929,6 +1012,7 @@ module.exports = {
   revealAnswer,
   endRound,
   advanceToNextRound,
+  handlePlayerSocketDisconnect,
   showScoreboard,
   hideScoreboard,
   startBreak,

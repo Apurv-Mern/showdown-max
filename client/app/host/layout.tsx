@@ -2,8 +2,28 @@
 
 import Link from 'next/link';
 import { useSearchParams, usePathname, useRouter } from 'next/navigation';
-import { Suspense } from 'react';
+import { Suspense, useEffect } from 'react';
 import { useAuth } from '@/lib/auth';
+
+/** Keep `?pin=&sessionId=` in the address bar so refresh and deep links stay on the host session. */
+function HostSessionUrlSync() {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const { assignedSession, meFetched } = useAuth();
+  const urlPin = searchParams.get('pin') || '';
+  const urlSessionId = searchParams.get('sessionId') || '';
+
+  useEffect(() => {
+    if (!meFetched || !assignedSession?.pin || !assignedSession?.id) return;
+    if (pathname !== '/host/dashboard' && pathname !== '/host/teams') return;
+    if (urlPin === assignedSession.pin && urlSessionId === String(assignedSession.id)) return;
+    const qs = `?pin=${encodeURIComponent(assignedSession.pin)}&sessionId=${encodeURIComponent(String(assignedSession.id))}`;
+    router.replace(`${pathname}${qs}`);
+  }, [meFetched, assignedSession, pathname, urlPin, urlSessionId, router]);
+
+  return null;
+}
 
 function HostNav() {
   const searchParams = useSearchParams();
@@ -62,7 +82,7 @@ function HostNav() {
 function HostAuthGuard({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
-  const { isAuthenticated, role, assignedSession } = useAuth();
+  const { isAuthenticated, role, assignedSession, meFetched } = useAuth();
 
   if (pathname === '/host/login') {
     return <>{children}</>;
@@ -71,6 +91,14 @@ function HostAuthGuard({ children }: { children: React.ReactNode }) {
   if (!isAuthenticated || role !== 'host') {
     router.replace('/host/login');
     return null;
+  }
+
+  if (!meFetched) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background text-sm text-white/60">
+        Loading session…
+      </div>
+    );
   }
 
   if (!assignedSession?.pin || !assignedSession?.id) {
@@ -88,12 +116,20 @@ function HostAuthGuard({ children }: { children: React.ReactNode }) {
   }
 
   if (pathname === '/host/dashboard') {
-    return <>{children}</>;
+    return (
+      <>
+        <Suspense fallback={null}>
+          <HostSessionUrlSync />
+        </Suspense>
+        {children}
+      </>
+    );
   }
 
   return (
     <div className="min-h-screen bg-background">
       <Suspense fallback={null}>
+        <HostSessionUrlSync />
         <HostNav />
       </Suspense>
       <main className="p-2">{children}</main>

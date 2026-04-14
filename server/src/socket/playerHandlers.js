@@ -287,18 +287,11 @@ const playerHandlers = (io, socket) => {
       const { pin, teamId, teamName } = socket.data || {};
       if (!pin || !teamId) return;
 
-      await Team.update({ isConnected: false, socketId: null }, { where: { id: teamId } });
-
-      const gameState = await redisStore.getGameState(pin);
-      if (gameState && gameState.teams[teamId]) {
-        gameState.teams[teamId].isConnected = false;
-        await redisStore.setGameState(pin, gameState);
-      }
+      await gameController.handlePlayerSocketDisconnect(io, pin, teamId);
 
       socket.leave(`session:${pin}`);
       socket.data = {};
 
-      io.to(`session:${pin}`).emit(SOCKET_EVENTS.TEAM_REMOVED, { teamId });
       socket.emit(SOCKET_EVENTS.SESSION_STATE, { left: true });
       logger.info('Player left session', { pin, teamId, teamName });
     } catch (err) {
@@ -334,15 +327,49 @@ const playerHandlers = (io, socket) => {
   socket.on(SOCKET_EVENTS.DISCONNECT, async () => {
     try {
       const { pin, teamId } = socket.data || {};
-      if (!pin || !teamId) return;
-
-      await Team.update({ isConnected: false, socketId: null }, { where: { id: teamId } });
-
-      const gameState = await redisStore.getGameState(pin);
-      if (gameState && gameState.teams[teamId]) {
-        gameState.teams[teamId].isConnected = false;
-        await redisStore.setGameState(pin, gameState);
+      // #region agent log
+      if (!pin || !teamId) {
+        fetch('http://127.0.0.1:7668/ingest/a0939c7c-6b4b-458b-abf6-c1b2f0a79714', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': 'ba526a' },
+          body: JSON.stringify({
+            sessionId: 'ba526a',
+            location: 'playerHandlers.js:DISCONNECT',
+            message: 'disconnect early return (no pin/teamId in socket.data)',
+            data: { hasPin: Boolean(pin), hasTeamId: Boolean(teamId) },
+            timestamp: Date.now(),
+            hypothesisId: 'H3',
+          }),
+        }).catch(() => {});
+        return;
       }
+      // #endregion
+
+      await gameController.handlePlayerSocketDisconnect(io, pin, teamId);
+
+      const gameStateAfter = await redisStore.getGameState(pin);
+      // #region agent log
+      fetch('http://127.0.0.1:7668/ingest/a0939c7c-6b4b-458b-abf6-c1b2f0a79714', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': 'ba526a' },
+        body: JSON.stringify({
+          sessionId: 'ba526a',
+          runId: 'post-fix',
+          location: 'playerHandlers.js:DISCONNECT',
+          message: 'disconnect after handlePlayerSocketDisconnect',
+          data: {
+            pin,
+            teamId,
+            emitsTeamRemoved: true,
+            teamIdsStillInGameState: gameStateAfter
+              ? Object.keys(gameStateAfter.teams || {}).map(Number)
+              : [],
+          },
+          timestamp: Date.now(),
+          hypothesisId: 'H1',
+        }),
+      }).catch(() => {});
+      // #endregion
 
       logger.info('Player disconnected', { pin, teamId });
     } catch (err) {

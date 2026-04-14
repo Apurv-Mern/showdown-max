@@ -6,6 +6,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useSocket } from '@/hooks/useSocket';
 import { useAudio } from '@/hooks/useAudio';
 import { usePlayerSession } from '../playerSession';
+import { LoadingDots } from '../LoadingDots';
 import { clientLogger } from '@/lib/clientLogger';
 import { cn } from '@/lib/utils';
 import { PUBLIC_API_URL } from '@/lib/env';
@@ -226,18 +227,70 @@ const getRoundScoringLines = (roundType?: string) => {
   };
 };
 
-function HeaderCapsule({ icon, value, className }: { icon: string; value: string | number; className?: string }) {
+const formatRoundTypeLabel = (roundType?: string) => {
+  const type = (roundType || '').toUpperCase();
+  switch (type) {
+    case 'MULTIPLE_CHOICE':
+      return 'Multiple Choice';
+    case 'AUDIO_VIDEO':
+      return 'Audio/Video';
+    case 'MUSIC':
+      return 'Music';
+    case 'ELIMINATION':
+      return 'Elimination';
+    case 'WAGER':
+      return 'Wager';
+    case 'FINAL_WAGER':
+      return 'Final Wager';
+    case 'MAJORITY_RULES':
+      return 'Majority Rules';
+    default:
+      return (roundType || 'Round').replace(/_/g, ' ');
+  }
+};
+
+const normalizeRoundIntroTitle = (name?: string, roundType?: string, roundIndex?: number) => {
+  const raw = (name || '').trim();
+  const fallback = formatRoundTypeLabel(roundType);
+  if (!raw) return fallback || `Round ${(roundIndex || 0) + 1}`;
+
+  const withoutPrefix = raw
+    .replace(new RegExp(`^round\\s*${(roundIndex || 0) + 1}\\s*[-:–]*\\s*`, 'i'), '')
+    .replace(/^round\s*\d+\s*[-:–]*\s*/i, '')
+    .trim();
+
+  if (!withoutPrefix) return fallback || `Round ${(roundIndex || 0) + 1}`;
+
+  const normalizedRaw = withoutPrefix.replace(/\s+/g, ' ').toLowerCase();
+  const normalizedFallback = fallback.replace(/\s+/g, ' ').toLowerCase();
+
+  if (normalizedFallback && normalizedRaw.includes(normalizedFallback)) {
+    return fallback;
+  }
+
+  return withoutPrefix;
+};
+
+function HeaderCapsule({
+  icon,
+  value,
+  className,
+}: {
+  icon: string;
+  value: string | number;
+  className?: string;
+}) {
   return (
-    <div className={cn(
-      "relative flex items-center min-w-27.5 h-11 rounded-full border border-[#ff2b68] bg-[linear-gradient(180deg,#FF0000_0%,#801669_100%)] pl-10 pr-4 shadow-[0_4px_10px_rgba(0,0,0,0.3)]",
-      className
-    )}>
+    <div
+      className={cn(
+        'relative flex items-center min-w-27.5 h-11 rounded-full border border-[#ff2b68] bg-[linear-gradient(180deg,#FF0000_0%,#801669_100%)] pl-10 pr-4 shadow-[0_4px_10px_rgba(0,0,0,0.3)]',
+        className,
+      )}
+    >
       <div className="absolute -left-3 top-4.5 -translate-y-1/2 w-14 h-14 flex items-center justify-center">
         <img src={icon} alt="icon" className="w-full h-full object-contain drop-shadow-md" />
       </div>
-      <span className="w-full text-center font-black text-white text-xl leading-none">
-        {value}
-      </span>
+      <span className="w-full text-center font-black text-white text-xl leading-none">{value}</span>
     </div>
   );
 }
@@ -627,7 +680,14 @@ export default function GamePage() {
 
   const handleSelectOption = useCallback(
     (index: number) => {
-      if (selectedOption !== null || !socket || isEliminated || timerRemaining <= 0 || phaseRef.current !== 'question') return;
+      if (
+        selectedOption !== null ||
+        !socket ||
+        isEliminated ||
+        timerRemaining <= 0 ||
+        phaseRef.current !== 'question'
+      )
+        return;
       setSelectedOption(index);
       setPhase('answered');
       socket.emit('submit_answer', {
@@ -650,7 +710,9 @@ export default function GamePage() {
     breakDuration > 0 ? Math.max(0, Math.min(1, breakRemaining / breakDuration)) : 0;
   const breakRadius = 134;
   const breakCircumference = 2 * Math.PI * breakRadius;
-  const breakOffset = breakCircumference * (1 - breakProgress);
+  /** Elapsed = gap from 12 o'clock clockwise; remaining = colored arc after (matches host / design ref). */
+  const breakElapsedLength = breakCircumference * (1 - breakProgress);
+  const breakRemainingLength = breakCircumference * breakProgress;
   const breakMinutes = Math.floor(breakRemaining / 60);
   const breakSeconds = breakRemaining % 60;
   const optionCount = question?.question?.options?.length || 0;
@@ -694,17 +756,20 @@ export default function GamePage() {
                   transition={{ delay: 0.1 }}
                   className="relative w-full max-w-100"
                 >
-                  <img src="/round%20intro.png" alt="Round intro" className="w-full h-auto" />
+                  <img src="/Venue Round Intro.png" alt="Round intro" className="w-full h-auto" />
 
                   <div className="pointer-events-none absolute inset-0">
+                    {/* Solid fill masks baked-in "ROUND N" text inside round intro.png so only live data shows */}
                     <div className="absolute left-1/2 top-[22%] h-[40%] w-[58%] -translate-x-1/2 rounded-full flex flex-col items-center justify-center text-center px-3">
-                      <p className="text-[40px] font-extrabold leading-[0.95] bg-linear-to-b from-[#FFFFFF] to-[#FFC870] bg-clip-text text-transparent">
+                      <p className="relative z-10 text-[40px] font-extrabold leading-[0.95] bg-linear-to-b from-[#FFFFFF] to-[#FFC870] bg-clip-text text-transparent">
                         ROUND {(roundInfo.roundIndex || 0) + 1}
                       </p>
-                      <p className="mt-1 text-[14px] font-bold leading-[1.15] text-[#00d8ff]">
-                        {roundInfo.round?.name ||
-                          roundInfo.round?.type?.replace(/_/g, ' ') ||
-                          `Round ${(roundInfo.roundIndex || 0) + 1}`}
+                      <p className="relative z-10 mt-1 max-w-[88%] text-[13px] font-bold leading-[1.1] text-[#00d8ff]">
+                        {normalizeRoundIntroTitle(
+                          roundInfo.round?.name,
+                          roundInfo.round?.type,
+                          roundInfo.roundIndex,
+                        )}
                       </p>
                     </div>
 
@@ -782,11 +847,7 @@ export default function GamePage() {
                       Leave Game
                     </button>
 
-                    <div className="mt-3 flex items-center justify-center gap-2">
-                      <span className="h-3.5 w-3.5 rounded-full bg-[#00d8ff] shadow-[0_0_9px_rgba(0,216,255,0.6)]" />
-                      <span className="h-3.5 w-3.5 rounded-full bg-[#00d8ff]/65 shadow-[0_0_8px_rgba(0,216,255,0.45)]" />
-                      <span className="h-3.5 w-3.5 rounded-full bg-[#00d8ff]/30" />
-                    </div>
+                    <LoadingDots className="mt-3" gapClass="gap-2" />
                   </div>
                 </div>
               </motion.div>
@@ -844,22 +905,23 @@ export default function GamePage() {
 
             {/* ── QUESTION / ANSWERED ── */}
             {(phase === 'question' || phase === 'answered') && question && (
-              <motion.div key="question" {...pageTransition} className="flex-1 flex flex-col p-4 mt-4">
+              <motion.div
+                key="question"
+                {...pageTransition}
+                className="flex-1 flex flex-col p-4 mt-4"
+              >
                 {/* Header: Timer, Q Index, Score */}
                 <div className="flex items-center justify-between mb-5 px-1">
-                  <HeaderCapsule 
-                    icon="/Clock.png" 
-                    value={timerRemaining.toString().padStart(2, '0')} 
+                  <HeaderCapsule
+                    icon="/Clock.png"
+                    value={timerRemaining.toString().padStart(2, '0')}
                   />
                   <div className="flex flex-col items-center">
                     <span className="text-white text-2xl font-black drop-shadow-lg">
                       {(question.questionIndex || 0) + 1}/{question.totalQuestions}
                     </span>
                   </div>
-                  <HeaderCapsule 
-                    icon="/trophy.png" 
-                    value={session.score} 
-                  />
+                  <HeaderCapsule icon="/trophy.png" value={session.score} />
                 </div>
 
                 <div className="mb-4 ">
@@ -879,7 +941,7 @@ export default function GamePage() {
                   ) : (question.question.mediaType || '').toLowerCase() === 'mp4' &&
                     question.question.mediaUrl ? (
                     <div className="shrink-0">
-                       <div className="rounded-2xl border-2 border-[#11a7ff] overflow-hidden shadow-[0_0_20px_rgba(17,167,255,0.3)]">
+                      <div className="rounded-2xl border-2 border-[#11a7ff] overflow-hidden shadow-[0_0_20px_rgba(17,167,255,0.3)]">
                         <video
                           src={resolveMediaUrl(question.question.mediaUrl)}
                           className="w-full object-cover max-h-55"
@@ -927,7 +989,8 @@ export default function GamePage() {
                             'w-full min-h-15 rounded-xl px-6 text-white font-bold shadow-[0_4px_10px_rgba(0,0,0,0.5),inset_0_1px_1px_rgba(255,255,255,0.2)]',
                             'transition-all touch-manipulation select-none flex items-center justify-start',
                             OPTION_BG[i] || 'bg-[#1565c0]',
-                            isSelected && 'ring-4 ring-white shadow-[0_0_25px_rgba(255,255,255,0.5)]',
+                            isSelected &&
+                              'ring-4 ring-white shadow-[0_0_25px_rgba(255,255,255,0.5)]',
                             isLocked && !isSelected && 'opacity-60 grayscale-[0.3]',
                             isLocked && 'cursor-not-allowed',
                           )}
@@ -969,22 +1032,20 @@ export default function GamePage() {
 
             {/* ── REVEAL ── */}
             {phase === 'reveal' && revealData && question && (
-              <motion.div key="reveal" {...pageTransition} className="flex-1 flex flex-col p-4 mt-4">
+              <motion.div
+                key="reveal"
+                {...pageTransition}
+                className="flex-1 flex flex-col p-4 mt-4"
+              >
                 {/* Header: Timer, Q Index, Score */}
                 <div className="flex items-center justify-between mb-5 px-1">
-                  <HeaderCapsule 
-                    icon="/Clock.png" 
-                    value="00:00" 
-                  />
+                  <HeaderCapsule icon="/Clock.png" value="00:00" />
                   <div className="flex flex-col items-center">
                     <span className="text-white text-2xl font-black drop-shadow-lg">
                       {(question.questionIndex || 0) + 1}/{question.totalQuestions}
                     </span>
                   </div>
-                  <HeaderCapsule 
-                    icon="/trophy.png" 
-                    value={session.score} 
-                  />
+                  <HeaderCapsule icon="/trophy.png" value={session.score} />
                 </div>
 
                 <div className="mb-4">
@@ -1014,8 +1075,9 @@ export default function GamePage() {
                       const isCorrectOption = i === revealData.correctOptionIndex;
                       const isSelectedOption = selectedOption === i;
                       const isSelectedWrong = isSelectedOption && !isCorrectOption;
-                      const shouldDim =
-                        selectedOption !== null && !isCorrectOption && !isSelectedWrong;
+                      // Dim all incorrect options; keep full style on correct + user's wrong pick (red).
+                      // When the user never submitted, selectedOption is null — still dim wrong answers.
+                      const shouldDim = !isCorrectOption && !isSelectedWrong;
 
                       return (
                         <motion.div
@@ -1025,9 +1087,11 @@ export default function GamePage() {
                             'w-full min-h-15 rounded-xl px-6 text-white font-bold ',
                             'transition-all touch-manipulation select-none flex items-center justify-start',
                             OPTION_BG[i] || 'bg-[#1565c0]',
-                            isCorrectOption && 'shadow-[0_0_8px_8px_rgba(57,255,74,0.9),_0_0_0px_rgba(57,255,74,0.5)]',
-                            isSelectedWrong && 'shadow-[0_0_8px_8px_rgba(255,37,37,0.8),_0_0_0px_rgba(255,37,37,0.5)]',
-                            shouldDim && 'opacity-30 brightness-50 scale-[0.98]',
+                            isCorrectOption &&
+                              'shadow-[0_0_8px_8px_rgba(57,255,74,0.9),_0_0_0px_rgba(57,255,74,0.5)]',
+                            isSelectedWrong &&
+                              'shadow-[0_0_8px_8px_rgba(255,37,37,0.8),_0_0_0px_rgba(255,37,37,0.5)]',
+                            shouldDim && 'opacity-30 brightness-50 contrast-75 scale-[0.98]',
                           )}
                         >
                           <span className="text-[20px] leading-tight font-black drop-shadow-md">
@@ -1051,8 +1115,8 @@ export default function GamePage() {
                       selectedOption === null
                         ? 'text-white drop-shadow-[0_0_15px_rgba(255,255,255,0.4)]'
                         : selectedOption === revealData.correctOptionIndex
-                        ? 'text-[#53ff57] drop-shadow-[0_0_15px_rgba(83,255,87,0.8)]'
-                        : 'text-[#ff2525] drop-shadow-[0_0_15px_rgba(255,37,37,0.8)]',
+                          ? 'text-[#53ff57] drop-shadow-[0_0_15px_rgba(83,255,87,0.8)]'
+                          : 'text-[#ff2525] drop-shadow-[0_0_15px_rgba(255,37,37,0.8)]',
                     )}
                   >
                     {selectedOption === null
@@ -1064,7 +1128,7 @@ export default function GamePage() {
                 </motion.div>
               </motion.div>
             )}
-         
+
             {/* â”€â”€ ELIMINATED â”€â”€ */}
             {phase === 'eliminated' && (
               <motion.div
@@ -1100,7 +1164,11 @@ export default function GamePage() {
 
             {/* ── SCOREBOARD ── */}
             {phase === 'scoreboard' && (
-              <motion.div key="scoreboard" {...pageTransition} className="flex-1 flex flex-col p-4 mt-4">
+              <motion.div
+                key="scoreboard"
+                {...pageTransition}
+                className="flex-1 flex flex-col p-4 mt-4"
+              >
                 <div className="mb-4 text-center">
                   <h2 className="text-[52px] leading-none font-extrabold text-white tracking-wide drop-shadow-[0_0_10px_rgba(255,255,255,0.2)]">
                     🏅 LEADERBOARD 🏅
@@ -1199,19 +1267,20 @@ export default function GamePage() {
                         strokeWidth="10"
                         fill="none"
                       />
-                      <circle
-                        cx="150"
-                        cy="150"
-                        r={breakRadius}
-                        stroke="url(#breakRingGradient)"
-                        strokeWidth="10"
-                        fill="none"
-                        strokeLinecap="round"
-                        strokeDasharray={breakCircumference}
-                        strokeDashoffset={breakOffset}
-                        transform="rotate(-90 150 150)"
-                        style={{ filter: 'drop-shadow(0 0 10px rgba(0,229,255,0.35))' }}
-                      />
+                      <g transform="rotate(-90 150 150)">
+                        <circle
+                          cx="150"
+                          cy="150"
+                          r={breakRadius}
+                          stroke="url(#breakRingGradient)"
+                          strokeWidth="10"
+                          fill="none"
+                          strokeLinecap="round"
+                          strokeDasharray={`0 ${breakElapsedLength} ${breakRemainingLength} 0`}
+                          strokeDashoffset={0}
+                          style={{ filter: 'drop-shadow(0 0 10px rgba(0,229,255,0.35))' }}
+                        />
+                      </g>
                     </svg>
 
                     <div className="absolute inset-[28px] rounded-full bg-[radial-gradient(circle_at_50%_35%,rgba(44,23,101,0.92)_0%,rgba(10,7,40,0.96)_100%)] border border-[#00d8ff]/25 flex flex-col items-center justify-center">

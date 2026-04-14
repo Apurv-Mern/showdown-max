@@ -212,6 +212,18 @@ const playerHandlers = (io, socket) => {
                 ? gameState.miniGameState.cardPositions
                 : [],
             });
+            const selectedChoiceRaw = gameState.miniGameState.selections?.[String(team.id)];
+            const selectedChoice = Number.isFinite(Number(selectedChoiceRaw))
+              ? Number(selectedChoiceRaw)
+              : null;
+            const correctPosition = Number(gameState.miniGameState.correctPosition);
+            socket.emit(SOCKET_EVENTS.MINI_GAME_PLAYER_RESULT, {
+              game: 'card_shuffle',
+              result: selectedChoice === correctPosition ? 'winner' : 'loser',
+              correctPosition,
+              selectedChoice,
+              roundNumber: gameState.miniGameState.activeRound || undefined,
+            });
           }
         }
         if (gameState.state === 'FINAL_RESULTS') {

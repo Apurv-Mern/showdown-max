@@ -220,6 +220,31 @@ export default function MiniGamePage() {
       applyCardShuffleReveal(data);
     };
 
+    const onMiniGamePlayerResult = (data: {
+      game?: string;
+      result?: 'winner' | 'loser';
+      correctPosition?: number;
+      selectedChoice?: number | null;
+    }) => {
+      const gid = normalizeMiniGameId(data?.game);
+      if (gid && gid !== 'card_shuffle') return;
+
+      const winning = normalizeCardSlotToChoice(data?.correctPosition);
+      const selected = normalizeCardSlotToChoice(data?.selectedChoice);
+
+      setGameType('card_shuffle');
+      setWinningValue(winning);
+      setRoundOpen(false);
+      setRoundAnnouncement(null);
+
+      if (selected !== null) {
+        lockedPickRef.current = selected;
+        setSelectedChoice(selected);
+      }
+
+      setResultPhase(data?.result === 'winner' ? 'winner' : 'loser');
+    };
+
     const onMiniGameUpdate = (data: {
       source?: string;
       action?: string;
@@ -309,6 +334,7 @@ export default function MiniGamePage() {
     socket.on('mini_game_start', onMiniGameStart);
     socket.on('mini_game_command', onMiniGameCommand);
     socket.on('mini_game_reveal', onMiniGameReveal);
+    socket.on('mini_game_player_result', onMiniGamePlayerResult);
     socket.on('mini_game_update', onMiniGameUpdate);
     socket.on('mini_game_end', onMiniGameEnd);
     socket.on('break_end', onBreakEnd);
@@ -320,6 +346,7 @@ export default function MiniGamePage() {
       socket.off('mini_game_start', onMiniGameStart);
       socket.off('mini_game_command', onMiniGameCommand);
       socket.off('mini_game_reveal', onMiniGameReveal);
+      socket.off('mini_game_player_result', onMiniGamePlayerResult);
       socket.off('mini_game_update', onMiniGameUpdate);
       socket.off('mini_game_end', onMiniGameEnd);
       socket.off('break_end', onBreakEnd);

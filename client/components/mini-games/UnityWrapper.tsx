@@ -78,7 +78,19 @@ export default function UnityWrapper({
     (jsonPayload: string) => {
       try {
         const data = JSON.parse(jsonPayload);
-        onPlayerAction?.(data.action, data.value);
+        const action =
+          typeof data?.action === 'string'
+            ? data.action
+            : typeof data?.type === 'string'
+              ? data.type
+              : 'raw';
+        const value =
+          data?.value !== undefined
+            ? data.value
+            : data?.payload !== undefined
+              ? data.payload
+              : data;
+        onPlayerAction?.(action, value);
       } catch {
         onPlayerAction?.('raw', jsonPayload);
       }

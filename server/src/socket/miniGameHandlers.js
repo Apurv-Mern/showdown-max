@@ -112,6 +112,34 @@ const hydrateCardShuffleState = async (pin, updater) => {
   return gameState;
 };
 
+const emitCardShufflePlayerResults = async (io, pin, miniGameState) => {
+  if (!pin || !miniGameState || miniGameState.game !== 'card_shuffle') return;
+
+  const correctPosition = Number(miniGameState.correctPosition);
+  if (!Number.isFinite(correctPosition) || correctPosition < 1 || correctPosition > 3) return;
+
+  const room = `session:${pin}`;
+  const socketsInRoom = await io.in(room).fetchSockets();
+
+  for (const roomSocket of socketsInRoom) {
+    const teamId = Number(roomSocket.data?.teamId);
+    if (!Number.isFinite(teamId) || teamId <= 0) continue;
+
+    const rawChoice = miniGameState.selections?.[String(teamId)];
+    const selectedChoice = Number.isFinite(Number(rawChoice))
+      ? Number(rawChoice)
+      : null;
+
+    roomSocket.emit(SOCKET_EVENTS.MINI_GAME_PLAYER_RESULT, {
+      game: 'card_shuffle',
+      result: selectedChoice === correctPosition ? 'winner' : 'loser',
+      correctPosition,
+      selectedChoice,
+      roundNumber: miniGameState.activeRound || undefined,
+    });
+  }
+};
+
 /**
  * Registers mini-game socket event handlers.
  *
@@ -248,12 +276,25 @@ const miniGameHandlers = (io, socket) => {
             roundNumber: gameState?.miniGameState?.activeRound || undefined,
             cardPositions,
           });
+          io.to(room).emit(SOCKET_EVENTS.MINI_GAME_UPDATE, {
+            game: 'card_shuffle',
+            source: 'unity',
+            action: 'SHUFFLE_COMPLETE',
+            value: {
+              type: 'SHUFFLE_COMPLETE',
+              payload: {
+                correct_position: correctPosition,
+                card_positions: cardPositions,
+              },
+            },
+          });
 
           logger.info('Card Shuffle reveal received from Unity', {
             pin: eventPin,
             correctPosition,
             roundNumber: gameState?.miniGameState?.activeRound || undefined,
           });
+          await emitCardShufflePlayerResults(io, eventPin, gameState?.miniGameState);
           return;
         }
 

@@ -1,8 +1,9 @@
 'use client';
 
 import { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { PUBLIC_API_URL } from './env';
+import { connectSocket } from './socket';
 
 const API_URL = PUBLIC_API_URL;
 type AuthRole = 'admin' | 'host';
@@ -85,6 +86,7 @@ function readStoredAuth(preferredRole?: AuthRole | null): AuthState {
 
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const pathname = usePathname();
+  const router = useRouter();
   const scopedRole = getRoleFromPath(pathname);
 
   const [state, setState] = useState<AuthState>({
@@ -195,6 +197,21 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     }
     setState(next);
   }, [scopedRole, state.role]);
+
+  useEffect(() => {
+    const socket = connectSocket();
+    const onSessionDeleted = (data: { pin?: string }) => {
+      const pin = data?.pin ? String(data.pin) : '';
+      if (!pin) return;
+      if (state.role !== 'host' || state.assignedSession?.pin !== pin) return;
+      logout();
+      router.replace('/host/login');
+    };
+    socket.on('session_deleted', onSessionDeleted);
+    return () => {
+      socket.off('session_deleted', onSessionDeleted);
+    };
+  }, [state.role, state.assignedSession?.pin, logout, router]);
 
   if (!hydrated) return null;
 

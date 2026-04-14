@@ -28,7 +28,7 @@ const GAME_CONFIGS: Record<string, { loaderUrl: string; dataUrl: string; framewo
     frameworkUrl: '/games/Kangaroo-race/Build/Kangaroo-race.framework.js',
     codeUrl: '/games/Kangaroo-race/Build/Kangaroo-race.wasm',
   },
-  /** WebGL build from repo `CardGame/` → copied to `client/public/CardGame/Build/` */
+  /** WebGL build served from repo root `CardGame/Build/` via `app/CardGame/Build/[...slug]/route.ts` */
   card_shuffle: {
     loaderUrl: '/CardGame/Build/Card%20Shuffle.loader.js?v=root-build-v2',
     dataUrl: '/CardGame/Build/Card%20Shuffle.data?v=root-build-v2',
@@ -275,8 +275,16 @@ function FallbackView({ gameType }: { gameType: string }) {
         Unity WebGL build not found. Place your build files at:
       </p>
       <code className="text-xs font-mono bg-surface-light px-4 py-2 rounded-lg text-primary">
-        {gameType === 'Kangaroo_race' ? '/public/games/Kangaroo-race/Build/' : '/public/CardGame/Build/'}
+        {gameType === 'Kangaroo_race'
+          ? 'client/public/games/Kangaroo-race/Build/'
+          : 'CardGame/Build/ (repo root, next to client/)'}
       </code>
+      {gameType === 'card_shuffle' ? (
+        <p className="text-xs text-foreground/40 max-w-md">
+          Or set <code className="font-mono text-primary/80">CARDGAME_BUILD_DIR</code> to an absolute
+          Build folder path on the server.
+        </p>
+      ) : null}
       <div className="mt-4 bg-primary/10 border border-primary/20 rounded-xl px-6 py-3">
         <p className="text-sm text-foreground/50">
           Required files: <span className="text-foreground/70">.loader.js</span>,{' '}

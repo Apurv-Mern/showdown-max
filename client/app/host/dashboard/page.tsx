@@ -309,7 +309,7 @@ function HostFooterBtn({
       onClick={onClick}
       disabled={disabled}
       className={cn(
-        'inline-flex h-12.5 min-w-30 flex-1 max-w-52.5 items-center justify-center gap-2 rounded-lg border px-2 text-[10px] font-bold uppercase tracking-wide text-white shadow-[0_4px_12px_rgba(0,0,0,0.35)] transition hover:brightness-110 disabled:opacity-30 sm:min-w-35 sm:px-3 sm:text-xs',
+        'inline-flex h-12.5 min-w-30 flex-1 max-w-52.5 items-center justify-center gap-2 rounded-lg border px-2 text-[10px] font-bold uppercase tracking-wide text-white shadow-[0_4px_12px_rgba(0,0,0,0.35)] transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-30 disabled:grayscale sm:min-w-35 sm:px-3 sm:text-xs',
         emphasis
           ? 'border-[rgba(0,217,255,0.45)] bg-[linear-gradient(180deg,#3a4a68_0%,#1e2a42_100%)] shadow-[0_0_18px_rgba(0,217,255,0.18)]'
           : 'border-white/15 bg-[linear-gradient(180deg,#2e354c_0%,#1a2030_100%)]',
@@ -359,11 +359,18 @@ function HostDashboardContent() {
   const [cardPickCounts, setCardPickCounts] = useState([0, 0, 0]);
   const [cardShuffleVenueReady, setCardShuffleVenueReady] = useState(false);
   const [cardShuffleGameStarted, setCardShuffleGameStarted] = useState(false);
+  /** True after host sends Unity start once; blocks double-clicks before React re-renders. */
+  const [cardShuffleUnityStartSent, setCardShuffleUnityStartSent] = useState(false);
+  const cardShuffleStartLockRef = useRef(false);
   const [cardShuffleActiveRound, setCardShuffleActiveRound] = useState<1 | 2 | 3 | 4 | null>(null);
   const [cardShuffleRevealPosition, setCardShuffleRevealPosition] = useState<number | null>(null);
   const [activeMiniGameLocal, setActiveMiniGameLocal] = useState<string | null>(null);
   const [miniGameLoading, setMiniGameLoading] = useState(false);
   const [miniGameRevealing, setMiniGameRevealing] = useState(false);
+  const [cardShuffleFinishedHold, setCardShuffleFinishedHold] = useState(false);
+  const [cardShuffleFinishedMessage, setCardShuffleFinishedMessage] = useState(
+    'Game Over. Wait for the host to start the game.',
+  );
   const [showScoreboardModal, setShowScoreboardModal] = useState(false);
   const [isScoreboardVisible, setIsScoreboardVisible] = useState(false);
   const [showTimerModal, setShowTimerModal] = useState(false);
@@ -372,6 +379,8 @@ function HostDashboardContent() {
   /** Local break countdown (synced from break_start / session_state; ticks every second). */
   const [hostBreakDuration, setHostBreakDuration] = useState(360);
   const [hostBreakRemaining, setHostBreakRemaining] = useState(0);
+  /** Prevents double submit and grays out Start Game until the server leaves lobby. */
+  const [startGameRequested, setStartGameRequested] = useState(false);
 
   const gameStateRef = useRef<GameState | null>(null);
   const previousStateBeforeScoreboardRef = useRef<{ state: string; questionState: string } | null>(
@@ -380,6 +389,10 @@ function HostDashboardContent() {
   useEffect(() => {
     gameStateRef.current = gameState;
   }, [gameState]);
+
+  useEffect(() => {
+    if ((gameState?.state || 'LOBBY') !== 'LOBBY') setStartGameRequested(false);
+  }, [gameState?.state]);
 
   useEffect(() => {
     if (gameState?.state !== 'BREAK') return;
@@ -443,8 +456,23 @@ function HostDashboardContent() {
     joinHost();
     socket.on('connect', joinHost);
 
-    socket.on('session_state', (data: GameState) => {
+    const normalizeHostMiniGameId = (game: unknown) =>
+      game == null || game === '' ? '' : String(game).toLowerCase().replace(/-/g, '_');
+
+    const normalizeHostRevealSlot = (raw: unknown): number | null => {
+      const n = Number(raw);
+      if (!Number.isFinite(n)) return null;
+      const t = Math.trunc(n);
+      if (t >= 1 && t <= 3) return t;
+      if (t >= 0 && t <= 2) return t + 1;
+      return null;
+    };
+
+    const onSessionState = (data: GameState) => {
       if (data?.state) {
+        if (data.state !== 'QUESTION' && data.state !== 'ROUND_INTRO') {
+          setCardShuffleFinishedHold(false);
+        }
         setGameState(data);
         if (data.state === 'BREAK') {
           const bd = Number(data.breakDuration ?? 360);
@@ -500,14 +528,17 @@ function HostDashboardContent() {
         setMiniGameLoading(false);
         setCardShuffleVenueReady(false);
         setCardShuffleGameStarted(false);
+        setCardShuffleUnityStartSent(false);
+        cardShuffleStartLockRef.current = false;
         setCardShuffleActiveRound(null);
         setCardShuffleRevealPosition(null);
         setCardPickCounts([0, 0, 0]);
         setMiniGameRevealing(false);
       }
-    });
+    };
 
-    socket.on('question_active', (data: QuestionData) => {
+    const onQuestionActive = (data: QuestionData) => {
+      setCardShuffleFinishedHold(false);
       setCurrentQuestion(data);
       setRevealData(null);
       setTimerDuration(data.timerDuration);
@@ -527,16 +558,16 @@ function HostDashboardContent() {
       setGameState((prev) =>
         prev ? { ...prev, state: 'QUESTION', questionState: 'ACTIVE' } : prev,
       );
-    });
+    };
 
-    socket.on('timer_update', (data: { remaining: number; paused?: boolean }) => {
+    const onTimerUpdate = (data: { remaining: number; paused?: boolean }) => {
       setTimerRemaining(data.remaining);
       if (data.paused !== undefined) setTimerPaused(data.paused);
-    });
+    };
 
-    socket.on('timer_expired', () => setTimerRemaining(0));
+    const onTimerExpired = () => setTimerRemaining(0);
 
-    socket.on('answer_reveal', (data: RevealData) => {
+    const onAnswerReveal = (data: RevealData) => {
       setRevealData(data);
       setGameState((prev) => {
         if (!prev) return prev;
@@ -564,13 +595,13 @@ function HostDashboardContent() {
           totalTeams: Object.keys(nextTeams).length,
         };
       });
-    });
+    };
 
-    socket.on('response_count', (data: { count: number; total: number }) => {
+    const onResponseCount = (data: { count: number; total: number }) => {
       setGameState((prev) =>
         prev ? { ...prev, responseCount: data.count, totalTeams: data.total } : prev,
       );
-    });
+    };
 
     const onLiveResponseUpdate = (data: {
       correct?: number;
@@ -586,10 +617,8 @@ function HostDashboardContent() {
       });
     };
 
-    socket.on('live_response_update', onLiveResponseUpdate);
-    socket.on('live_responses_update', onLiveResponseUpdate);
-
-    socket.on('round_intro', (data: { roundIndex?: number }) => {
+    const onRoundIntro = (data: { roundIndex?: number }) => {
+      setCardShuffleFinishedHold(false);
       setCurrentQuestion(null);
       setRevealData(null);
       setIsScoreboardVisible(false);
@@ -613,9 +642,9 @@ function HostDashboardContent() {
             }
           : prev,
       );
-    });
+    };
 
-    socket.on('scoreboard', (payload?: { teams?: Team[] }) => {
+    const onScoreboard = (payload?: { teams?: Team[] }) => {
       setIsScoreboardVisible(true);
       setGameState((prev) => {
         if (!prev) return prev;
@@ -653,9 +682,9 @@ function HostDashboardContent() {
           totalTeams: Object.keys(nextTeams).length,
         };
       });
-    });
+    };
 
-    socket.on('scoreboard_hidden', () => {
+    const onScoreboardHidden = () => {
       setIsScoreboardVisible(false);
       setGameState((prev) => {
         if (!prev) return prev;
@@ -663,18 +692,19 @@ function HostDashboardContent() {
         if (!restore) return prev;
         return { ...prev, state: restore.state, questionState: restore.questionState };
       });
-    });
+    };
 
-    socket.on('round_end', () => {
+    const onRoundEnd = () => {
       setIsScoreboardVisible(false);
       setCurrentQuestion(null);
       setRevealData(null);
       setMp3Playing(false);
       stopMp3();
       setGameState((prev) => (prev ? { ...prev, state: 'SCOREBOARD' } : prev));
-    });
+    };
 
-    socket.on('break_start', (payload?: { duration?: number; breakDuration?: number }) => {
+    const onBreakStart = (payload?: { duration?: number; breakDuration?: number }) => {
+      setCardShuffleFinishedHold(false);
       setIsScoreboardVisible(false);
       const d = Number(
         payload?.duration ?? payload?.breakDuration ?? gameStateRef.current?.breakDuration ?? 360,
@@ -685,12 +715,14 @@ function HostDashboardContent() {
       setGameState((prev) =>
         prev ? { ...prev, state: 'BREAK', breakDuration: safe, breakRemaining: safe } : prev,
       );
-    });
-    socket.on('break_end', () => {
-      // Exact phase/state is restored by server via session_state.
-    });
+    };
 
-    socket.on('game_end', (data?: { teams?: Team[] }) => {
+    const onBreakEnd = () => {
+      // Exact phase/state is restored by server via session_state.
+    };
+
+    const onGameEnd = (data?: { teams?: Team[] }) => {
+      setCardShuffleFinishedHold(false);
       setCurrentQuestion(null);
       setRevealData(null);
       setIsScoreboardVisible(false);
@@ -725,9 +757,9 @@ function HostDashboardContent() {
               currentQuestion: null,
             };
       });
-    });
+    };
 
-    socket.on('team_joined', (team: Team) => {
+    const onTeamJoined = (team: Team) => {
       setGameState((prev) => {
         if (!prev) return prev;
         return {
@@ -736,72 +768,104 @@ function HostDashboardContent() {
           totalTeams: Object.keys(prev.teams).length + 1,
         };
       });
-    });
+    };
 
-    socket.on('team_removed', ({ teamId }: { teamId: number }) => {
+    const onTeamRemoved = ({ teamId }: { teamId: number }) => {
       setGameState((prev) => {
         if (!prev) return prev;
         const teams = { ...prev.teams };
         delete teams[teamId];
         return { ...prev, teams, totalTeams: Object.keys(teams).length };
       });
-    });
+    };
 
-    socket.on('team_updated', ({ teamId, score }: { teamId: number; score: number }) => {
+    const onTeamUpdated = ({ teamId, score }: { teamId: number; score: number }) => {
       setGameState((prev) => {
         if (!prev || !prev.teams[teamId]) return prev;
         return { ...prev, teams: { ...prev.teams, [teamId]: { ...prev.teams[teamId], score } } };
       });
-    });
+    };
 
-    socket.on('mini_game_start', (data: { game: string }) => {
+    const onMiniGameStart = (data: { game: string }) => {
+      setCardShuffleFinishedHold(false);
       setActiveMiniGameLocal(data.game);
       setMiniGameLoading(false);
       setCardShuffleVenueReady(false);
-    });
+    };
 
-    socket.on('mini_game_ready', (data: { game?: string; ready?: boolean }) => {
-      if (data?.game !== 'card_shuffle') return;
+    const onMiniGameReady = (data: { game?: string; ready?: boolean }) => {
+      if (normalizeHostMiniGameId(data?.game) !== 'card_shuffle') return;
       setCardShuffleVenueReady(data.ready !== false);
-    });
+    };
 
-    socket.on(
-      'mini_game_reveal',
-      (data: { game?: string; correctPosition?: number; roundNumber?: 1 | 2 | 3 | 4 }) => {
-        if (data?.game !== 'card_shuffle') return;
-        setMiniGameRevealing(false);
-        setCardShuffleRevealPosition(
-          Number.isFinite(Number(data.correctPosition)) ? Number(data.correctPosition) : null,
-        );
-        if (data.roundNumber) {
-          setCardShuffleActiveRound(data.roundNumber);
-        }
-      },
-    );
+    const onMiniGameReveal = (data: {
+      game?: string;
+      correctPosition?: number;
+      correct_position?: number;
+      roundNumber?: 1 | 2 | 3 | 4;
+    }) => {
+      const gid = normalizeHostMiniGameId(data?.game);
+      if (gid && gid !== 'card_shuffle') return;
+      setMiniGameRevealing(false);
+      const slot = normalizeHostRevealSlot(data.correctPosition ?? data.correct_position);
+      setCardShuffleRevealPosition(slot);
+      if (data.roundNumber) {
+        setCardShuffleActiveRound(data.roundNumber);
+      }
+    };
 
-    socket.on(
-      'mini_game_end',
-      (data: { game?: string; winningCard?: number; winningKangaroo?: number }) => {
-        setMiniGameLoading(false);
-        if (data?.game === 'card_shuffle' || !data?.game) {
-          setCardShuffleVenueReady(false);
-          setCardShuffleGameStarted(false);
-          setCardShuffleActiveRound(null);
-          setCardShuffleRevealPosition(null);
-          setCardPickCounts([0, 0, 0]);
-        }
-        if (data?.game) {
-          setMiniGameRevealing(true);
-          setTimeout(() => {
-            setActiveMiniGameLocal(null);
-            setMiniGameRevealing(false);
-          }, 5000);
+    const onMiniGameEnd = (data: {
+      game?: string;
+      winningCard?: number;
+      winningKangaroo?: number;
+      holdScreen?: boolean;
+      status?: string;
+      message?: string;
+    }) => {
+      setMiniGameLoading(false);
+      if (data?.game === 'card_shuffle' || !data?.game) {
+        setCardShuffleVenueReady(false);
+        setCardShuffleGameStarted(false);
+        setCardShuffleUnityStartSent(false);
+        cardShuffleStartLockRef.current = false;
+        setCardShuffleActiveRound(null);
+        setCardShuffleRevealPosition(null);
+        setCardPickCounts([0, 0, 0]);
+        if (data?.holdScreen) {
+          setCardShuffleFinishedHold(true);
+          setCardShuffleFinishedMessage(
+            data.message || 'Game Over. Wait for the host to start the game.',
+          );
         } else {
-          setActiveMiniGameLocal(null);
-          setMiniGameRevealing(false);
+          setCardShuffleFinishedHold(false);
         }
-      },
-    );
+      }
+      setActiveMiniGameLocal(null);
+      setMiniGameRevealing(false);
+    };
+
+    socket.on('session_state', onSessionState);
+    socket.on('question_active', onQuestionActive);
+    socket.on('timer_update', onTimerUpdate);
+    socket.on('timer_expired', onTimerExpired);
+    socket.on('answer_reveal', onAnswerReveal);
+    socket.on('response_count', onResponseCount);
+    socket.on('live_response_update', onLiveResponseUpdate);
+    socket.on('live_responses_update', onLiveResponseUpdate);
+    socket.on('round_intro', onRoundIntro);
+    socket.on('scoreboard', onScoreboard);
+    socket.on('scoreboard_hidden', onScoreboardHidden);
+    socket.on('round_end', onRoundEnd);
+    socket.on('break_start', onBreakStart);
+    socket.on('break_end', onBreakEnd);
+    socket.on('game_end', onGameEnd);
+    socket.on('team_joined', onTeamJoined);
+    socket.on('team_removed', onTeamRemoved);
+    socket.on('team_updated', onTeamUpdated);
+    socket.on('mini_game_start', onMiniGameStart);
+    socket.on('mini_game_ready', onMiniGameReady);
+    socket.on('mini_game_reveal', onMiniGameReveal);
+    socket.on('mini_game_end', onMiniGameEnd);
 
     const onMiniGameUpdate = (data: { action?: string; value?: number }) => {
       if (data.action !== 'select' || typeof data.value !== 'number') return;
@@ -832,31 +896,29 @@ function HostDashboardContent() {
 
     return () => {
       socket.off('connect', joinHost);
-      socket.off('mini_game_update', onMiniGameUpdate);
+      socket.off('session_state', onSessionState);
+      socket.off('question_active', onQuestionActive);
+      socket.off('timer_update', onTimerUpdate);
+      socket.off('timer_expired', onTimerExpired);
+      socket.off('answer_reveal', onAnswerReveal);
+      socket.off('response_count', onResponseCount);
       socket.off('live_response_update', onLiveResponseUpdate);
       socket.off('live_responses_update', onLiveResponseUpdate);
-      [
-        'session_state',
-        'question_active',
-        'timer_update',
-        'timer_expired',
-        'answer_reveal',
-        'response_count',
-        'round_intro',
-        'scoreboard',
-        'scoreboard_hidden',
-        'round_end',
-        'break_start',
-        'break_end',
-        'game_end',
-        'team_joined',
-        'team_removed',
-        'team_updated',
-        'mini_game_start',
-        'mini_game_ready',
-        'mini_game_reveal',
-        'mini_game_end',
-      ].forEach((e) => socket.off(e));
+      socket.off('round_intro', onRoundIntro);
+      socket.off('scoreboard', onScoreboard);
+      socket.off('scoreboard_hidden', onScoreboardHidden);
+      socket.off('round_end', onRoundEnd);
+      socket.off('break_start', onBreakStart);
+      socket.off('break_end', onBreakEnd);
+      socket.off('game_end', onGameEnd);
+      socket.off('team_joined', onTeamJoined);
+      socket.off('team_removed', onTeamRemoved);
+      socket.off('team_updated', onTeamUpdated);
+      socket.off('mini_game_start', onMiniGameStart);
+      socket.off('mini_game_ready', onMiniGameReady);
+      socket.off('mini_game_reveal', onMiniGameReveal);
+      socket.off('mini_game_end', onMiniGameEnd);
+      socket.off('mini_game_update', onMiniGameUpdate);
     };
   }, [socket, pin, stopMp3]);
 
@@ -867,8 +929,16 @@ function HostDashboardContent() {
     [socket, pin],
   );
 
-  const handleStartGame = () => emit('start_game');
+  const handleStartGame = () => {
+    setStartGameRequested(true);
+    emit('start_game');
+  };
   const handleNextQuestion = () => emit('next_question');
+  const handleStartNextRoundAfterCardShuffle = () => {
+    setCardShuffleFinishedHold(false);
+    setCardShuffleFinishedMessage('Game Over. Wait for the host to start the game.');
+    handleNextQuestion();
+  };
   const handleRevealAnswer = () => emit('reveal_answer');
   const handleStartTimer = () => {
     emit('start_timer');
@@ -908,6 +978,8 @@ function HostDashboardContent() {
     setCardPickCounts([0, 0, 0]);
     setCardShuffleVenueReady(false);
     setCardShuffleGameStarted(false);
+    setCardShuffleUnityStartSent(false);
+    cardShuffleStartLockRef.current = false;
     setCardShuffleActiveRound(null);
     setCardShuffleRevealPosition(null);
     setMiniGameRevealing(false);
@@ -955,6 +1027,11 @@ function HostDashboardContent() {
 
   const handleCardShuffleStartGame = () => {
     if (!cardShuffleVenueReady) return;
+    if (cardShuffleStartLockRef.current || cardShuffleGameStarted || cardShuffleUnityStartSent) {
+      return;
+    }
+    cardShuffleStartLockRef.current = true;
+    setCardShuffleUnityStartSent(true);
     setCardShuffleGameStarted(true);
     setCardShuffleActiveRound(1);
     setCardPickCounts([0, 0, 0]);
@@ -976,12 +1053,24 @@ function HostDashboardContent() {
   const handleExitMiniGame = () => {
     setCardShuffleVenueReady(false);
     setCardShuffleGameStarted(false);
+    setCardShuffleUnityStartSent(false);
+    cardShuffleStartLockRef.current = false;
     setCardShuffleActiveRound(null);
     setCardShuffleRevealPosition(null);
     emit(
       'end_mini_game',
       activeMiniGameLocal === 'horse_race' ? { config: { winningKangaroo } } : undefined,
     );
+  };
+
+  const handleFinishCardShuffle = () => {
+    emit('end_mini_game', {
+      config: {
+        holdScreen: true,
+        status: 'finished',
+        message: 'Game Finished. Wait for the host to start the game.',
+      },
+    });
   };
 
   const closeAddTeamModal = useCallback(() => {
@@ -1374,7 +1463,31 @@ function HostDashboardContent() {
           data-node-id="232:4518"
         >
           {/* ── Mini-Game Active / Loading ── */}
-          {activeMiniGameLocal || miniGameLoading ? (
+          {cardShuffleFinishedHold ? (
+            <div className="flex min-h-0 flex-1 items-center justify-center rounded-2xl border-2 border-[rgba(0,217,255,0.45)] bg-[linear-gradient(180deg,rgba(26,31,46,0.85)_0%,rgba(11,15,26,0.92)_100%)] p-6 shadow-[0_0_28px_rgba(0,217,255,0.12)] sm:p-6">
+              <div className="w-full max-w-3xl rounded-[28px] border border-[#2ec7ff]/45 bg-[linear-gradient(180deg,rgba(38,14,95,0.95)_0%,rgba(15,11,55,0.96)_100%)] px-8 py-12 text-center shadow-[0_0_36px_rgba(0,229,255,0.16)]">
+                <div className="mx-auto mb-6 flex h-24 w-24 items-center justify-center rounded-full border-2 border-[#2ec7ff]/55 bg-[rgba(4,14,38,0.85)] shadow-[0_0_28px_rgba(0,229,255,0.2)]">
+                  <span className="text-2xl font-black tracking-[0.18em] text-[#8fefff]">CS</span>
+                </div>
+                <p className="text-sm font-black uppercase tracking-[0.28em] text-[#2be9ff]">
+                  Card Shuffle
+                </p>
+                <h2 className="mt-4 text-5xl font-black text-white drop-shadow-[0_0_16px_rgba(255,255,255,0.18)] sm:text-6xl">
+                  Game Over
+                </h2>
+                <p className="mt-5 text-xl font-semibold text-[#8fefff] sm:text-2xl">
+                  {cardShuffleFinishedMessage}
+                </p>
+                <button
+                  type="button"
+                  onClick={handleStartNextRoundAfterCardShuffle}
+                  className="mt-10 rounded-xl border border-[#22c55e]/65 bg-[linear-gradient(180deg,#16a34a_0%,#14532d_100%)] px-8 py-4 text-base font-extrabold uppercase tracking-[0.14em] text-white shadow-[0_0_18px_rgba(34,197,94,0.28)] transition hover:brightness-110 sm:text-lg"
+                >
+                  Start Next Round
+                </button>
+              </div>
+            </div>
+          ) : activeMiniGameLocal || miniGameLoading ? (
             <div className="flex min-h-0 flex-1 flex-col rounded-2xl border-2 border-[rgba(0,217,255,0.45)] bg-[linear-gradient(180deg,rgba(26,31,46,0.85)_0%,rgba(11,15,26,0.92)_100%)] p-4 shadow-[0_0_28px_rgba(0,217,255,0.12)] sm:p-6">
               <div className="mb-4 flex shrink-0 items-center justify-between">
                 <h2 className="text-2xl font-semibold text-white sm:text-[30px]">
@@ -1463,16 +1576,24 @@ function HostDashboardContent() {
 
                     <button
                       type="button"
-                      disabled={!cardShuffleVenueReady}
+                      disabled={
+                        !cardShuffleVenueReady ||
+                        cardShuffleGameStarted ||
+                        cardShuffleUnityStartSent
+                      }
                       onClick={handleCardShuffleStartGame}
                       className={cn(
                         'mb-3 h-14 w-full rounded-xl border px-5 text-lg font-black uppercase tracking-wide transition',
-                        cardShuffleVenueReady
+                        cardShuffleVenueReady &&
+                          !cardShuffleGameStarted &&
+                          !cardShuffleUnityStartSent
                           ? 'border-[#00d9ff]/70 bg-[linear-gradient(180deg,#00a9df_0%,#075a89_100%)] text-white shadow-[0_0_22px_rgba(0,217,255,0.28)] hover:brightness-110'
                           : 'cursor-not-allowed border-white/10 bg-white/8 text-white/30 grayscale',
                       )}
                     >
-                      Start Game
+                      {cardShuffleGameStarted || cardShuffleUnityStartSent
+                        ? 'Game started'
+                        : 'Start Game'}
                     </button>
 
                     <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
@@ -1498,27 +1619,37 @@ function HostDashboardContent() {
                       ))}
                     </div>
 
-                    <button
-                      type="button"
-                      disabled={
-                        !cardShuffleVenueReady ||
-                        !cardShuffleGameStarted ||
-                        miniGameRevealing ||
-                        cardShuffleRevealPosition !== null
-                      }
-                      onClick={() => handleCardShuffleCommand('reveal_cards')}
-                      className={cn(
-                        'mt-3 h-12 w-full rounded-lg border px-4 text-sm font-extrabold uppercase tracking-wide transition',
-                        cardShuffleVenueReady &&
-                          cardShuffleGameStarted &&
-                          !miniGameRevealing &&
-                          cardShuffleRevealPosition === null
-                          ? 'border-[#ff68ff]/65 bg-[linear-gradient(180deg,#b100d5_0%,#6b0a90_100%)] text-white shadow-[0_0_18px_rgba(255,67,255,0.26)] hover:brightness-110'
-                          : 'cursor-not-allowed border-white/10 bg-white/7 text-white/28 grayscale',
-                      )}
-                    >
-                      {miniGameRevealing ? 'Revealing...' : 'Reveal Cards'}
-                    </button>
+                    {cardShuffleActiveRound === 4 && cardShuffleRevealPosition !== null ? (
+                      <button
+                        type="button"
+                        onClick={handleFinishCardShuffle}
+                        className="mt-3 h-12 w-full rounded-lg border border-[#22c55e]/65 bg-[linear-gradient(180deg,#16a34a_0%,#14532d_100%)] px-4 text-sm font-extrabold uppercase tracking-wide text-white shadow-[0_0_18px_rgba(34,197,94,0.28)] transition hover:brightness-110"
+                      >
+                        Finish Game
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        disabled={
+                          !cardShuffleVenueReady ||
+                          !cardShuffleGameStarted ||
+                          miniGameRevealing ||
+                          cardShuffleRevealPosition !== null
+                        }
+                        onClick={() => handleCardShuffleCommand('reveal_cards')}
+                        className={cn(
+                          'mt-3 h-12 w-full rounded-lg border px-4 text-sm font-extrabold uppercase tracking-wide transition',
+                          cardShuffleVenueReady &&
+                            cardShuffleGameStarted &&
+                            !miniGameRevealing &&
+                            cardShuffleRevealPosition === null
+                            ? 'border-[#ff68ff]/65 bg-[linear-gradient(180deg,#b100d5_0%,#6b0a90_100%)] text-white shadow-[0_0_18px_rgba(255,67,255,0.26)] hover:brightness-110'
+                            : 'cursor-not-allowed border-white/10 bg-white/7 text-white/28 grayscale',
+                        )}
+                      >
+                        {miniGameRevealing ? 'Revealing...' : 'Reveal Cards'}
+                      </button>
+                    )}
                   </div>
 
                   <div className="mt-2 flex gap-4">
@@ -1995,7 +2126,10 @@ function HostDashboardContent() {
                   <path d="M6 11h2v2H6v-2zm4 0h2v2h-2v-2zm8-6V5H4v14h14v-6h2V5zm0 8h-2v2h2v-2z" />
                 </svg>
               }
-              disabled={!(state === 'LOBBY' || state === 'ROUND_INTRO')}
+              disabled={
+                (state === 'LOBBY' && startGameRequested) ||
+                !(state === 'LOBBY' || state === 'ROUND_INTRO')
+              }
               onClick={() => {
                 if (state === 'LOBBY') handleStartGame();
                 else if (state === 'ROUND_INTRO') handleNextQuestion();

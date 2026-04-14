@@ -33,6 +33,8 @@ const SOCKET_EVENTS = Object.freeze({
 
   // Server → Client
   SESSION_STATE: 'session_state',
+  /** Admin removed the session from the DB — all clients in the room should leave. */
+  SESSION_DELETED: 'session_deleted',
   QUESTION_ACTIVE: 'question_active',
   TIMER_UPDATE: 'timer_update',
   TIMER_EXPIRED: 'timer_expired',

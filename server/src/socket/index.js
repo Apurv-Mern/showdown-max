@@ -7,6 +7,7 @@ const hostHandlers = require('./hostHandlers');
 const playerHandlers = require('./playerHandlers');
 const venueHandlers = require('./venueHandlers');
 const miniGameHandlers = require('./miniGameHandlers');
+const { setSocketIo } = require('./ioRegistry');
 
 /**
  * Initializes Socket.io server on a Fastify HTTP server
@@ -78,6 +79,7 @@ const initializeSocket = (httpServer) => {
     });
   });
 
+  setSocketIo(io);
   logger.info('Socket.io initialized');
   return io;
 };

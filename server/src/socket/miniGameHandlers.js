@@ -28,34 +28,68 @@ const normalizeUnityPayload = (value) => {
   return {};
 };
 
+/** Raw number from Unity payload (may be 0-based 0–2 or 1-based 1–3). */
+const readCorrectPosition = (obj) => {
+  if (!obj || typeof obj !== 'object') return NaN;
+  const raw =
+    obj.correct_position ??
+    obj.correctPosition ??
+    obj.correctIndex ??
+    obj.winningPosition ??
+    obj.winning_slot ??
+    obj.queenPosition ??
+    obj.slot ??
+    obj.results?.correct_position ??
+    obj.results?.correctPosition;
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : NaN;
+};
+
+/** Player picks and API use slots 1 = Left, 2 = Middle, 3 = Right. */
+const normalizeRevealSlotOneToThree = (n) => {
+  if (!Number.isFinite(n)) return NaN;
+  const t = Math.trunc(Number(n));
+  if (t >= 1 && t <= 3) return t;
+  if (t >= 0 && t <= 2) return t + 1;
+  return NaN;
+};
+
+const readCardPositionsArray = (obj) => {
+  if (!obj || typeof obj !== 'object') return [];
+  const arr = obj.card_positions ?? obj.cardPositions;
+  return Array.isArray(arr) ? arr.map((value) => Number(value)) : [];
+};
+
 const extractCardShuffleReveal = (data = {}) => {
   const directValue = normalizeUnityPayload(data.value);
   const directPayload = normalizeUnityPayload(directValue.payload);
 
-  if (String(directValue.type || '') === 'SHUFFLE_COMPLETE') {
+  if (String(directValue.type || '').toUpperCase() === 'SHUFFLE_COMPLETE') {
+    const pPayload = readCorrectPosition(directPayload);
+    const pRoot = readCorrectPosition(directValue);
+    const raw = Number.isFinite(pPayload) ? pPayload : pRoot;
+    const correctPosition = normalizeRevealSlotOneToThree(raw);
+    const fromPayload = readCardPositionsArray(directPayload);
+    const fromValue = readCardPositionsArray(directValue);
     return {
-      correctPosition: Number(directPayload.correct_position),
-      cardPositions: Array.isArray(directPayload.card_positions)
-        ? directPayload.card_positions.map((value) => Number(value))
-        : [],
+      correctPosition,
+      cardPositions: fromPayload.length ? fromPayload : fromValue,
     };
   }
 
-  if (String(data.action || '') === 'SHUFFLE_COMPLETE') {
+  if (String(data.action || '').toUpperCase() === 'SHUFFLE_COMPLETE') {
+    const correctPosition = normalizeRevealSlotOneToThree(readCorrectPosition(directValue));
     return {
-      correctPosition: Number(directValue.correct_position),
-      cardPositions: Array.isArray(directValue.card_positions)
-        ? directValue.card_positions.map((value) => Number(value))
-        : [],
+      correctPosition,
+      cardPositions: readCardPositionsArray(directValue),
     };
   }
 
-  if (Number.isFinite(Number(directValue.correct_position))) {
+  const fromRoot = normalizeRevealSlotOneToThree(readCorrectPosition(directValue));
+  if (Number.isFinite(fromRoot)) {
     return {
-      correctPosition: Number(directValue.correct_position),
-      cardPositions: Array.isArray(directValue.card_positions)
-        ? directValue.card_positions.map((value) => Number(value))
-        : [],
+      correctPosition: fromRoot,
+      cardPositions: readCardPositionsArray(directValue),
     };
   }
 
@@ -130,6 +164,14 @@ const miniGameHandlers = (io, socket) => {
       };
 
       if (payload.game === 'card_shuffle') {
+        if (payload.command === 'start_game') {
+          const gs = await redisStore.getGameState(pin);
+          if (gs?.miniGameState?.game === 'card_shuffle' && gs.miniGameState.gameStarted) {
+            logger.warn('Duplicate card_shuffle start_game ignored', { pin });
+            return;
+          }
+        }
+
         await hydrateCardShuffleState(pin, (state) => {
           if (payload.command === 'start_game') {
             return {
@@ -185,8 +227,9 @@ const miniGameHandlers = (io, socket) => {
           const { correctPosition, cardPositions } = reveal;
 
           if (!Number.isFinite(correctPosition) || correctPosition < 1 || correctPosition > 3) {
-            logger.warn('Card Shuffle reveal missing correct_position', {
+            logger.warn('Card Shuffle reveal missing or invalid correct_position', {
               pin: eventPin,
+              raw: reveal.correctPosition,
               data,
             });
             return;

@@ -3,6 +3,9 @@ const { createSessionSchema } = require('shared/schemas/session');
 const { validateBody, validateParams } = require('../middleware/validateRequest');
 const { success, error } = require('../utils/responseWrapper');
 const sessionService = require('../services/sessionService');
+const { getSocketIo } = require('../socket/ioRegistry');
+const { SOCKET_EVENTS } = require('shared/constants/socketEvents');
+const logger = require('../utils/logger');
 
 const idParamSchema = z.object({ id: z.coerce.number().int().positive() });
 const pinParamSchema = z.object({ pin: z.string().length(6) });
@@ -102,11 +105,22 @@ const sessionRoutes = async (fastify) => {
       return error('Admin access required', 403);
     }
 
-    const session = await sessionService.deleteSession(request.params.id);
-    if (!session) {
+    const deleted = await sessionService.deleteSession(request.params.id);
+    if (!deleted) {
       reply.status(404);
       return error('Session not found', 404);
     }
+
+    const pin = deleted.pin ? String(deleted.pin) : '';
+    const io = getSocketIo();
+    if (io && pin) {
+      const room = `session:${pin}`;
+      io.to(room).emit(SOCKET_EVENTS.SESSION_DELETED, { pin, reason: 'session_deleted' });
+      logger.info('Session deleted broadcast', { pin, sessionId: deleted.id });
+    } else if (!io) {
+      logger.warn('Session deleted but Socket.io not initialized — clients not notified', { pin });
+    }
+
     return success(null, 'Session deleted');
   });
 

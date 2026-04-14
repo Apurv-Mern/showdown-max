@@ -414,7 +414,7 @@ export default function GamePage() {
   useEffect(() => {
     if (!socket || !session.pin || !session.teamName) return;
 
-    socket.on('session_state', (data: any) => {
+    const onSessionState = (data: any) => {
       if (data.gameState) {
         const gs = data.gameState;
         const myTeam = session.teamId ? gs.teams?.[session.teamId] : null;
@@ -499,9 +499,9 @@ export default function GamePage() {
           setPhase('waiting');
         }
       }
-    });
+    };
 
-    socket.on('round_intro', (data) => {
+    const onRoundIntro = (data: any) => {
       setRoundInfo(data);
       setPhase('round_intro');
       setIsEliminated(false);
@@ -511,9 +511,9 @@ export default function GamePage() {
       setWagerAmount(0);
       setIsPlayerMp3Playing(false);
       stopMp3();
-    });
+    };
 
-    socket.on('question_active', (data: QuestionData) => {
+    const onQuestionActive = (data: QuestionData) => {
       setQuestion(data);
       setTimerDuration(data.timerDuration);
       setTimerRemaining(data.timerRemaining ?? data.timerDuration);
@@ -546,12 +546,12 @@ export default function GamePage() {
       }
       setIsPlayerMp3Playing(false);
       stopMp3();
-    });
+    };
 
-    socket.on('timer_update', (data: { remaining: number }) => setTimerRemaining(data.remaining));
-    socket.on('timer_expired', () => setTimerRemaining(0));
+    const onTimerUpdate = (data: { remaining: number }) => setTimerRemaining(data.remaining);
+    const onTimerExpired = () => setTimerRemaining(0);
 
-    socket.on('answer_reveal', (data: RevealData) => {
+    const onAnswerReveal = (data: RevealData) => {
       setRevealData(data);
       setPhase('reveal');
       const myResponse = data.responseDetails?.find((r) => r.teamId === session.teamId);
@@ -566,13 +566,13 @@ export default function GamePage() {
       const myTeam = data.teams.find((t) => t.teamId === session.teamId);
       if (myTeam) setSession({ score: myTeam.score });
       if (data.eliminations.includes(session.teamId!)) setIsEliminated(true);
-    });
+    };
 
-    socket.on('player_eliminated', (data: { teamId: number }) => {
+    const onPlayerEliminated = (data: { teamId: number }) => {
       if (data.teamId === session.teamId) setIsEliminated(true);
-    });
+    };
 
-    socket.on('scoreboard', (data: { teams: any[] }) => {
+    const onScoreboard = (data: { teams: any[] }) => {
       if (phaseRef.current !== 'scoreboard') {
         previousPhaseBeforeScoreboardRef.current = phaseRef.current;
       }
@@ -580,8 +580,9 @@ export default function GamePage() {
       setPhase('scoreboard');
       setIsPlayerMp3Playing(false);
       stopMp3();
-    });
-    socket.on('scoreboard_hidden', () => {
+    };
+
+    const onScoreboardHidden = () => {
       const previous = previousPhaseBeforeScoreboardRef.current;
       if (previous && previous !== 'scoreboard') {
         setPhase(previous);
@@ -596,26 +597,31 @@ export default function GamePage() {
         return;
       }
       setPhase('waiting');
-    });
-    socket.on('round_end', () => {
+    };
+
+    const onRoundEnd = () => {
       setIsPlayerMp3Playing(false);
       stopMp3();
-    });
-    socket.on('break_start', (data: { duration?: number }) => {
+    };
+
+    const onBreakStart = (data: { duration?: number }) => {
       const duration = Number(data?.duration ?? 300);
       setBreakDuration(duration > 0 ? duration : 300);
       setBreakRemaining(duration > 0 ? duration : 300);
       setPhase('break');
-    });
-    socket.on('break_end', () => {
+    };
+
+    const onBreakEnd = () => {
       // Phase is restored by server via session_state.
       setShowBreakEndedNotice(true);
       setTimeout(() => setShowBreakEndedNotice(false), 2200);
-    });
-    socket.on('mini_game_start', (data: { game: string }) => {
+    };
+
+    const onMiniGameStart = (data: { game: string }) => {
       router.push(`/play/mini-game?game=${data.game}`);
-    });
-    socket.on('music_control', (data: { action: 'play' | 'pause' | 'stop'; mediaUrl?: string }) => {
+    };
+
+    const onMusicControl = (data: { action: 'play' | 'pause' | 'stop'; mediaUrl?: string }) => {
       const action = data?.action;
       if (!action) return;
 
@@ -631,39 +637,51 @@ export default function GamePage() {
 
       stopMp3();
       setIsPlayerMp3Playing(false);
-    });
-    socket.on(
-      'game_end',
-      (data?: { teams?: { teamId: number; teamName: string; score: number }[] }) => {
-        stopMp3();
-        setIsPlayerMp3Playing(false);
-        if (data?.teams) {
-          setScoreboard(data.teams);
-          const myTeam = data.teams.find((t) => t.teamId === session.teamId);
-          if (myTeam) setSession({ score: myTeam.score });
-        }
-        setPhase('game_end');
-      },
-    );
+    };
+
+    const onGameEnd = (data?: { teams?: { teamId: number; teamName: string; score: number }[] }) => {
+      stopMp3();
+      setIsPlayerMp3Playing(false);
+      if (data?.teams) {
+        setScoreboard(data.teams);
+        const myTeam = data.teams.find((t) => t.teamId === session.teamId);
+        if (myTeam) setSession({ score: myTeam.score });
+      }
+      setPhase('game_end');
+    };
+
+    socket.on('session_state', onSessionState);
+    socket.on('round_intro', onRoundIntro);
+    socket.on('question_active', onQuestionActive);
+    socket.on('timer_update', onTimerUpdate);
+    socket.on('timer_expired', onTimerExpired);
+    socket.on('answer_reveal', onAnswerReveal);
+    socket.on('player_eliminated', onPlayerEliminated);
+    socket.on('scoreboard', onScoreboard);
+    socket.on('scoreboard_hidden', onScoreboardHidden);
+    socket.on('round_end', onRoundEnd);
+    socket.on('break_start', onBreakStart);
+    socket.on('break_end', onBreakEnd);
+    socket.on('mini_game_start', onMiniGameStart);
+    socket.on('music_control', onMusicControl);
+    socket.on('game_end', onGameEnd);
 
     return () => {
-      [
-        'session_state',
-        'round_intro',
-        'question_active',
-        'timer_update',
-        'timer_expired',
-        'answer_reveal',
-        'player_eliminated',
-        'scoreboard',
-        'scoreboard_hidden',
-        'round_end',
-        'break_start',
-        'break_end',
-        'mini_game_start',
-        'music_control',
-        'game_end',
-      ].forEach((e) => socket.off(e));
+      socket.off('session_state', onSessionState);
+      socket.off('round_intro', onRoundIntro);
+      socket.off('question_active', onQuestionActive);
+      socket.off('timer_update', onTimerUpdate);
+      socket.off('timer_expired', onTimerExpired);
+      socket.off('answer_reveal', onAnswerReveal);
+      socket.off('player_eliminated', onPlayerEliminated);
+      socket.off('scoreboard', onScoreboard);
+      socket.off('scoreboard_hidden', onScoreboardHidden);
+      socket.off('round_end', onRoundEnd);
+      socket.off('break_start', onBreakStart);
+      socket.off('break_end', onBreakEnd);
+      socket.off('mini_game_start', onMiniGameStart);
+      socket.off('music_control', onMusicControl);
+      socket.off('game_end', onGameEnd);
     };
   }, [
     socket,
@@ -772,26 +790,30 @@ export default function GamePage() {
                       </p>
                     </div>
 
-                    <div className="absolute left-1/2 top-[71%] flex w-[calc(100%-1.25rem)] max-w-xl -translate-x-1/2 flex-col items-stretch gap-2 px-2 text-center sm:top-[73%] sm:w-[min(92%,36rem)] sm:gap-2.5 sm:px-3 md:max-w-2xl md:px-4">
-                      <div className="flex min-w-0 w-full flex-col items-center gap-1.5 sm:flex-row sm:justify-center sm:gap-2.5">
-                        <img
-                          src="/plus10.png"
-                          alt=""
-                          className="h-6 w-6 shrink-0 sm:h-7 sm:w-7 md:h-8 md:w-8"
-                        />
-                        <span className="max-w-2xl text-center text-pretty text-[clamp(0.8rem,2.8vw+0.4rem,1.35rem)] font-bold leading-snug text-[#00ff4a] md:text-xs md:leading-tight lg:text-xs">
-                          {getRoundScoringLines(roundInfo.round?.type).positive}
-                        </span>
+                    <div className="absolute left-1/2 top-[76%] flex w-[calc(100%-1.25rem)] max-w-xl -translate-x-1/2 flex-col items-center gap-2 px-2 sm:top-[76%] sm:w-[min(92%,36rem)] sm:gap-2.5 sm:px-3 md:max-w-2xl md:px-4">
+                      <div className="flex w-full justify-center">
+                        <div className="inline-flex max-w-full min-w-0 items-center gap-1.5 sm:gap-2">
+                          <img
+                            src="/plus10.png"
+                            alt=""
+                            className="h-6 w-6 shrink-0 sm:h-7 sm:w-7 md:h-8 md:w-8"
+                          />
+                          <span className="min-w-0 max-w-[min(100%,22rem)] text-left text-pretty text-[clamp(0.8rem,2.8vw+0.4rem,1.35rem)] font-bold leading-snug text-[#55f30c] wrap-anywhere sm:max-w-[min(100%,26rem)] sm:text-[clamp(0.85rem,1.9vw+0.35rem,1.5rem)] md:text-lg md:leading-tight lg:text-xl">
+                            {getRoundScoringLines(roundInfo.round?.type).positive}
+                          </span>
+                        </div>
                       </div>
-                      <div className="flex min-w-0 w-full flex-col items-center gap-1.5 sm:flex-row sm:justify-center sm:gap-2.5">
-                        <img
-                          src="/minus2.png"
-                          alt=""
-                          className="h-6 w-6 shrink-0 sm:h-7 sm:w-7 md:h-8 md:w-8"
-                        />
-                        <span className="min-w-0 w-full max-w-full text-center text-pretty text-[clamp(0.8rem,2.8vw+0.4rem,1.35rem)] font-bold leading-snug text-[#ff0037] wrap-anywhere sm:max-w-[min(100%,28rem)] sm:text-[clamp(0.85rem,1.9vw+0.35rem,1.5rem)] md:text-lg md:leading-tight lg:text-xl">
-                          {getRoundScoringLines(roundInfo.round?.type).negative}
-                        </span>
+                      <div className="flex w-full justify-center">
+                        <div className="inline-flex max-w-full min-w-0 items-center gap-1.5 sm:gap-2">
+                          <img
+                            src="/minus2.png"
+                            alt=""
+                            className="h-6 w-6 shrink-0 sm:h-7 sm:w-7 md:h-8 md:w-8"
+                          />
+                          <span className="min-w-0 max-w-[min(100%,22rem)] text-left text-pretty text-[clamp(0.8rem,2.8vw+0.4rem,1.35rem)] font-bold leading-snug text-[#ff0037] wrap-anywhere sm:max-w-[min(100%,26rem)] sm:text-[clamp(0.85rem,1.9vw+0.35rem,1.5rem)] md:text-lg md:leading-tight lg:text-xl">
+                            {getRoundScoringLines(roundInfo.round?.type).negative}
+                          </span>
+                        </div>
                       </div>
                     </div>
                   </div>

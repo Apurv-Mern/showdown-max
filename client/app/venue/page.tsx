@@ -17,7 +17,7 @@ export default function VenueSessionLoginPage() {
 
   const errorText = useMemo(() => {
     if (searchParams.get('error') === 'invalid-pin') {
-      return 'Could not activate venue for that session PIN. Please try again.';
+      return 'Incorrect PIN or session unavailable. Check the code, or confirm a host is assigned to this session.';
     }
     return '';
   }, [searchParams]);
@@ -34,7 +34,7 @@ export default function VenueSessionLoginPage() {
     if (!/^\d{6}$/.test(sessionPin)) return;
     setPinError('');
     setIsCheckingPin(true);
-    fetch(`${API_URL}/api/public/sessions/pin/${sessionPin}`)
+    fetch(`${API_URL}/api/public/sessions/pin/${sessionPin}?for=venue`)
       .then(async (res) => {
         if (!res.ok) {
           throw new Error('Invalid session PIN');
@@ -52,7 +52,9 @@ export default function VenueSessionLoginPage() {
         if (typeof window !== 'undefined') {
           window.localStorage.removeItem(VENUE_PIN_STORAGE_KEY);
         }
-        setPinError('This session PIN is not valid or session is no longer active.');
+        setPinError(
+          'Incorrect PIN. This code may not exist, the show may have ended, or no host is assigned to this session yet.',
+        );
       })
       .finally(() => {
         setIsCheckingPin(false);

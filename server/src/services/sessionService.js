@@ -1,5 +1,5 @@
 const { Op } = require('sequelize');
-const { Session, Quiz, Round, Question, Team, Answer } = require('../models');
+const { Session, Quiz, Round, Question, Team, Answer, HostAccount } = require('../models');
 const { generatePin } = require('../utils/pinGenerator');
 const { generateQRCode } = require('../utils/qrGenerator');
 const { generateHostToken } = require('../utils/tokenGenerator');
@@ -109,6 +109,26 @@ const getSessionByPin = async (pin) => {
 };
 
 /**
+ * Session by PIN for venue activation only: must exist, be pending/active,
+ * and have an active host account assigned (otherwise venue cannot be run).
+ */
+const getVenueEligibleSessionByPin = async (pin) => {
+  return Session.findOne({
+    where: { pin, status: { [Op.in]: ['pending', 'active'] } },
+    include: [
+      { model: Quiz, as: 'quiz', attributes: ['id', 'title'] },
+      {
+        model: HostAccount,
+        as: 'assignedHost',
+        attributes: ['id'],
+        required: true,
+        where: { isActive: true },
+      },
+    ],
+  });
+};
+
+/**
  * End a session
  * @param {number} sessionId
  * @returns {Promise<object | null>}
@@ -133,6 +153,9 @@ const deleteSession = async (sessionId) => {
   const session = await Session.findByPk(sessionId);
   if (!session) return null;
 
+  /** Keep for socket broadcast — Sequelize may clear fields after `destroy()`. */
+  const pin = String(session.pin || '');
+
   const teams = await Team.findAll({
     where: { sessionId },
     attributes: ['id'],
@@ -145,11 +168,11 @@ const deleteSession = async (sessionId) => {
   }
   await Team.destroy({ where: { sessionId } });
 
-  await redisStore.cleanupSession(session.pin);
+  await redisStore.cleanupSession(pin);
   await session.destroy();
 
-  logger.info('Session deleted', { sessionId, pin: session.pin, teamCount: teamIds.length });
-  return session;
+  logger.info('Session deleted', { sessionId, pin, teamCount: teamIds.length });
+  return { pin, id: sessionId };
 };
 
 /**
@@ -195,6 +218,7 @@ module.exports = {
   getSessionById,
   createSession,
   getSessionByPin,
+  getVenueEligibleSessionByPin,
   endSession,
   deleteSession,
   getSessionResults,

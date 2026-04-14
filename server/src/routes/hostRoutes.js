@@ -4,6 +4,10 @@ const { Op } = require('sequelize');
 const { HostAccount, Session, Quiz } = require('../models');
 const { success, error } = require('../utils/responseWrapper');
 const { validateBody, validateParams } = require('../middleware/validateRequest');
+const { getSocketIo } = require('../socket/ioRegistry');
+const { SOCKET_EVENTS } = require('shared/constants/socketEvents');
+const logger = require('../utils/logger');
+const sessionService = require('../services/sessionService');
 
 const hashPassword = (password) => crypto.createHash('sha256').update(password).digest('hex');
 
@@ -141,13 +145,50 @@ const hostRoutes = async (fastify) => {
   fastify.delete('/:id', {
     preHandler: [validateParams(hostIdParamSchema)],
   }, async (request, reply) => {
-    const host = await HostAccount.findByPk(request.params.id);
+    const host = await HostAccount.findByPk(request.params.id, {
+      include: [{ model: Session, as: 'assignedSession', attributes: ['id', 'pin'] }],
+    });
     if (!host) {
       reply.status(404);
       return error('Host account not found', 404);
     }
 
+    const sessionId =
+      host.sessionId != null && Number.isFinite(Number(host.sessionId))
+        ? Number(host.sessionId)
+        : null;
+    let pin = host.assignedSession?.pin ? String(host.assignedSession.pin) : '';
+
     await host.destroy();
+
+    if (sessionId) {
+      try {
+        const deleted = await sessionService.deleteSession(sessionId);
+        if (deleted?.pin) {
+          pin = String(deleted.pin);
+        }
+        logger.info('Host deleted — assigned session removed', {
+          hostId: request.params.id,
+          sessionId,
+          pin,
+        });
+      } catch (err) {
+        logger.error('Host deleted but assigned session could not be removed', {
+          hostId: request.params.id,
+          sessionId,
+          error: err.message,
+        });
+      }
+    }
+
+    const io = getSocketIo();
+    if (io && pin) {
+      io.to(`session:${pin}`).emit(SOCKET_EVENTS.SESSION_DELETED, { pin, reason: 'host_deleted' });
+      logger.info('Host deleted — notified session room', { pin, hostId: request.params.id });
+    } else if (!io) {
+      logger.warn('Host deleted but Socket.io not initialized — clients not notified', { pin });
+    }
+
     return success(null, 'Host account deleted');
   });
 };

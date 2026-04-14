@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, useCallback, useMemo, Suspense } from 'rea
 import { motion } from 'framer-motion';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useSocket } from '@/hooks/useSocket';
+import { connectSocket } from '@/lib/socket';
 import { useTimerSound } from '@/hooks/useTimerSound';
 import { useAudio } from '@/hooks/useAudio';
 import { clientLogger } from '@/lib/clientLogger';
@@ -161,6 +162,9 @@ function VenueDisplayContent() {
     game: string;
     winningCard?: number;
     winningKangaroo?: number;
+    holdScreen?: boolean;
+    status?: string;
+    message?: string;
   } | null>(null);
   const [showVenueSplash, setShowVenueSplash] = useState(shouldPlayIntro);
   /** Stay on the green welcome / video screen until the operator clicks Continue. */
@@ -249,6 +253,54 @@ function VenueDisplayContent() {
     setWelcomeQrImageFailed(false);
   }, [sessionPin, qrCodeData]);
 
+  /** Admin deleted the session — must not depend on `useSocket()` first paint (socket can be null). */
+  useEffect(() => {
+    if (!isPinReady || !/^\d{6}$/.test(sessionPin)) return;
+    const socket = connectSocket();
+    const pinNorm = String(sessionPin);
+    const onSessionDeleted = (data: { pin?: string }) => {
+      if (!data?.pin || String(data.pin) !== pinNorm) return;
+      if (typeof window !== 'undefined') {
+        window.localStorage.removeItem(VENUE_PIN_STORAGE_KEY);
+      }
+      router.replace('/venue?login=1');
+    };
+    socket.on('session_deleted', onSessionDeleted);
+    return () => {
+      socket.off('session_deleted', onSessionDeleted);
+    };
+  }, [sessionPin, isPinReady, router]);
+
+  /** If the session row is gone (e.g. admin delete) but the socket missed the event, bail out. */
+  useEffect(() => {
+    if (!isPinReady || !/^\d{6}$/.test(sessionPin)) return;
+    const pinNorm = String(sessionPin);
+    const check = async () => {
+      try {
+        const res = await fetch(`${PUBLIC_API_URL}/api/public/sessions/pin/${pinNorm}`, {
+          method: 'GET',
+          cache: 'no-store',
+        });
+        if (res.status === 404) {
+          if (typeof window !== 'undefined') {
+            window.localStorage.removeItem(VENUE_PIN_STORAGE_KEY);
+          }
+          router.replace('/venue?login=1');
+        }
+      } catch {
+        /* ignore */
+      }
+    };
+    void check();
+    const t = window.setInterval(() => void check(), 12000);
+    const onFocus = () => void check();
+    window.addEventListener('focus', onFocus);
+    return () => {
+      window.clearInterval(t);
+      window.removeEventListener('focus', onFocus);
+    };
+  }, [sessionPin, isPinReady, router]);
+
   useEffect(() => {
     if (timerRemaining > 0 && timerRemaining !== prevTimerRef.current) {
       playTick(timerRemaining <= 5);
@@ -303,9 +355,25 @@ function VenueDisplayContent() {
   const handleUnityGameComplete = useCallback(
     (result: unknown) => {
       if (!socket) return;
-      socket.emit('mini_game_action', { action: 'game_complete', value: result, source: 'unity' });
+      const payload =
+        result && typeof result === 'object' ? (result as Record<string, unknown>) : {};
+      const resultType = String(payload.type || '').toUpperCase();
+      socket.emit('mini_game_action', {
+        action: resultType || 'game_complete',
+        value: result,
+        source: 'unity',
+        game: miniGameType || undefined,
+      });
+      if (resultType && resultType !== 'GAME_COMPLETE') {
+        socket.emit('mini_game_action', {
+          action: 'game_complete',
+          value: result,
+          source: 'unity',
+          game: miniGameType || undefined,
+        });
+      }
     },
-    [socket],
+    [socket, miniGameType],
   );
 
   const handleUnityReady = useCallback(
@@ -346,7 +414,19 @@ function VenueDisplayContent() {
       setPhase(next);
     };
 
-    socket.on('session_state', (data: any) => {
+    const normalizeVenueMiniGameId = (game: unknown) =>
+      game == null || game === '' ? '' : String(game).toLowerCase().replace(/-/g, '_');
+
+    const normalizeRevealSlotOneToThree = (raw: unknown): 1 | 2 | 3 | null => {
+      const n = Number(raw);
+      if (!Number.isFinite(n)) return null;
+      const t = Math.trunc(n);
+      if (t >= 1 && t <= 3) return t as 1 | 2 | 3;
+      if (t >= 0 && t <= 2) return (t + 1) as 1 | 2 | 3;
+      return null;
+    };
+
+    const onSessionState = (data: any) => {
       didReceiveSessionState = true;
       if (data.qrCodeData) setQrCodeData(data.qrCodeData);
       if (Number.isFinite(Number(data.maxTeams)) && Number(data.maxTeams) > 0) {
@@ -420,30 +500,30 @@ function VenueDisplayContent() {
       } else if (data.state && stateToPhase[data.state]) {
         applyVenuePhaseFromSession(stateToPhase[data.state]);
       }
-    });
+    };
 
-    socket.on('team_joined', (team: Team) => {
+    const onTeamJoined = (team: Team) => {
       setTeams((prev) => [...prev.filter((t) => t.teamId !== team.teamId), team]);
       setTotalTeams((prev) => prev + 1);
-    });
+    };
 
-    socket.on('team_removed', ({ teamId }: { teamId: number }) => {
+    const onTeamRemoved = ({ teamId }: { teamId: number }) => {
       setTeams((prev) => prev.filter((t) => t.teamId !== teamId));
       setTotalTeams((prev) => Math.max(0, prev - 1));
       setLiveResponses((prev) => ({
         ...prev,
         total: Math.max(0, (prev.total || 0) - 1),
       }));
-    });
+    };
 
-    socket.on('round_intro', (data) => {
+    const onRoundIntro = (data: any) => {
       setRoundInfo(data);
       setPhase('round_intro');
       setIsVenueMp3Playing(false);
       stopMp3();
-    });
+    };
 
-    socket.on('question_active', (data: QuestionData) => {
+    const onQuestionActive = (data: QuestionData) => {
       setQuestion(data);
       setTimerDuration(data.timerDuration);
       setTimerRemaining(data.timerRemaining ?? data.timerDuration);
@@ -457,33 +537,36 @@ function VenueDisplayContent() {
       setIsVenueMp3Playing(false);
       stopMp3();
       setPhase('question');
-    });
+    };
 
-    socket.on('timer_update', (data: { remaining: number }) => setTimerRemaining(data.remaining));
-    socket.on('timer_expired', () => setTimerRemaining(0));
+    const onTimerUpdate = (data: { remaining: number }) => setTimerRemaining(data.remaining);
+    const onTimerExpired = () => setTimerRemaining(0);
 
-    socket.on('response_count', (data: { count: number; total: number }) => {
+    const onResponseCount = (data: { count: number; total: number }) => {
       setTotalTeams(data.total);
-    });
-    socket.on(
-      'live_response_update',
-      (data: { correct: number; incorrect: number; noAnswer: number; total: number }) => {
-        setLiveResponses({
-          correct: Number(data?.correct || 0),
-          incorrect: Number(data?.incorrect || 0),
-          noAnswer: Number(data?.noAnswer || 0),
-          total: Number(data?.total || 0),
-        });
-      },
-    );
+    };
 
-    socket.on('answer_reveal', (data: RevealData) => {
+    const onLiveResponseUpdate = (data: {
+      correct: number;
+      incorrect: number;
+      noAnswer: number;
+      total: number;
+    }) => {
+      setLiveResponses({
+        correct: Number(data?.correct || 0),
+        incorrect: Number(data?.incorrect || 0),
+        noAnswer: Number(data?.noAnswer || 0),
+        total: Number(data?.total || 0),
+      });
+    };
+
+    const onAnswerReveal = (data: RevealData) => {
       setRevealData(data);
       setScoreboard(data.teams.sort((a, b) => b.score - a.score));
       setPhase('reveal');
-    });
+    };
 
-    socket.on('scoreboard', (data: { teams: Team[]; revealSnapshot?: RevealData | null }) => {
+    const onScoreboard = (data: { teams: Team[]; revealSnapshot?: RevealData | null }) => {
       if (phaseRef.current !== 'scoreboard') {
         previousPhaseBeforeScoreboardRef.current = phaseRef.current;
       }
@@ -494,8 +577,9 @@ function VenueDisplayContent() {
       setPhase('scoreboard');
       setIsVenueMp3Playing(false);
       stopMp3();
-    });
-    socket.on('scoreboard_hidden', () => {
+    };
+
+    const onScoreboardHidden = () => {
       const previous = previousPhaseBeforeScoreboardRef.current;
       if (previous && previous !== 'scoreboard') {
         setPhase(previous);
@@ -510,72 +594,71 @@ function VenueDisplayContent() {
         return;
       }
       setPhase('lobby');
-    });
+    };
 
-    socket.on('round_end', () => {
+    const onRoundEnd = () => {
       setIsVenueMp3Playing(false);
       stopMp3();
-    });
+    };
 
-    socket.on('break_start', (data: { duration: number }) => {
+    const onBreakStart = (data: { duration: number }) => {
       setBreakDuration(data.duration);
       setPhase('break');
-    });
+    };
 
-    socket.on('break_end', () => {
+    const onBreakEnd = () => {
       // Phase is restored by server via session_state.
       setShowBreakEndedNotice(true);
       setTimeout(() => setShowBreakEndedNotice(false), 2400);
-    });
+    };
 
-    socket.on('mini_game_start', (data: { game: string }) => {
+    const onMiniGameStart = (data: { game: string }) => {
       setMiniGameType(data.game);
       setMiniGameCommand(null);
       setMiniGameReveal(null);
       setMiniGameResult(null);
       setPhase('mini_game');
-    });
+    };
 
-    socket.on(
-      'mini_game_command',
-      (data: {
-        game?: string;
-        command?: 'start_game' | 'next_round' | 'reveal_cards';
-        roundNumber?: 1 | 2 | 3 | 4;
-      }) => {
-        if (data?.game !== 'card_shuffle' || !data.command) return;
-        if (data.command === 'next_round' || data.command === 'start_game') {
-          setMiniGameReveal(null);
-        }
-        setMiniGameCommand({
-          id: Date.now(),
-          game: 'card_shuffle',
-          command: data.command,
-          roundNumber: data.roundNumber,
-        });
-      },
-    );
+    const onMiniGameCommand = (data: {
+      game?: string;
+      command?: 'start_game' | 'next_round' | 'reveal_cards';
+      roundNumber?: 1 | 2 | 3 | 4;
+    }) => {
+      if (normalizeVenueMiniGameId(data?.game) !== 'card_shuffle' || !data.command) return;
+      if (data.command === 'next_round' || data.command === 'start_game') {
+        setMiniGameReveal(null);
+      }
+      setMiniGameCommand({
+        id: Date.now(),
+        game: 'card_shuffle',
+        command: data.command,
+        roundNumber: data.roundNumber,
+      });
+    };
 
-    socket.on(
-      'mini_game_reveal',
-      (data: {
-        game?: string;
-        correctPosition?: number;
-        roundNumber?: 1 | 2 | 3 | 4;
-        cardPositions?: number[];
-      }) => {
-        if (data?.game !== 'card_shuffle' || !data.correctPosition) return;
-        setMiniGameReveal({
-          game: 'card_shuffle',
-          correctPosition: Number(data.correctPosition) as 1 | 2 | 3,
-          roundNumber: data.roundNumber,
-          cardPositions: Array.isArray(data.cardPositions) ? data.cardPositions : [],
-        });
-        setPhase('mini_game');
-      },
-    );
+    const onMiniGameReveal = (data: {
+      game?: string;
+      correctPosition?: number;
+      correct_position?: number;
+      roundNumber?: 1 | 2 | 3 | 4;
+      cardPositions?: number[];
+    }) => {
+      const gid = normalizeVenueMiniGameId(data?.game);
+      if (gid && gid !== 'card_shuffle') return;
+      const raw = data.correctPosition ?? data.correct_position;
+      const cp = normalizeRevealSlotOneToThree(raw);
+      if (cp == null) return;
+      setMiniGameReveal({
+        game: 'card_shuffle',
+        correctPosition: cp,
+        roundNumber: data.roundNumber,
+        cardPositions: Array.isArray(data.cardPositions) ? data.cardPositions : [],
+      });
+      setPhase('mini_game');
+    };
 
-    socket.on('music_control', (data: { action: 'play' | 'pause' | 'stop'; mediaUrl?: string }) => {
+    const onMusicControl = (data: { action: 'play' | 'pause' | 'stop'; mediaUrl?: string }) => {
       const action = data?.action;
       if (!action) return;
 
@@ -591,58 +674,91 @@ function VenueDisplayContent() {
 
       stopMp3();
       setIsVenueMp3Playing(false);
-    });
+    };
 
-    socket.on(
-      'mini_game_end',
-      (data: { game: string; winningCard?: number; winningKangaroo?: number }) => {
-        if (data.game) {
-          setMiniGameReveal(null);
-          if (data.game === 'card_shuffle') {
-            setMiniGameCommand(null);
-          } else {
-            setMiniGameResult(data);
+    const onMiniGameEnd = (data: {
+      game: string;
+      winningCard?: number;
+      winningKangaroo?: number;
+      holdScreen?: boolean;
+      status?: string;
+      message?: string;
+    }) => {
+      if (data.game) {
+        setMiniGameReveal(null);
+        if (data.game === 'card_shuffle') {
+          setMiniGameCommand(null);
+          if (data.holdScreen) {
+            setMiniGameResult({
+              game: 'card_shuffle',
+              holdScreen: true,
+              status: data.status,
+              message: data.message,
+            });
             setPhase('mini_game_result');
           }
+        } else {
+          setMiniGameResult(data);
+          setPhase('mini_game_result');
         }
-      },
-    );
+      }
+    };
 
-    socket.on('game_end', (data?: { teams?: Team[] }) => {
+    const onGameEnd = (data?: { teams?: Team[] }) => {
       stopMp3();
       setIsVenueMp3Playing(false);
       if (data?.teams) {
         setScoreboard(data.teams.sort((a, b) => b.score - a.score));
       }
       setPhase('game_end');
-    });
+    };
+
+    socket.on('session_state', onSessionState);
+    socket.on('team_joined', onTeamJoined);
+    socket.on('team_removed', onTeamRemoved);
+    socket.on('round_intro', onRoundIntro);
+    socket.on('question_active', onQuestionActive);
+    socket.on('timer_update', onTimerUpdate);
+    socket.on('timer_expired', onTimerExpired);
+    socket.on('response_count', onResponseCount);
+    socket.on('live_response_update', onLiveResponseUpdate);
+    socket.on('answer_reveal', onAnswerReveal);
+    socket.on('scoreboard', onScoreboard);
+    socket.on('scoreboard_hidden', onScoreboardHidden);
+    socket.on('round_end', onRoundEnd);
+    socket.on('break_start', onBreakStart);
+    socket.on('break_end', onBreakEnd);
+    socket.on('mini_game_start', onMiniGameStart);
+    socket.on('mini_game_command', onMiniGameCommand);
+    socket.on('mini_game_reveal', onMiniGameReveal);
+    socket.on('music_control', onMusicControl);
+    socket.on('mini_game_end', onMiniGameEnd);
+    socket.on('game_end', onGameEnd);
 
     return () => {
       clearTimeout(invalidPinTimeout);
       socket.off('connect', joinVenue);
-      [
-        'session_state',
-        'team_joined',
-        'team_removed',
-        'round_intro',
-        'question_active',
-        'music_control',
-        'timer_update',
-        'timer_expired',
-        'response_count',
-        'live_response_update',
-        'answer_reveal',
-        'scoreboard',
-        'scoreboard_hidden',
-        'round_end',
-        'break_start',
-        'break_end',
-        'mini_game_start',
-        'mini_game_command',
-        'mini_game_reveal',
-        'mini_game_end',
-        'game_end',
-      ].forEach((e) => socket.off(e));
+      socket.off('session_state', onSessionState);
+      socket.off('team_joined', onTeamJoined);
+      socket.off('team_removed', onTeamRemoved);
+      socket.off('round_intro', onRoundIntro);
+      socket.off('question_active', onQuestionActive);
+      socket.off('music_control', onMusicControl);
+      socket.off('timer_update', onTimerUpdate);
+      socket.off('timer_expired', onTimerExpired);
+      socket.off('response_count', onResponseCount);
+      socket.off('live_response_update', onLiveResponseUpdate);
+      socket.off('answer_reveal', onAnswerReveal);
+      socket.off('scoreboard', onScoreboard);
+      socket.off('scoreboard_hidden', onScoreboardHidden);
+      socket.off('round_end', onRoundEnd);
+      socket.off('break_start', onBreakStart);
+      socket.off('break_end', onBreakEnd);
+      socket.off('mini_game_start', onMiniGameStart);
+      socket.off('mini_game_command', onMiniGameCommand);
+      socket.off('mini_game_reveal', onMiniGameReveal);
+      socket.off('mini_game_end', onMiniGameEnd);
+      socket.off('game_end', onGameEnd);
     };
   }, [socket, sessionPin, isPinReady, router, playMp3, setMp3Source, stopMp3]);
 
@@ -1398,7 +1514,7 @@ function VenueDisplayContent() {
 
         {/* ── MINI GAME ── */}
         {phase === 'mini_game' && miniGameType && (
-          <div className=" flex flex-col animate-fadeIn">
+          <div className="flex flex-col animate-fadeIn">
             <div className="px-6 py-3 flex items-center justify-between border-b border-border/30">
               <h2 className="text-2xl font-black text-neon-cyan text-glow-cyan">
                 {miniGameType === 'Kangaroo_race' ? '🏇 Kangaroo Race' : '🃏 Card Shuffle'}
@@ -1421,7 +1537,19 @@ function VenueDisplayContent() {
         {/* ── MINI GAME RESULT ── */}
         {phase === 'mini_game_result' && miniGameResult && (
           <div className="w-full h-full flex flex-col items-center justify-center p-8 animate-fadeIn">
-            {miniGameResult.game === 'card_shuffle' && miniGameResult.winningCard && (
+            {miniGameResult.game === 'card_shuffle' && miniGameResult.holdScreen ? (
+              <div className="w-full max-w-[980px] rounded-[32px] border border-[#2ec7ff]/45 bg-[linear-gradient(180deg,rgba(38,14,95,0.95)_0%,rgba(15,11,55,0.96)_100%)] px-12 py-16 text-center shadow-[0_0_36px_rgba(0,229,255,0.16)]">
+                <div className="mx-auto mb-8 flex h-24 w-24 items-center justify-center rounded-full border-2 border-[#2ec7ff]/55 bg-[rgba(4,14,38,0.85)] shadow-[0_0_28px_rgba(0,229,255,0.2)]">
+                  <span className="text-2xl font-black tracking-[0.18em] text-[#8fefff]">CS</span>
+                </div>
+                <h2 className="text-6xl font-black text-white drop-shadow-[0_0_16px_rgba(255,255,255,0.18)]">
+                  Game Finished
+                </h2>
+                <p className="mt-5 text-2xl font-semibold text-[#8fefff]">
+                  {miniGameResult.message || 'Wait for the host to start the game.'}
+                </p>
+              </div>
+            ) : miniGameResult.game === 'card_shuffle' && miniGameResult.winningCard ? (
               <>
                 <div className="text-7xl mb-6">🃏</div>
                 <h2 className="text-5xl font-black mb-4 text-glow-cyan">Winning Card</h2>
@@ -1465,7 +1593,7 @@ function VenueDisplayContent() {
                   })}
                 </div>
               </>
-            )}
+            ) : null}
             {miniGameResult.game === 'Kangaroo_race' && miniGameResult.winningKangaroo && (
               <>
                 <div className="text-7xl mb-6">🦘</div>
@@ -1505,7 +1633,6 @@ function VenueDisplayContent() {
             )}
           </div>
         )}
-
         {/* ── GAME END ── */}
         {phase === 'game_end' && (
           <div className="w-full h-full flex flex-col items-center justify-center p-8 animate-fadeIn">

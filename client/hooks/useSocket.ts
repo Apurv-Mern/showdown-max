@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Socket } from 'socket.io-client';
 import { connectSocket } from '@/lib/socket';
 
@@ -11,28 +11,28 @@ import { connectSocket } from '@/lib/socket';
  * share the same instance. Only the local event listeners are cleaned up.
  */
 export const useSocket = () => {
-  const socketRef = useRef<Socket | null>(null);
+  const [socket, setSocket] = useState<Socket | null>(null);
   const [isConnected, setIsConnected] = useState(false);
 
   useEffect(() => {
-    const socket = connectSocket();
-    socketRef.current = socket;
+    const s = connectSocket();
+    setSocket(s);
 
     const onConnect = () => setIsConnected(true);
     const onDisconnect = () => setIsConnected(false);
 
-    socket.on('connect', onConnect);
-    socket.on('disconnect', onDisconnect);
+    s.on('connect', onConnect);
+    s.on('disconnect', onDisconnect);
 
-    if (socket.connected) {
+    if (s.connected) {
       setIsConnected(true);
     }
 
     return () => {
-      socket.off('connect', onConnect);
-      socket.off('disconnect', onDisconnect);
+      s.off('connect', onConnect);
+      s.off('disconnect', onDisconnect);
     };
   }, []);
 
-  return { socket: socketRef.current, isConnected };
+  return { socket, isConnected };
 };

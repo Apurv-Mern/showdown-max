@@ -29,7 +29,7 @@ function JoinContent() {
   useEffect(() => {
     if (!socket) return;
 
-    socket.on('session_state', (data: any) => {
+    const onSessionState = (data: any) => {
       if (data.joined) {
         const gs = data.gameState;
         if (gs?.currentRound) {
@@ -65,16 +65,19 @@ function JoinContent() {
           router.push('/play/lobby');
         }
       }
-    });
+    };
 
-    socket.on('join_error', (data: { message: string }) => {
+    const onJoinError = (data: { message: string }) => {
       setError(data.message);
       setJoining(false);
-    });
+    };
+
+    socket.on('session_state', onSessionState);
+    socket.on('join_error', onJoinError);
 
     return () => {
-      socket.off('session_state');
-      socket.off('join_error');
+      socket.off('session_state', onSessionState);
+      socket.off('join_error', onJoinError);
     };
   }, [socket, pin, router, setSession]);
 

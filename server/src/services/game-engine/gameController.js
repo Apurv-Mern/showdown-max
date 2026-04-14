@@ -881,6 +881,7 @@ const endMiniGame = async (io, pin, overrideConfig = {}) => {
 
   const game = gameState.activeMiniGame;
   const config = { ...(gameState.miniGameConfig || {}), ...(overrideConfig || {}) };
+  const holdScreen = config?.holdScreen === true;
 
   gameState.activeMiniGame = null;
   gameState.miniGameConfig = null;
@@ -888,11 +889,13 @@ const endMiniGame = async (io, pin, overrideConfig = {}) => {
   await redisStore.setGameState(pin, gameState);
 
   io.to(`session:${pin}`).emit(SOCKET_EVENTS.MINI_GAME_END, { game, ...config });
-  logger.info('Mini game ended', { pin, game });
+  logger.info('Mini game ended', { pin, game, holdScreen });
 
-  setTimeout(() => {
-    io.to(`session:${pin}`).emit(SOCKET_EVENTS.SESSION_STATE, sanitizeForClients(gameState));
-  }, 5000);
+  if (!holdScreen) {
+    setTimeout(() => {
+      io.to(`session:${pin}`).emit(SOCKET_EVENTS.SESSION_STATE, sanitizeForClients(gameState));
+    }, 5000);
+  }
 };
 
 /**

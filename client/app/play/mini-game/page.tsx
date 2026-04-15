@@ -95,11 +95,15 @@ function normalizeMiniGameId(game: unknown): string {
   return String(game).toLowerCase().replace(/-/g, '_');
 }
 
-function normalizeUnityPayload(value: unknown): Record<string, unknown> {
+function normalizeUnityPayload(value: unknown, depth = 0): Record<string, unknown> {
+  if (depth > 10) return {};
   if (value == null) return {};
   if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) return {};
     try {
-      const parsed = JSON.parse(value);
+      const parsed = JSON.parse(trimmed);
+      if (typeof parsed === 'string') return normalizeUnityPayload(parsed, depth + 1);
       return parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : {};
     } catch {
       return {};
@@ -159,6 +163,24 @@ export default function MiniGamePage() {
     /** Singleton; read here so listeners always register (avoids first-paint `useSocket` null). */
     const socket = connectSocket();
 
+    /** Re‑join the session room after any reconnect (Fast Refresh, network drop, etc.)
+     *  join_session is blocked by the name-collision guard when the old socket is still
+     *  briefly alive — mini_game_rejoin bypasses that and also replays the reveal state. */
+    const rejoinSession = () => {
+      const pin = sessionPinRef.current;
+      const teamId = session.teamId;
+      if (!pin || !teamId) return;
+      console.log('[play/mini-game] reconnected — emitting mini_game_rejoin', { pin, teamId });
+      socket.emit('mini_game_rejoin', {
+        pin,
+        teamId,
+        teamName: session.teamName,
+      });
+    };
+    socket.on('connect', rejoinSession);
+    // Also rejoin immediately if the socket is already connected.
+    if (socket.connected) rejoinSession();
+
     const applyCardShuffleReveal = (payload: {
       correctPosition?: number;
       correct_position?: number;
@@ -191,8 +213,36 @@ export default function MiniGamePage() {
       game?: string;
       command?: 'start_game' | 'next_round' | 'reveal_cards';
       roundNumber?: number;
+      cardShuffleReveal?: {
+        game?: string;
+        correctPosition?: number;
+        correct_position?: number;
+        roundNumber?: number;
+        cardPositions?: number[];
+      };
     }) => {
       if (normalizeMiniGameId(data?.game) !== 'card_shuffle') return;
+      if (data.command === 'reveal_cards') {
+        console.log('[play/mini-game] mini_game_command reveal_cards — full payload:', data);
+        const snap = data.cardShuffleReveal;
+        if (snap) {
+          const rawCp = snap.correctPosition ?? snap.correct_position;
+          const cpNorm = normalizeCardSlotToChoice(rawCp);
+          if (cpNorm !== null) {
+            // Server already has the winning slot — apply immediately.
+            console.log('[play/mini-game] Applying correctPosition from snapshot:', cpNorm);
+            applyCardShuffleReveal({ correctPosition: cpNorm });
+          } else {
+            console.info(
+              '[play/mini-game] No correctPosition yet — waiting for mini_game_reveal / mini_game_update (SHUFFLE_COMPLETE).',
+            );
+          }
+        } else {
+          console.warn(
+            '[play/mini-game] reveal_cards but cardShuffleReveal missing — server may not have attached snapshot',
+          );
+        }
+      }
       if (data.command === 'start_game' || data.command === 'next_round') {
         lockedPickRef.current = null;
         setSelectedChoice(null);
@@ -214,9 +264,12 @@ export default function MiniGamePage() {
       game?: string;
       correctPosition?: number;
       correct_position?: number;
+      roundNumber?: number;
+      cardPositions?: number[];
     }) => {
       const gid = normalizeMiniGameId(data?.game);
       if (gid && gid !== 'card_shuffle') return;
+      console.log('[play/mini-game] mini_game_reveal (authoritative winning slot from server):', data);
       applyCardShuffleReveal(data);
     };
 
@@ -224,12 +277,15 @@ export default function MiniGamePage() {
       game?: string;
       result?: 'winner' | 'loser';
       correctPosition?: number;
+      correct_position?: number;
       selectedChoice?: number | null;
     }) => {
       const gid = normalizeMiniGameId(data?.game);
       if (gid && gid !== 'card_shuffle') return;
 
-      const winning = normalizeCardSlotToChoice(data?.correctPosition);
+      const winning = normalizeCardSlotToChoice(
+        data?.correctPosition ?? data?.correct_position,
+      );
       const selected = normalizeCardSlotToChoice(data?.selectedChoice);
 
       setGameType('card_shuffle');
@@ -259,28 +315,51 @@ export default function MiniGamePage() {
       const nestedPayload = normalizeUnityPayload(directValue.payload);
 
       if (action === 'SHUFFLE_COMPLETE') {
-        applyCardShuffleReveal({
-          correctPosition: Number(
-            nestedPayload.correct_position ??
-              nestedPayload.correctPosition ??
-              directValue.correct_position ??
-              directValue.correctPosition,
-          ),
+        const rawSlot =
+          nestedPayload.correct_position ??
+          nestedPayload.correctPosition ??
+          directValue.correct_position ??
+          directValue.correctPosition;
+        const n = Number(rawSlot);
+        console.log('[play/mini-game] mini_game_update SHUFFLE_COMPLETE:', {
+          rawSlot,
+          nestedKeys: Object.keys(nestedPayload),
+          directKeys: Object.keys(directValue),
         });
+        if (Number.isFinite(n)) {
+          applyCardShuffleReveal({ correctPosition: n });
+        } else {
+          console.warn('[play/mini-game] SHUFFLE_COMPLETE but could not read correct_position', data);
+        }
+        return;
+      }
+
+      // Server enriches MINIGAME_REVEAL and ROUND_COMPLETE with the stored
+      // correctPosition so mobile gets the result even if it missed the first relay.
+      if (action === 'MINIGAME_REVEAL' || action === 'ROUND_COMPLETE') {
+        const cp = (data as Record<string, unknown>).correctPosition as number | undefined;
+        console.log(`[play/mini-game] mini_game_update ${action} — correctPosition from server:`, cp);
+        if (Number.isFinite(cp)) {
+          applyCardShuffleReveal({ correctPosition: cp });
+        } else {
+          console.warn(`[play/mini-game] ${action} received but no correctPosition attached`, data);
+        }
         return;
       }
 
       if (action === 'GAME_COMPLETE' || action === 'RAW') {
         const resultType = String(directValue.type || '').toUpperCase();
         if (resultType === 'SHUFFLE_COMPLETE') {
-          applyCardShuffleReveal({
-            correctPosition: Number(
-              nestedPayload.correct_position ??
-                nestedPayload.correctPosition ??
-                directValue.correct_position ??
-                directValue.correctPosition,
-            ),
-          });
+          const rawSlot =
+            nestedPayload.correct_position ??
+            nestedPayload.correctPosition ??
+            directValue.correct_position ??
+            directValue.correctPosition;
+          const n = Number(rawSlot);
+          console.log('[play/mini-game] mini_game_update nested SHUFFLE_COMPLETE:', { rawSlot, data });
+          if (Number.isFinite(n)) {
+            applyCardShuffleReveal({ correctPosition: n });
+          }
         }
       }
     };
@@ -312,7 +391,8 @@ export default function MiniGamePage() {
     };
 
     const onBreakEnd = () => {
-      router.push('/play/game');
+      window.location.assign('/play/game');
+      // router.push('/play/game');
     };
 
     const onRoundIntro = () => {
@@ -343,6 +423,7 @@ export default function MiniGamePage() {
     socket.on('session_deleted', onSessionDeleted);
 
     return () => {
+      socket.off('connect', rejoinSession);
       socket.off('mini_game_start', onMiniGameStart);
       socket.off('mini_game_command', onMiniGameCommand);
       socket.off('mini_game_reveal', onMiniGameReveal);
@@ -380,10 +461,12 @@ export default function MiniGamePage() {
             {isWinner ? (
               <>
                 <div className="mb-4 text-5xl sm:text-6xl">WIN</div>
-                <h2 className="mb-2 text-2xl font-black text-[#ffd700] sm:text-3xl">You win this round!</h2>
+                <h2 className="mb-2 text-2xl font-black text-[#ffd700] sm:text-3xl">
+                  You win this round!
+                </h2>
                 <p className="text-foreground/60 text-sm mb-4">
-                  You picked <span className="font-bold text-[#ffd700]">{winLabel}</span> — that was the
-                  winner.
+                  You picked <span className="font-bold text-[#ffd700]">{winLabel}</span> — that was
+                  the winner.
                 </p>
               </>
             ) : (
@@ -432,7 +515,9 @@ export default function MiniGamePage() {
             className="pointer-events-none absolute inset-x-4 top-6 z-20 mx-auto max-w-md animate-fadeIn rounded-2xl border border-[#00d8ff]/60 bg-[linear-gradient(180deg,rgba(20,40,90,0.96)_0%,rgba(10,8,40,0.98)_100%)] px-4 py-3 text-center shadow-[0_0_24px_rgba(0,216,255,0.35)] sm:inset-x-8"
             role="status"
           >
-            <p className="text-lg font-black text-white drop-shadow-sm sm:text-xl">{roundAnnouncement}</p>
+            <p className="text-lg font-black text-white drop-shadow-sm sm:text-xl">
+              {roundAnnouncement}
+            </p>
           </div>
         ) : null}
 
@@ -535,9 +620,7 @@ export default function MiniGamePage() {
                   <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full border border-[#22d3ee]/60 bg-[rgba(10,20,40,0.75)]">
                     <span className="text-3xl">🃏</span>
                   </div>
-                  <p className="text-xl font-black uppercase tracking-wide text-white">
-                    Game Over
-                  </p>
+                  <p className="text-xl font-black uppercase tracking-wide text-white">Game Over</p>
                   <p className="mt-3 text-sm font-semibold leading-snug text-[#9cecff]">
                     {roundAnnouncement || 'Game Over'}
                   </p>
@@ -610,7 +693,9 @@ export default function MiniGamePage() {
           <div className="text-center">
             <div className="text-4xl mb-3">MINI GAME</div>
             <h2 className="text-xl font-bold mb-2">Mini-Game</h2>
-            <p className="text-foreground/50 text-sm mb-6">Waiting for the host to launch a game...</p>
+            <p className="text-foreground/50 text-sm mb-6">
+              Waiting for the host to launch a game...
+            </p>
             <Button variant="ghost" onClick={() => router.push('/play/game')}>
               Back to Game
             </Button>

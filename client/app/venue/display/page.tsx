@@ -118,6 +118,49 @@ type MiniGameReveal = {
   cardPositions?: number[];
 };
 
+/** Unity may send `payload` as a JSON string; slots may be 0–2 or 1–3. */
+function parseUnityShuffleComplete(value: unknown): { cp: number; cards: number[] } | null {
+  const unwrap = (v: unknown, depth = 0): Record<string, unknown> => {
+    if (depth > 12) return {};
+    if (v == null) return {};
+    if (typeof v === 'string') {
+      const t = v.trim();
+      if (!t) return {};
+      try {
+        const p = JSON.parse(t);
+        if (typeof p === 'string') return unwrap(p, depth + 1);
+        return p && typeof p === 'object' ? (p as Record<string, unknown>) : {};
+      } catch {
+        return {};
+      }
+    }
+    return typeof v === 'object' ? (v as Record<string, unknown>) : {};
+  };
+
+  const root = unwrap(value);
+  const inner =
+    typeof root.payload === 'string'
+      ? unwrap(root.payload)
+      : unwrap(root.payload ?? root);
+
+  const raw =
+    inner.correct_position ??
+    inner.correctPosition ??
+    root.correct_position ??
+    root.correctPosition;
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return null;
+  const t = Math.trunc(n);
+  const cp = t >= 1 && t <= 3 ? t : t >= 0 && t <= 2 ? t + 1 : NaN;
+  if (!Number.isFinite(cp) || cp < 1 || cp > 3) return null;
+
+  const arr = (inner.card_positions ?? inner.cardPositions ?? root.card_positions) as unknown;
+  const cards = Array.isArray(arr)
+    ? arr.map((x) => Number(x)).filter((x) => Number.isFinite(x))
+    : [];
+  return { cp, cards };
+}
+
 const normalizeRoundTitle = (name?: string) => {
   if (!name) return '';
   return name.replace(/^round\s*\d+\s*-\s*/i, '').trim();
@@ -181,6 +224,10 @@ function VenueDisplayContent() {
   const previousPhaseBeforeScoreboardRef = useRef<VenuePhase | null>(null);
   const questionRef = useRef<QuestionData | null>(null);
   const revealDataRef = useRef<RevealData | null>(null);
+  /** Latest SHUFFLE_COMPLETE from Unity; used to re-emit canonical payload after host Reveal. */
+  const lastCardShuffleUnityRef = useRef<{ cp: number; cards: number[] } | null>(null);
+  const cardShuffleRevealFlushTimeoutsRef = useRef<number[]>([]);
+  const cardShuffleRevealFlushGenRef = useRef(0);
 
   const playerJoinUrl = useMemo(() => {
     const pin = encodeURIComponent(sessionPin);
@@ -347,6 +394,14 @@ function VenueDisplayContent() {
   const handleUnityPlayerAction = useCallback(
     (action: string, value: unknown) => {
       if (!socket) return;
+      const a = String(action || '').toUpperCase();
+      if (a === 'SHUFFLE_COMPLETE') {
+        const parsed = parseUnityShuffleComplete(value);
+        if (parsed) {
+          lastCardShuffleUnityRef.current = parsed;
+          clientLogger.info('venue', 'Card shuffle SHUFFLE_COMPLETE parsed from Unity', parsed);
+        }
+      }
       socket.emit('mini_game_action', { action, value, source: 'unity' });
     },
     [socket],
@@ -358,6 +413,13 @@ function VenueDisplayContent() {
       const payload =
         result && typeof result === 'object' ? (result as Record<string, unknown>) : {};
       const resultType = String(payload.type || '').toUpperCase();
+      if (resultType === 'SHUFFLE_COMPLETE') {
+        const parsed = parseUnityShuffleComplete(payload.payload ?? payload);
+        if (parsed) {
+          lastCardShuffleUnityRef.current = parsed;
+          clientLogger.info('venue', 'Card shuffle SHUFFLE_COMPLETE parsed (game result)', parsed);
+        }
+      }
       socket.emit('mini_game_action', {
         action: resultType || 'game_complete',
         value: result,
@@ -383,6 +445,49 @@ function VenueDisplayContent() {
     },
     [socket],
   );
+
+  /**
+   * Unity's Card Shuffle game sends results via window.postMessage (WebBridge)
+   * rather than the JSLib SendGameResult function. This effect listens to those
+   * messages and forwards them to the server so correctPosition is stored before
+   * the host taps "reveal".
+   */
+  useEffect(() => {
+    if (!socket || !miniGameType || miniGameType !== 'card_shuffle') return;
+
+    const onWebBridgeMessage = (event: MessageEvent) => {
+      let data: Record<string, unknown> | null = null;
+      try {
+        data = typeof event.data === 'string' ? JSON.parse(event.data) : event.data;
+      } catch {
+        return;
+      }
+      if (!data || typeof data !== 'object') return;
+
+      const msgType = String(data.type || '').toUpperCase();
+      if (msgType !== 'SHUFFLE_COMPLETE' && msgType !== 'ROUND_COMPLETE' && msgType !== 'MINIGAME_REVEAL') return;
+
+      console.log('[venue/WebBridge→server] forwarding', msgType, data);
+      socket.emit('mini_game_action', {
+        action: msgType,
+        value: data,
+        source: 'unity',
+        game: 'card_shuffle',
+      });
+      // Also emit the generic game_complete path so existing server logic fires.
+      if (msgType !== 'ROUND_COMPLETE') {
+        socket.emit('mini_game_action', {
+          action: 'game_complete',
+          value: data,
+          source: 'unity',
+          game: 'card_shuffle',
+        });
+      }
+    };
+
+    window.addEventListener('message', onWebBridgeMessage);
+    return () => window.removeEventListener('message', onWebBridgeMessage);
+  }, [socket, miniGameType]);
 
   useEffect(() => {
     if (!socket || !sessionPin || !isPinReady) return;
@@ -612,7 +717,40 @@ function VenueDisplayContent() {
       setTimeout(() => setShowBreakEndedNotice(false), 2400);
     };
 
+    const clearCardShuffleRevealFlushTimers = () => {
+      for (const id of cardShuffleRevealFlushTimeoutsRef.current) {
+        window.clearTimeout(id);
+      }
+      cardShuffleRevealFlushTimeoutsRef.current = [];
+    };
+
+    const emitCanonicalShuffleToServer = (expectedGen: number, emittedFlag: { current: boolean }) => {
+      if (cardShuffleRevealFlushGenRef.current !== expectedGen) return;
+      if (emittedFlag.current) return;
+      const b = lastCardShuffleUnityRef.current;
+      if (!b || !socket?.connected) return;
+      emittedFlag.current = true;
+      socket.emit('mini_game_action', {
+        source: 'unity',
+        action: 'SHUFFLE_COMPLETE',
+        value: {
+          type: 'SHUFFLE_COMPLETE',
+          payload: {
+            correct_position: b.cp,
+            card_positions: b.cards,
+          },
+        },
+      });
+      clientLogger.info('venue', 'Card shuffle canonical SHUFFLE_COMPLETE re-emitted for players', {
+        correctPosition: b.cp,
+        cardPositions: b.cards,
+      });
+    };
+
     const onMiniGameStart = (data: { game: string }) => {
+      cardShuffleRevealFlushGenRef.current += 1;
+      lastCardShuffleUnityRef.current = null;
+      clearCardShuffleRevealFlushTimers();
       setMiniGameType(data.game);
       setMiniGameCommand(null);
       setMiniGameReveal(null);
@@ -627,7 +765,22 @@ function VenueDisplayContent() {
     }) => {
       if (normalizeVenueMiniGameId(data?.game) !== 'card_shuffle' || !data.command) return;
       if (data.command === 'next_round' || data.command === 'start_game') {
+        lastCardShuffleUnityRef.current = null;
+        clearCardShuffleRevealFlushTimers();
         setMiniGameReveal(null);
+      }
+      if (data.command === 'reveal_cards') {
+        lastCardShuffleUnityRef.current = null;
+        clearCardShuffleRevealFlushTimers();
+        const gen = ++cardShuffleRevealFlushGenRef.current;
+        const emittedOnce = { current: false };
+        /** Unity finishes after MINIGAME_REVEAL; canonical payload guarantees server → `mini_game_reveal` on mobile. */
+        for (const ms of [200, 650, 1400, 2800]) {
+          const tid = window.setTimeout(() => {
+            emitCanonicalShuffleToServer(gen, emittedOnce);
+          }, ms);
+          cardShuffleRevealFlushTimeoutsRef.current.push(tid);
+        }
       }
       setMiniGameCommand({
         id: Date.now(),
@@ -736,6 +889,7 @@ function VenueDisplayContent() {
     socket.on('game_end', onGameEnd);
 
     return () => {
+      clearCardShuffleRevealFlushTimers();
       clearTimeout(invalidPinTimeout);
       socket.off('connect', joinVenue);
       socket.off('session_state', onSessionState);

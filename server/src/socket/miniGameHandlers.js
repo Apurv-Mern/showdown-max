@@ -15,11 +15,18 @@ const createCardShuffleRoundState = (roundNumber = null, gameStarted = true) => 
   pickCounts: { 1: 0, 2: 0, 3: 0 },
 });
 
-const normalizeUnityPayload = (value) => {
+/** Unwrap JSON strings (Unity sometimes double-encodes `payload`). */
+const normalizeUnityPayload = (value, depth = 0) => {
+  if (depth > 10) return {};
   if (value === null || value === undefined) return {};
   if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) return {};
     try {
-      return JSON.parse(value);
+      const parsed = JSON.parse(trimmed);
+      if (typeof parsed === 'string') return normalizeUnityPayload(parsed, depth + 1);
+      if (parsed && typeof parsed === 'object') return parsed;
+      return {};
     } catch {
       return {};
     }
@@ -93,13 +100,36 @@ const extractCardShuffleReveal = (data = {}) => {
     };
   }
 
+  /** Whole `value` may be the inner payload only (no `type` on object). */
+  const fromBare = normalizeRevealSlotOneToThree(readCorrectPosition(directPayload));
+  if (Number.isFinite(fromBare)) {
+    return {
+      correctPosition: fromBare,
+      cardPositions: readCardPositionsArray(directPayload).length
+        ? readCardPositionsArray(directPayload)
+        : readCardPositionsArray(directValue),
+    };
+  }
+
   return null;
 };
 
 const hydrateCardShuffleState = async (pin, updater) => {
   const gameState = await redisStore.getGameState(pin);
-  if (!gameState || gameState.activeMiniGame !== 'card_shuffle') {
+  if (!gameState) {
+    console.warn('[miniGameHandlers] hydrateCardShuffleState: no gameState found for pin', pin);
     return null;
+  }
+
+  // If activeMiniGame is not set (e.g. server restarted and lost in-memory state),
+  // bootstrap it rather than silently dropping the SHUFFLE_COMPLETE result.
+  if (gameState.activeMiniGame !== 'card_shuffle') {
+    console.warn(
+      '[miniGameHandlers] hydrateCardShuffleState: activeMiniGame is',
+      gameState.activeMiniGame,
+      '— bootstrapping card_shuffle state for pin', pin,
+    );
+    gameState.activeMiniGame = 'card_shuffle';
   }
 
   const baseState =
@@ -191,12 +221,42 @@ const miniGameHandlers = (io, socket) => {
         source: socket.data?.role || data.source || 'host',
       };
 
+      /** Snapshot for mobile/venue when host triggers reveal (before state is cleared). */
+      let cardShuffleReveal = null;
+
       if (payload.game === 'card_shuffle') {
         if (payload.command === 'start_game') {
           const gs = await redisStore.getGameState(pin);
           if (gs?.miniGameState?.game === 'card_shuffle' && gs.miniGameState.gameStarted) {
             logger.warn('Duplicate card_shuffle start_game ignored', { pin });
             return;
+          }
+        }
+
+        if (payload.command === 'reveal_cards') {
+          const gsReveal = await redisStore.getGameState(pin);
+          const s = gsReveal?.miniGameState;
+          if (s?.game === 'card_shuffle') {
+            const cp = Number(s.correctPosition);
+            const hasPos = Number.isFinite(cp) && cp >= 1 && cp <= 3;
+            const rnRaw = payload.roundNumber ?? s.activeRound;
+            const rn = Number(rnRaw);
+            const roundNumber = Number.isFinite(rn) && rn >= 1 && rn <= 4 ? rn : undefined;
+            const cardPositions = Array.isArray(s.cardPositions)
+              ? s.cardPositions.map((v) => Number(v)).filter((n) => Number.isFinite(n))
+              : [];
+            cardShuffleReveal = {
+              game: 'card_shuffle',
+              ...(hasPos ? { correctPosition: cp, correct_position: cp } : {}),
+              ...(roundNumber !== undefined ? { roundNumber } : {}),
+              cardPositions,
+            };
+            logger.info('Card Shuffle host reveal command (snapshot before Unity clear)', {
+              pin,
+              roundNumber,
+              hasWinningSlot: hasPos,
+              cardPositionsCount: cardPositions.length,
+            });
           }
         }
 
@@ -228,12 +288,17 @@ const miniGameHandlers = (io, socket) => {
         });
       }
 
-      io.to(`session:${pin}`).emit(SOCKET_EVENTS.MINI_GAME_COMMAND, payload);
+      const commandOut =
+        cardShuffleReveal != null ? { ...payload, cardShuffleReveal } : payload;
+      io.to(`session:${pin}`).emit(SOCKET_EVENTS.MINI_GAME_COMMAND, commandOut);
       logger.info('Mini-game command relayed', {
         pin,
-        game: payload.game,
-        command: payload.command,
-        roundNumber: payload.roundNumber,
+        game: commandOut.game,
+        command: commandOut.command,
+        roundNumber: commandOut.roundNumber,
+        ...(commandOut.cardShuffleReveal
+          ? { cardShuffleReveal: commandOut.cardShuffleReveal }
+          : {}),
       });
     } catch (err) {
       logger.error('mini_game_command error', { error: err.message });
@@ -249,10 +314,24 @@ const miniGameHandlers = (io, socket) => {
       const room = `session:${eventPin}`;
 
       if (data.source === 'unity') {
-        const reveal = extractCardShuffleReveal(data);
+        let reveal = extractCardShuffleReveal(data);
+        if (!reveal && data.value != null) {
+          const v = normalizeUnityPayload(data.value);
+          if (v && typeof v === 'object' && String(v.type || '').toUpperCase() === 'SHUFFLE_COMPLETE') {
+            reveal = extractCardShuffleReveal({ ...data, action: 'SHUFFLE_COMPLETE', value: v });
+          }
+        }
 
         if (reveal) {
           const { correctPosition, cardPositions } = reveal;
+
+          // ── Server debug: log raw values from Unity SHUFFLE_COMPLETE ──
+          console.log('[miniGameHandlers] SHUFFLE_COMPLETE received from Unity →', {
+            pin: eventPin,
+            correctPosition,
+            cardPositions,
+            rawAction: data.action,
+          });
 
           if (!Number.isFinite(correctPosition) || correctPosition < 1 || correctPosition > 3) {
             logger.warn('Card Shuffle reveal missing or invalid correct_position', {
@@ -292,6 +371,7 @@ const miniGameHandlers = (io, socket) => {
           logger.info('Card Shuffle reveal received from Unity', {
             pin: eventPin,
             correctPosition,
+            cardPositions,
             roundNumber: gameState?.miniGameState?.activeRound || undefined,
           });
           await emitCardShufflePlayerResults(io, eventPin, gameState?.miniGameState);
@@ -300,6 +380,22 @@ const miniGameHandlers = (io, socket) => {
 
         if (String(data.action || '') === 'ROUND_COMPLETE') {
           logger.debug('Card Shuffle round complete received from Unity', { pin: eventPin });
+          // Re-emit reveal with stored correctPosition so mobile players that missed
+          // SHUFFLE_COMPLETE still learn the result before the next round starts.
+          const freshState = await redisStore.getGameState(eventPin);
+          const mgs = freshState?.miniGameState;
+          if (mgs?.game === 'card_shuffle' && Number.isFinite(Number(mgs.correctPosition))) {
+            const correctPosition = Number(mgs.correctPosition);
+            logger.info('ROUND_COMPLETE — re-broadcasting correctPosition to room', { pin: eventPin, correctPosition });
+            io.to(room).emit(SOCKET_EVENTS.MINI_GAME_REVEAL, {
+              game: 'card_shuffle',
+              correctPosition,
+              roundNumber: mgs.activeRound || undefined,
+              cardPositions: Array.isArray(mgs.cardPositions) ? mgs.cardPositions : [],
+              source: 'round_complete',
+            });
+            await emitCardShufflePlayerResults(io, eventPin, mgs);
+          }
           return;
         }
 
@@ -355,12 +451,33 @@ const miniGameHandlers = (io, socket) => {
         return;
       }
 
+      // For MINIGAME_REVEAL from Unity, attach stored correctPosition so
+      // mobile players that missed the first SHUFFLE_COMPLETE relay can still
+      // show the winner/loser result.
+      let extraRevealFields = {};
+      const actionUpper = String(data.action || '').toUpperCase();
+      if (data.source === 'unity' && actionUpper === 'MINIGAME_REVEAL') {
+        const freshState = await redisStore.getGameState(eventPin);
+        const mgs = freshState?.miniGameState;
+        if (mgs?.game === 'card_shuffle' && Number.isFinite(Number(mgs.correctPosition))) {
+          extraRevealFields = {
+            correctPosition: Number(mgs.correctPosition),
+            cardPositions: Array.isArray(mgs.cardPositions) ? mgs.cardPositions : [],
+          };
+          logger.info('MINIGAME_REVEAL — attaching correctPosition to update', {
+            pin: eventPin,
+            correctPosition: extraRevealFields.correctPosition,
+          });
+        }
+      }
+
       io.to(room).emit(SOCKET_EVENTS.MINI_GAME_UPDATE, {
         teamId,
         teamName: socket.data?.teamName,
         action: data.action,
         value: data.value,
         source: data.source || 'player',
+        ...extraRevealFields,
       });
 
       logger.debug('Mini-game action relayed', {
@@ -371,6 +488,54 @@ const miniGameHandlers = (io, socket) => {
       });
     } catch (err) {
       logger.error('mini_game_action error', { error: err.message });
+    }
+  }); // end socket.on(MINI_GAME_ACTION)
+
+  /**
+   * Lightweight rejoin used by the mobile mini-game page after a socket
+   * reconnect (e.g. HMR / Fast Refresh).  Skips the full join_session
+   * name-collision check so it works even while the old socket is still
+   * alive for a brief moment.  Requires {pin, teamId, teamName}.
+   */
+  socket.on('mini_game_rejoin', async (data = {}) => {
+    try {
+      const { pin, teamId, teamName } = data;
+      if (!pin || !teamId) {
+        logger.warn('mini_game_rejoin: missing pin or teamId', { pin, teamId });
+        return;
+      }
+
+      // Re‑room the socket and stamp socket.data so subsequent handlers work.
+      socket.join(`session:${pin}`);
+      socket.data = { ...socket.data, pin, teamId: Number(teamId), teamName: teamName || socket.data?.teamName };
+
+      logger.info('mini_game_rejoin: socket re‑joined room', { pin, teamId, socketId: socket.id });
+
+      // Replay the current mini-game state so the player sees winner/loser
+      // even if mini_game_reveal fired before the rejoin completed.
+      const gameState = await redisStore.getGameState(pin);
+      const mgs = gameState?.miniGameState;
+      if (mgs?.game === 'card_shuffle' && mgs.revealed && Number.isFinite(Number(mgs.correctPosition))) {
+        const correctPosition = Number(mgs.correctPosition);
+        socket.emit(SOCKET_EVENTS.MINI_GAME_REVEAL, {
+          game: 'card_shuffle',
+          correctPosition,
+          roundNumber: mgs.activeRound || undefined,
+          cardPositions: Array.isArray(mgs.cardPositions) ? mgs.cardPositions : [],
+        });
+
+        const selectedChoiceRaw = mgs.selections?.[String(teamId)];
+        const selectedChoice = Number.isFinite(Number(selectedChoiceRaw)) ? Number(selectedChoiceRaw) : null;
+        socket.emit(SOCKET_EVENTS.MINI_GAME_PLAYER_RESULT, {
+          game: 'card_shuffle',
+          result: selectedChoice === correctPosition ? 'winner' : 'loser',
+          correctPosition,
+          selectedChoice,
+          roundNumber: mgs.activeRound || undefined,
+        });
+      }
+    } catch (err) {
+      logger.error('mini_game_rejoin error', { error: err.message });
     }
   });
 };

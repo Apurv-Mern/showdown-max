@@ -1636,7 +1636,12 @@ function HostDashboardContent() {
                           miniGameRevealing ||
                           cardShuffleRevealPosition !== null
                         }
-                        onClick={() => handleCardShuffleCommand('reveal_cards')}
+                        onClick={() =>
+                          handleCardShuffleCommand(
+                            'reveal_cards',
+                            cardShuffleActiveRound ?? undefined,
+                          )
+                        }
                         className={cn(
                           'mt-3 h-12 w-full rounded-lg border px-4 text-sm font-extrabold uppercase tracking-wide transition',
                           cardShuffleVenueReady &&

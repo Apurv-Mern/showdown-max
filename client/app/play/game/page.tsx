@@ -429,17 +429,37 @@ export default function GamePage() {
           return;
         }
 
-        if (gs.state === 'ROUND_INTRO' && gs.currentRound) {
-          setRoundInfo({
-            round: gs.currentRound,
-            roundIndex: gs.currentRoundIndex || 0,
-            totalRounds: gs.totalRounds || 0,
-          });
-          setPhase('round_intro');
+        // Same as venue: `currentRound` may be absent on payload — derive from `rounds[index]`.
+        if (gs.state === 'ROUND_INTRO') {
+          const idx = Number(gs.currentRoundIndex ?? 0);
+          const round =
+            gs.currentRound ??
+            (Array.isArray(gs.rounds) && idx >= 0 && idx < gs.rounds.length ? gs.rounds[idx] : null);
+          if (round) {
+            setRoundInfo({
+              round,
+              roundIndex: idx,
+              totalRounds: gs.rounds?.length ?? gs.totalRounds ?? 0,
+            });
+            setPhase('round_intro');
+          } else {
+            if (phaseRef.current === 'break') setBreakRemaining(0);
+            setPhase(currentlyEliminated ? 'eliminated' : 'waiting');
+          }
           return;
         }
 
-        if (gs.state === 'QUESTION' && gs.currentQuestion) {
+        if (gs.state === 'QUESTION') {
+          if (!gs.currentQuestion) {
+            // After break, server can emit QUESTION before currentQuestion is attached — leave break UI.
+            setBreakRemaining(0);
+            if (currentlyEliminated) {
+              setPhase('eliminated');
+            } else {
+              setPhase('waiting');
+            }
+            return;
+          }
           setQuestion(gs.currentQuestion);
           setTimerDuration(gs.currentQuestion.timerDuration || 30);
           setTimerRemaining(gs.timerRemaining ?? gs.currentQuestion.timerDuration ?? 0);
@@ -497,6 +517,10 @@ export default function GamePage() {
           setPhase('game_end');
         } else if (gs.state === 'LOBBY') {
           setPhase('waiting');
+        } else if (phaseRef.current === 'break' && gs.state !== 'BREAK') {
+          // Host ended break but no branch above matched — stop break countdown UI.
+          setBreakRemaining(0);
+          setPhase(currentlyEliminated ? 'eliminated' : 'waiting');
         }
       }
     };
@@ -612,9 +636,12 @@ export default function GamePage() {
     };
 
     const onBreakEnd = () => {
-      // Phase is restored by server via session_state.
+      setBreakRemaining(0);
       setShowBreakEndedNotice(true);
-      setTimeout(() => setShowBreakEndedNotice(false), 2200);
+      // Full reload so break UI, timers, and phase fully reset (matches “refresh mobile” after break).
+      window.setTimeout(() => {
+        window.location.reload();
+      }, 200);
     };
 
     const onMiniGameStart = (data: { game: string }) => {

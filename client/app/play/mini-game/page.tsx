@@ -146,6 +146,8 @@ export default function MiniGamePage() {
   const [resultPhase, setResultPhase] = useState<ResultPhase>(null);
   const [winningValue, setWinningValue] = useState<number | null>(null);
   const [roundOpen, setRoundOpen] = useState(false);
+  /** True once Unity sends SHUFFLE_COMPLETE — cards have stopped, player should pick. */
+  const [shuffleComplete, setShuffleComplete] = useState(false);
   /** Short banner when host starts round 1 / advances to round 2+ */
   const [roundAnnouncement, setRoundAnnouncement] = useState<string | null>(null);
   const sessionPinRef = useRef(session.pin);
@@ -180,6 +182,17 @@ export default function MiniGamePage() {
     socket.on('connect', rejoinSession);
     // Also rejoin immediately if the socket is already connected.
     if (socket.connected) rejoinSession();
+
+    const exitMiniGameToGame = () => {
+      lockedPickRef.current = null;
+      setSelectedChoice(null);
+      setResultPhase(null);
+      setWinningValue(null);
+      setRoundOpen(false);
+      setShuffleComplete(false);
+      setRoundAnnouncement(null);
+      window.location.assign('/play/game');
+    };
 
     const applyCardShuffleReveal = (payload: {
       correctPosition?: number;
@@ -223,25 +236,11 @@ export default function MiniGamePage() {
     }) => {
       if (normalizeMiniGameId(data?.game) !== 'card_shuffle') return;
       if (data.command === 'reveal_cards') {
-        console.log('[play/mini-game] mini_game_command reveal_cards — full payload:', data);
-        const snap = data.cardShuffleReveal;
-        if (snap) {
-          const rawCp = snap.correctPosition ?? snap.correct_position;
-          const cpNorm = normalizeCardSlotToChoice(rawCp);
-          if (cpNorm !== null) {
-            // Server already has the winning slot — apply immediately.
-            console.log('[play/mini-game] Applying correctPosition from snapshot:', cpNorm);
-            applyCardShuffleReveal({ correctPosition: cpNorm });
-          } else {
-            console.info(
-              '[play/mini-game] No correctPosition yet — waiting for mini_game_reveal / mini_game_update (SHUFFLE_COMPLETE).',
-            );
-          }
-        } else {
-          console.warn(
-            '[play/mini-game] reveal_cards but cardShuffleReveal missing — server may not have attached snapshot',
-          );
-        }
+        // Server now explicitly sends mini_game_reveal after reveal_cards.
+        // We just log here — the result will come via onMiniGameReveal.
+        console.log(
+          '[play/mini-game] mini_game_command reveal_cards — waiting for mini_game_reveal from server',
+        );
       }
       if (data.command === 'start_game' || data.command === 'next_round') {
         lockedPickRef.current = null;
@@ -249,6 +248,7 @@ export default function MiniGamePage() {
         setResultPhase(null);
         setWinningValue(null);
         setRoundOpen(true);
+        setShuffleComplete(false);
         const n =
           data.command === 'start_game'
             ? 1
@@ -269,7 +269,10 @@ export default function MiniGamePage() {
     }) => {
       const gid = normalizeMiniGameId(data?.game);
       if (gid && gid !== 'card_shuffle') return;
-      console.log('[play/mini-game] mini_game_reveal (authoritative winning slot from server):', data);
+      console.log(
+        '[play/mini-game] mini_game_reveal (authoritative winning slot from server):',
+        data,
+      );
       applyCardShuffleReveal(data);
     };
 
@@ -283,9 +286,7 @@ export default function MiniGamePage() {
       const gid = normalizeMiniGameId(data?.game);
       if (gid && gid !== 'card_shuffle') return;
 
-      const winning = normalizeCardSlotToChoice(
-        data?.correctPosition ?? data?.correct_position,
-      );
+      const winning = normalizeCardSlotToChoice(data?.correctPosition ?? data?.correct_position);
       const selected = normalizeCardSlotToChoice(data?.selectedChoice);
 
       setGameType('card_shuffle');
@@ -315,52 +316,35 @@ export default function MiniGamePage() {
       const nestedPayload = normalizeUnityPayload(directValue.payload);
 
       if (action === 'SHUFFLE_COMPLETE') {
-        const rawSlot =
-          nestedPayload.correct_position ??
-          nestedPayload.correctPosition ??
-          directValue.correct_position ??
-          directValue.correctPosition;
-        const n = Number(rawSlot);
-        console.log('[play/mini-game] mini_game_update SHUFFLE_COMPLETE:', {
-          rawSlot,
-          nestedKeys: Object.keys(nestedPayload),
-          directKeys: Object.keys(directValue),
-        });
-        if (Number.isFinite(n)) {
-          applyCardShuffleReveal({ correctPosition: n });
-        } else {
-          console.warn('[play/mini-game] SHUFFLE_COMPLETE but could not read correct_position', data);
-        }
+        // Cards have stopped shuffling — mark it so the UI prompts the player to pick.
+        // Win/lose is only shown after the HOST taps "reveal".
+        console.log(
+          '[play/mini-game] mini_game_update SHUFFLE_COMPLETE — cards stopped, round stays open for picking',
+          {
+            correctPosition:
+              nestedPayload.correct_position ??
+              directValue.correct_position ??
+              '(hidden until host reveals)',
+          },
+        );
+        setShuffleComplete(true);
+        // Do NOT call applyCardShuffleReveal here.
         return;
       }
 
-      // Server enriches MINIGAME_REVEAL and ROUND_COMPLETE with the stored
-      // correctPosition so mobile gets the result even if it missed the first relay.
+      // MINIGAME_REVEAL and ROUND_COMPLETE no longer auto-reveal on mobile.
+      // The host controls the reveal via reveal_cards → mini_game_reveal.
       if (action === 'MINIGAME_REVEAL' || action === 'ROUND_COMPLETE') {
-        const cp = (data as Record<string, unknown>).correctPosition as number | undefined;
-        console.log(`[play/mini-game] mini_game_update ${action} — correctPosition from server:`, cp);
-        if (Number.isFinite(cp)) {
-          applyCardShuffleReveal({ correctPosition: cp });
-        } else {
-          console.warn(`[play/mini-game] ${action} received but no correctPosition attached`, data);
-        }
+        console.log(
+          `[play/mini-game] mini_game_update ${action} — ignoring (host controls reveal)`,
+        );
         return;
       }
 
       if (action === 'GAME_COMPLETE' || action === 'RAW') {
         const resultType = String(directValue.type || '').toUpperCase();
-        if (resultType === 'SHUFFLE_COMPLETE') {
-          const rawSlot =
-            nestedPayload.correct_position ??
-            nestedPayload.correctPosition ??
-            directValue.correct_position ??
-            directValue.correctPosition;
-          const n = Number(rawSlot);
-          console.log('[play/mini-game] mini_game_update nested SHUFFLE_COMPLETE:', { rawSlot, data });
-          if (Number.isFinite(n)) {
-            applyCardShuffleReveal({ correctPosition: n });
-          }
-        }
+        console.log('[play/mini-game] mini_game_update GAME_COMPLETE/RAW resultType:', resultType);
+        // No auto-reveal for any sub-type — host controls it.
       }
     };
 
@@ -376,7 +360,7 @@ export default function MiniGamePage() {
         setGameType('card_shuffle');
         setWinningValue(null);
         setRoundOpen(false);
-        setRoundAnnouncement(data.message || 'Game Over');
+        setRoundAnnouncement(data.message);
         setResultPhase('finished');
         return;
       }
@@ -387,16 +371,35 @@ export default function MiniGamePage() {
       setResultPhase(null);
       setRoundOpen(false);
       setRoundAnnouncement(null);
-      router.push('/play/game');
+      window.location.assign('/play/game');
     };
 
     const onBreakEnd = () => {
-      window.location.assign('/play/game');
-      // router.push('/play/game');
+      exitMiniGameToGame();
     };
 
     const onRoundIntro = () => {
-      router.push('/play/game');
+      exitMiniGameToGame();
+    };
+
+    const onQuestionActive = () => {
+      exitMiniGameToGame();
+    };
+
+    const onAnswerReveal = () => {
+      exitMiniGameToGame();
+    };
+
+    const onScoreboard = () => {
+      exitMiniGameToGame();
+    };
+
+    const onSessionState = (data: any) => {
+      const gameState = data?.gameState ?? data;
+      if (!gameState || !gameState.state) return;
+      if (!gameState.activeMiniGame && gameState.state !== 'LOBBY') {
+        exitMiniGameToGame();
+      }
     };
 
     const onGameEnd = () => {
@@ -419,6 +422,10 @@ export default function MiniGamePage() {
     socket.on('mini_game_end', onMiniGameEnd);
     socket.on('break_end', onBreakEnd);
     socket.on('round_intro', onRoundIntro);
+    socket.on('question_active', onQuestionActive);
+    socket.on('answer_reveal', onAnswerReveal);
+    socket.on('scoreboard', onScoreboard);
+    socket.on('session_state', onSessionState);
     socket.on('game_end', onGameEnd);
     socket.on('session_deleted', onSessionDeleted);
 
@@ -432,6 +439,10 @@ export default function MiniGamePage() {
       socket.off('mini_game_end', onMiniGameEnd);
       socket.off('break_end', onBreakEnd);
       socket.off('round_intro', onRoundIntro);
+      socket.off('question_active', onQuestionActive);
+      socket.off('answer_reveal', onAnswerReveal);
+      socket.off('scoreboard', onScoreboard);
+      socket.off('session_state', onSessionState);
       socket.off('game_end', onGameEnd);
       socket.off('session_deleted', onSessionDeleted);
     };
@@ -608,8 +619,12 @@ export default function MiniGamePage() {
                   {!roundOpen
                     ? 'Waiting for the host to start the round...'
                     : selectedChoice
-                      ? 'Your pick is locked! Watch the shuffle on the big screen.'
-                      : 'Tap a Card to make your Selection !!'}
+                      ? shuffleComplete
+                        ? 'Pick locked! Waiting for the host to reveal...'
+                        : 'Your pick is locked! Watch the shuffle on the big screen.'
+                      : shuffleComplete
+                        ? '🃏 Cards have stopped! Make your pick now!'
+                        : 'Tap a Card to make your Selection !!'}
                 </p>
               </div>
             )}

@@ -56,8 +56,11 @@ const readCorrectPosition = (obj) => {
 const normalizeRevealSlotOneToThree = (n) => {
   if (!Number.isFinite(n)) return NaN;
   const t = Math.trunc(Number(n));
-  if (t >= 1 && t <= 3) return t;
-  if (t >= 0 && t <= 2) return t + 1;
+  // Unity always sends 0-based: 0=Left, 1=Middle, 2=Right → convert to 1-based.
+  // This check must come FIRST so values 1 & 2 are treated as 0-indexed (not
+  // passed through as 1-indexed Middle/Right).
+  if (t >= 0 && t <= 2) return t + 1; // 0→1(L), 1→2(M), 2→3(R)
+  if (t === 3) return t;              // already 1-based Right (unambiguous)
   return NaN;
 };
 
@@ -233,6 +236,9 @@ const miniGameHandlers = (io, socket) => {
           }
         }
 
+        /** Full miniGameState from Redis at reveal time — includes player selections. */
+        let capturedMiniGameState = null;
+
         if (payload.command === 'reveal_cards') {
           const gsReveal = await redisStore.getGameState(pin);
           const s = gsReveal?.miniGameState;
@@ -251,6 +257,8 @@ const miniGameHandlers = (io, socket) => {
               ...(roundNumber !== undefined ? { roundNumber } : {}),
               cardPositions,
             };
+            // Capture the full state (with selections) for use in emitCardShufflePlayerResults.
+            capturedMiniGameState = s;
             logger.info('Card Shuffle host reveal command (snapshot before Unity clear)', {
               pin,
               roundNumber,
@@ -276,11 +284,11 @@ const miniGameHandlers = (io, socket) => {
           }
 
           if (payload.command === 'reveal_cards') {
+            // Mark as revealed but KEEP correctPosition + cardPositions
+            // so mini_game_rejoin can replay the result for late-joiners.
             return {
               ...state,
-              revealed: false,
-              correctPosition: null,
-              cardPositions: [],
+              revealed: true,
             };
           }
 
@@ -291,6 +299,37 @@ const miniGameHandlers = (io, socket) => {
       const commandOut =
         cardShuffleReveal != null ? { ...payload, cardShuffleReveal } : payload;
       io.to(`session:${pin}`).emit(SOCKET_EVENTS.MINI_GAME_COMMAND, commandOut);
+
+      // ── Host triggered reveal: now broadcast result to all players ──
+      if (
+        payload.game === 'card_shuffle' &&
+        payload.command === 'reveal_cards' &&
+        cardShuffleReveal?.correctPosition
+      ) {
+        const revealRoom = `session:${pin}`;
+        const cp = Number(cardShuffleReveal.correctPosition);
+        console.log('[miniGameHandlers] Host reveal_cards — broadcasting mini_game_reveal to room', { pin, correctPosition: cp });
+        io.to(revealRoom).emit(SOCKET_EVENTS.MINI_GAME_REVEAL, {
+          game: 'card_shuffle',
+          correctPosition: cp,
+          roundNumber: cardShuffleReveal.roundNumber,
+          cardPositions: cardShuffleReveal.cardPositions,
+        });
+        // Merge captured state (has player selections) with the reveal correctPosition.
+        // Without selections, every player would get selectedChoice:null and always score as loser.
+        const revealMgs = {
+          ...(capturedMiniGameState || {}),
+          correctPosition: cp,
+          revealed: true,
+        };
+        console.log('[miniGameHandlers] emitCardShufflePlayerResults with selections:', {
+          selectionsKeys: Object.keys(revealMgs.selections || {}),
+          correctPosition: cp,
+        });
+        await emitCardShufflePlayerResults(io, pin, revealMgs);
+        logger.info('Host triggered reveal — result sent to players', { pin, correctPosition: cp });
+      }
+
       logger.info('Mini-game command relayed', {
         pin,
         game: commandOut.game,
@@ -342,19 +381,17 @@ const miniGameHandlers = (io, socket) => {
             return;
           }
 
+          // Store position in Redis but do NOT reveal to players yet.
+          // The host will trigger the reveal by tapping "reveal_cards".
           const gameState = await hydrateCardShuffleState(eventPin, (state) => ({
             ...state,
-            revealed: true,
+            revealed: false,
             correctPosition,
             cardPositions,
           }));
 
-          io.to(room).emit(SOCKET_EVENTS.MINI_GAME_REVEAL, {
-            game: 'card_shuffle',
-            correctPosition,
-            roundNumber: gameState?.miniGameState?.activeRound || undefined,
-            cardPositions,
-          });
+          // Notify all clients that the shuffle animation is done so mobile
+          // knows cards have stopped and the round is still open for picking.
           io.to(room).emit(SOCKET_EVENTS.MINI_GAME_UPDATE, {
             game: 'card_shuffle',
             source: 'unity',
@@ -368,34 +405,20 @@ const miniGameHandlers = (io, socket) => {
             },
           });
 
-          logger.info('Card Shuffle reveal received from Unity', {
+          logger.info('Card Shuffle SHUFFLE_COMPLETE stored — waiting for host reveal', {
             pin: eventPin,
             correctPosition,
             cardPositions,
             roundNumber: gameState?.miniGameState?.activeRound || undefined,
           });
-          await emitCardShufflePlayerResults(io, eventPin, gameState?.miniGameState);
+          // Do NOT emit mini_game_reveal or call emitCardShufflePlayerResults here.
+          // That happens when the host taps reveal_cards.
           return;
         }
 
         if (String(data.action || '') === 'ROUND_COMPLETE') {
-          logger.debug('Card Shuffle round complete received from Unity', { pin: eventPin });
-          // Re-emit reveal with stored correctPosition so mobile players that missed
-          // SHUFFLE_COMPLETE still learn the result before the next round starts.
-          const freshState = await redisStore.getGameState(eventPin);
-          const mgs = freshState?.miniGameState;
-          if (mgs?.game === 'card_shuffle' && Number.isFinite(Number(mgs.correctPosition))) {
-            const correctPosition = Number(mgs.correctPosition);
-            logger.info('ROUND_COMPLETE — re-broadcasting correctPosition to room', { pin: eventPin, correctPosition });
-            io.to(room).emit(SOCKET_EVENTS.MINI_GAME_REVEAL, {
-              game: 'card_shuffle',
-              correctPosition,
-              roundNumber: mgs.activeRound || undefined,
-              cardPositions: Array.isArray(mgs.cardPositions) ? mgs.cardPositions : [],
-              source: 'round_complete',
-            });
-            await emitCardShufflePlayerResults(io, eventPin, mgs);
-          }
+          // Round complete — host controls reveal, nothing to broadcast here.
+          logger.debug('Card Shuffle ROUND_COMPLETE from Unity — no auto-reveal (host controls it)', { pin: eventPin });
           return;
         }
 

@@ -360,7 +360,7 @@ export default function MiniGamePage() {
         setGameType('card_shuffle');
         setWinningValue(null);
         setRoundOpen(false);
-        setRoundAnnouncement(data.message);
+        setRoundAnnouncement(data.message || 'Game Over');
         setResultPhase('finished');
         return;
       }

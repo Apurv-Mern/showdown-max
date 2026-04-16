@@ -276,7 +276,7 @@ function HostSidebarTile({
       onClick={onClick}
       disabled={disabled}
       className={cn(
-        'flex h-27.75 w-38.75 flex-col items-center justify-center gap-2 rounded-xl border px-2 text-center text-sm font-medium text-white shadow-[inset_0_0_24px_rgba(0,217,255,0.06)] transition hover:border-[rgba(0,217,255,0.55)] disabled:cursor-not-allowed disabled:opacity-35',
+        'flex h-27.75 w-38 flex-col items-center justify-center gap-2 rounded-xl border px-2 text-center text-sm font-medium text-white shadow-[inset_0_0_24px_rgba(0,217,255,0.06)] transition hover:border-[rgba(0,217,255,0.55)] disabled:cursor-not-allowed disabled:opacity-35',
         'bg-[linear-gradient(180deg,rgba(30,36,58,0.95)_0%,rgba(15,20,32,0.98)_100%)]',
         active
           ? 'border-[rgba(0,217,255,0.55)] shadow-[0_0_16px_rgba(0,217,255,0.15)]'
@@ -1292,7 +1292,7 @@ function HostDashboardContent() {
             <span className="text-lg font-normal text-white/80">Host Control</span>
           </div>
           <div
-            className="flex flex-1 justify-center text-center text-base font-semibold uppercase tracking-[0.2em] lg:text-xl xl:absolute xl:left-1/2 xl:-translate-x-1/2"
+            className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 whitespace-nowrap text-center text-base font-semibold uppercase tracking-[0.2em] lg:text-xl"
             data-node-id="232:4449"
           >
             {currentRound ? (
@@ -1316,12 +1316,12 @@ function HostDashboardContent() {
               >
                 Sessions
               </Link> */}
-            <Link
+            {/* <Link
               href={`/host/teams?pin=${encodeURIComponent(pin)}${sessionId ? `&sessionId=${encodeURIComponent(sessionId)}` : ''}`}
               className="text-[#00d9ff]/80 underline-offset-2 hover:text-[#00d9ff] hover:underline"
             >
               Teams
-            </Link>
+            </Link> */}
             {state !== 'FINAL_RESULTS' ? (
               <button
                 type="button"
@@ -1353,9 +1353,6 @@ function HostDashboardContent() {
                 {isConnected ? 'Live' : 'Offline'}
               </span>
             </div>
-            <span className="font-semibold text-[#00d9ff]" data-node-id="232:4458">
-              {gameState?.totalTeams ?? 0} Teams Connected
-            </span>
           </div>
         </div>
       </header>
@@ -1367,7 +1364,7 @@ function HostDashboardContent() {
       >
         <aside
           data-name="Venue Display"
-          className="w-full shrink-0 border-white/10 bg-[linear-gradient(180deg,rgba(20,26,42,0.6)_0%,#0b0f1a_100%)] px-4 py-6 lg:w-[min(100%,395px)] lg:border-r"
+          className="w-full shrink-0 border-white/10 bg-[linear-gradient(180deg,rgba(20,26,42,0.6)_0%,#0b0f1a_100%)] px-4 py-6 lg:w-[min(100%,350px)] lg:border-r"
         >
           <div className="space-y-10">
             <section data-name="Team Management Panel" data-node-id="232:4462">
@@ -1466,8 +1463,11 @@ function HostDashboardContent() {
                   label="Play/Pause MP3"
                   active={mp3Playing}
                   disabled={
-                    !currentQuestion?.question?.mediaUrl ||
-                    (currentQuestion?.question?.mediaType || '').toLowerCase() !== 'mp3'
+                    !currentQuestion ||
+                    (!currentQuestion?.question?.mediaUrl &&
+                      currentQuestion?.roundType !== 'MUSIC') ||
+                    (!!currentQuestion?.question?.mediaUrl &&
+                      (currentQuestion?.question?.mediaType || '').toLowerCase() !== 'mp3')
                   }
                   icon={
                     <svg viewBox="0 0 24 24" fill="currentColor">
@@ -2039,7 +2039,7 @@ function HostDashboardContent() {
 
         <aside
           data-name="Right Panel"
-          className="w-full shrink-0 border-white/10 bg-[linear-gradient(180deg,rgba(20,26,42,0.6)_0%,#0b0f1a_100%)] px-4 py-6 lg:w-[min(100%,395px)] lg:border-l"
+          className="w-full shrink-0 border-white/10 bg-[linear-gradient(180deg,rgba(20,26,42,0.6)_0%,#0b0f1a_100%)] px-4 py-6 lg:w-[min(100%,350px)] lg:border-l"
         >
           <div className="space-y-10">
             <section data-name="Live Responses Panel" data-node-id="232:4549">
@@ -2125,12 +2125,14 @@ function HostDashboardContent() {
             </section>
 
             <section data-name="Leaderboard Panel" data-node-id="232:4557">
-              <h2
-                className="mb-4 text-xl font-bold text-white sm:text-[25px]"
-                data-node-id="232:4579"
-              >
-                Leaderboard
+              <h2 className=" text-xl font-bold text-white sm:text-[25px]" data-node-id="232:4579">
+                Leaderboard{' '}
               </h2>
+              <span className="text-sm font-semibold text-[#00d9ff]" data-node-id="232:4458">
+                {gameState?.totalTeams ?? 0} {gameState?.totalTeams === 1 ? 'Team' : 'Teams'}{' '}
+                Connected
+              </span>
+
               <div
                 className="overflow-hidden rounded-lg border border-white/20"
                 data-name="Leaderboard Container"

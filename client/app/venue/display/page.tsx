@@ -1113,7 +1113,7 @@ function VenueDisplayContent() {
             </div>
 
             <div className="absolute left-1/2 -translate-x-1/2 bottom-3 sm:bottom-4 md:bottom-6 w-full max-w-sm sm:max-w-md md:max-w-2xl px-3 sm:px-4 md:px-6">
-              <div className="neon-border-strong rounded-lg sm:rounded-xl md:rounded-2xl px-4 sm:px-6 py-3 sm:py-4 md:py-5 bg-surface/85 flex flex-col items-center gap-3 sm:gap-4 md:gap-6">
+              <div className="neon-border-strong rounded-lg sm:rounded-xl md:rounded-2xl px-4 sm:px-6 py-3 sm:py-4 md:py-5 bg-surface/85 flex  items-center gap-3 sm:gap-4 md:gap-6">
                 <div className="shrink-0 rounded-lg md:rounded-xl border border-neon-cyan/40 p-1.5 sm:p-2 shadow-[0_0_20px_rgba(0,229,255,0.15)]">
                   {qrCodeData &&
                   !welcomeQrImageFailed &&
@@ -1140,7 +1140,7 @@ function VenueDisplayContent() {
                   <p className="text-foreground/50 text-[10px] sm:text-xs md:text-sm mt-0.5">
                     Session PIN
                   </p>
-                  <p className="text-2xl sm:text-3xl md:text-4xl lg:text-5xl font-mono font-black tracking-[0.1em] sm:tracking-[0.15em] md:tracking-[0.2em] text-neon-cyan text-glow-cyan mt-1 sm:mt-2">
+                  <p className="text-xl sm:text-3xl md:text-4xl lg:text-5xl font-mono font-black tracking-widest sm:tracking-[0.15em] md:tracking-[0.2em] text-neon-cyan text-glow-cyan mt-1 sm:mt-2">
                     {sessionPin}
                   </p>
                 </div>
@@ -1672,7 +1672,7 @@ function VenueDisplayContent() {
         {/* Scoreboard */}
         {phase === 'scoreboard' && (
           <div className="w-full h-full flex flex-col items-center justify-center p-3 sm:p-4 md:p-6 animate-fadeIn">
-            <div className="w-full max-w-2xl sm:max-w-3xl md:max-w-4xl lg:max-w-5xl rounded-lg sm:rounded-xl md:rounded-2xl lg:rounded-3xl border border-[#9fbeff]/70 bg-[linear-gradient(180deg,rgba(24,9,76,0.95)_0%,rgba(12,6,48,0.95)_100%)] shadow-[0_0_24px_rgba(0,216,255,0.25)] px-4 sm:px-6 md:px-8 py-3 sm:py-4 md:py-6 overflow-y-auto max-h-full">
+            <div className="w-full max-w-xl sm:max-w-xl md:max-w-2xl lg:max-w-3xl rounded-lg sm:rounded-xl md:rounded-2xl lg:rounded-3xl border border-[#9fbeff]/70 bg-[linear-gradient(180deg,rgba(24,9,76,0.95)_0%,rgba(12,6,48,0.95)_100%)] shadow-[0_0_24px_rgba(0,216,255,0.25)] px-4 sm:px-6 md:px-8 py-3 sm:py-4 md:py-6 overflow-y-auto max-h-full">
               <h3 className="text-2xl sm:text-3xl md:text-4xl lg:text-5xl font-black text-white text-center mb-2 sm:mb-3 md:mb-4">
                 Scoreboard
               </h3>
@@ -1696,10 +1696,10 @@ function VenueDisplayContent() {
                 </p>
               </div>
 
-              <div className="grid grid-cols-4 items-center px-2 sm:px-4 md:px-5 mb-2 sm:mb-3 text-white text-xs sm:text-sm md:text-base lg:text-lg font-bold gap-1 sm:gap-2">
-                <div>Rank</div>
-                <div className="col-span-2">Team Name</div>
-                <div>Pts</div>
+              <div className="grid grid-cols-[64px_minmax(0,1fr)_82px] sm:grid-cols-[74px_minmax(0,1fr)_96px] md:grid-cols-[88px_minmax(0,1fr)_120px] items-center px-2 sm:px-4 md:px-5 mb-2 sm:mb-3 text-white text-xs sm:text-sm md:text-base lg:text-lg font-bold gap-2 sm:gap-3 md:gap-4">
+                <div className="text-center">Rank</div>
+                <div className="text-center">Team Name</div>
+                <div className="text-right">Pts</div>
               </div>
 
               <div className="space-y-1 sm:space-y-2 md:space-y-3">
@@ -1717,15 +1717,18 @@ function VenueDisplayContent() {
                   return (
                     <div
                       key={team.teamId}
-                      className="grid grid-cols-4 items-center rounded-lg border border-[#2ec7ff]/50 bg-[linear-to-b_#2c00a8_0%,_#9a00b8_100%] px-2 sm:px-3 md:px-4 py-2 sm:py-2 md:py-3 text-white text-xs sm:text-sm md:text-base font-semibold gap-1 sm:gap-2"
+                      className="grid grid-cols-[64px_minmax(0,1fr)_82px] sm:grid-cols-[74px_minmax(0,1fr)_96px] md:grid-cols-[88px_minmax(0,1fr)_120px] items-center rounded-lg border border-[#2ec7ff]/50 bg-[linear-to-b_#2c00a8_0%,_#9a00b8_100%] px-2 sm:px-3 md:px-4 py-2 sm:py-2 md:py-3 text-white text-xs sm:text-sm md:text-base font-semibold gap-2 sm:gap-3 md:gap-4"
                     >
-                      <div>
+                      <div className="flex justify-center">
                         <span className="inline-flex h-6 sm:h-8 md:h-10 min-w-6 sm:min-w-8 md:min-w-10 items-center justify-center rounded bg-[#080327] px-1.5 sm:px-2 md:px-3 text-[12px] sm:text-[14px] md:text-[16px] lg:text-[18px] font-bold">
                           {idx + 1}
                         </span>
                       </div>
                       <div
-                        className={cn('col-span-2', team.isEliminated && 'line-through opacity-60')}
+                        className={cn(
+                          'min-w-0 text-center truncate',
+                          team.isEliminated && 'line-through opacity-60',
+                        )}
                       >
                         {team.teamName}
                       </div>

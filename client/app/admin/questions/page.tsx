@@ -112,6 +112,13 @@ const DIFFICULTY_STYLE: Record<DifficultyKey, { label: string; className: string
   GENERAL: { label: 'General', className: 'bg-white/10 text-[#99a1af]' },
 };
 
+const DIFFICULTY_OPTIONS: { value: string; label: string }[] = [
+  { value: 'EASY', label: 'Easy' },
+  { value: 'MEDIUM', label: 'Medium' },
+  { value: 'HARD', label: 'Hard' },
+  { value: 'GENERAL', label: 'General' },
+];
+
 interface FormData {
   text: string;
   category: string;
@@ -124,7 +131,7 @@ interface FormData {
 
 const defaultFormData: FormData = {
   text: '',
-  category: '',
+  category: 'GENERAL',
   options: [
     { text: '', isCorrect: true },
     { text: '', isCorrect: false },
@@ -203,6 +210,7 @@ export default function QuestionsPage() {
     setEditingQuestion(null);
     setFormData({
       ...defaultFormData,
+      category: 'GENERAL',
       roundId: preselectedRoundId ? String(preselectedRoundId) : '',
     });
     setModalOpen(true);
@@ -212,7 +220,7 @@ export default function QuestionsPage() {
     setEditingQuestion(question);
     setFormData({
       text: question.text,
-      category: question.category || '',
+      category: difficultyFromCategory(question.category),
       options: question.options.length > 0 ? [...question.options] : [...defaultFormData.options],
       mediaUrl: question.mediaUrl || '',
       mediaType: question.mediaType || '',
@@ -231,6 +239,24 @@ export default function QuestionsPage() {
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+
+    // Get the selected round's type
+    const selectedRound = rounds.find((r) => String(r.id) === formData.roundId);
+    const roundType = selectedRound?.type;
+
+    // Check if user is trying to upload MP3/MP4 for non-MUSIC rounds
+    const fileType = file.type.toLowerCase();
+    const isAudioOrVideo = fileType.includes('audio') || fileType.includes('video');
+    const isMP3orMP4 =
+      fileType.includes('audio/mpeg') ||
+      fileType.includes('audio/mp3') ||
+      fileType.includes('video/mp4');
+
+    if (isAudioOrVideo && isMP3orMP4 && roundType !== 'MUSIC') {
+      toast.error('MP3 and MP4 files can only be uploaded for MUSIC rounds');
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      return;
+    }
 
     const fd = new FormData();
     fd.append('file', file);
@@ -653,15 +679,19 @@ export default function QuestionsPage() {
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-sm font-medium text-foreground/70 mb-1">
-                Category / difficulty
+                Difficulty
               </label>
-              <input
-                type="text"
+              <select
                 value={formData.category}
                 onChange={(e) => setFormData((p) => ({ ...p, category: e.target.value }))}
-                placeholder="Easy, Medium, Hard, or topic…"
                 className="w-full bg-surface-light border border-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-foreground/40 focus:outline-none focus:ring-2 focus:ring-primary/50"
-              />
+              >
+                {DIFFICULTY_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
             </div>
             <div>
               <label className="block text-sm font-medium text-foreground/70 mb-1">
@@ -725,7 +755,13 @@ export default function QuestionsPage() {
                 <input
                   ref={fileInputRef}
                   type="file"
-                  accept="audio/mpeg,audio/mp3,video/mp4,image/jpeg,image/png,image/gif,image/webp"
+                  accept={(() => {
+                    const selectedRound = rounds.find((r) => String(r.id) === formData.roundId);
+                    if (selectedRound?.type === 'MUSIC') {
+                      return 'audio/mpeg,audio/mp3,video/mp4,image/jpeg,image/png,image/gif,image/webp';
+                    }
+                    return 'image/jpeg,image/png,image/gif,image/webp';
+                  })()}
                   onChange={handleFileUpload}
                   className="hidden"
                 />
@@ -735,11 +771,24 @@ export default function QuestionsPage() {
                   size="sm"
                   onClick={() => fileInputRef.current?.click()}
                   disabled={uploading}
+                  title={(() => {
+                    const selectedRound = rounds.find((r) => String(r.id) === formData.roundId);
+                    if (selectedRound?.type === 'MUSIC') {
+                      return '';
+                    }
+                    return 'MP3 and MP4 files can only be uploaded for MUSIC rounds';
+                  })()}
                 >
                   {uploading ? 'Uploading...' : '📎 Upload File'}
                 </Button>
                 <span className="text-xs text-foreground/30 self-center">
-                  JPG, PNG, GIF, WebP, MP3, or MP4
+                  {(() => {
+                    const selectedRound = rounds.find((r) => String(r.id) === formData.roundId);
+                    if (selectedRound?.type === 'MUSIC') {
+                      return 'JPG, PNG, GIF, WebP, MP3, or MP4';
+                    }
+                    return 'JPG, PNG, GIF, or WebP only';
+                  })()}
                 </span>
               </div>
             )}

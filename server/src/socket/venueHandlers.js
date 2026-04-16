@@ -43,6 +43,17 @@ const venueHandlers = (_io, socket) => {
             socket.emit(SOCKET_EVENTS.ANSWER_REVEAL, revealPayload);
           }
         }
+        if (gameState.scoreboardVisible && gameState.state !== 'SCOREBOARD') {
+          const sortedTeams = Object.values(gameState.teams || {}).sort(
+            (a, b) => b.score - a.score,
+          );
+          const revealPayload = await buildRevealSnapshot(pin, gameState);
+          socket.emit(SOCKET_EVENTS.SCOREBOARD, {
+            teams: sortedTeams,
+            source: 'manual',
+            ...(revealPayload ? { revealSnapshot: revealPayload } : {}),
+          });
+        }
       } else {
         const session = await Session.findOne({
           where: { pin, status: { [Op.in]: ['pending', 'active'] } },
@@ -99,6 +110,17 @@ const venueHandlers = (_io, socket) => {
           if (revealPayload) {
             socket.emit(SOCKET_EVENTS.ANSWER_REVEAL, revealPayload);
           }
+        }
+        if (gameState.scoreboardVisible && gameState.state !== 'SCOREBOARD') {
+          const sortedTeams = Object.values(gameState.teams || {}).sort(
+            (a, b) => b.score - a.score,
+          );
+          const revealPayload = await buildRevealSnapshot(pin, gameState);
+          socket.emit(SOCKET_EVENTS.SCOREBOARD, {
+            teams: sortedTeams,
+            source: 'manual',
+            ...(revealPayload ? { revealSnapshot: revealPayload } : {}),
+          });
         }
       } else {
         const session = await Session.findOne({ where: { pin } });
@@ -180,6 +202,7 @@ const buildFullStatePayload = async (gameState, pin) => {
     breakRemaining: gameState.breakRemaining,
     activeMiniGame: gameState.activeMiniGame,
     miniGameState: gameState.miniGameState || null,
+    scoreboardVisible: Boolean(gameState.scoreboardVisible),
     maxTeams: Number(gameState.maxTeams || 0),
     currentQuestion: currentQuestion
       ? {

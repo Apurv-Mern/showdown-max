@@ -460,6 +460,19 @@ export default function GamePage() {
           return;
         }
 
+        if (gs.scoreboardVisible && gs.teams) {
+          const sorted = Object.values(gs.teams)
+            .sort((a: any, b: any) => Number(b.score || 0) - Number(a.score || 0))
+            .map((team: any) => ({
+              teamId: Number(team.teamId),
+              teamName: String(team.teamName || ''),
+              score: Number(team.score || 0),
+            }));
+          setScoreboard(sorted);
+          setPhase('scoreboard');
+          return;
+        }
+
         // Same as venue: `currentRound` may be absent on payload — derive from `rounds[index]`.
         if (gs.state === 'ROUND_INTRO') {
           const idx = Number(gs.currentRoundIndex ?? 0);

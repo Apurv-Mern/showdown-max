@@ -152,6 +152,7 @@ const playerHandlers = (io, socket) => {
               totalTeams: gameState.totalTeams,
               activeMiniGame: gameState.activeMiniGame,
               miniGameState: gameState.miniGameState || null,
+              scoreboardVisible: Boolean(gameState.scoreboardVisible),
               teams: gameState.teams,
             }
           : null,
@@ -216,6 +217,14 @@ const playerHandlers = (io, socket) => {
           const revealSnapshot = await buildRevealSnapshot(pin, gameState);
           socket.emit(SOCKET_EVENTS.SCOREBOARD, {
             teams: Object.values(gameState.teams).sort((a, b) => b.score - a.score),
+            ...(revealSnapshot ? { revealSnapshot } : {}),
+          });
+        }
+        if (gameState.scoreboardVisible && gameState.state !== 'SCOREBOARD') {
+          const revealSnapshot = await buildRevealSnapshot(pin, gameState);
+          socket.emit(SOCKET_EVENTS.SCOREBOARD, {
+            teams: Object.values(gameState.teams).sort((a, b) => b.score - a.score),
+            source: 'manual',
             ...(revealSnapshot ? { revealSnapshot } : {}),
           });
         }

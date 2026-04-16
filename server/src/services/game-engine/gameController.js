@@ -129,7 +129,10 @@ const nextQuestion = async (io, pin) => {
     const transResult = stateMachine.transition(gameState, GAME_STATES.QUESTION);
     if (!transResult.valid) return;
     gameState = transResult.gameState;
-  } else if (gameState.state === GAME_STATES.QUESTION && gameState.questionState === QUESTION_STATES.REVEALED) {
+  } else if (
+    gameState.state === GAME_STATES.QUESTION &&
+    gameState.questionState === QUESTION_STATES.REVEALED
+  ) {
     const advance = stateMachine.advanceQuestion(gameState);
     if (!advance.hasNext) {
       await endRound(io, pin, gameState);
@@ -158,9 +161,10 @@ const nextQuestion = async (io, pin) => {
     timerDuration: effectiveTimer,
     timerRemaining: effectiveTimer,
     roundType: round.type,
-    pointsForQuestion: round.type === ROUND_TYPES.ELIMINATION
-      ? require('shared/constants/scoring').getEliminationPoints(gameState.currentQuestionIndex)
-      : null,
+    pointsForQuestion:
+      round.type === ROUND_TYPES.ELIMINATION
+        ? require('shared/constants/scoring').getEliminationPoints(gameState.currentQuestionIndex)
+        : null,
   });
   io.to(`session:${pin}`).emit(SOCKET_EVENTS.LIVE_RESPONSE_UPDATE, {
     correct: 0,
@@ -217,11 +221,12 @@ const submitAnswer = async (io, pin, teamId, data) => {
   if (!gameState || gameState.questionState !== QUESTION_STATES.ACTIVE) return;
 
   const timerState = timerManager.getTimerState(pin);
-  const effectiveRemaining = timerState.remaining > 0
-    ? timerState.remaining
-    : Number.isFinite(Number(gameState.timerRemaining))
-      ? Number(gameState.timerRemaining)
-      : 0;
+  const effectiveRemaining =
+    timerState.remaining > 0
+      ? timerState.remaining
+      : Number.isFinite(Number(gameState.timerRemaining))
+        ? Number(gameState.timerRemaining)
+        : 0;
   if (effectiveRemaining <= 0) {
     logger.info('Rejected late answer after timer expiry', {
       pin,
@@ -242,7 +247,8 @@ const submitAnswer = async (io, pin, teamId, data) => {
     selectedOptionIndex: data.selectedOptionIndex,
     wagerAmount: data.wagerAmount,
     responseTime:
-      Number.isFinite(Number(gameState.timerRemaining)) && Number.isFinite(Number(question.timerDuration))
+      Number.isFinite(Number(gameState.timerRemaining)) &&
+      Number.isFinite(Number(question.timerDuration))
         ? Math.max(0, Number(question.timerDuration) - Number(gameState.timerRemaining))
         : null,
   };
@@ -278,10 +284,10 @@ const submitAnswer = async (io, pin, teamId, data) => {
 
   if (count >= gameState.activeTeamIds.length) {
     timerManager.forceExpire(pin);
-    
+
     io.to(`session:${pin}`).emit(SOCKET_EVENTS.TIMER_UPDATE, { remaining: 0 });
     io.to(`session:${pin}`).emit(SOCKET_EVENTS.TIMER_EXPIRED, {});
-    
+
     gameState.timerRunning = false;
     gameState.timerRemaining = 0;
     await redisStore.setGameState(pin, gameState);
@@ -322,7 +328,10 @@ const submitWager = async (pin, teamId, amount) => {
 const revealAnswer = async (io, pin) => {
   let gameState = await redisStore.getGameState(pin);
   if (!gameState) return;
-  if (gameState.state !== GAME_STATES.QUESTION || gameState.questionState !== QUESTION_STATES.ACTIVE) {
+  if (
+    gameState.state !== GAME_STATES.QUESTION ||
+    gameState.questionState !== QUESTION_STATES.ACTIVE
+  ) {
     logger.debug('Skipping reveal: question is not active', {
       pin,
       state: gameState.state,
@@ -388,7 +397,11 @@ const revealAnswer = async (io, pin) => {
     if (!elimState) {
       elimState = knockoutEngine.initEliminationRound(gameState.activeTeamIds);
     }
-    elimState = knockoutEngine.processElimination(elimState, result, gameState.currentQuestionIndex);
+    elimState = knockoutEngine.processElimination(
+      elimState,
+      result,
+      gameState.currentQuestionIndex,
+    );
     eliminationStates.set(pin, elimState);
 
     gameState.activeTeamIds = elimState.activeTeamIds;
@@ -478,8 +491,7 @@ const endRound = async (io, pin, gameState) => {
     roundIndex: gameState.currentRoundIndex,
   });
 
-  const sortedTeams = Object.values(result.gameState.teams)
-    .sort((a, b) => b.score - a.score);
+  const sortedTeams = Object.values(result.gameState.teams).sort((a, b) => b.score - a.score);
 
   let revealSnapshot = null;
   try {
@@ -508,7 +520,9 @@ const advanceToNextRound = async (io, pin) => {
     const finalResult = stateMachine.transition(gameState, GAME_STATES.FINAL_RESULTS);
     if (finalResult.valid) {
       await redisStore.setGameState(pin, finalResult.gameState);
-      const sortedTeams = Object.values(finalResult.gameState.teams).sort((a, b) => b.score - a.score);
+      const sortedTeams = Object.values(finalResult.gameState.teams).sort(
+        (a, b) => b.score - a.score,
+      );
       io.to(`session:${pin}`).emit(SOCKET_EVENTS.GAME_END, { teams: sortedTeams });
       logger.info('Final results emitted', {
         pin,
@@ -579,7 +593,9 @@ const handlePlayerSocketDisconnect = async (io, pin, teamIdRaw) => {
     if (gameState.teams && gameState.teams[teamId]) {
       delete gameState.teams[teamId];
     }
-    gameState.activeTeamIds = (Array.isArray(gameState.activeTeamIds) ? gameState.activeTeamIds : [])
+    gameState.activeTeamIds = (
+      Array.isArray(gameState.activeTeamIds) ? gameState.activeTeamIds : []
+    )
       .map(Number)
       .filter((id) => id !== teamId);
     gameState.totalTeams = Object.keys(gameState.teams || {}).length;
@@ -635,6 +651,9 @@ const showScoreboard = async (io, pin) => {
   const gameState = await redisStore.getGameState(pin);
   if (!gameState) return;
 
+  gameState.scoreboardVisible = true;
+  await redisStore.setGameState(pin, gameState);
+
   const sortedTeams = Object.values(gameState.teams).sort((a, b) => b.score - a.score);
   let revealSnapshot = null;
   try {
@@ -651,6 +670,11 @@ const showScoreboard = async (io, pin) => {
 };
 
 const hideScoreboard = async (io, pin) => {
+  const gameState = await redisStore.getGameState(pin);
+  if (gameState) {
+    gameState.scoreboardVisible = false;
+    await redisStore.setGameState(pin, gameState);
+  }
   io.to(`session:${pin}`).emit(SOCKET_EVENTS.SCOREBOARD_HIDDEN, {});
   logger.info('Scoreboard hidden', { pin });
 };
@@ -682,12 +706,11 @@ const startBreak = async (io, pin) => {
     currentRoundIndex: gameState.currentRoundIndex,
     currentQuestionIndex: gameState.currentQuestionIndex,
     responseCount: gameState.responseCount,
-    timerRemaining:
-      shouldPauseTimer
-        ? gameState.timerRemaining
-        : Number.isFinite(Number(gameState.timerRemaining))
-          ? Number(gameState.timerRemaining)
-          : 0,
+    timerRemaining: shouldPauseTimer
+      ? gameState.timerRemaining
+      : Number.isFinite(Number(gameState.timerRemaining))
+        ? Number(gameState.timerRemaining)
+        : 0,
     timerRunning: shouldPauseTimer ? false : Boolean(gameState.timerRunning),
   };
 
@@ -731,14 +754,20 @@ const endBreak = async (io, pin) => {
       gameState.timerRemaining = Number(resume.timerRemaining);
     }
     gameState.timerRunning = false;
-    if (gameState.state === GAME_STATES.QUESTION && gameState.questionState === QUESTION_STATES.REVEALED) {
+    if (
+      gameState.state === GAME_STATES.QUESTION &&
+      gameState.questionState === QUESTION_STATES.REVEALED
+    ) {
       gameState.timerRemaining = 0;
     }
     delete gameState.breakResumeState;
 
     await redisStore.setGameState(pin, gameState);
     io.to(`session:${pin}`).emit(SOCKET_EVENTS.BREAK_END, {});
-    io.to(`session:${pin}`).emit(SOCKET_EVENTS.SESSION_STATE, clientPayloadFromGameState(gameState));
+    io.to(`session:${pin}`).emit(
+      SOCKET_EVENTS.SESSION_STATE,
+      clientPayloadFromGameState(gameState),
+    );
     logger.info('Break ended and state restored', {
       pin,
       restoredState: gameState.state,
@@ -775,7 +804,9 @@ const endBreak = async (io, pin) => {
             roundType: round.type,
             pointsForQuestion:
               round.type === ROUND_TYPES.ELIMINATION
-                ? require('shared/constants/scoring').getEliminationPoints(gameState.currentQuestionIndex)
+                ? require('shared/constants/scoring').getEliminationPoints(
+                    gameState.currentQuestionIndex,
+                  )
                 : null,
           });
           const responsesRaw = await redisStore.getResponses(pin, question.id);
@@ -821,7 +852,7 @@ const endBreak = async (io, pin) => {
  */
 const launchMiniGame = async (io, pin, gameType, config = {}) => {
   let gameState = await redisStore.getGameState(pin);
-  
+
   // If launching from LOBBY, gameState might not exist yet
   if (!gameState) {
     const lobbyTeams = await redisStore.getLobbyTeams(pin);
@@ -829,7 +860,7 @@ const launchMiniGame = async (io, pin, gameType, config = {}) => {
     for (const t of lobbyTeams) {
       teamsObj[t.teamId] = t;
     }
-    
+
     // Attempt to fetch qrCodeData from session
     let qrCodeData = null;
     let maxTeams = lobbyTeams.length;
@@ -842,7 +873,7 @@ const launchMiniGame = async (io, pin, gameType, config = {}) => {
     } catch (err) {
       logger.error('Failed to query session for qrCodeData', { error: err.message });
     }
-    
+
     gameState = {
       state: GAME_STATES.LOBBY,
       questionState: null,
@@ -927,7 +958,9 @@ const startTimer = async (io, pin) => {
           gs.timerRemaining = 0;
           await redisStore.setGameState(pin, gs);
         }
-        logger.info('Timer expired for question on resumed timer, waiting for host to reveal', { pin });
+        logger.info('Timer expired for question on resumed timer, waiting for host to reveal', {
+          pin,
+        });
         // await revealAnswer(io, pin);
       },
     );

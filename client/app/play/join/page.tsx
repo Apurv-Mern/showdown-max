@@ -7,6 +7,8 @@ import { useSocket } from '@/hooks/useSocket';
 import { usePlayerSession } from '../playerSession';
 import { Button } from '@/components/shared/Button';
 
+const TEAM_NAME_MAX_LENGTH = 15;
+
 const sanitizeTeamName = (name: string) => name.trim().replace(/\s+/g, ' ');
 
 function JoinContent() {
@@ -48,6 +50,8 @@ function JoinContent() {
             JSON.stringify({
               ...gs.currentQuestion,
               timerRemaining: gs.timerRemaining,
+              timerEndsAt: gs.timerEndsAt,
+              serverNow: gs.serverNow,
             }),
           );
         }
@@ -91,6 +95,10 @@ function JoinContent() {
     }
     if (!cleanTeamName) {
       setError('Please enter a team name');
+      return;
+    }
+    if (cleanTeamName.length > TEAM_NAME_MAX_LENGTH) {
+      setError(`Team name must be ${TEAM_NAME_MAX_LENGTH} characters or fewer`);
       return;
     }
     if (!socket || !isConnected) {
@@ -190,10 +198,17 @@ function JoinContent() {
                   type="text"
                   placeholder="Enter Team Name"
                   value={teamName}
-                  onChange={(e) => setTeamName(e.target.value.replace(/\s{2,}/g, ' '))}
+                  onChange={(e) =>
+                    setTeamName(
+                      e.target.value.replace(/\s{2,}/g, ' ').slice(0, TEAM_NAME_MAX_LENGTH),
+                    )
+                  }
                   className="h-12 w-full rounded-[10px] border border-[#00d8ff]/70 bg-[rgba(10,18,40,0.92)] px-4 text-base font-medium text-white placeholder:text-[#93a0b5] focus:outline-none focus:shadow-[0_0_14px_rgba(0,216,255,0.35)] sm:h-14 sm:text-[17px]"
-                  maxLength={50}
+                  maxLength={TEAM_NAME_MAX_LENGTH}
                 />
+                <p className="mt-1 text-right text-xs text-white/50">
+                  {sanitizeTeamName(teamName).length}/{TEAM_NAME_MAX_LENGTH}
+                </p>
               </div>
 
               <Button

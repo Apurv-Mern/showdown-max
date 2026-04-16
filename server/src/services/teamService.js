@@ -1,6 +1,8 @@
 const { Team, Session } = require('../models');
 const logger = require('../utils/logger');
 const { normalizeTeamName, sanitizeTeamName } = require('../utils/teamName');
+const redisStore = require('./redisSessionStore');
+const { getSocketIo } = require('../socket/ioRegistry');
 
 /**
  * Create a new team for a session (admin REST endpoint).
@@ -17,7 +19,12 @@ const createTeam = async ({ sessionId, teamName, score = 0 }) => {
   if (existing) return null;
 
   const team = await Team.create({ sessionId, teamName: cleanTeamName, score });
-  logger.info('Team created via admin API', { teamId: team.id, sessionId, teamName: cleanTeamName, score });
+  logger.info('Team created via admin API', {
+    teamId: team.id,
+    sessionId,
+    teamName: cleanTeamName,
+    score,
+  });
   return team;
 };
 
@@ -65,10 +72,37 @@ const updateTeamScore = async (teamId, score) => {
  * @returns {Promise<boolean>}
  */
 const removeTeam = async (teamId) => {
-  const team = await Team.findByPk(teamId);
+  const team = await Team.findByPk(teamId, {
+    include: [{ model: Session, as: 'session', attributes: ['id', 'pin'] }],
+  });
   if (!team) return false;
 
+  const pin = team.session?.pin ? String(team.session.pin) : null;
+
   await team.destroy();
+
+  if (pin) {
+    await redisStore.removeTeamFromLobby(pin, teamId);
+    await redisStore.removeTeamData(pin, teamId);
+
+    const gameState = await redisStore.getGameState(pin);
+    if (gameState) {
+      delete gameState.teams?.[teamId];
+      if (Array.isArray(gameState.activeTeamIds)) {
+        gameState.activeTeamIds = gameState.activeTeamIds.filter(
+          (id) => Number(id) !== Number(teamId),
+        );
+      }
+      gameState.totalTeams = Object.keys(gameState.teams || {}).length;
+      await redisStore.setGameState(pin, gameState);
+    }
+
+    const io = getSocketIo();
+    if (io) {
+      io.to(`session:${pin}`).emit('team_removed', { teamId: Number(teamId) });
+    }
+  }
+
   logger.info('Team removed via API', { teamId });
   return true;
 };

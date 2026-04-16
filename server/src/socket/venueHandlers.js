@@ -29,7 +29,7 @@ const venueHandlers = (_io, socket) => {
             await redisStore.setGameState(pin, gameState);
           }
         }
-        socket.emit(SOCKET_EVENTS.SESSION_STATE, buildFullStatePayload(gameState, pin));
+        socket.emit(SOCKET_EVENTS.SESSION_STATE, await buildFullStatePayload(gameState, pin));
         if (gameState.state === 'QUESTION' && gameState.questionState === 'REVEALED') {
           const revealPayload = await buildRevealSnapshot(pin, gameState);
           if (revealPayload) {
@@ -44,13 +44,20 @@ const venueHandlers = (_io, socket) => {
           }
         }
       } else {
-        const session = await Session.findOne({ where: { pin, status: { [Op.in]: ['pending', 'active'] } } });
+        const session = await Session.findOne({
+          where: { pin, status: { [Op.in]: ['pending', 'active'] } },
+        });
+        const lobbyTeams = await redisStore.getLobbyTeams(pin);
         if (session) {
           socket.emit(SOCKET_EVENTS.SESSION_STATE, {
             state: 'LOBBY',
             pin,
             qrCodeData: session.qrCodeData,
-            teams: [],
+            teams: lobbyTeams.reduce((acc, t) => {
+              acc[t.teamId] = t;
+              return acc;
+            }, {}),
+            totalTeams: lobbyTeams.length,
             maxTeams: session.maxTeams,
           });
         }
@@ -79,7 +86,7 @@ const venueHandlers = (_io, socket) => {
             await redisStore.setGameState(pin, gameState);
           }
         }
-        socket.emit(SOCKET_EVENTS.SESSION_STATE, buildFullStatePayload(gameState, pin));
+        socket.emit(SOCKET_EVENTS.SESSION_STATE, await buildFullStatePayload(gameState, pin));
         if (gameState.state === 'QUESTION' && gameState.questionState === 'REVEALED') {
           const revealPayload = await buildRevealSnapshot(pin, gameState);
           if (revealPayload) {
@@ -99,7 +106,10 @@ const venueHandlers = (_io, socket) => {
         socket.emit(SOCKET_EVENTS.SESSION_STATE, {
           state: 'LOBBY',
           pin,
-          teams: lobbyTeams.reduce((acc, t) => { acc[t.teamId] = t; return acc; }, {}),
+          teams: lobbyTeams.reduce((acc, t) => {
+            acc[t.teamId] = t;
+            return acc;
+          }, {}),
           totalTeams: lobbyTeams.length,
           maxTeams: session?.maxTeams || lobbyTeams.length,
         });
@@ -119,11 +129,21 @@ const venueHandlers = (_io, socket) => {
  * @param {string} pin
  * @returns {object}
  */
-const buildFullStatePayload = (gameState, pin) => {
+const buildFullStatePayload = async (gameState, pin) => {
   const currentRound = gameState.rounds?.[gameState.currentRoundIndex];
   const currentQuestionRow = currentRound?.questions?.[gameState.currentQuestionIndex] || null;
   const includeQuestionPayload = gameState.state === 'QUESTION';
   const currentQuestion = includeQuestionPayload ? currentQuestionRow : null;
+  const lobbyTeams = await redisStore.getLobbyTeams(pin);
+  const teams =
+    gameState.teams && Object.keys(gameState.teams).length > 0
+      ? gameState.teams
+      : lobbyTeams.reduce((acc, t) => {
+          acc[t.teamId] = t;
+          return acc;
+        }, {});
+  // Always derive totalTeams from the actual teams object, not from cached value
+  const totalTeams = Object.keys(teams).length;
 
   const sanitizedRounds = gameState.rounds
     ? gameState.rounds.map((r) => ({
@@ -149,10 +169,13 @@ const buildFullStatePayload = (gameState, pin) => {
     timerRemaining: gameState.timerRemaining,
     timerRunning: gameState.timerRunning,
     responseCount: gameState.responseCount,
-    totalTeams: gameState.totalTeams,
+    totalTeams,
     rounds: sanitizedRounds,
-    teams: gameState.teams,
-    activeTeamIds: gameState.activeTeamIds,
+    teams,
+    activeTeamIds:
+      Array.isArray(gameState.activeTeamIds) && gameState.activeTeamIds.length > 0
+        ? gameState.activeTeamIds
+        : Object.keys(teams).map(Number),
     breakDuration: gameState.breakDuration,
     breakRemaining: gameState.breakRemaining,
     activeMiniGame: gameState.activeMiniGame,

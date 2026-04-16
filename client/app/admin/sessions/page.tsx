@@ -171,13 +171,17 @@ export default function SessionsPage() {
               <div>
                 <div className="flex items-center gap-3">
                   <span className="font-mono text-lg font-bold tracking-wider">{session.pin}</span>
-                  <span className={`text-xs px-2 py-0.5 rounded ${statusColors[session.status] || ''}`}>
+                  <span
+                    className={`text-xs px-2 py-0.5 rounded ${statusColors[session.status] || ''}`}
+                  >
                     {session.status}
                   </span>
                 </div>
                 <p className="text-foreground/50 text-sm mt-1">{session.quiz?.title}</p>
                 <div className="flex gap-3 text-xs text-foreground/30 mt-1">
-                  <span>{session.teams?.length || 0} team{(session.teams?.length || 0) !== 1 ? 's' : ''}</span>
+                  <span>
+                    {session.teams?.length || 0} team{(session.teams?.length || 0) !== 1 ? 's' : ''}
+                  </span>
                   <span>•</span>
                   <span>Max: {session.maxTeams}</span>
                   <span>•</span>
@@ -191,10 +195,14 @@ export default function SessionsPage() {
                   </Link>
                 )}
                 <Link href={`/admin/sessions/${session.id}/results`}>
-                  <Button variant="secondary" size="sm">Results</Button>
+                  <Button variant="secondary" size="sm">
+                    Results
+                  </Button>
                 </Link>
                 {session.status !== 'completed' && (
-                  <Button variant="danger" size="sm" onClick={() => handleEnd(session.id)}>End</Button>
+                  <Button variant="danger" size="sm" onClick={() => handleEnd(session.id)}>
+                    End
+                  </Button>
                 )}
                 <Button
                   variant="danger"
@@ -213,7 +221,9 @@ export default function SessionsPage() {
       <Modal isOpen={showCreate} onClose={() => setShowCreate(false)} title="Create New Session">
         <div className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-foreground/70 mb-1">Select Quiz *</label>
+            <label className="block text-sm font-medium text-foreground/70 mb-1">
+              Select Quiz *
+            </label>
             <select
               value={selectedQuiz}
               onChange={(e) => setSelectedQuiz(e.target.value ? Number(e.target.value) : '')}
@@ -221,7 +231,9 @@ export default function SessionsPage() {
             >
               <option value="">Choose a quiz...</option>
               {quizzes.map((q) => (
-                <option key={q.id} value={q.id}>{q.title}</option>
+                <option key={q.id} value={q.id}>
+                  {q.title}
+                </option>
               ))}
             </select>
           </div>
@@ -281,7 +293,9 @@ export default function SessionsPage() {
           <div className="text-center space-y-4">
             <div className="bg-surface-light rounded-xl p-6">
               <p className="text-foreground/50 text-sm mb-2">Game PIN</p>
-              <p className="text-5xl font-mono font-bold tracking-[0.3em] text-primary">{createdSession.pin}</p>
+              <p className="text-5xl font-mono font-bold tracking-[0.3em] text-primary">
+                {createdSession.pin}
+              </p>
             </div>
             {createdSession.qrCodeData && (
               <div className="flex justify-center">
@@ -290,10 +304,14 @@ export default function SessionsPage() {
             )}
             <p className="text-foreground/50 text-sm">{createdSession.quizTitle}</p>
             <div className="flex gap-3 justify-center pt-2">
-              <Link href={`/host/dashboard?pin=${createdSession.pin}&sessionId=${createdSession.id}`}>
+              <Link
+                href={`/host/dashboard?pin=${createdSession.pin}&sessionId=${createdSession.id}`}
+              >
                 <Button>Start Hosting</Button>
               </Link>
-              <Button variant="secondary" onClick={() => setCreatedSession(null)}>Close</Button>
+              <Button variant="secondary" onClick={() => setCreatedSession(null)}>
+                Close
+              </Button>
             </div>
           </div>
         )}

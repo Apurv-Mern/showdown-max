@@ -36,7 +36,9 @@ const playerHandlers = (io, socket) => {
       let sessionData = await redisStore.getSession(pin);
 
       if (!sessionData) {
-        const session = await Session.findOne({ where: { pin, status: { [Op.in]: ['pending', 'active'] } } });
+        const session = await Session.findOne({
+          where: { pin, status: { [Op.in]: ['pending', 'active'] } },
+        });
         if (!session) {
           socket.emit(SOCKET_EVENTS.JOIN_ERROR, { message: 'Session not found' });
           return;
@@ -69,7 +71,8 @@ const playerHandlers = (io, socket) => {
         logger.info('Player reconnected', { pin, teamName: team.teamName, teamId: team.id });
       } else {
         const session = await Session.findByPk(sessionData.sessionId);
-        const teamCount = sessionTeams.length;
+        // Only count connected teams for the session limit, not disconnected ones
+        const teamCount = sessionTeams.filter((t) => t.isConnected).length;
 
         if (session && teamCount >= session.maxTeams) {
           socket.emit(SOCKET_EVENTS.JOIN_ERROR, { message: 'Session is full' });
@@ -114,38 +117,44 @@ const playerHandlers = (io, socket) => {
         teamId: team.id,
         teamName: team.teamName,
         score: team.score,
-        gameState: gameState ? {
-          state: gameState.state,
-          questionState: gameState.questionState,
-          currentRoundIndex: gameState.currentRoundIndex,
-          currentQuestionIndex: gameState.currentQuestionIndex,
-          totalRounds: gameState.rounds?.length || 0,
-          currentRound: currentRound
-            ? { name: currentRound.name, type: currentRound.type }
-            : null,
-          currentQuestion: currentQuestion
-            ? {
-                questionIndex: gameState.currentQuestionIndex,
-                totalQuestions: currentRound?.questions?.length || 0,
-                question: {
-                  id: currentQuestion.id,
-                  text: currentQuestion.text,
-                  options: (currentQuestion.options || []).map((o) => ({ text: o.text })),
-                  mediaUrl: currentQuestion.mediaUrl,
-                  mediaType: currentQuestion.mediaType,
-                },
-                timerDuration: currentQuestion.timerDuration || currentRound?.timerDuration || 30,
-                roundType: currentRound?.type || '',
-                lockedWagerAmount: getLockedWager(gameState, currentRound, team.id),
-              }
-            : null,
-          timerRemaining: gameState.timerRemaining,
-          responseCount: gameState.responseCount,
-          totalTeams: gameState.totalTeams,
-          activeMiniGame: gameState.activeMiniGame,
-          miniGameState: gameState.miniGameState || null,
-          teams: gameState.teams,
-        } : null,
+        gameState: gameState
+          ? {
+              state: gameState.state,
+              questionState: gameState.questionState,
+              currentRoundIndex: gameState.currentRoundIndex,
+              currentQuestionIndex: gameState.currentQuestionIndex,
+              totalRounds: gameState.rounds?.length || 0,
+              currentRound: currentRound
+                ? { name: currentRound.name, type: currentRound.type }
+                : null,
+              currentQuestion: currentQuestion
+                ? {
+                    questionIndex: gameState.currentQuestionIndex,
+                    totalQuestions: currentRound?.questions?.length || 0,
+                    question: {
+                      id: currentQuestion.id,
+                      text: currentQuestion.text,
+                      options: (currentQuestion.options || []).map((o) => ({ text: o.text })),
+                      mediaUrl: currentQuestion.mediaUrl,
+                      mediaType: currentQuestion.mediaType,
+                    },
+                    timerDuration:
+                      currentQuestion.timerDuration || currentRound?.timerDuration || 30,
+                    roundType: currentRound?.type || '',
+                    lockedWagerAmount: getLockedWager(gameState, currentRound, team.id),
+                  }
+                : null,
+              timerRemaining: gameState.timerRemaining,
+              timerEndsAt: Number.isFinite(Number(gameState.timerEndsAt))
+                ? Number(gameState.timerEndsAt)
+                : null,
+              responseCount: gameState.responseCount,
+              totalTeams: gameState.totalTeams,
+              activeMiniGame: gameState.activeMiniGame,
+              miniGameState: gameState.miniGameState || null,
+              teams: gameState.teams,
+            }
+          : null,
       };
 
       socket.emit(SOCKET_EVENTS.SESSION_STATE, sessionPayload);
@@ -179,10 +188,22 @@ const playerHandlers = (io, socket) => {
             timerRemaining: Number.isFinite(Number(gameState.timerRemaining))
               ? Number(gameState.timerRemaining)
               : Number(currentQuestion.timerDuration || round.timerDuration || 30),
+            timerEndsAt: Number.isFinite(Number(gameState.timerEndsAt))
+              ? Number(gameState.timerEndsAt)
+              : null,
+            serverNow: Date.now(),
             roundType: round.type,
             lockedWagerAmount: getLockedWager(gameState, round, team.id),
           });
-          socket.emit(SOCKET_EVENTS.TIMER_UPDATE, { remaining: gameState.timerRemaining });
+          socket.emit(SOCKET_EVENTS.TIMER_UPDATE, {
+            remaining: Number.isFinite(Number(gameState.timerRemaining))
+              ? Number(gameState.timerRemaining)
+              : 0,
+            timerEndsAt: Number.isFinite(Number(gameState.timerEndsAt))
+              ? Number(gameState.timerEndsAt)
+              : null,
+            serverNow: Date.now(),
+          });
         }
         if (gameState.state === 'QUESTION' && gameState.questionState === 'REVEALED') {
           const revealPayload = await buildRevealSnapshot(pin, gameState);
@@ -199,11 +220,16 @@ const playerHandlers = (io, socket) => {
           });
         }
         if (gameState.state === 'BREAK') {
-          socket.emit(SOCKET_EVENTS.BREAK_START, { duration: gameState.breakRemaining || gameState.breakDuration });
+          socket.emit(SOCKET_EVENTS.BREAK_START, {
+            duration: gameState.breakRemaining || gameState.breakDuration,
+          });
         }
         if (gameState.activeMiniGame) {
           socket.emit(SOCKET_EVENTS.MINI_GAME_START, { game: gameState.activeMiniGame });
-          if (gameState.miniGameState?.game === 'card_shuffle' && gameState.miniGameState?.revealed) {
+          if (
+            gameState.miniGameState?.game === 'card_shuffle' &&
+            gameState.miniGameState?.revealed
+          ) {
             socket.emit(SOCKET_EVENTS.MINI_GAME_REVEAL, {
               game: 'card_shuffle',
               correctPosition: Number(gameState.miniGameState.correctPosition),

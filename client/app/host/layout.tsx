@@ -43,11 +43,7 @@ function HostNav() {
 
   return (
     <header className="border-b border-border/50 px-4 py-1.5 flex items-center justify-between bg-surface/80">
-      <Link href={pin ? `/host/dashboard${qs}` : '/host/login'} className="text-lg font-bold">
-        MAX <span className="text-neon-cyan text-glow-cyan">SHOWDOWN</span>
-        <span className="text-foreground/30 text-sm ml-2 font-normal">Host Control</span>
-      </Link>
-      <nav className="flex items-center gap-4">
+      <div className="flex items-center gap-4">
         {!isDashboardPage && pin && (
           <button
             onClick={() => router.push(`/host/dashboard${qs}`)}
@@ -57,6 +53,12 @@ function HostNav() {
             <span>Back</span>
           </button>
         )}
+        <Link href={pin ? `/host/dashboard${qs}` : '/host/login'} className="text-lg font-bold">
+          MAX <span className="text-neon-cyan text-glow-cyan">SHOWDOWN</span>
+          <span className="text-foreground/30 text-sm ml-2 font-normal">Host Control</span>
+        </Link>
+      </div>
+      <nav className="flex items-center gap-4">
         {pin && (
           <span className="font-mono text-neon-cyan font-bold text-sm bg-neon-cyan/10 border border-neon-cyan/20 px-3 py-1 rounded-lg">
             PIN: {pin}

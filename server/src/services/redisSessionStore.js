@@ -44,7 +44,9 @@ const setSession = async (pin, sessionId) => {
       const redis = getRedisClient();
       await redis.set(KEYS.session(pin), JSON.stringify({ sessionId }), 'EX', TTL);
     },
-    () => { memoryStore.set(KEYS.session(pin), { sessionId }); },
+    () => {
+      memoryStore.set(KEYS.session(pin), { sessionId });
+    },
   );
 };
 
@@ -67,7 +69,9 @@ const setGameState = async (pin, state) => {
       const redis = getRedisClient();
       await redis.set(KEYS.gameState(pin), JSON.stringify(state), 'EX', TTL);
     },
-    () => { memoryStore.set(KEYS.gameState(pin), JSON.parse(JSON.stringify(state))); },
+    () => {
+      memoryStore.set(KEYS.gameState(pin), JSON.parse(JSON.stringify(state)));
+    },
   );
 };
 
@@ -126,6 +130,22 @@ const removeTeamFromLobby = async (pin, teamId) => {
       const lobby = memoryStore.get(key) || {};
       delete lobby[teamId.toString()];
       memoryStore.set(key, lobby);
+    },
+  );
+};
+
+const removeTeamData = async (pin, teamId) => {
+  rememberPinMode(pin);
+  return withFallback(
+    async () => {
+      const redis = getRedisClient();
+      await redis.hdel(KEYS.teams(pin), teamId.toString());
+    },
+    () => {
+      const key = KEYS.teams(pin);
+      const teams = memoryStore.get(key) || {};
+      delete teams[teamId.toString()];
+      memoryStore.set(key, teams);
     },
   );
 };
@@ -245,12 +265,7 @@ const cleanupSession = async (pin) => {
 };
 
 const inspectSessionCache = async (pin) => {
-  const keys = [
-    KEYS.session(pin),
-    KEYS.gameState(pin),
-    KEYS.teams(pin),
-    KEYS.lobby(pin),
-  ];
+  const keys = [KEYS.session(pin), KEYS.gameState(pin), KEYS.teams(pin), KEYS.lobby(pin)];
 
   return withFallback(
     async () => {
@@ -366,6 +381,7 @@ module.exports = {
   updateGameState,
   addTeamToLobby,
   removeTeamFromLobby,
+  removeTeamData,
   getLobbyTeams,
   updateTeamData,
   getAllTeamsData,

@@ -4,7 +4,6 @@ const { generatePin } = require('../utils/pinGenerator');
 const { generateQRCode } = require('../utils/qrGenerator');
 const { generateHostToken } = require('../utils/tokenGenerator');
 const redisStore = require('./redisSessionStore');
-const { env } = require('../config/env');
 const logger = require('../utils/logger');
 
 /**
@@ -42,7 +41,11 @@ const getSessionById = async (sessionId) => {
   return Session.findByPk(sessionId, {
     include: [
       { model: Quiz, as: 'quiz', attributes: ['id', 'title'] },
-      { model: Team, as: 'teams', attributes: ['id', 'teamName', 'score', 'isConnected', 'isEliminated'] },
+      {
+        model: Team,
+        as: 'teams',
+        attributes: ['id', 'teamName', 'score', 'isConnected', 'isEliminated'],
+      },
     ],
   });
 };
@@ -57,16 +60,20 @@ const createSession = async (data) => {
   if (!quiz) throw Object.assign(new Error('Quiz not found'), { statusCode: 404 });
 
   let pin = generatePin();
-  let existing = await Session.findOne({ where: { pin, status: { [Op.in]: ['pending', 'active'] } } });
+  let existing = await Session.findOne({
+    where: { pin, status: { [Op.in]: ['pending', 'active'] } },
+  });
   let attempts = 0;
   while (existing && attempts < 10) {
     pin = generatePin();
-    existing = await Session.findOne({ where: { pin, status: { [Op.in]: ['pending', 'active'] } } });
+    existing = await Session.findOne({
+      where: { pin, status: { [Op.in]: ['pending', 'active'] } },
+    });
     attempts++;
   }
 
   const hostToken = generateHostToken();
-  const joinUrl = `${env.NODE_ENV === 'production' ? 'https' : 'http'}://localhost:3000/play/join?pin=${pin}`;
+  const joinUrl = `https://showdowntrivia-web.24livehost.com/play/join?pin=${pin}`;
   const qrCodeData = await generateQRCode(joinUrl);
 
   const session = await Session.create({
@@ -101,9 +108,7 @@ const createSession = async (data) => {
 const getSessionByPin = async (pin) => {
   const session = await Session.findOne({
     where: { pin, status: { [Op.in]: ['pending', 'active'] } },
-    include: [
-      { model: Quiz, as: 'quiz', attributes: ['id', 'title'] },
-    ],
+    include: [{ model: Quiz, as: 'quiz', attributes: ['id', 'title'] }],
   });
   return session;
 };

@@ -5,6 +5,24 @@ const redisStore = require('../services/redisSessionStore');
 const { Session, Quiz, Round, Question, Team } = require('../models');
 const { normalizeTeamName, sanitizeTeamName } = require('../utils/teamName');
 
+const purgeTeamRecord = async (pin, teamId) => {
+  await Team.destroy({ where: { id: teamId } });
+  await redisStore.removeTeamFromLobby(pin, teamId);
+  await redisStore.removeTeamData(pin, teamId);
+
+  const gameState = await redisStore.getGameState(pin);
+  if (gameState) {
+    delete gameState.teams?.[teamId];
+    if (Array.isArray(gameState.activeTeamIds)) {
+      gameState.activeTeamIds = gameState.activeTeamIds.filter(
+        (id) => Number(id) !== Number(teamId),
+      );
+    }
+    gameState.totalTeams = Object.keys(gameState.teams || {}).length;
+    await redisStore.setGameState(pin, gameState);
+  }
+};
+
 /**
  * Registers host-specific socket event handlers
  * @param {import('socket.io').Server} io
@@ -27,11 +45,13 @@ const hostHandlers = (io, socket) => {
       }
 
       const quiz = await Quiz.findByPk(session.quizId, {
-        include: [{
-          model: Round,
-          as: 'rounds',
-          include: [{ model: Question, as: 'questions' }],
-        }],
+        include: [
+          {
+            model: Round,
+            as: 'rounds',
+            include: [{ model: Question, as: 'questions' }],
+          },
+        ],
       });
 
       if (!quiz) {
@@ -41,7 +61,9 @@ const hostHandlers = (io, socket) => {
 
       const lobbyTeams = await redisStore.getLobbyTeams(pin);
       if (lobbyTeams.length === 0) {
-        socket.emit(SOCKET_EVENTS.ERROR, { message: 'Cannot start game with no teams. Wait for players to join.' });
+        socket.emit(SOCKET_EVENTS.ERROR, {
+          message: 'Cannot start game with no teams. Wait for players to join.',
+        });
         return;
       }
 
@@ -168,17 +190,55 @@ const hostHandlers = (io, socket) => {
       const { pin, teamName, score } = data;
       const sessionData = await redisStore.getSession(pin);
       if (!sessionData) return;
+
+      const session = await Session.findByPk(sessionData.sessionId);
+      if (!session) {
+        socket.emit(SOCKET_EVENTS.ERROR, { message: 'Session not found in DB' });
+        return;
+      }
+
       const cleanTeamName = sanitizeTeamName(teamName);
       const normalized = normalizeTeamName(cleanTeamName);
+      const lobbyTeams = await redisStore.getLobbyTeams(pin);
+      const gameState = await redisStore.getGameState(pin);
+      const liveTeamIds = new Set([
+        ...Object.keys(gameState?.teams || {}).map(Number),
+        ...lobbyTeams.map((team) => Number(team.teamId)),
+      ]);
+      const liveNameMatches = new Set([
+        ...Object.values(gameState?.teams || {}).map((team) => normalizeTeamName(team.teamName)),
+        ...lobbyTeams.map((team) => normalizeTeamName(team.teamName)),
+      ]);
 
       const existingTeams = await Team.findAll({
         where: { sessionId: sessionData.sessionId },
-        attributes: ['teamName'],
+        attributes: ['id', 'teamName', 'isConnected', 'socketId'],
       });
-      const duplicate = existingTeams.some((t) => normalizeTeamName(t.teamName) === normalized);
-      if (duplicate) {
+      const duplicateTeam = existingTeams.find((t) => normalizeTeamName(t.teamName) === normalized);
+      if (duplicateTeam) {
+        const isLiveDuplicate =
+          liveNameMatches.has(normalized) || liveTeamIds.has(Number(duplicateTeam.id));
+        const isConnected = duplicateTeam.isConnected === true && !!duplicateTeam.socketId;
+        if (isLiveDuplicate || isConnected) {
+          socket.emit(SOCKET_EVENTS.ERROR, {
+            message: 'Team name already taken. Please choose a different name.',
+          });
+          return;
+        }
+
+        await purgeTeamRecord(pin, duplicateTeam.id);
+      }
+
+      const refreshedExistingTeams = await Team.findAll({
+        where: { sessionId: sessionData.sessionId },
+        attributes: ['id', 'teamName', 'isConnected'],
+      });
+      const maxTeams = Number(session.maxTeams || 0);
+      // Only count connected teams for the session limit, not disconnected ones
+      const connectedTeamCount = refreshedExistingTeams.filter((t) => t.isConnected).length;
+      if (maxTeams > 0 && connectedTeamCount >= maxTeams) {
         socket.emit(SOCKET_EVENTS.ERROR, {
-          message: 'Team name already taken. Please choose a different name.',
+          message: 'Maximum limit reached for this session.',
         });
         return;
       }
@@ -193,10 +253,11 @@ const hostHandlers = (io, socket) => {
       await redisStore.addTeamToLobby(pin, teamData);
       await redisStore.updateTeamData(pin, team.id, teamData);
 
-      const gameState = await redisStore.getGameState(pin);
       if (gameState) {
         gameState.teams[team.id] = teamData;
-        gameState.activeTeamIds.push(team.id);
+        if (!gameState.activeTeamIds.includes(team.id)) {
+          gameState.activeTeamIds.push(team.id);
+        }
         gameState.totalTeams = Object.keys(gameState.teams).length;
         await redisStore.setGameState(pin, gameState);
       }
@@ -211,16 +272,7 @@ const hostHandlers = (io, socket) => {
   socket.on(SOCKET_EVENTS.REMOVE_TEAM, async (data) => {
     try {
       const { pin, teamId } = data;
-      await Team.destroy({ where: { id: teamId } });
-      await redisStore.removeTeamFromLobby(pin, teamId);
-
-      const gameState = await redisStore.getGameState(pin);
-      if (gameState) {
-        delete gameState.teams[teamId];
-        gameState.activeTeamIds = gameState.activeTeamIds.filter((id) => id !== teamId);
-        gameState.totalTeams = Object.keys(gameState.teams).length;
-        await redisStore.setGameState(pin, gameState);
-      }
+      await purgeTeamRecord(pin, teamId);
 
       io.to(`session:${pin}`).emit(SOCKET_EVENTS.TEAM_REMOVED, { teamId });
       logger.info('Team removed', { pin, teamId });
@@ -232,17 +284,55 @@ const hostHandlers = (io, socket) => {
   socket.on(SOCKET_EVENTS.EDIT_TEAM_SCORE, async (data) => {
     try {
       const { pin, teamId, score } = data;
-      await Team.update({ score }, { where: { id: teamId } });
+      const updatedScore = Number(score);
+      await Team.update({ score: updatedScore }, { where: { id: teamId } });
+
+      const team = await Team.findByPk(teamId, {
+        attributes: ['id', 'teamName', 'score', 'sessionId'],
+      });
+      if (!team) return;
+
+      const teamData = {
+        teamId: team.id,
+        teamName: team.teamName,
+        score: team.score,
+      };
+
+      await redisStore.addTeamToLobby(pin, teamData);
+      await redisStore.updateTeamData(pin, teamId, teamData);
 
       const gameState = await redisStore.getGameState(pin);
       if (gameState && gameState.teams[teamId]) {
-        gameState.teams[teamId].score = score;
+        gameState.teams[teamId].score = updatedScore;
         await redisStore.setGameState(pin, gameState);
         await redisStore.updateTeamData(pin, teamId, gameState.teams[teamId]);
       }
 
-      io.to(`session:${pin}`).emit(SOCKET_EVENTS.TEAM_UPDATED, { teamId, score });
-      logger.info('Team score edited', { pin, teamId, score });
+      const latestGameState = (await redisStore.getGameState(pin)) || gameState || null;
+
+      io.to(`session:${pin}`).emit(SOCKET_EVENTS.TEAM_UPDATED, {
+        teamId,
+        teamName: teamData.teamName,
+        score: updatedScore,
+      });
+
+      if (latestGameState) {
+        // Keep backward compatibility (flat payload) and mobile compatibility (`data.gameState`).
+        io.to(`session:${pin}`).emit(SOCKET_EVENTS.SESSION_STATE, {
+          ...latestGameState,
+          gameState: latestGameState,
+        });
+      } else {
+        io.to(`session:${pin}`).emit(SOCKET_EVENTS.SESSION_STATE, {
+          teams: Object.fromEntries([[teamId, teamData]]),
+          totalTeams: 1,
+          gameState: {
+            teams: Object.fromEntries([[teamId, teamData]]),
+            totalTeams: 1,
+          },
+        });
+      }
+      logger.info('Team score edited', { pin, teamId, score: updatedScore });
     } catch (err) {
       logger.error('edit_team_score error', { error: err.message });
     }

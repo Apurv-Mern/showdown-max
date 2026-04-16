@@ -48,6 +48,7 @@ const KANGAROO_SLOTS = [1, 2, 3, 4, 5, 6] as const;
 /** Matches player mini-game (left / middle / right). */
 const CARD_SHUFFLE_SLOTS = [1, 2, 3] as const;
 const CARD_POSITION_LABELS: Record<number, string> = { 1: 'Left', 2: 'Middle', 3: 'Right' };
+const TEAM_NAME_MAX_LENGTH = 15;
 
 /** Figma row groups for Score Board modal list */
 const SCOREBOARD_MODAL_ROW_IDS = [
@@ -372,6 +373,8 @@ function HostDashboardContent() {
     'Game Over. Wait for the host to start the game.',
   );
   const [showScoreboardModal, setShowScoreboardModal] = useState(false);
+  const [showEndGameModal, setShowEndGameModal] = useState(false);
+  const [teamPendingRemoval, setTeamPendingRemoval] = useState<Team | null>(null);
   const [isScoreboardVisible, setIsScoreboardVisible] = useState(false);
   const [showTimerModal, setShowTimerModal] = useState(false);
   const [mp3Playing, setMp3Playing] = useState(false);
@@ -770,6 +773,11 @@ function HostDashboardContent() {
       });
     };
 
+    const onSocketError = (payload: { message?: string } | string) => {
+      const message = typeof payload === 'string' ? payload : payload?.message;
+      if (message) toast.error(message);
+    };
+
     const onTeamRemoved = ({ teamId }: { teamId: number }) => {
       setGameState((prev) => {
         if (!prev) return prev;
@@ -860,6 +868,7 @@ function HostDashboardContent() {
     socket.on('break_end', onBreakEnd);
     socket.on('game_end', onGameEnd);
     socket.on('team_joined', onTeamJoined);
+    socket.on('error', onSocketError);
     socket.on('team_removed', onTeamRemoved);
     socket.on('team_updated', onTeamUpdated);
     socket.on('mini_game_start', onMiniGameStart);
@@ -912,6 +921,7 @@ function HostDashboardContent() {
       socket.off('break_end', onBreakEnd);
       socket.off('game_end', onGameEnd);
       socket.off('team_joined', onTeamJoined);
+      socket.off('error', onSocketError);
       socket.off('team_removed', onTeamRemoved);
       socket.off('team_updated', onTeamUpdated);
       socket.off('mini_game_start', onMiniGameStart);
@@ -957,8 +967,10 @@ function HostDashboardContent() {
   const handleAdvanceRound = () => emit('advance_round');
   const handleStartBreak = () => emit('start_break');
   const handleEndBreak = () => emit('end_break');
-  const handleEndGame = () => {
-    if (confirm('End the game? This shows final results to all players.')) emit('end_game');
+  const handleEndGame = () => setShowEndGameModal(true);
+  const confirmEndGame = () => {
+    setShowEndGameModal(false);
+    emit('end_game');
   };
   const handleLogout = () => {
     logout();
@@ -1104,7 +1116,12 @@ function HostDashboardContent() {
   }, []);
 
   const handleAddTeam = () => {
-    if (!addTeamName.trim()) return;
+    const normalizedTeamName = addTeamName.trim().replace(/\s+/g, ' ');
+    if (!normalizedTeamName) return;
+    if (normalizedTeamName.length > TEAM_NAME_MAX_LENGTH) {
+      toast.error(`Team name must be ${TEAM_NAME_MAX_LENGTH} characters or fewer.`);
+      return;
+    }
     const raw = addTeamScore.trim();
     let score: number | undefined;
     if (raw !== '') {
@@ -1115,7 +1132,10 @@ function HostDashboardContent() {
       }
       score = n;
     }
-    emit('add_team', { teamName: addTeamName.trim(), ...(score !== undefined ? { score } : {}) });
+    emit('add_team', {
+      teamName: normalizedTeamName,
+      ...(score !== undefined ? { score } : {}),
+    });
     closeAddTeamModal();
   };
 
@@ -1127,9 +1147,14 @@ function HostDashboardContent() {
     setEditScoreValue('');
   };
 
-  const handleRemoveTeam = (teamId: number) => {
-    if (!confirm('Remove this team from the game?')) return;
-    emit('remove_team', { teamId });
+  const handleRemoveTeam = (team: Team) => {
+    setTeamPendingRemoval(team);
+  };
+
+  const confirmRemoveTeam = () => {
+    if (!teamPendingRemoval) return;
+    emit('remove_team', { teamId: teamPendingRemoval.teamId });
+    setTeamPendingRemoval(null);
   };
 
   const handleToggleMp3 = () => {
@@ -1172,6 +1197,15 @@ function HostDashboardContent() {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [showRegisteredTeams, closeRegisteredTeamsModal]);
+
+  useEffect(() => {
+    if (!teamPendingRemoval) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setTeamPendingRemoval(null);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [teamPendingRemoval]);
 
   useEffect(() => {
     if (!showRoundIntroductionModal) return;
@@ -1226,6 +1260,10 @@ function HostDashboardContent() {
     gameState && gameState.totalTeams > 0
       ? Math.min(100, ((gameState.responseCount || 0) / gameState.totalTeams) * 100)
       : 0;
+  const showNextQuestionAction = state === 'QUESTION' && questionState === 'REVEALED';
+  const showRevealAnswerAction = state === 'QUESTION' && questionState === 'ACTIVE';
+  const totalRounds = gameState?.rounds?.length || 0;
+  const isLastRound = totalRounds > 0 && gameState?.currentRoundIndex === totalRounds - 1;
 
   if (!pin) {
     return (
@@ -1885,9 +1923,9 @@ function HostDashboardContent() {
                   <p className="mt-4 text-xl font-medium text-[#9de9ff] sm:text-2xl">
                     The game has ended successfully.
                   </p>
-                  <p className="mt-3 text-base text-white/60 sm:text-lg">
+                  {/* <p className="mt-3 text-base text-white/60 sm:text-lg">
                     Players and venue screens can now view the final end-of-game message.
-                  </p>
+                  </p> */}
 
                   <div className="mx-auto mt-10 flex max-w-[460px] flex-wrap justify-center gap-4">
                     <button
@@ -1959,24 +1997,28 @@ function HostDashboardContent() {
                 <div className="flex w-full max-w-[720px] flex-col items-center justify-center gap-6 py-8 text-center animate-fadeIn">
                   <div className="inline-flex items-center gap-3 rounded-full border border-[#41d9ff]/45 bg-[linear-gradient(180deg,rgba(20,42,89,0.95)_0%,rgba(11,20,46,0.95)_100%)] px-8 py-3 shadow-[0_0_22px_rgba(0,217,255,0.2)]">
                     <span className="text-sm font-semibold uppercase tracking-[0.22em] text-[#8cdfff]">
-                      Round complete
+                      {isLastRound ? 'Quiz Complete' : 'Round complete'}
                     </span>
                   </div>
                   <h2 className="text-4xl font-black leading-tight text-white drop-shadow-[0_0_14px_rgba(123,194,255,0.35)] sm:text-5xl">
-                    {currentRound
-                      ? normalizeRoundTitle(currentRound.name) ||
-                        formatRoundTypeLabel(currentRound.type || 'MULTIPLE_CHOICE')
-                      : 'This round is finished'}
+                    {isLastRound
+                      ? 'All Rounds Finished'
+                      : currentRound
+                        ? normalizeRoundTitle(currentRound.name) ||
+                          formatRoundTypeLabel(currentRound.type || 'MULTIPLE_CHOICE')
+                        : 'This round is finished'}
                   </h2>
                   <p className="max-w-md text-base text-[#9de9ff]/90 sm:text-lg">
-                    All questions in this round are done. When you are ready, go to the next round.
+                    {isLastRound
+                      ? 'All questions have been answered. View the final results.'
+                      : 'All questions in this round are done. When you are ready, go to the next round.'}
                   </p>
                   <button
                     type="button"
                     onClick={handleAdvanceRound}
                     className="mt-2 min-w-[260px] rounded-xl border border-[rgba(0,217,255,0.55)] bg-[linear-gradient(180deg,#3a4a68_0%,#1e2a42_100%)] px-10 py-4 text-base font-black uppercase tracking-[0.14em] text-white shadow-[0_0_24px_rgba(0,217,255,0.22)] transition hover:brightness-110"
                   >
-                    Start next round
+                    {isLastRound ? 'View Final Results' : 'Start next round'}
                   </button>
                 </div>
               ) : (
@@ -2143,57 +2185,20 @@ function HostDashboardContent() {
               {state === 'LOBBY' ? 'Start Game' : 'Start Round'}
             </HostFooterBtn>
             <HostFooterBtn
-              emphasis={state === 'QUESTION' && questionState === 'REVEALED'}
+              emphasis={showRevealAnswerAction || showNextQuestionAction}
               icon={
                 <svg viewBox="0 0 24 24" fill="currentColor" className="text-[#00d9ff]">
-                  <path d="M6 18l8.5-6L6 6v12zm8-12v12h2V6h-2z" />
-                </svg>
-              }
-              disabled={!(state === 'QUESTION' && questionState === 'REVEALED')}
-              onClick={handleNextQuestion}
-            >
-              Next Question
-            </HostFooterBtn>
-            {/* <HostFooterBtn
-              emphasis={showTimerModal}
-              icon={
-                <svg viewBox="0 0 24 24" fill="currentColor" className="text-[#00d9ff]">
-                  {state === 'QUESTION' && questionState === 'ACTIVE' && !timerPaused ? (
-                    <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z" />
+                  {showNextQuestionAction ? (
+                    <path d="M6 18l8.5-6L6 6v12zm8-12v12h2V6h-2z" />
                   ) : (
-                    <path d="M8 5v14l11-7L8 5z" />
+                    <path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z" />
                   )}
                 </svg>
               }
-              disabled={
-                !(
-                  state === 'QUESTION' &&
-                  (questionState === 'WAITING' || questionState === 'ACTIVE')
-                )
-              }
-              onClick={() => {
-                setShowTimerModal(true);
-                if (state === 'QUESTION' && questionState === 'ACTIVE' && !timerPaused) {
-                  handlePauseTimer();
-                  return;
-                }
-                handleStartTimer();
-              }}
+              disabled={!(showRevealAnswerAction || showNextQuestionAction)}
+              onClick={showNextQuestionAction ? handleNextQuestion : handleRevealAnswer}
             >
-              {state === 'QUESTION' && questionState === 'ACTIVE' && !timerPaused
-                ? 'Pause Timer'
-                : 'Start Timer'}
-            </HostFooterBtn> */}
-            <HostFooterBtn
-              icon={
-                <svg viewBox="0 0 24 24" fill="currentColor" className="text-[#00d9ff]">
-                  <path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z" />
-                </svg>
-              }
-              disabled={!(state === 'QUESTION' && questionState === 'ACTIVE')}
-              onClick={handleRevealAnswer}
-            >
-              Reveal Answer
+              {showNextQuestionAction ? 'Next Question' : 'Reveal Answer'}
             </HostFooterBtn>
             <HostFooterBtn
               icon={
@@ -2226,7 +2231,7 @@ function HostDashboardContent() {
               disabled={state !== 'SCOREBOARD'}
               onClick={handleAdvanceRound}
             >
-              Next Round
+              {isLastRound && state === 'SCOREBOARD' ? 'View Final Results' : 'Next Round'}
             </HostFooterBtn>
           </div>
           <p className="mt-2 text-center text-[10px] text-white/30">
@@ -2343,7 +2348,7 @@ function HostDashboardContent() {
                           type="button"
                           data-name="weui:delete-filled"
                           data-node-id="232:2100"
-                          onClick={() => handleRemoveTeam(team.teamId)}
+                          onClick={() => handleRemoveTeam(team)}
                           className="flex size-[30px] items-center justify-center rounded border border-red-500/40 bg-red-500/10 text-red-500 transition-colors hover:bg-red-500/20"
                           aria-label={`Remove ${team.teamName}`}
                         >
@@ -2845,13 +2850,17 @@ function HostDashboardContent() {
                     id="add-team-name"
                     type="text"
                     value={addTeamName}
-                    onChange={(e) => setAddTeamName(e.target.value)}
+                    onChange={(e) => setAddTeamName(e.target.value.slice(0, TEAM_NAME_MAX_LENGTH))}
                     placeholder="Mention your team name"
                     data-node-id="232:1866"
                     autoFocus
+                    maxLength={TEAM_NAME_MAX_LENGTH}
                     className="h-[57px] w-full rounded-lg border border-white/10 bg-[#050508] px-4 text-base text-white outline-none transition-[border-color,box-shadow] placeholder:text-[#a1a1a1] focus:border-[rgba(0,217,255,0.5)] focus:shadow-[0_0_0_2px_rgba(0,217,255,0.15)]"
                     onKeyDown={(e) => e.key === 'Enter' && handleAddTeam()}
                   />
+                  <p className="mt-2 text-right text-xs text-white/60">
+                    {addTeamName.trim().replace(/\s+/g, ' ').length}/{TEAM_NAME_MAX_LENGTH}
+                  </p>
                 </div>
               </div>
 
@@ -2933,6 +2942,54 @@ function HostDashboardContent() {
               className="flex-1 rounded-lg border border-border py-2 text-sm font-medium hover:bg-surface-light"
             >
               Cancel
+            </button>
+          </div>
+        </ModalOverlay>
+      )}
+      {showEndGameModal && (
+        <ModalOverlay onClose={() => setShowEndGameModal(false)} title="End Game?">
+          <p className="mb-5 text-sm leading-relaxed text-white/70">
+            This will end the game for all players and move the venue and mobile screens back to
+            their login screens.
+          </p>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => setShowEndGameModal(false)}
+              className="flex-1 rounded-lg border border-border py-2 text-sm font-medium text-white/80 hover:bg-surface-light"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={confirmEndGame}
+              className="flex-1 rounded-lg border border-red-500/40 bg-[linear-gradient(180deg,#dc2626_0%,#7f1d1d_100%)] py-2 text-sm font-bold text-white hover:brightness-110"
+            >
+              End Game
+            </button>
+          </div>
+        </ModalOverlay>
+      )}
+      {teamPendingRemoval && (
+        <ModalOverlay onClose={() => setTeamPendingRemoval(null)} title="Remove Team?">
+          <p className="mb-5 text-sm leading-relaxed text-white/70">
+            Remove <span className="font-semibold text-white">{teamPendingRemoval.teamName}</span>{' '}
+            from the game?
+          </p>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => setTeamPendingRemoval(null)}
+              className="flex-1 rounded-lg border border-border py-2 text-sm font-medium text-white/80 hover:bg-surface-light"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={confirmRemoveTeam}
+              className="flex-1 rounded-lg border border-red-500/40 bg-[linear-gradient(180deg,#dc2626_0%,#7f1d1d_100%)] py-2 text-sm font-bold text-white hover:brightness-110"
+            >
+              Remove
             </button>
           </div>
         </ModalOverlay>

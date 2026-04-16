@@ -37,6 +37,8 @@ interface QuestionData {
   };
   timerDuration: number;
   timerRemaining?: number;
+  timerEndsAt?: number | null;
+  serverNow?: number;
   roundType: string;
   pointsForQuestion?: number;
   lockedWagerAmount?: number | null;
@@ -271,6 +273,15 @@ const normalizeRoundIntroTitle = (name?: string, roundType?: string, roundIndex?
   return withoutPrefix;
 };
 
+const toTimerEndsAt = (value: unknown): number | null => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+};
+
+const getRemainingFromEndsAt = (timerEndsAt: number): number => {
+  return Math.max(0, Math.ceil((timerEndsAt - Date.now()) / 1000));
+};
+
 function HeaderCapsule({
   icon,
   value,
@@ -311,6 +322,7 @@ export default function GamePage() {
   } | null>(null);
   const [question, setQuestion] = useState<QuestionData | null>(null);
   const [timerRemaining, setTimerRemaining] = useState(0);
+  const [timerEndsAt, setTimerEndsAt] = useState<number | null>(null);
   const [timerDuration, setTimerDuration] = useState(30);
   const [selectedOption, setSelectedOption] = useState<number | null>(null);
   const [wagerAmount, setWagerAmount] = useState(0);
@@ -384,7 +396,14 @@ export default function GamePage() {
         const data = JSON.parse(savedQuestion);
         setQuestion(data);
         setTimerDuration(data.timerDuration || 30);
-        setTimerRemaining(data.timerRemaining ?? data.timerDuration ?? 0);
+        const syncEndsAt = toTimerEndsAt(data.timerEndsAt);
+        if (syncEndsAt !== null) {
+          setTimerEndsAt(syncEndsAt);
+          setTimerRemaining(getRemainingFromEndsAt(syncEndsAt));
+        } else {
+          setTimerEndsAt(null);
+          setTimerRemaining(data.timerRemaining ?? data.timerDuration ?? 0);
+        }
         setPhase('question');
       } catch {
         /* ignore */
@@ -412,6 +431,18 @@ export default function GamePage() {
   }, [phase, breakDuration]);
 
   useEffect(() => {
+    if (!timerEndsAt) return;
+
+    const syncTimer = () => {
+      setTimerRemaining(getRemainingFromEndsAt(timerEndsAt));
+    };
+
+    syncTimer();
+    const interval = window.setInterval(syncTimer, 250);
+    return () => window.clearInterval(interval);
+  }, [timerEndsAt]);
+
+  useEffect(() => {
     if (!socket || !session.pin || !session.teamName) return;
 
     const onSessionState = (data: any) => {
@@ -434,7 +465,9 @@ export default function GamePage() {
           const idx = Number(gs.currentRoundIndex ?? 0);
           const round =
             gs.currentRound ??
-            (Array.isArray(gs.rounds) && idx >= 0 && idx < gs.rounds.length ? gs.rounds[idx] : null);
+            (Array.isArray(gs.rounds) && idx >= 0 && idx < gs.rounds.length
+              ? gs.rounds[idx]
+              : null);
           if (round) {
             setRoundInfo({
               round,
@@ -462,7 +495,14 @@ export default function GamePage() {
           }
           setQuestion(gs.currentQuestion);
           setTimerDuration(gs.currentQuestion.timerDuration || 30);
-          setTimerRemaining(gs.timerRemaining ?? gs.currentQuestion.timerDuration ?? 0);
+          const syncEndsAt = toTimerEndsAt(gs.timerEndsAt ?? gs.currentQuestion.timerEndsAt);
+          if (syncEndsAt !== null) {
+            setTimerEndsAt(syncEndsAt);
+            setTimerRemaining(getRemainingFromEndsAt(syncEndsAt));
+          } else {
+            setTimerEndsAt(null);
+            setTimerRemaining(gs.timerRemaining ?? gs.currentQuestion.timerDuration ?? 0);
+          }
           setSelectedOption(null);
           setRevealData(null);
           setPointsGained(null);
@@ -540,7 +580,14 @@ export default function GamePage() {
     const onQuestionActive = (data: QuestionData) => {
       setQuestion(data);
       setTimerDuration(data.timerDuration);
-      setTimerRemaining(data.timerRemaining ?? data.timerDuration);
+      const syncEndsAt = toTimerEndsAt(data.timerEndsAt);
+      if (syncEndsAt !== null) {
+        setTimerEndsAt(syncEndsAt);
+        setTimerRemaining(getRemainingFromEndsAt(syncEndsAt));
+      } else {
+        setTimerEndsAt(null);
+        setTimerRemaining(data.timerRemaining ?? data.timerDuration);
+      }
       setSelectedOption(null);
       setRevealData(null);
       setPointsGained(null);
@@ -572,8 +619,22 @@ export default function GamePage() {
       stopMp3();
     };
 
-    const onTimerUpdate = (data: { remaining: number }) => setTimerRemaining(data.remaining);
-    const onTimerExpired = () => setTimerRemaining(0);
+    const onTimerUpdate = (data: { remaining: number; timerEndsAt?: number | null }) => {
+      const syncEndsAt = toTimerEndsAt(data.timerEndsAt);
+      if (syncEndsAt !== null) {
+        setTimerEndsAt(syncEndsAt);
+        setTimerRemaining(getRemainingFromEndsAt(syncEndsAt));
+        return;
+      }
+      if (data.remaining <= 0) {
+        setTimerEndsAt(null);
+      }
+      setTimerRemaining(data.remaining);
+    };
+    const onTimerExpired = () => {
+      setTimerEndsAt(null);
+      setTimerRemaining(0);
+    };
 
     const onAnswerReveal = (data: RevealData) => {
       setRevealData(data);
@@ -604,6 +665,20 @@ export default function GamePage() {
       setPhase('scoreboard');
       setIsPlayerMp3Playing(false);
       stopMp3();
+    };
+
+    const onTeamUpdated = (data: { teamId: number; score: number }) => {
+      if (!data || !Number.isFinite(Number(data.teamId))) return;
+      const teamId = Number(data.teamId);
+      const score = Number(data.score || 0);
+
+      if (session.teamId && Number(session.teamId) === teamId) {
+        setSession({ score });
+      }
+
+      setScoreboard((prev) =>
+        prev.map((team) => (Number(team.teamId) === teamId ? { ...team, score } : team)),
+      );
     };
 
     const onScoreboardHidden = () => {
@@ -666,7 +741,9 @@ export default function GamePage() {
       setIsPlayerMp3Playing(false);
     };
 
-    const onGameEnd = (data?: { teams?: { teamId: number; teamName: string; score: number }[] }) => {
+    const onGameEnd = (data?: {
+      teams?: { teamId: number; teamName: string; score: number }[];
+    }) => {
       stopMp3();
       setIsPlayerMp3Playing(false);
       if (data?.teams) {
@@ -674,7 +751,8 @@ export default function GamePage() {
         const myTeam = data.teams.find((t) => t.teamId === session.teamId);
         if (myTeam) setSession({ score: myTeam.score });
       }
-      setPhase('game_end');
+      clearSession();
+      router.replace('/play/join');
     };
 
     socket.on('session_state', onSessionState);
@@ -685,6 +763,7 @@ export default function GamePage() {
     socket.on('answer_reveal', onAnswerReveal);
     socket.on('player_eliminated', onPlayerEliminated);
     socket.on('scoreboard', onScoreboard);
+    socket.on('team_updated', onTeamUpdated);
     socket.on('scoreboard_hidden', onScoreboardHidden);
     socket.on('round_end', onRoundEnd);
     socket.on('break_start', onBreakStart);
@@ -702,6 +781,7 @@ export default function GamePage() {
       socket.off('answer_reveal', onAnswerReveal);
       socket.off('player_eliminated', onPlayerEliminated);
       socket.off('scoreboard', onScoreboard);
+      socket.off('team_updated', onTeamUpdated);
       socket.off('scoreboard_hidden', onScoreboardHidden);
       socket.off('round_end', onRoundEnd);
       socket.off('break_start', onBreakStart);

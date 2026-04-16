@@ -15,6 +15,9 @@ import { PUBLIC_API_URL } from '@/lib/env';
 
 const API_URL = PUBLIC_API_URL;
 const VENUE_PIN_STORAGE_KEY = 'venue_display_pin';
+const VENUE_STATE_STORAGE_KEY_PREFIX = 'venue_display_state';
+
+const getVenueStateStorageKey = (pin: string) => `${VENUE_STATE_STORAGE_KEY_PREFIX}:${pin}`;
 
 type VenuePhase =
   | 'welcome'
@@ -139,9 +142,7 @@ function parseUnityShuffleComplete(value: unknown): { cp: number; cards: number[
 
   const root = unwrap(value);
   const inner =
-    typeof root.payload === 'string'
-      ? unwrap(root.payload)
-      : unwrap(root.payload ?? root);
+    typeof root.payload === 'string' ? unwrap(root.payload) : unwrap(root.payload ?? root);
 
   const raw =
     inner.correct_position ??
@@ -286,6 +287,42 @@ function VenueDisplayContent() {
     }
     setIsPinReady(true);
   }, [initialPin, router]);
+
+  useEffect(() => {
+    if (!isPinReady || !/^\d{6}$/.test(sessionPin) || typeof window === 'undefined') return;
+
+    const cached = window.sessionStorage.getItem(getVenueStateStorageKey(sessionPin));
+    if (!cached) return;
+
+    try {
+      const data = JSON.parse(cached);
+      if (data?.qrCodeData) setQrCodeData(data.qrCodeData);
+      if (Number.isFinite(Number(data.maxTeams)) && Number(data.maxTeams) > 0) {
+        setMaxTeams(Number(data.maxTeams));
+      }
+      if (Array.isArray(data.teams)) {
+        setTeams(data.teams);
+        setTotalTeams(data.teams.length);
+      }
+      if (data.roundInfo) setRoundInfo(data.roundInfo);
+      if (data.question) setQuestion(data.question);
+      if (Number.isFinite(Number(data.timerDuration))) {
+        setTimerDuration(Number(data.timerDuration));
+      }
+      if (Number.isFinite(Number(data.timerRemaining))) {
+        setTimerRemaining(Number(data.timerRemaining));
+      }
+      if (data.revealData) setRevealData(data.revealData);
+      if (Array.isArray(data.scoreboard)) setScoreboard(data.scoreboard);
+      if (data.phase && data.phase !== 'welcome') {
+        setWelcomeHold(false);
+        setShowVenueSplash(false);
+        setPhase(data.phase);
+      }
+    } catch {
+      window.sessionStorage.removeItem(getVenueStateStorageKey(sessionPin));
+    }
+  }, [isPinReady, sessionPin]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -465,7 +502,12 @@ function VenueDisplayContent() {
       if (!data || typeof data !== 'object') return;
 
       const msgType = String(data.type || '').toUpperCase();
-      if (msgType !== 'SHUFFLE_COMPLETE' && msgType !== 'ROUND_COMPLETE' && msgType !== 'MINIGAME_REVEAL') return;
+      if (
+        msgType !== 'SHUFFLE_COMPLETE' &&
+        msgType !== 'ROUND_COMPLETE' &&
+        msgType !== 'MINIGAME_REVEAL'
+      )
+        return;
 
       console.log('[venue/WebBridge→server] forwarding', msgType, data);
       socket.emit('mini_game_action', {
@@ -605,6 +647,27 @@ function VenueDisplayContent() {
       } else if (data.state && stateToPhase[data.state]) {
         applyVenuePhaseFromSession(stateToPhase[data.state]);
       }
+
+      if (typeof window !== 'undefined') {
+        const sessionTeams = data.teams
+          ? Array.isArray(data.teams)
+            ? data.teams
+            : Object.values(data.teams)
+          : teams;
+        window.sessionStorage.setItem(
+          getVenueStateStorageKey(sessionPin),
+          JSON.stringify({
+            phase:
+              data.state && stateToPhase[data.state] ? stateToPhase[data.state] : phaseRef.current,
+            qrCodeData: data.qrCodeData || qrCodeData,
+            teams: sessionTeams,
+            maxTeams: Number.isFinite(Number(data.maxTeams)) ? Number(data.maxTeams) : maxTeams,
+            totalTeams: Number.isFinite(Number(data.totalTeams))
+              ? Number(data.totalTeams)
+              : sessionTeams.length,
+          }),
+        );
+      }
     };
 
     const onTeamJoined = (team: Team) => {
@@ -724,7 +787,10 @@ function VenueDisplayContent() {
       cardShuffleRevealFlushTimeoutsRef.current = [];
     };
 
-    const emitCanonicalShuffleToServer = (expectedGen: number, emittedFlag: { current: boolean }) => {
+    const emitCanonicalShuffleToServer = (
+      expectedGen: number,
+      emittedFlag: { current: boolean },
+    ) => {
       if (cardShuffleRevealFlushGenRef.current !== expectedGen) return;
       if (emittedFlag.current) return;
       const b = lastCardShuffleUnityRef.current;
@@ -863,7 +929,10 @@ function VenueDisplayContent() {
       if (data?.teams) {
         setScoreboard(data.teams.sort((a, b) => b.score - a.score));
       }
-      setPhase('game_end');
+      if (typeof window !== 'undefined') {
+        window.localStorage.removeItem(VENUE_PIN_STORAGE_KEY);
+      }
+      router.replace('/venue');
     };
 
     socket.on('session_state', onSessionState);
@@ -929,9 +998,9 @@ function VenueDisplayContent() {
     return (
       <div className="absolute bottom-4 right-4 z-50 flex flex-col items-center gap-1">
         <div className="neon-border rounded-lg p-1 bg-surface/80 bg-white">
-          <QRCodeSVG value={playerJoinUrl} size={96} className="rounded" />
+          {/* <QRCodeSVG value={playerJoinUrl} size={96} className="rounded" /> */}
         </div>
-        <span className="font-mono text-xs text-neon-cyan/60">{sessionPin}</span>
+        {/* <span className="font-mono text-xs text-neon-cyan/60">{sessionPin}</span> */}
       </div>
     );
   };
@@ -1026,8 +1095,8 @@ function VenueDisplayContent() {
             >
               <div className="absolute inset-0 bg-black/10" />
 
-              <div className="absolute inset-0 flex flex-col items-center justify-center px-8 pb-8 gap-6">
-                <div className="w-full max-w-[820px] aspect-video rounded-xl border-4 border-[#00d9ff] shadow-[0_0_30px_rgba(0,217,255,0.35)] overflow-hidden bg-[#39ff14] shrink-0">
+              <div className="absolute inset-0 flex flex-col items-center justify-center px-4 sm:px-6 md:px-8 pb-4 sm:pb-6 md:pb-8 gap-3 sm:gap-4 md:gap-6">
+                <div className="w-full max-w-xs sm:max-w-sm md:max-w-md lg:max-w-lg xl:max-w-2xl aspect-video rounded-lg sm:rounded-xl border-2 sm:border-3 md:border-4 border-[#00d9ff] shadow-[0_0_30px_rgba(0,217,255,0.35)] overflow-hidden bg-[#39ff14] shrink-0">
                   {!showIntroVideoFallback ? (
                     <video
                       src="/venue-intro.mp4"
@@ -1043,31 +1112,35 @@ function VenueDisplayContent() {
               </div>
             </div>
 
-            <div className="absolute left-1/2 -translate-x-1/2 bottom-6 w-full max-w-2xl px-4">
-              <div className="neon-border-strong rounded-2xl px-6 py-5 bg-surface/85 flex flex-col items-center gap-4 sm:flex-row sm:items-center sm:justify-center sm:gap-8">
-                <div className="shrink-0 rounded-xl border border-neon-cyan/40 p-2 shadow-[0_0_20px_rgba(0,229,255,0.15)]">
+            <div className="absolute left-1/2 -translate-x-1/2 bottom-3 sm:bottom-4 md:bottom-6 w-full max-w-sm sm:max-w-md md:max-w-2xl px-3 sm:px-4 md:px-6">
+              <div className="neon-border-strong rounded-lg sm:rounded-xl md:rounded-2xl px-4 sm:px-6 py-3 sm:py-4 md:py-5 bg-surface/85 flex flex-col items-center gap-3 sm:gap-4 md:gap-6">
+                <div className="shrink-0 rounded-lg md:rounded-xl border border-neon-cyan/40 p-1.5 sm:p-2 shadow-[0_0_20px_rgba(0,229,255,0.15)]">
                   {qrCodeData &&
                   !welcomeQrImageFailed &&
                   (qrCodeData.startsWith('data:') || /^https?:\/\//i.test(qrCodeData)) ? (
                     // Server QR is white-on-transparent; must sit on a dark surface (not white).
-                    <div className="flex h-[104px] w-[104px] items-center justify-center rounded-lg bg-[#060818]">
+                    <div className="flex h-20 sm:h-24 md:h-28 w-20 sm:w-24 md:w-28 items-center justify-center rounded-lg bg-[#060818]">
                       <img
                         src={qrCodeData}
                         alt="QR code to join this session"
-                        className="max-h-[100px] max-w-[100px] object-contain"
+                        className="max-h-[95%] max-w-[95%] object-contain"
                         onError={() => setWelcomeQrImageFailed(true)}
                       />
                     </div>
                   ) : (
-                    <div className="flex h-[104px] w-[104px] items-center justify-center rounded-lg bg-white">
-                      <QRCodeSVG value={playerJoinUrl} size={100} className="rounded" />
+                    <div className="flex h-20 sm:h-24 md:h-28 w-20 sm:w-24 md:w-28 items-center justify-center rounded-lg bg-white">
+                      <QRCodeSVG value={playerJoinUrl} size={80} className="rounded" />
                     </div>
                   )}
                 </div>
-                <div className="text-center sm:text-left min-w-0">
-                  <p className="text-neon-cyan font-bold text-lg tracking-wide">SCAN TO JOIN</p>
-                  <p className="text-foreground/50 text-sm mt-1">Session PIN</p>
-                  <p className="text-4xl font-mono font-black tracking-[0.2em] text-neon-cyan text-glow-cyan">
+                <div className="text-center min-w-0">
+                  <p className="text-neon-cyan font-bold text-xs sm:text-sm md:text-base lg:text-lg tracking-wide">
+                    SCAN TO JOIN
+                  </p>
+                  <p className="text-foreground/50 text-[10px] sm:text-xs md:text-sm mt-0.5">
+                    Session PIN
+                  </p>
+                  <p className="text-2xl sm:text-3xl md:text-4xl lg:text-5xl font-mono font-black tracking-[0.1em] sm:tracking-[0.15em] md:tracking-[0.2em] text-neon-cyan text-glow-cyan mt-1 sm:mt-2">
                     {sessionPin}
                   </p>
                 </div>
@@ -1075,7 +1148,7 @@ function VenueDisplayContent() {
                   <button
                     type="button"
                     onClick={handleWelcomeContinue}
-                    className="rounded-xl border-2 border-neon-cyan bg-neon-cyan/20 px-14 py-5 text-xs font-black tracking-[0.2em] text-neon-cyan uppercase shadow-[0_0_28px_rgba(0,229,255,0.45)] transition hover:bg-neon-cyan/30 focus:outline-none focus-visible:ring-2 focus-visible:ring-neon-cyan focus-visible:ring-offset-2 focus-visible:ring-offset-[#030818]"
+                    className="rounded-lg sm:rounded-xl border-2 border-neon-cyan bg-neon-cyan/20 px-8 sm:px-12 md:px-14 py-3 sm:py-4 md:py-5 text-[10px] sm:text-xs md:text-sm font-black tracking-[0.15em] md:tracking-[0.2em] text-neon-cyan uppercase shadow-[0_0_28px_rgba(0,229,255,0.45)] transition hover:bg-neon-cyan/30 focus:outline-none focus-visible:ring-2 focus-visible:ring-neon-cyan focus-visible:ring-offset-2 focus-visible:ring-offset-[#030818]"
                   >
                     Continue
                   </button>
@@ -1087,40 +1160,42 @@ function VenueDisplayContent() {
 
         {/* ── LOBBY ── */}
         {phase === 'lobby' && (
-          <div className="w-full h-full min-h-0 flex flex-col px-6 py-5 animate-fadeIn">
-            <div className="text-center mb-4 shrink-0">
-              <h2 className="text-6xl font-black tracking-wide text-white text-glow-cyan">
+          <div className="w-full h-full min-h-0 flex flex-col px-4 sm:px-5 md:px-6 lg:px-8 py-3 sm:py-4 md:py-5 animate-fadeIn">
+            <div className="text-center mb-2 sm:mb-3 md:mb-4 shrink-0">
+              <h2 className="text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-black tracking-wide text-white text-glow-cyan">
                 TEAM REGISTRATION
               </h2>
-              <p className="text-neon-cyan text-2xl font-semibold mt-1">
+              <p className="text-sm sm:text-base md:text-lg lg:text-2xl text-neon-cyan font-semibold mt-1">
                 {teams.length} of {maxTeams} Teams Joined
               </p>
             </div>
 
             {sessionPin ? (
-              <div className="mx-auto mb-4 shrink-0 rounded-xl border border-neon-cyan/45 bg-[#051230]/85 px-4 py-3 shadow-[0_0_20px_rgba(0,229,255,0.18)] flex items-center gap-3">
-                <div className="w-20 h-20 rounded bg-white p-1 flex items-center justify-center">
-                  <QRCodeSVG value={playerJoinUrl} size={72} />
+              <div className="mx-auto mb-3 sm:mb-4 md:mb-5 shrink-0 rounded-xl border border-neon-cyan/45 bg-[#051230]/85 px-3 sm:px-4 py-2 sm:py-3 shadow-[0_0_20px_rgba(0,229,255,0.18)] flex items-center gap-2 sm:gap-3 max-w-full">
+                <div className="w-16 h-16 sm:w-20 h-20 md:w-24 h-24 rounded bg-white p-1 flex items-center justify-center shrink-0">
+                  <QRCodeSVG value={playerJoinUrl} size={60} />
                 </div>
-                <div className="text-left">
-                  <p className="text-neon-cyan font-bold text-sm">SCAN TO JOIN</p>
-                  <p className="text-white/70 text-xs mt-1">Session PIN: {sessionPin}</p>
+                <div className="text-left min-w-0">
+                  <p className="text-neon-cyan font-bold text-xs sm:text-sm">SCAN TO JOIN</p>
+                  <p className="text-white/70 text-[10px] sm:text-xs mt-0.5">
+                    Session PIN: {sessionPin}
+                  </p>
                 </div>
               </div>
             ) : null}
 
             <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden pr-1 pb-2 [scrollbar-gutter:stable]">
-              <div className="grid grid-cols-5 gap-3 content-start mt-5">
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2 sm:gap-2.5 md:gap-3 content-start mt-3 sm:mt-4 md:mt-5">
                 {Array.from({ length: maxTeams }).map((_, i) => {
                   const team = teams[i];
                   return (
                     <div key={i} className="relative">
-                      <div className="absolute -top-2 right-1 z-10 w-5 h-5 rounded-full bg-[#0c4ac4] border border-neon-cyan/40 text-[10px] font-black text-white flex items-center justify-center shadow-[0_0_8px_rgba(0,229,255,0.25)]">
+                      <div className="absolute -top-1.5 sm:-top-2 right-0.5 z-10 w-4 h-4 sm:w-5 h-5 rounded-full bg-[#0c4ac4] border border-neon-cyan/40 text-[8px] sm:text-[10px] font-black text-white flex items-center justify-center shadow-[0_0_8px_rgba(0,229,255,0.25)]">
                         {i + 1}
                       </div>
                       <div
                         className={cn(
-                          'h-[56px] rounded-xl border px-3 flex items-center gap-2 transition-all duration-500 backdrop-blur-sm',
+                          'h-12 sm:h-14 md:h-16 rounded-lg sm:rounded-xl border px-2 sm:px-3 flex items-center gap-1.5 sm:gap-2 transition-all duration-500 backdrop-blur-sm text-xs sm:text-sm md:text-base',
                           team
                             ? 'bg-gradient-to-r from-[#0f4bc2]/85 via-[#0a2a92]/80 to-[#9f0ed2]/80 border-neon-cyan/65 shadow-[0_0_14px_rgba(0,229,255,0.25)]'
                             : 'bg-[#130f2e]/55 border-white/25 border-dashed',
@@ -1128,20 +1203,18 @@ function VenueDisplayContent() {
                       >
                         {team ? (
                           <>
-                            <div className="w-5 h-5 rounded-full bg-[#00be57] flex items-center justify-center text-white text-[11px] font-black">
+                            <div className="w-4 h-4 sm:w-5 h-5 rounded-full bg-[#00be57] flex items-center justify-center text-white text-[9px] sm:text-[11px] font-black flex-shrink-0">
                               {'\u2713'}
                             </div>
-                            <div className="min-w-0">
-                              <p className="text-sm font-bold text-white truncate">
-                                {team.teamName}
-                              </p>
-                              <p className="text-[10px] text-[#66ffb2] font-semibold -mt-0.5">
+                            <div className="min-w-0 flex-1">
+                              <p className="font-bold text-white truncate">{team.teamName}</p>
+                              <p className="text-[9px] sm:text-[10px] text-[#66ffb2] font-semibold -mt-0.5">
                                 Ready
                               </p>
                             </div>
                           </>
                         ) : (
-                          <p className="w-full text-center text-white/70 text-sm">Waiting...</p>
+                          <p className="w-full text-center text-white/70">Waiting...</p>
                         )}
                       </div>
                     </div>
@@ -1196,16 +1269,16 @@ function VenueDisplayContent() {
 
         {/* Question */}
         {phase === 'question' && question && (
-          <div className="max-w-[65%] h-[95%] mx-auto mt-10">
+          <div className="w-full h-full min-h-0 flex flex-col px-4 md:px-20 lg:px-40 py-3 md:py-4 lg:py-5 animate-fadeIn">
             {/* Response Stats */}
-            <div className="mx-auto w-full flex-1 rounded-2xl mt-4 bg-[#000000]">
-              <div className="rounded-xl mb-3 flex items-center gap-4 justify-between">
-                <div className="flex items-center gap-4 flex-1 border   border-[#00C8FF] rounded-xl max-w-2xl ">
-                  <div className="relative w-12 h-12 rounded-full flex items-center justify-center shrink-0 overflow-hidden">
+            <div className="mx-auto w-full shrink-0 rounded-2xl mb-3 ">
+              <div className="rounded-xl mb-2 flex flex-col lg:flex-row items-start lg:items-center gap-3 lg:gap-4 justify-between px-3 md:px-4 py-2">
+                <div className="flex items-center gap-2 md:gap-4 flex-1 border border-[#00C8FF] rounded-xl px-3 md:px-4 py-2 md:py-3 w-full lg:max-w-2xl">
+                  <div className="relative w-8 md:w-10 lg:w-12 h-8 md:h-10 lg:h-12 rounded-full flex items-center justify-center shrink-0 overflow-hidden">
                     <div className="absolute inset-0 bg-linear-to-br from-purple-500/20 to-transparent" />
                     <svg
                       viewBox="0 0 24 24"
-                      className="w-7 h-7 text-[#20e7ff] relative z-10"
+                      className="w-5 md:w-6 lg:w-7 h-5 md:h-6 lg:h-7 text-[#20e7ff] relative z-10"
                       fill="none"
                       stroke="currentColor"
                       strokeWidth="2.5"
@@ -1215,7 +1288,7 @@ function VenueDisplayContent() {
                   </div>
 
                   {/* 2. The Progress Container (The black pill with blue border) */}
-                  <div className="flex-1 max-w-2xl rounded-xl px-4">
+                  <div className="flex-1 min-w-0 rounded-xl px-2 md:px-4">
                     {[
                       {
                         key: 'correct',
@@ -1266,7 +1339,7 @@ function VenueDisplayContent() {
                               }}
                             />
                           </div>
-                          <span className="w-6 text-right text-lg font-black text-[#47f3ff] italic">
+                          <span className="w-6 text-right text-sm md:text-base lg:text-lg font-black text-[#47f3ff] italic">
                             {item.value}
                           </span>
                         </div>
@@ -1275,7 +1348,7 @@ function VenueDisplayContent() {
                   </div>
                 </div>
 
-                <div className="flex items-center gap-5 shrink-0 pr-1">
+                <div className="flex items-center gap-3 md:gap-4 lg:gap-5 shrink-0 pr-1">
                   <div className="flex items-center gap-2">
                     <div className="w-10 h-10 rounded-full border border-[#1de8ff]/70 bg-[#11154f] flex items-center justify-center shadow-[0_0_12px_rgba(29,232,255,0.35)]">
                       <svg
@@ -1291,7 +1364,7 @@ function VenueDisplayContent() {
                         <path d="M16 3.13a4 4 0 0 1 0 7.75" />
                       </svg>
                     </div>
-                    <span className="text-5xl font-black text-white leading-none">
+                    <span className="text-3xl md:text-4xl lg:text-5xl font-black text-white leading-none">
                       {liveTotalTeams}
                     </span>
                   </div>
@@ -1306,7 +1379,7 @@ function VenueDisplayContent() {
                         <path d="M19 4h-3V2H8v2H5a1 1 0 0 0-1 1v3a5 5 0 0 0 4 4.9V16H6v2h12v-2h-2v-3.1A5 5 0 0 0 20 8V5a1 1 0 0 0-1-1Zm-1 4a3 3 0 0 1-2 2.82V6h2v2ZM6 8V6h2v4.82A3 3 0 0 1 6 8Z" />
                       </svg>
                     </div>
-                    <span className="text-5xl font-black text-white leading-none">
+                    <span className="text-3xl md:text-4xl lg:text-5xl font-black text-white leading-none">
                       {liveQuestionPoints}
                     </span>
                   </div>
@@ -1315,15 +1388,15 @@ function VenueDisplayContent() {
             </div>
 
             {/* ── QUESTION ── */}
-            <div className="w-full h-[85%] flex flex-col animate-fadeIn">
-              <div className="mx-auto w-full flex-1 rounded-2xl flex flex-col border">
+            <div className="w-full flex-1 min-h-0 flex flex-col animate-fadeIn">
+              <div className="mx-auto w-full flex-1 min-h-0 rounded-2xl flex flex-col border">
                 {/* Media Section */}
                 <div className="relative rounded-t-2xl  overflow-hidden shrink-0">
                   <div className="absolute left-4 top-3 z-10 text-white/90 text-2xl font-semibold">
                     Question {(question.questionIndex || 0) + 1}/{question.totalQuestions}
                   </div>
                   {/* Media */}
-                  <div className="h-96">
+                  <div className="h-[30vh] md:h-[34vh] lg:h-[38vh] max-h-[360px] min-h-[180px]">
                     {resolveMediaUrl(question.question.mediaUrl) &&
                     (question.question.mediaType || '').toLowerCase() === 'image' ? (
                       <img
@@ -1341,7 +1414,7 @@ function VenueDisplayContent() {
                   </div>
 
                   {/* Timer Arch - Pulled down to overlap the section below */}
-                  <div className="absolute left-1/2 -translate-x-1/2 bottom-px z-30 w-64 h-32 overflow-hidden">
+                  <div className="absolute left-1/2 -translate-x-1/2 bottom-px z-30 w-48 h-24 md:w-56 md:h-28 lg:w-64 lg:h-32 overflow-hidden">
                     <div className="absolute top-6 left-0 w-50 h-50 rounded-full p-2 bg-linear-to-r from-[#ff0000] via-[#ddff00] via-[#ffaa00] to-[#00ff00] shadow-[0_0_20px_rgba(0,0,0,0.6)]">
                       <div className="relative w-full h-full rounded-full bg-[#030818] border border-white/10 flex justify-center overflow-hidden">
                         <div
@@ -1352,7 +1425,7 @@ function VenueDisplayContent() {
                             backgroundSize: '8px 8px',
                           }}
                         />
-                        <span className="mt-6 text-6xl font-black text-white relative z-10 tracking-tighter drop-shadow-[0_0_10px_rgba(255,255,255,0.3)]">
+                        <span className="mt-4 md:mt-5 lg:mt-6 text-4xl md:text-5xl lg:text-6xl font-black text-white relative z-10 tracking-tighter drop-shadow-[0_0_10px_rgba(255,255,255,0.3)]">
                           {timerRemaining}
                         </span>
                       </div>
@@ -1361,19 +1434,19 @@ function VenueDisplayContent() {
                 </div>
 
                 {/* Questions/Options Section */}
-                <div className="relative rounded-2xl border-t-2 border-t-white/50 flex-1 bg-linear-to-b from-[#100048] to-[#000000] z-20 pt-10 px-5 pb-5 ">
-                  <div className="mb-4">
-                    <p className="text-2xl font-bold text-white">
+                <div className="relative rounded-2xl border-t-2 border-t-white/50 flex-1 bg-linear-to-b from-[#100048] to-[#000000] z-20 pt-8 md:pt-9 lg:pt-10 px-3 md:px-4 lg:px-5 pb-3 md:pb-4">
+                  <div className="mb-2 md:mb-3 lg:mb-4">
+                    <p className="text-lg md:text-xl lg:text-2xl font-bold text-white leading-tight">
                       Q{(question.questionIndex || 0) + 1}. {question.question.text}
                     </p>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-2 gap-2 md:gap-3">
                     {question.question.options.map((opt, i) => (
                       <div
                         key={i}
                         className={cn(
-                          'rounded-lg border px-4 py-4 text-white font-bold text-2xl flex items-center shadow-[0_8px_18px_rgba(0,0,0,0.35)]',
+                          'rounded-lg border px-3 md:px-4 py-2.5 md:py-3 text-white font-bold text-lg md:text-xl lg:text-2xl min-h-[56px] md:min-h-[64px] flex items-center shadow-[0_8px_18px_rgba(0,0,0,0.35)]',
                           VENUE_OPTION_COLOR_CLASSES[i % VENUE_OPTION_COLOR_CLASSES.length],
                         )}
                       >
@@ -1391,7 +1464,7 @@ function VenueDisplayContent() {
         {/* Processing Results */}
         {phase === 'reveal' && (!revealData || !question) && (
           <div className="w-full h-full flex flex-col items-center justify-center animate-fadeIn z-10 relative">
-            <div className="text-3xl text-white font-bold animate-pulse text-glow-cyan neon-border-strong rounded-2xl px-12 py-8 bg-surface/85">
+            <div className="text-lg sm:text-2xl md:text-3xl text-white font-bold animate-pulse text-glow-cyan neon-border-strong rounded-lg md:rounded-2xl px-6 md:px-12 py-4 md:py-8 bg-surface/85">
               Processing Results...
             </div>
           </div>
@@ -1399,16 +1472,16 @@ function VenueDisplayContent() {
 
         {/* Reveal */}
         {phase === 'reveal' && revealData && question && (
-          <div className="max-w-[65%] h-[95%] mx-auto mt-10">
+          <div className="w-full h-full min-h-0 flex flex-col px-4 md:px-20 lg:px-40 py-3 md:py-4 lg:py-5 animate-fadeIn">
             {/* Response Stats */}
-            <div className="mx-auto w-full flex-1 rounded-2xl mt-4">
-              <div className="rounded-xl mb-3 flex items-center gap-4 justify-between">
-                <div className="flex items-center gap-4 flex-1 border border-[#00C8FF] rounded-xl max-w-2xl">
-                  <div className="relative w-12 h-12 rounded-full flex items-center justify-center shrink-0 overflow-hidden">
+            <div className="mx-auto w-full shrink-0 rounded-2xl mb-3 ">
+              <div className="rounded-xl mb-3 flex flex-col lg:flex-row items-start lg:items-center gap-3 lg:gap-4 justify-between px-3 md:px-4 py-2 md:py-3">
+                <div className="flex items-center gap-2 md:gap-4 flex-1 border border-[#00C8FF] rounded-xl px-3 md:px-4 py-2 md:py-3 w-full lg:max-w-2xl">
+                  <div className="relative w-8 md:w-10 lg:w-12 h-8 md:h-10 lg:h-12 rounded-full flex items-center justify-center shrink-0 overflow-hidden">
                     <div className="absolute inset-0 bg-linear-to-br from-purple-500/20 to-transparent" />
                     <svg
                       viewBox="0 0 24 24"
-                      className="w-7 h-7 text-[#20e7ff] relative z-10"
+                      className="w-5 md:w-6 lg:w-7 h-5 md:h-6 lg:h-7 text-[#20e7ff] relative z-10"
                       fill="none"
                       stroke="currentColor"
                       strokeWidth="2.5"
@@ -1418,7 +1491,7 @@ function VenueDisplayContent() {
                   </div>
 
                   {/* ── DISTRIBUTION BARS ── */}
-                  <div className="flex-1 max-w-2xl rounded-xl px-4">
+                  <div className="flex-1 min-w-0 rounded-xl px-2 md:px-4">
                     {[
                       {
                         key: 'correct',
@@ -1451,14 +1524,17 @@ function VenueDisplayContent() {
                         Math.min(100, Math.round((item.value / total) * 100)),
                       );
                       return (
-                        <div key={item.key} className="flex items-center gap-3">
+                        <div
+                          key={item.key}
+                          className="flex items-center gap-1 md:gap-2 lg:gap-3 mb-1 md:mb-2"
+                        >
                           <div
-                            className={`${item.iconBg} h-4 w-4 rounded-full flex items-center justify-center text-[10px] text-white font-bold border border-white/20`}
+                            className={`${item.iconBg} h-3 md:h-4 w-3 md:w-4 rounded-full flex items-center justify-center text-[8px] md:text-[10px] text-white font-bold border border-white/20`}
                           >
                             {item.icon}
                           </div>
                           <div
-                            className={`flex-1 h-4 rounded-full ${item.track} overflow-hidden border border-white/10`}
+                            className={`flex-1 h-3 md:h-4 rounded-full ${item.track} overflow-hidden border border-white/10`}
                           >
                             <motion.div
                               className={`h-full rounded-full bg-linear-to-r ${item.color} shadow-[0_0_12px_rgba(255,255,255,0.4)]`}
@@ -1468,7 +1544,7 @@ function VenueDisplayContent() {
                               style={{ minWidth: item.value > 0 ? '8px' : '0px' }}
                             />
                           </div>
-                          <span className="w-6 text-right text-lg font-black text-[#47f3ff] italic">
+                          <span className="w-4 md:w-5 lg:w-6 text-right text-xs md:text-sm lg:text-lg font-black text-[#47f3ff] italic shrink-0">
                             {item.value}
                           </span>
                         </div>
@@ -1477,12 +1553,12 @@ function VenueDisplayContent() {
                   </div>
                 </div>
 
-                <div className="flex items-center gap-5 shrink-0 pr-1">
-                  <div className="flex items-center gap-2">
-                    <div className="w-10 h-10 rounded-full border border-[#1de8ff]/70 bg-[#11154f] flex items-center justify-center shadow-[0_0_12px_rgba(29,232,255,0.35)]">
+                <div className="flex items-center gap-2 md:gap-3 lg:gap-5 shrink-0 pr-1 flex-wrap justify-end">
+                  <div className="flex items-center gap-1 md:gap-2 lg:gap-2">
+                    <div className="w-7 md:w-8 lg:w-10 h-7 md:h-8 lg:h-10 rounded-full border border-[#1de8ff]/70 bg-[#11154f] flex items-center justify-center shadow-[0_0_12px_rgba(29,232,255,0.35)]">
                       <svg
                         viewBox="0 0 24 24"
-                        className="w-5 h-5 text-[#1de8ff]"
+                        className="w-3 md:w-4 lg:w-5 h-3 md:h-4 lg:h-5 text-[#1de8ff]"
                         fill="none"
                         stroke="currentColor"
                         strokeWidth="2"
@@ -1493,21 +1569,21 @@ function VenueDisplayContent() {
                         <path d="M16 3.13a4 4 0 0 1 0 7.75" />
                       </svg>
                     </div>
-                    <span className="text-5xl font-black text-white leading-none">
+                    <span className="text-xl md:text-2xl lg:text-5xl font-black text-white leading-none">
                       {liveTotalTeams}
                     </span>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <div className="w-10 h-10 rounded-full border border-[#1de8ff]/70 bg-[#11154f] flex items-center justify-center shadow-[0_0_12px_rgba(29,232,255,0.35)]">
+                  <div className="flex items-center gap-1 md:gap-2 lg:gap-2">
+                    <div className="w-7 md:w-8 lg:w-10 h-7 md:h-8 lg:h-10 rounded-full border border-[#1de8ff]/70 bg-[#11154f] flex items-center justify-center shadow-[0_0_12px_rgba(29,232,255,0.35)]">
                       <svg
                         viewBox="0 0 24 24"
-                        className="w-5 h-5 text-[#19d9ff]"
+                        className="w-3 md:w-4 lg:w-5 h-3 md:h-4 lg:h-5 text-[#19d9ff]"
                         fill="currentColor"
                       >
                         <path d="M19 4h-3V2H8v2H5a1 1 0 0 0-1 1v3a5 5 0 0 0 4 4.9V16H6v2h12v-2h-2v-3.1A5 5 0 0 0 20 8V5a1 1 0 0 0-1-1Zm-1 4a3 3 0 0 1-2 2.82V6h2v2ZM6 8V6h2v4.82A3 3 0 0 1 6 8Z" />
                       </svg>
                     </div>
-                    <span className="text-5xl font-black text-white leading-none">
+                    <span className="text-xl md:text-2xl lg:text-5xl font-black text-white leading-none">
                       {liveQuestionPoints}
                     </span>
                   </div>
@@ -1516,14 +1592,14 @@ function VenueDisplayContent() {
             </div>
 
             {/* ── QUESTION CARD ── */}
-            <div className="w-full h-[85%] flex flex-col animate-fadeIn">
-              <div className="mx-auto w-full flex-1 rounded-2xl flex flex-col border border-white/20">
+            <div className="w-full flex-1 min-h-0 flex flex-col animate-fadeIn">
+              <div className="mx-auto w-full h-full flex-1 rounded-2xl flex flex-col border border-white/20">
                 {/* Media Section */}
-                <div className="relative rounded-t-2xl overflow-hidden shrink-0">
-                  <div className="absolute left-4 top-3 z-10 text-white text-2xl font-semibold drop-shadow-md">
+                <div className="relative rounded-t-2xl overflow-hidden shrink-0 h-40 sm:h-48 md:h-56 lg:h-72 xl:h-96">
+                  <div className="absolute left-2 sm:left-3 md:left-4 top-1 sm:top-2 md:top-3 z-10 text-white text-xs sm:text-sm md:text-base lg:text-lg xl:text-2xl font-semibold drop-shadow-md">
                     Question {(question.questionIndex || 0) + 1}/{question.totalQuestions}
                   </div>
-                  <div className="h-96">
+                  <div className="w-full h-full">
                     {resolveMediaUrl(question.question.mediaUrl) &&
                     (question.question.mediaType || '').toLowerCase() === 'image' ? (
                       <img
@@ -1540,11 +1616,11 @@ function VenueDisplayContent() {
                     )}
                   </div>
 
-                  {/* Timer Arch (Shows 0) */}
-                  <div className="absolute left-1/2 -translate-x-1/2 bottom-px z-30 w-64 h-32 overflow-hidden">
-                    <div className="absolute top-6 left-0 w-50 h-50 rounded-full p-2 bg-linear-to-r from-green-500 to-green-700 shadow-[0_0_20px_rgba(34,197,94,0.6)]">
-                      <div className="relative w-full h-full rounded-full bg-[#030818] border border-white/10 flex justify-center overflow-hidden">
-                        <span className="mt-6 text-6xl font-black text-white relative z-10 tracking-tighter drop-shadow-[0_0_10px_rgba(255,255,255,0.3)]">
+                  {/* Timer Arch - Responsive sizing */}
+                  <div className="absolute left-1/2 -translate-x-1/2 bottom-px z-30 w-40 h-20 sm:w-48 h-24 md:w-56 h-28 lg:w-64 h-32 overflow-hidden">
+                    <div className="absolute top-3 sm:top-4 md:top-5 lg:top-6 left-0 rounded-full p-1 sm:p-1.5 md:p-2 bg-linear-to-r from-green-500 to-green-700 shadow-[0_0_20px_rgba(34,197,94,0.6)]">
+                      <div className="relative w-32 h-32 sm:w-40 h-40 md:w-48 h-48 lg:w-56 h-56 rounded-full bg-[#030818] border border-white/10 flex justify-center overflow-hidden">
+                        <span className="mt-3 sm:mt-4 md:mt-6 lg:mt-8 text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-black text-white relative z-10 tracking-tighter drop-shadow-[0_0_10px_rgba(255,255,255,0.3)]">
                           0
                         </span>
                       </div>
@@ -1553,32 +1629,34 @@ function VenueDisplayContent() {
                 </div>
 
                 {/* Questions/Options Section */}
-                <div className="relative rounded-2xl border-t-2 border-t-white/50 flex-1 bg-linear-to-b from-[#100048] to-[#000000] z-20 pt-10 px-5 pb-5 ">
-                  <div className="mb-4">
-                    <p className="text-2xl font-bold text-white">
+                <div className="relative rounded-2xl border-t-2 border-t-white/50 flex-1 bg-linear-to-b from-[#100048] to-[#000000] z-20 pt-4 sm:pt-6 md:pt-8 lg:pt-10 px-3 sm:px-4 md:px-5 pb-3 sm:pb-4 md:pb-5 overflow-y-auto">
+                  <div className="mb-2 sm:mb-3 md:mb-4 lg:mb-5">
+                    <p className="text-xs sm:text-sm md:text-base lg:text-xl xl:text-2xl font-bold text-white leading-tight">
                       Q{(question.questionIndex || 0) + 1}. {question.question.text}
                     </p>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-2 gap-1 sm:gap-2 md:gap-3">
                     {question.question.options.map((opt, i) => {
                       const isCorrect = i === revealData.correctOptionIndex;
                       return (
                         <div
                           key={i}
                           className={cn(
-                            'rounded-lg border px-4 py-4 text-white font-bold text-2xl flex items-center transition-all duration-500 shadow-[0_8px_18px_rgba(0,0,0,0.35)]',
+                            'rounded-lg border px-2 sm:px-3 md:px-4 py-2 sm:py-3 md:py-4 text-white font-bold text-xs sm:text-sm md:text-base lg:text-lg xl:text-2xl flex items-center transition-all duration-500 shadow-[0_8px_18px_rgba(0,0,0,0.35)] min-h-12 sm:min-h-14 md:min-h-16',
                             VENUE_OPTION_COLOR_CLASSES[i % VENUE_OPTION_COLOR_CLASSES.length],
                             isCorrect
                               ? 'shadow-[0_0_8px_8px_rgba(57,255,74,0.9)] z-10 scale-[1.02]'
                               : 'opacity-30 brightness-50 contrast-75 scale-[0.98]',
                           )}
                         >
-                          <span className="font-black mr-3">{OPTION_LETTERS[i]}.</span>
-                          <span className="truncate">{opt.text}</span>
+                          <span className="font-black mr-1 sm:mr-2 md:mr-3 shrink-0">
+                            {OPTION_LETTERS[i]}.
+                          </span>
+                          <span className="truncate text-left flex-1">{opt.text}</span>
                           {isCorrect && (
-                            <div className="ml-auto w-8 h-8 rounded-full bg-green-500 flex items-center justify-center border-2 border-white shadow-lg">
-                              <span className="text-white text-xl">✓</span>
+                            <div className="ml-auto w-6 h-6 sm:w-7 h-7 md:w-8 h-8 rounded-full bg-green-500 flex items-center justify-center border-2 border-white shadow-lg shrink-0">
+                              <span className="text-white text-sm sm:text-base md:text-lg">✓</span>
                             </div>
                           )}
                         </div>
@@ -1593,15 +1671,17 @@ function VenueDisplayContent() {
 
         {/* Scoreboard */}
         {phase === 'scoreboard' && (
-          <div className="w-full h-full flex flex-col items-center justify-center p-6 animate-fadeIn">
-            <div className="w-full max-w-5xl rounded-[24px] border border-[#9fbeff]/70 bg-[linear-gradient(180deg,rgba(24,9,76,0.95)_0%,rgba(12,6,48,0.95)_100%)] shadow-[0_0_24px_rgba(0,216,255,0.25)] px-8 py-6">
-              <h3 className="text-[42px] font-black text-white text-center mb-3">Scoreboard</h3>
+          <div className="w-full h-full flex flex-col items-center justify-center p-3 sm:p-4 md:p-6 animate-fadeIn">
+            <div className="w-full max-w-2xl sm:max-w-3xl md:max-w-4xl lg:max-w-5xl rounded-lg sm:rounded-xl md:rounded-2xl lg:rounded-3xl border border-[#9fbeff]/70 bg-[linear-gradient(180deg,rgba(24,9,76,0.95)_0%,rgba(12,6,48,0.95)_100%)] shadow-[0_0_24px_rgba(0,216,255,0.25)] px-4 sm:px-6 md:px-8 py-3 sm:py-4 md:py-6 overflow-y-auto max-h-full">
+              <h3 className="text-2xl sm:text-3xl md:text-4xl lg:text-5xl font-black text-white text-center mb-2 sm:mb-3 md:mb-4">
+                Scoreboard
+              </h3>
 
-              <div className="text-center mb-5">
-                <p className="text-[52px] font-extrabold text-white leading-none">
+              <div className="text-center mb-3 sm:mb-4 md:mb-5">
+                <p className="text-lg sm:text-2xl md:text-3xl lg:text-4xl font-extrabold text-white leading-none">
                   The Correct Answer is :
                 </p>
-                <p className="text-[50px] font-extrabold text-[#39ff4a] leading-none mt-2">
+                <p className="text-xl sm:text-2xl md:text-3xl lg:text-4xl font-extrabold text-[#39ff4a] leading-none mt-1 sm:mt-2">
                   {(() => {
                     if (!revealData) return '-';
                     const idx = revealData.correctOptionIndex;
@@ -1616,14 +1696,13 @@ function VenueDisplayContent() {
                 </p>
               </div>
 
-              <div className="grid grid-cols-[110px_1.5fr_1fr_1fr] items-center px-5 mb-3 text-white text-[30px] font-bold">
+              <div className="grid grid-cols-4 items-center px-2 sm:px-4 md:px-5 mb-2 sm:mb-3 text-white text-xs sm:text-sm md:text-base lg:text-lg font-bold gap-1 sm:gap-2">
                 <div>Rank</div>
-                <div>Team Name</div>
-                <div>Option</div>
-                <div>Points</div>
+                <div className="col-span-2">Team Name</div>
+                <div>Pts</div>
               </div>
 
-              <div className="space-y-3">
+              <div className="space-y-1 sm:space-y-2 md:space-y-3">
                 {scoreboard.slice(0, 8).map((team, idx) => {
                   const response = revealData?.responseDetails?.find(
                     (r) => Number(r.teamId) === Number(team.teamId),
@@ -1638,18 +1717,19 @@ function VenueDisplayContent() {
                   return (
                     <div
                       key={team.teamId}
-                      className="grid grid-cols-[110px_1.5fr_1fr_1fr] items-center rounded-[10px] border border-[#2ec7ff]/50 bg-[linear-gradient(90deg,#2c00a8_0%,#9a00b8_100%)] px-5 py-3 text-white text-[28px] font-semibold"
+                      className="grid grid-cols-4 items-center rounded-lg border border-[#2ec7ff]/50 bg-[linear-to-b_#2c00a8_0%,_#9a00b8_100%] px-2 sm:px-3 md:px-4 py-2 sm:py-2 md:py-3 text-white text-xs sm:text-sm md:text-base font-semibold gap-1 sm:gap-2"
                     >
                       <div>
-                        <span className="inline-flex h-10 min-w-10 items-center justify-center rounded bg-[#080327] px-3 text-[24px] font-bold">
+                        <span className="inline-flex h-6 sm:h-8 md:h-10 min-w-6 sm:min-w-8 md:min-w-10 items-center justify-center rounded bg-[#080327] px-1.5 sm:px-2 md:px-3 text-[12px] sm:text-[14px] md:text-[16px] lg:text-[18px] font-bold">
                           {idx + 1}
                         </span>
                       </div>
-                      <div className={cn(team.isEliminated && 'line-through opacity-60')}>
+                      <div
+                        className={cn('col-span-2', team.isEliminated && 'line-through opacity-60')}
+                      >
                         {team.teamName}
                       </div>
-                      <div>{selectedLabel}</div>
-                      <div className="text-[#00f0ff]">
+                      <div className="text-[#00f0ff] text-right">
                         {totalScore >= 0 ? '+' : ''}
                         {totalScore}
                       </div>

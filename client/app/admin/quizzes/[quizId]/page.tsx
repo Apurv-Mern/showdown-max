@@ -85,6 +85,19 @@ const ROUND_TYPE_COLORS: Record<string, string> = {
   FINAL_WAGER: 'bg-orange-500/20 text-orange-400',
 };
 
+const getRoundDisplayName = (round: Round) => {
+  const base = (round.name || '').trim();
+  const typeLabel = ROUND_TYPE_LABELS[round.type] || round.type.replace(/_/g, ' ');
+
+  if (!base) return typeLabel;
+
+  const normalizedBase = base.replace(/\s+/g, ' ').toLowerCase();
+  const normalizedType = typeLabel.replace(/\s+/g, ' ').toLowerCase();
+  if (normalizedBase.includes(normalizedType)) return base;
+
+  return `${base} - ${typeLabel}`;
+};
+
 interface NewQuestion {
   text: string;
   category: string;
@@ -496,7 +509,7 @@ export default function QuizDetailPage() {
                     }}
                     disabled={idx === 0}
                     className="flex h-6 w-6 items-center justify-center rounded border border-[rgba(0,217,255,0.35)] bg-[#1f253e] text-xs text-white/80 disabled:cursor-not-allowed disabled:opacity-40"
-                    aria-label={`Move ${round.name} up`}
+                    aria-label={`Move ${getRoundDisplayName(round)} up`}
                   >
                     ↑
                   </button>
@@ -508,12 +521,12 @@ export default function QuizDetailPage() {
                     }}
                     disabled={idx === sortedRounds.length - 1}
                     className="flex h-6 w-6 items-center justify-center rounded border border-[rgba(0,217,255,0.35)] bg-[#1f253e] text-xs text-white/80 disabled:cursor-not-allowed disabled:opacity-40"
-                    aria-label={`Move ${round.name} down`}
+                    aria-label={`Move ${getRoundDisplayName(round)} down`}
                   >
                     ↓
                   </button>
                 </div>
-                {round.name}
+                {getRoundDisplayName(round)}
               </button>
             );
           })}
@@ -531,7 +544,7 @@ export default function QuizDetailPage() {
         >
           <div className="flex flex-wrap items-center justify-between gap-3">
             <h2 className="text-xl font-medium leading-7 text-[#00d9ff]">
-              Round Configuration — {selectedRound.name}
+              Round Configuration — {getRoundDisplayName(selectedRound)}
             </h2>
           </div>
           <div className="grid grid-cols-1 gap-6 lg:grid-cols-2 lg:gap-8">
@@ -617,7 +630,7 @@ export default function QuizDetailPage() {
             <div>
               <div className="flex items-center gap-3">
                 <span className="font-mono text-sm text-foreground/30">R{roundIdx + 1}</span>
-                <h2 className="text-lg font-semibold text-white">{selectedRound.name}</h2>
+                <h2 className="text-lg font-semibold text-white">{getRoundDisplayName(selectedRound)}</h2>
               </div>
               <div className="mt-1.5 flex flex-wrap gap-2">
                 <span

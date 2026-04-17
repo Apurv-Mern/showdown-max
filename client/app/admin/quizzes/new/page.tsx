@@ -22,13 +22,13 @@ interface RoundInput {
 }
 
 const PREDEFINED_ROUNDS: RoundInput[] = [
-  { name: 'Round 1', type: 'MULTIPLE_CHOICE', timerDuration: 30 },
-  { name: 'Round 2', type: 'WAGER', timerDuration: 30 },
-  { name: 'Round 3', type: 'MUSIC', timerDuration: 30 },
-  { name: 'Round 4', type: 'ELIMINATION', timerDuration: 30 },
-  { name: 'Round 5', type: 'MAJORITY_RULES', timerDuration: 30 },
-  { name: 'Round 6', type: 'FINAL_MULTIPLE_CHOICE', timerDuration: 30 },
-  { name: 'Round 7', type: 'FINAL_WAGER', timerDuration: 30 },
+  { name: 'Round 1 - Multiple Choice', type: 'MULTIPLE_CHOICE', timerDuration: 30 },
+  { name: 'Round 2 - Wager', type: 'WAGER', timerDuration: 30 },
+  { name: 'Round 3 - Music', type: 'MUSIC', timerDuration: 30 },
+  { name: 'Round 4 - Elimination', type: 'ELIMINATION', timerDuration: 30 },
+  { name: 'Round 5 - Majority Rules', type: 'MAJORITY_RULES', timerDuration: 30 },
+  { name: 'Round 6 - Final Multiple Choice', type: 'FINAL_MULTIPLE_CHOICE', timerDuration: 30 },
+  { name: 'Round 7 - Final Wager', type: 'FINAL_WAGER', timerDuration: 30 },
 ];
 
 export default function NewQuizPage() {

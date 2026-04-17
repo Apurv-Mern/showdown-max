@@ -1315,12 +1315,16 @@ export default function GamePage() {
                     className="mt-3 flex flex-col gap-3 sm:mt-4 sm:gap-4"
                   >
                     {question.question.options.map((opt, i) => {
+                      const isMajorityRulesRound =
+                        (question.roundType || '').toUpperCase() === 'MAJORITY_RULES';
                       const isCorrectOption = i === revealData.correctOptionIndex;
                       const isSelectedOption = selectedOption === i;
                       const isSelectedWrong = isSelectedOption && !isCorrectOption;
                       // Dim all incorrect options; keep full style on correct + user's wrong pick (red).
                       // When the user never submitted, selectedOption is null — still dim wrong answers.
-                      const shouldDim = !isCorrectOption && !isSelectedWrong;
+                      const shouldDim = isMajorityRulesRound
+                        ? selectedOption !== null && !isSelectedOption
+                        : !isCorrectOption && !isSelectedWrong;
 
                       return (
                         <motion.div
@@ -1330,10 +1334,15 @@ export default function GamePage() {
                             'flex min-h-14 w-full items-center justify-start rounded-xl px-4 py-3 text-white font-bold sm:min-h-16 sm:px-6 sm:py-4 md:min-h-[4.75rem]',
                             'touch-manipulation select-none transition-all',
                             OPTION_BG[i] || 'bg-[#1565c0]',
-                            isCorrectOption &&
+                            !isMajorityRulesRound &&
+                              isCorrectOption &&
                               'shadow-[0_0_8px_8px_rgba(57,255,74,0.9),_0_0_0px_rgba(57,255,74,0.5)]',
-                            isSelectedWrong &&
+                            !isMajorityRulesRound &&
+                              isSelectedWrong &&
                               'shadow-[0_0_8px_8px_rgba(255,37,37,0.8),_0_0_0px_rgba(255,37,37,0.5)]',
+                            isMajorityRulesRound &&
+                              isSelectedOption &&
+                              'ring-2 ring-[#00e5ff] shadow-[0_0_8px_8px_rgba(0,229,255,0.65)]',
                             shouldDim && 'opacity-30 brightness-50 contrast-75 scale-[0.98]',
                           )}
                         >
@@ -1352,22 +1361,49 @@ export default function GamePage() {
                   transition={{ delay: 0.2 }}
                   className="mt-8 text-center"
                 >
-                  <p
-                    className={cn(
-                      'text-lg font-black leading-none sm:text-xl md:text-2xl',
-                      selectedOption === null
-                        ? 'text-white drop-shadow-[0_0_15px_rgba(255,255,255,0.4)]'
-                        : selectedOption === revealData.correctOptionIndex
-                          ? 'text-[#53ff57] drop-shadow-[0_0_15px_rgba(83,255,87,0.8)]'
-                          : 'text-[#ff2525] drop-shadow-[0_0_15px_rgba(255,37,37,0.8)]',
-                    )}
-                  >
-                    {selectedOption === null
-                      ? 'No Answer Submitted !! (0)'
-                      : selectedOption === revealData.correctOptionIndex
-                        ? `That's Correct !! (+${Math.max(pointsGained ?? 0, 0)})`
-                        : `Oops Wrong Answer !! (${pointsGained ?? 0})`}
-                  </p>
+                  {(() => {
+                    const isMajorityRulesRound =
+                      (question.roundType || '').toUpperCase() === 'MAJORITY_RULES';
+                    if (!isMajorityRulesRound) {
+                      return (
+                        <p
+                          className={cn(
+                            'text-lg font-black leading-none sm:text-xl md:text-2xl',
+                            selectedOption === null
+                              ? 'text-white drop-shadow-[0_0_15px_rgba(255,255,255,0.4)]'
+                              : selectedOption === revealData.correctOptionIndex
+                                ? 'text-[#53ff57] drop-shadow-[0_0_15px_rgba(83,255,87,0.8)]'
+                                : 'text-[#ff2525] drop-shadow-[0_0_15px_rgba(255,37,37,0.8)]',
+                          )}
+                        >
+                          {selectedOption === null
+                            ? 'No Answer Submitted !! (0)'
+                            : selectedOption === revealData.correctOptionIndex
+                              ? `That's Correct !! (+${Math.max(pointsGained ?? 0, 0)})`
+                              : `Oops Wrong Answer !! (${pointsGained ?? 0})`}
+                        </p>
+                      );
+                    }
+
+                    return (
+                      <p
+                        className={cn(
+                          'text-lg font-black leading-none sm:text-xl md:text-2xl',
+                          selectedOption === null
+                            ? 'text-white drop-shadow-[0_0_15px_rgba(255,255,255,0.4)]'
+                            : (pointsGained ?? 0) > 0
+                              ? 'text-[#53ff57] drop-shadow-[0_0_15px_rgba(83,255,87,0.8)]'
+                              : 'text-[#ff2525] drop-shadow-[0_0_15px_rgba(255,37,37,0.8)]',
+                        )}
+                      >
+                        {selectedOption === null
+                          ? 'No Vote Submitted !! (0)'
+                          : (pointsGained ?? 0) > 0
+                            ? `Majority Vote !! (+${Math.max(pointsGained ?? 0, 0)})`
+                            : `Minority Vote !! (${pointsGained ?? -50})`}
+                      </p>
+                    );
+                  })()}
                 </motion.div>
               </motion.div>
             )}

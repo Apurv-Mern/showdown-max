@@ -21,32 +21,39 @@ interface RoundInput {
   timerDuration: number;
 }
 
+const PREDEFINED_ROUNDS: RoundInput[] = [
+  { name: 'Round 1', type: 'MULTIPLE_CHOICE', timerDuration: 30 },
+  { name: 'Round 2', type: 'WAGER', timerDuration: 30 },
+  { name: 'Round 3', type: 'MUSIC', timerDuration: 30 },
+  { name: 'Round 4', type: 'ELIMINATION', timerDuration: 30 },
+  { name: 'Round 5', type: 'MAJORITY_RULES', timerDuration: 30 },
+  { name: 'Round 6', type: 'FINAL_MULTIPLE_CHOICE', timerDuration: 30 },
+  { name: 'Round 7', type: 'FINAL_WAGER', timerDuration: 30 },
+];
+
 export default function NewQuizPage() {
   const router = useRouter();
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
-  const [rounds, setRounds] = useState<RoundInput[]>([
-    { name: 'Round 1', type: 'MULTIPLE_CHOICE', timerDuration: 30 },
-  ]);
+  const [rounds, setRounds] = useState<RoundInput[]>(PREDEFINED_ROUNDS);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
-  const addRound = () => {
-    setRounds((prev) => [
-      ...prev,
-      { name: `Round ${prev.length + 1}`, type: 'MULTIPLE_CHOICE', timerDuration: 30 },
-    ]);
-  };
-
-  const removeRound = (index: number) => {
-    if (rounds.length <= 1) return;
-    setRounds((prev) => prev.filter((_, i) => i !== index));
-  };
-
   const updateRound = (index: number, field: keyof RoundInput, value: string | number) => {
-    setRounds((prev) =>
-      prev.map((r, i) => (i === index ? { ...r, [field]: value } : r)),
-    );
+    setRounds((prev) => prev.map((r, i) => (i === index ? { ...r, [field]: value } : r)));
+  };
+
+  const moveRound = (index: number, direction: 'up' | 'down') => {
+    const targetIndex = direction === 'up' ? index - 1 : index + 1;
+    if (targetIndex < 0 || targetIndex >= rounds.length) return;
+
+    setRounds((prev) => {
+      const next = [...prev];
+      const temp = next[index];
+      next[index] = next[targetIndex];
+      next[targetIndex] = temp;
+      return next;
+    });
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -57,8 +64,8 @@ export default function NewQuizPage() {
       setError('Quiz title is required');
       return;
     }
-    if (rounds.length === 0) {
-      setError('At least one round is required');
+    if (rounds.length !== 7) {
+      setError('Exactly 7 rounds are required');
       return;
     }
 
@@ -119,9 +126,7 @@ export default function NewQuizPage() {
         <div>
           <div className="flex items-center justify-between mb-3">
             <label className="text-sm font-medium text-foreground/70">Rounds</label>
-            <Button type="button" variant="ghost" size="sm" onClick={addRound}>
-              + Add Round
-            </Button>
+            <span className="text-xs text-foreground/50">Fixed 7 rounds</span>
           </div>
 
           <div className="space-y-3">
@@ -145,7 +150,9 @@ export default function NewQuizPage() {
                     className="bg-surface-light border border-border rounded-lg px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
                   >
                     {ROUND_TYPES.map((rt) => (
-                      <option key={rt.value} value={rt.value}>{rt.label}</option>
+                      <option key={rt.value} value={rt.value}>
+                        {rt.label}
+                      </option>
                     ))}
                   </select>
                   <div className="flex items-center gap-2">
@@ -160,16 +167,28 @@ export default function NewQuizPage() {
                     <span className="text-xs text-foreground/40">sec</span>
                   </div>
                 </div>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => removeRound(index)}
-                  disabled={rounds.length <= 1}
-                  className="text-danger/70 hover:text-danger mt-1"
-                >
-                  ✕
-                </Button>
+                <div className="flex gap-1 mt-1">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => moveRound(index, 'up')}
+                    disabled={index === 0}
+                    aria-label={`Move ${round.name} up`}
+                  >
+                    ↑
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => moveRound(index, 'down')}
+                    disabled={index === rounds.length - 1}
+                    aria-label={`Move ${round.name} down`}
+                  >
+                    ↓
+                  </Button>
+                </div>
               </div>
             ))}
           </div>

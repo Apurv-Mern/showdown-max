@@ -17,30 +17,50 @@ import { PUBLIC_API_URL } from '@/lib/env';
 
 const API_URL = PUBLIC_API_URL;
 
-function formatRoundTypeLabel(type: string): string {
-  return type
+function formatRoundTypeLabel(type?: string): string {
+  return (type || 'Round')
     .split('_')
     .map((w) => w.charAt(0) + w.slice(1).toLowerCase())
     .join(' ');
 }
 
-function normalizeRoundTitle(name?: string): string {
-  if (!name) return '';
-  return name.replace(/^round\s*\d+\s*-\s*/i, '').trim();
+function normalizeRoundIntroTitle(name?: string, roundType?: string, roundIndex?: number): string {
+  const raw = (name || '').trim();
+  const fallback = formatRoundTypeLabel(roundType);
+  if (!raw) return fallback || `Round ${(roundIndex || 0) + 1}`;
+
+  const withoutPrefix = raw
+    .replace(new RegExp(`^round\\s*${(roundIndex || 0) + 1}\\s*[-:–]*\\s*`, 'i'), '')
+    .replace(/^round\s*\d+\s*[-:–]*\s*/i, '')
+    .trim();
+
+  if (!withoutPrefix) return fallback || `Round ${(roundIndex || 0) + 1}`;
+
+  const normalizedRaw = withoutPrefix.replace(/\s+/g, ' ').toLowerCase();
+  const normalizedFallback = fallback.replace(/\s+/g, ' ').toLowerCase();
+
+  if (normalizedFallback && normalizedRaw.includes(normalizedFallback)) {
+    return fallback;
+  }
+
+  return withoutPrefix;
 }
 
 function getRoundScoringLines(roundType?: string) {
   const type = (roundType || '').toUpperCase();
   if (type === 'WAGER') {
-    return { positive: 'Gain wagered points', negative: 'Lose wagered points' };
+    return {
+      positive: '+0 to +50 points for correct answers',
+      negative: '-0 to -50 points for incorrect answers',
+    };
   }
   if (type === 'FINAL_WAGER') {
-    return { positive: 'Gain wagered % of score', negative: 'Lose wagered % of score' };
+    return { positive: '+wagered percentage of score', negative: '-wagered percentage of score' };
   }
   if (type === 'MAJORITY_RULES') {
-    return { positive: '+50 majority vote', negative: '-50 minority vote' };
+    return { positive: '+50 points for majority answers', negative: '-50 points for minority answers' };
   }
-  return { positive: '+10 correct answers', negative: '-2 incorrect answers' };
+  return { positive: '+10 points for correct answers', negative: '-2 points for incorrect answers' };
 }
 
 const KANGAROO_SLOTS = [1, 2, 3, 4, 5, 6] as const;
@@ -120,6 +140,8 @@ interface RevealData {
   correctOptionIndex: number;
   correctText: string;
   scores: Record<string, number>;
+  majorityOptionIndexes?: number[];
+  voteCounts?: Record<string, number>;
   eliminations: number[];
   allWrong: boolean;
   teams: Team[];
@@ -1276,6 +1298,8 @@ function HostDashboardContent() {
   }, [showTimerModal, closeTimerModal]);
 
   const currentRound = gameState?.rounds?.[gameState.currentRoundIndex];
+  const isMajorityRulesLiveRound =
+    (currentQuestion?.roundType || currentRound?.type || '').toUpperCase() === 'MAJORITY_RULES';
   const isCurrentRoundWagerLockRound =
     currentRound?.type === 'WAGER' || currentRound?.type === 'FINAL_WAGER';
   const state = gameState?.state || 'LOBBY';
@@ -1868,14 +1892,24 @@ function HostDashboardContent() {
 
                   <div className="grid grid-cols-2 gap-3 pb-2 pt-2">
                     {currentQuestion.question.options.map((opt, i) => {
-                      const isCorrect = revealData && i === revealData.correctOptionIndex;
+                      const isMajorityRulesRound =
+                        (currentQuestion.roundType || '').toUpperCase() === 'MAJORITY_RULES';
+                      const majorityOptionIndexes = new Set(
+                        revealData?.majorityOptionIndexes || [],
+                      );
+                      const isRevealedWinner = Boolean(
+                        revealData &&
+                        (isMajorityRulesRound
+                          ? majorityOptionIndexes.has(i)
+                          : i === revealData.correctOptionIndex),
+                      );
                       return (
                         <div
                           key={i}
                           className={cn(
                             'flex h-[57px] items-center rounded-xl border-2 px-4 py-4 text-base font-black text-white transition-all shadow-[0_4px_12px_rgba(0,0,0,0.5)]',
                             VENUE_OPTION_COLOR_CLASSES[i % VENUE_OPTION_COLOR_CLASSES.length],
-                            isCorrect
+                            isRevealedWinner
                               ? 'z-10 scale-[1.03] shadow-[0_0_12px_8px_rgba(57,255,74,0.8)]'
                               : revealData
                                 ? 'scale-[0.98] brightness-50 contrast-75 opacity-30'
@@ -1886,7 +1920,7 @@ function HostDashboardContent() {
                             {OPTION_LETTERS[i]}.
                           </span>
                           <span className="flex-1 truncate">{opt.text}</span>
-                          {isCorrect && (
+                          {isRevealedWinner && (
                             <div className="ml-2 flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-white bg-green-500 shadow-lg">
                               <span className="text-sm text-white">✓</span>
                             </div>
@@ -1936,7 +1970,8 @@ function HostDashboardContent() {
                       <p className="max-w-md text-lg text-[#ffc400]/80">
                         Players are locking in their wager amounts on their devices.
                         <br />
-                        Press <span className="font-bold text-white">
+                        Press{' '}
+                        <span className="font-bold text-white">
                           &quot;Start Question&quot;
                         </span>{' '}
                         when ready to begin.
@@ -1956,8 +1991,11 @@ function HostDashboardContent() {
                             ROUND {(gameState?.currentRoundIndex || 0) + 1}
                           </h2>
                           <p className="mt-2 text-[28px] leading-[1.05] font-extrabold text-[#25eaff] drop-shadow-[0_0_16px_rgba(37,234,255,0.55)]">
-                            {normalizeRoundTitle(currentRound?.name) ||
-                              formatRoundTypeLabel(currentRound?.type || 'MULTIPLE_CHOICE')}
+                            {normalizeRoundIntroTitle(
+                              currentRound?.name,
+                              currentRound?.type,
+                              gameState?.currentRoundIndex,
+                            )}
                           </p>
                         </div>
 
@@ -2068,8 +2106,11 @@ function HostDashboardContent() {
                     {isLastRound
                       ? 'All Rounds Finished'
                       : currentRound
-                        ? normalizeRoundTitle(currentRound.name) ||
-                          formatRoundTypeLabel(currentRound.type || 'MULTIPLE_CHOICE')
+                        ? normalizeRoundIntroTitle(
+                          currentRound.name,
+                          currentRound.type,
+                          gameState?.currentRoundIndex,
+                        )
                         : 'This round is finished'}
                   </h2>
                   <p className="max-w-md text-base text-[#9de9ff]/90 sm:text-lg">
@@ -2122,19 +2163,19 @@ function HostDashboardContent() {
                 <div className="space-y-4">
                   {[
                     {
-                      label: 'Correct',
+                      label: isMajorityRulesLiveRound ? 'Majority' : 'Correct',
                       value: liveResponses.correct,
                       color: 'from-[#00ff00] to-[#008000]',
                       track: 'bg-[#3d7a3d]/60',
-                      icon: '✓',
+                      icon: isMajorityRulesLiveRound ? '+' : '✓',
                       iconBg: 'bg-green-500',
                     },
                     {
-                      label: 'Incorrect',
+                      label: isMajorityRulesLiveRound ? 'Minority' : 'Incorrect',
                       value: liveResponses.incorrect,
                       color: 'from-[#ff0000] to-[#800000]',
                       track: 'bg-[#7a3d3d]/60',
-                      icon: '×',
+                      icon: isMajorityRulesLiveRound ? '-' : '×',
                       iconBg: 'bg-red-500',
                     },
                     {
@@ -2510,8 +2551,11 @@ function HostDashboardContent() {
                           ROUND {(gameState?.currentRoundIndex ?? 0) + 1}
                         </h2>
                         <p className="mt-2 text-[34px] leading-[1.05] font-extrabold text-[#25eaff] drop-shadow-[0_0_16px_rgba(37,234,255,0.55)]">
-                          {normalizeRoundTitle(currentRound?.name) ||
-                            formatRoundTypeLabel(currentRound?.type || 'MULTIPLE_CHOICE')}
+                          {normalizeRoundIntroTitle(
+                            currentRound?.name,
+                            currentRound?.type,
+                            gameState?.currentRoundIndex,
+                          )}
                         </p>
                       </div>
 

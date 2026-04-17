@@ -121,24 +121,26 @@ export default function QuizDetailPage() {
   const [uploading, setUploading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [selectedRoundId, setSelectedRoundId] = useState<number | null>(null);
-  const [addingRound, setAddingRound] = useState(false);
   const [isEditingInfo, setIsEditingInfo] = useState(false);
   const [editTitle, setEditTitle] = useState('');
   const [editDescription, setEditDescription] = useState('');
   const [savingInfo, setSavingInfo] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const fetchQuiz = useCallback(async (isInitialLoad = false) => {
-    try {
-      if (isInitialLoad) setLoading(true);
-      const res = await api.get<Quiz>(`/api/quizzes/${quizId}`);
-      setQuiz(res.data);
-    } catch {
-      router.push('/admin/quizzes');
-    } finally {
-      if (isInitialLoad) setLoading(false);
-    }
-  }, [quizId, router]);
+  const fetchQuiz = useCallback(
+    async (isInitialLoad = false) => {
+      try {
+        if (isInitialLoad) setLoading(true);
+        const res = await api.get<Quiz>(`/api/quizzes/${quizId}`);
+        setQuiz(res.data);
+      } catch {
+        router.push('/admin/quizzes');
+      } finally {
+        if (isInitialLoad) setLoading(false);
+      }
+    },
+    [quizId, router],
+  );
 
   useEffect(() => {
     fetchQuiz(true);
@@ -162,56 +164,6 @@ export default function QuizDetailPage() {
   );
 
   const selectedRound = sortedRounds.find((r) => r.id === selectedRoundId) ?? null;
-  const canAddRound = sortedRounds.length < 7;
-
-  const handleAddRound = async () => {
-    if (!quiz || !canAddRound) return;
-    setAddingRound(true);
-    try {
-      const n = sortedRounds.length + 1;
-      const res = await api.post<Round>('/api/rounds', {
-        quizId: quiz.id,
-        name: `Round ${n}`,
-        type: 'MULTIPLE_CHOICE',
-        timerDuration: 60,
-      });
-      await fetchQuiz();
-      setSelectedRoundId(res.data.id);
-      toast.success('Round added successfully');
-    } catch (e: unknown) {
-      toast.error(e instanceof Error ? e.message : 'Failed to add round');
-    } finally {
-      setAddingRound(false);
-    }
-  };
-
-  const handleDeleteRound = async (roundId: number) => {
-    const roundToDelete = sortedRounds.find((round) => round.id === roundId);
-    if (!roundToDelete) return;
-    if (sortedRounds.length <= 1) {
-      toast.error('At least one round is required');
-      return;
-    }
-
-    const confirmed = confirm(
-      `Delete "${roundToDelete.name}" and all questions inside it?`,
-    );
-    if (!confirmed) return;
-
-    try {
-      await api.delete(`/api/rounds/${roundId}`);
-
-      const remainingRounds = sortedRounds.filter((round) => round.id !== roundId);
-      setSelectedRoundId((current) =>
-        current === roundId ? (remainingRounds[0]?.id ?? null) : current,
-      );
-
-      await fetchQuiz();
-      toast.success('Round deleted');
-    } catch (err: any) {
-      toast.error(err.message || 'Failed to delete round');
-    }
-  };
 
   const startEditingInfo = () => {
     if (!quiz) return;
@@ -222,7 +174,7 @@ export default function QuizDetailPage() {
 
   const saveQuizInfo = async () => {
     if (!editTitle.trim()) {
-      toast.error("Title is required");
+      toast.error('Title is required');
       return;
     }
     try {
@@ -234,8 +186,8 @@ export default function QuizDetailPage() {
       await fetchQuiz();
       setIsEditingInfo(false);
       toast.success('Quiz info updated successfully');
-    } catch(err: any) {
-      toast.error(err.message || "Failed to update quiz info");
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to update quiz info');
     } finally {
       setSavingInfo(false);
     }
@@ -251,6 +203,32 @@ export default function QuizDetailPage() {
       toast.success('Round updated');
     } catch (e: unknown) {
       toast.error(e instanceof Error ? e.message : 'Failed to update round');
+    }
+  };
+
+  const moveRound = async (roundId: number, direction: 'up' | 'down') => {
+    if (!quiz) return;
+
+    const currentIndex = sortedRounds.findIndex((round) => round.id === roundId);
+    if (currentIndex < 0) return;
+
+    const targetIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1;
+    if (targetIndex < 0 || targetIndex >= sortedRounds.length) return;
+
+    const reordered = [...sortedRounds];
+    const temp = reordered[currentIndex];
+    reordered[currentIndex] = reordered[targetIndex];
+    reordered[targetIndex] = temp;
+
+    try {
+      await api.put(`/api/rounds/reorder/${quiz.id}`, {
+        roundIds: reordered.map((round) => round.id),
+      });
+      await fetchQuiz();
+      setSelectedRoundId(roundId);
+      toast.success('Round order updated');
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : 'Failed to reorder rounds');
     }
   };
 
@@ -411,31 +389,9 @@ export default function QuizDetailPage() {
             <Link href="/admin/quizzes">
               <Button variant="ghost">&larr; Back</Button>
             </Link>
-            {canAddRound ? (
-              <button
-                type="button"
-                onClick={handleAddRound}
-                disabled={addingRound}
-                className="flex h-12 items-center gap-3 rounded-[14px] bg-[#2e354c] px-5 text-base font-medium text-white transition-colors duration-200 hover:bg-[#3a4260] disabled:opacity-50"
-              >
-                <svg
-                  width="20"
-                  height="20"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                >
-                  <line x1="12" y1="5" x2="12" y2="19" />
-                  <line x1="5" y1="12" x2="19" y2="12" />
-                </svg>
-                {addingRound ? 'Adding…' : 'Add Round'}
-              </button>
-            ) : (
-              <div className="rounded-[14px] border border-[rgba(0,217,255,0.3)] bg-[#252b45] px-4 py-3 text-sm text-white/70">
-                Maximum 7 rounds added
-              </div>
-            )}
+            <div className="rounded-[14px] border border-[rgba(0,217,255,0.3)] bg-[#252b45] px-4 py-3 text-sm text-white/70">
+              7 fixed rounds
+            </div>
           </div>
         </div>
 
@@ -477,12 +433,12 @@ export default function QuizDetailPage() {
                 {quiz.rounds.length} rounds · {totalQuestions} questions
               </p>
             </div>
-            <Button variant="ghost" size="sm" onClick={startEditingInfo} className='border' >
+            <Button variant="ghost" size="sm" onClick={startEditingInfo} className="border">
               ✎ Edit Info
             </Button>
           </div>
         )}
-      </div>  
+      </div>
 
       {/* Round Builder Timeline — Figma 232:1251 */}
       <section
@@ -531,29 +487,36 @@ export default function QuizDetailPage() {
                 <span className="pointer-events-none absolute right-2 top-2 text-[10px] text-white/40">
                   {idx + 1}
                 </span>
+                <div className="absolute bottom-2 left-2 z-10 flex gap-1">
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      void moveRound(round.id, 'up');
+                    }}
+                    disabled={idx === 0}
+                    className="flex h-6 w-6 items-center justify-center rounded border border-[rgba(0,217,255,0.35)] bg-[#1f253e] text-xs text-white/80 disabled:cursor-not-allowed disabled:opacity-40"
+                    aria-label={`Move ${round.name} up`}
+                  >
+                    ↑
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      void moveRound(round.id, 'down');
+                    }}
+                    disabled={idx === sortedRounds.length - 1}
+                    className="flex h-6 w-6 items-center justify-center rounded border border-[rgba(0,217,255,0.35)] bg-[#1f253e] text-xs text-white/80 disabled:cursor-not-allowed disabled:opacity-40"
+                    aria-label={`Move ${round.name} down`}
+                  >
+                    ↓
+                  </button>
+                </div>
                 {round.name}
               </button>
             );
           })}
-          {/* <button
-            type="button"
-            onClick={handleAddRound}
-            disabled={addingRound}
-            className="flex h-24 w-40 shrink-0 items-center justify-center rounded-[14px] border-2 border-dashed border-[rgba(0,217,255,0.5)] text-[#00d9ff] transition-colors duration-150 hover:bg-[rgba(0,217,255,0.06)] disabled:opacity-50"
-            aria-label="Add round"
-          >
-            <svg
-              width="24"
-              height="24"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-            >
-              <line x1="12" y1="5" x2="12" y2="19" />
-              <line x1="5" y1="12" x2="19" y2="12" />
-            </svg>
-          </button> */}
         </div>
       </section>
 
@@ -570,15 +533,6 @@ export default function QuizDetailPage() {
             <h2 className="text-xl font-medium leading-7 text-[#00d9ff]">
               Round Configuration — {selectedRound.name}
             </h2>
-            {sortedRounds.length > 1 && (
-              <button
-                type="button"
-                onClick={() => void handleDeleteRound(selectedRound.id)}
-                className="rounded-[12px] border border-red-500/40 bg-red-500/10 px-4 py-2 text-sm font-medium text-red-300 transition hover:bg-red-500/20"
-              >
-                Delete This Round
-              </button>
-            )}
           </div>
           <div className="grid grid-cols-1 gap-6 lg:grid-cols-2 lg:gap-8">
             <div className="flex flex-col gap-2">
@@ -751,7 +705,7 @@ export default function QuizDetailPage() {
         </div>
       ) : (
         <div className="rounded-xl border border-dashed border-[rgba(0,217,255,0.3)] py-12 text-center text-white/50">
-          No rounds yet — use &quot;Add Round&quot; to create one.
+          No rounds configured.
         </div>
       )}
 

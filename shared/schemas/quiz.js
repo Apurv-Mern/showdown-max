@@ -12,9 +12,11 @@ const roundSchema = z.object({
 const createQuizSchema = z.object({
   title: z.string().min(1).max(200),
   description: z.string().max(500).optional(),
-  rounds: z.array(roundSchema).min(1),
+  rounds: z.array(roundSchema).length(7),
 });
 
-const updateQuizSchema = createQuizSchema.partial();
+const updateQuizSchema = createQuizSchema.partial().extend({
+  rounds: z.array(roundSchema).length(7).optional(),
+});
 
 module.exports = { roundSchema, createQuizSchema, updateQuizSchema };

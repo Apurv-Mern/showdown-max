@@ -41,11 +41,18 @@ const parseSelectedOptionIndex = (rawResponse) => {
 const buildLiveResponseStats = (gameState, question, responsesRaw = {}) => {
   const activeTeamIds = Array.isArray(gameState?.activeTeamIds) ? gameState.activeTeamIds : [];
   const total = activeTeamIds.length;
+  const roundType = (
+    question?.roundType ||
+    gameState?.rounds?.[gameState?.currentRoundIndex]?.type ||
+    ''
+  ).toUpperCase();
   const correctOptionIndex = (question?.options || []).findIndex((o) => o?.isCorrect);
 
   let correct = 0;
   let incorrect = 0;
   let noAnswer = 0;
+  const answeredSelections = [];
+  const voteCounts = {};
 
   for (const teamId of activeTeamIds) {
     const key = String(teamId);
@@ -56,10 +63,38 @@ const buildLiveResponseStats = (gameState, question, responsesRaw = {}) => {
     }
 
     const selectedOptionIndex = parseSelectedOptionIndex(raw);
-    if (selectedOptionIndex >= 0 && selectedOptionIndex === correctOptionIndex) {
-      correct += 1;
+    if (selectedOptionIndex >= 0) {
+      answeredSelections.push(selectedOptionIndex);
+      voteCounts[selectedOptionIndex] = (voteCounts[selectedOptionIndex] || 0) + 1;
+
+      if (roundType !== ROUND_TYPES.MAJORITY_RULES && selectedOptionIndex === correctOptionIndex) {
+        correct += 1;
+      }
     } else {
-      incorrect += 1;
+      noAnswer += 1;
+    }
+  }
+
+  if (roundType === ROUND_TYPES.MAJORITY_RULES) {
+    const maxVotes = Math.max(...Object.values(voteCounts), 0);
+    const majorityOptions = new Set(
+      Object.entries(voteCounts)
+        .filter(([, count]) => Number(count) === maxVotes && maxVotes > 0)
+        .map(([idx]) => Number(idx)),
+    );
+
+    for (const selectedOptionIndex of answeredSelections) {
+      if (majorityOptions.has(selectedOptionIndex)) {
+        correct += 1;
+      } else {
+        incorrect += 1;
+      }
+    }
+  } else {
+    // In non-majority rounds, any answered non-correct option counts as incorrect.
+    incorrect = answeredSelections.length - correct;
+    if (incorrect < 0) {
+      incorrect = 0;
     }
   }
 
@@ -480,11 +515,32 @@ const revealAnswer = async (io, pin) => {
         : null,
   }));
 
+  let majorityOptionIndexes = [];
+  let voteCounts = {};
+  if (round.type === ROUND_TYPES.MAJORITY_RULES) {
+    voteCounts = responseDetails.reduce((acc, item) => {
+      const idx = Number(item.selectedOptionIndex);
+      if (Number.isFinite(idx) && idx >= 0) {
+        acc[idx] = (acc[idx] || 0) + 1;
+      }
+      return acc;
+    }, {});
+
+    const maxVotes = Math.max(...Object.values(voteCounts), 0);
+    if (maxVotes > 0) {
+      majorityOptionIndexes = Object.entries(voteCounts)
+        .filter(([, count]) => Number(count) === maxVotes)
+        .map(([idx]) => Number(idx));
+    }
+  }
+
   io.to(`session:${pin}`).emit(SOCKET_EVENTS.ANSWER_REVEAL, {
     correctOptionIndex: correctIndex,
     correctText: question.options[correctIndex]?.text,
     scores: result.scores,
     responseDetails,
+    majorityOptionIndexes,
+    voteCounts,
     eliminations: result.eliminations,
     allWrong: result.allWrong,
     teams: Object.values(gameState.teams).map((t) => ({

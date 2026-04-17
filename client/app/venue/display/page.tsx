@@ -60,6 +60,8 @@ interface RevealData {
   correctText: string;
   scores: Record<string, number>;
   responseDetails?: { teamId: number; selectedOptionIndex: number; responseTime?: number | null }[];
+  majorityOptionIndexes?: number[];
+  voteCounts?: Record<string, number>;
   eliminations: number[];
   allWrong: boolean;
   teams: Team[];
@@ -94,18 +96,46 @@ const resolveMediaUrl = (mediaUrl?: string) => {
 const getRoundScoringLines = (roundType?: string) => {
   const type = (roundType || '').toUpperCase();
   if (type === 'WAGER') {
-    return { positive: '0 to 50 points (wager gain)', negative: '0 to 50 points (wager loss)' };
+    return {
+      positive: '+0 to +50 points for correct answers',
+      negative: '-0 to -50 points for incorrect answers',
+    };
   }
   if (type === 'MAJORITY_RULES') {
-    return { positive: '50 points for majority vote', negative: '50 points for minority vote' };
+    return {
+      positive: '+50 points for majority answers',
+      negative: '-50 points for minority answers',
+    };
   }
   if (type === 'FINAL_WAGER') {
     return {
-      positive: 'Gain wagered percentage of total score',
-      negative: 'Lose wagered percentage of total score',
+      positive: '+wagered percentage of score',
+      negative: '-wagered percentage of score',
     };
   }
-  return { positive: '10 points for correct answers', negative: '2 points for incorrect answers' };
+  return { positive: '+10 points for correct answers', negative: '-2 points for incorrect answers' };
+};
+
+const formatRoundTypeLabel = (roundType?: string) => {
+  const type = (roundType || '').toUpperCase();
+  switch (type) {
+    case 'MULTIPLE_CHOICE':
+      return 'Multiple Choice';
+    case 'MUSIC':
+      return 'Music';
+    case 'ELIMINATION':
+      return 'Elimination';
+    case 'WAGER':
+      return 'Wager';
+    case 'FINAL_WAGER':
+      return 'Final Wager';
+    case 'MAJORITY_RULES':
+      return 'Majority Rules';
+    case 'FINAL_MULTIPLE_CHOICE':
+      return 'Final Multiple Choice';
+    default:
+      return (roundType || 'Round').replace(/_/g, ' ');
+  }
 };
 
 type MiniGameCommand = {
@@ -163,9 +193,26 @@ function parseUnityShuffleComplete(value: unknown): { cp: number; cards: number[
   return { cp, cards };
 }
 
-const normalizeRoundTitle = (name?: string) => {
-  if (!name) return '';
-  return name.replace(/^round\s*\d+\s*-\s*/i, '').trim();
+const normalizeRoundIntroTitle = (name?: string, roundType?: string, roundIndex?: number) => {
+  const raw = (name || '').trim();
+  const fallback = formatRoundTypeLabel(roundType);
+  if (!raw) return fallback || `Round ${(roundIndex || 0) + 1}`;
+
+  const withoutPrefix = raw
+    .replace(new RegExp(`^round\\s*${(roundIndex || 0) + 1}\\s*[-:–]*\\s*`, 'i'), '')
+    .replace(/^round\s*\d+\s*[-:–]*\s*/i, '')
+    .trim();
+
+  if (!withoutPrefix) return fallback || `Round ${(roundIndex || 0) + 1}`;
+
+  const normalizedRaw = withoutPrefix.replace(/\s+/g, ' ').toLowerCase();
+  const normalizedFallback = fallback.replace(/\s+/g, ' ').toLowerCase();
+
+  if (normalizedFallback && normalizedRaw.includes(normalizedFallback)) {
+    return fallback;
+  }
+
+  return withoutPrefix;
 };
 
 function VenueDisplayContent() {
@@ -1250,16 +1297,20 @@ function VenueDisplayContent() {
                     ROUND {(roundInfo.roundIndex || 0) + 1}
                   </h1>
                   <p className="mt-2 text-[30px] leading-[1.05] font-extrabold text-[#25eaff] drop-shadow-[0_0_16px_rgba(37,234,255,0.55)]">
-                    {normalizeRoundTitle(roundInfo.round?.name)}
+                    {normalizeRoundIntroTitle(
+                      roundInfo.round?.name,
+                      roundInfo.round?.type,
+                      roundInfo.roundIndex,
+                    )}
                   </p>
                 </div>
 
                 <div className="absolute left-1/2 top-[83%] w-[74%] -translate-x-1/2 -translate-y-1/2">
                   <p className="text-[28px] font-black text-[#39ff14] leading-none mb-5 drop-shadow-[0_0_8px_rgba(57,255,20,0.45)]">
-                    + {getRoundScoringLines(roundInfo.round?.type).positive}
+                    {getRoundScoringLines(roundInfo.round?.type).positive}
                   </p>
                   <p className="text-[28px] font-black text-[#ff3e3e] leading-none drop-shadow-[0_0_8px_rgba(255,62,62,0.45)]">
-                    - {getRoundScoringLines(roundInfo.round?.type).negative}
+                    {getRoundScoringLines(roundInfo.round?.type).negative}
                   </p>
                 </div>
               </div>
@@ -1277,7 +1328,15 @@ function VenueDisplayContent() {
                 </span>
               </div>
               <div className="mx-auto flex h-28 w-28 items-center justify-center rounded-full border-2 border-[#ffc400]/50 bg-[rgba(255,196,0,0.08)] shadow-[0_0_36px_rgba(255,196,0,0.3)]">
-                <svg className="h-14 w-14 text-[#ffc400] animate-pulse" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <svg
+                  className="h-14 w-14 text-[#ffc400] animate-pulse"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
                   <circle cx="12" cy="12" r="10" />
                   <path d="M16 8h-6a2 2 0 1 0 0 4h4a2 2 0 1 1 0 4H8" />
                   <path d="M12 18V6" />
@@ -1293,8 +1352,14 @@ function VenueDisplayContent() {
               </p>
               <div className="flex items-center gap-3 mt-2">
                 <div className="h-2.5 w-2.5 rounded-full bg-[#ffc400] animate-pulse" />
-                <div className="h-2.5 w-2.5 rounded-full bg-[#ffc400] animate-pulse" style={{ animationDelay: '0.3s' }} />
-                <div className="h-2.5 w-2.5 rounded-full bg-[#ffc400] animate-pulse" style={{ animationDelay: '0.6s' }} />
+                <div
+                  className="h-2.5 w-2.5 rounded-full bg-[#ffc400] animate-pulse"
+                  style={{ animationDelay: '0.3s' }}
+                />
+                <div
+                  className="h-2.5 w-2.5 rounded-full bg-[#ffc400] animate-pulse"
+                  style={{ animationDelay: '0.6s' }}
+                />
               </div>
             </div>
           </div>
@@ -1337,7 +1402,10 @@ function VenueDisplayContent() {
                         color: 'from-[#00ff00] to-[#008000]', // Brighter green
                         track: 'bg-[#3d7a3d]/60',
                         value: liveResponses.correct,
-                        icon: '✓',
+                        icon:
+                          (question?.roundType || '').toUpperCase() === 'MAJORITY_RULES'
+                            ? '+'
+                            : '✓',
                         iconBg: 'bg-green-500',
                       },
                       {
@@ -1345,7 +1413,10 @@ function VenueDisplayContent() {
                         color: 'from-[#ff0000] to-[#800000]', // Brighter red
                         track: 'bg-[#7a3d3d]/60',
                         value: liveResponses.incorrect,
-                        icon: '×',
+                        icon:
+                          (question?.roundType || '').toUpperCase() === 'MAJORITY_RULES'
+                            ? '-'
+                            : '×',
                         iconBg: 'bg-red-500',
                       },
                       {
@@ -1540,7 +1611,10 @@ function VenueDisplayContent() {
                         color: 'from-[#00ff00] to-[#008000]',
                         track: 'bg-[#3d7a3d]/60',
                         value: liveResponses.correct,
-                        icon: '✓',
+                        icon:
+                          (question?.roundType || '').toUpperCase() === 'MAJORITY_RULES'
+                            ? '+'
+                            : '✓',
                         iconBg: 'bg-green-500',
                       },
                       {
@@ -1548,7 +1622,10 @@ function VenueDisplayContent() {
                         color: 'from-[#ff0000] to-[#800000]',
                         track: 'bg-[#7a3d3d]/60',
                         value: liveResponses.incorrect,
-                        icon: '×',
+                        icon:
+                          (question?.roundType || '').toUpperCase() === 'MAJORITY_RULES'
+                            ? '-'
+                            : '×',
                         iconBg: 'bg-red-500',
                       },
                       {
@@ -1680,14 +1757,19 @@ function VenueDisplayContent() {
 
                   <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-2 gap-1 sm:gap-2 md:gap-3">
                     {question.question.options.map((opt, i) => {
-                      const isCorrect = i === revealData.correctOptionIndex;
+                      const isMajorityRulesRound =
+                        (question.roundType || '').toUpperCase() === 'MAJORITY_RULES';
+                      const majorityOptionIndexes = new Set(revealData.majorityOptionIndexes || []);
+                      const isRevealedWinner = isMajorityRulesRound
+                        ? majorityOptionIndexes.has(i)
+                        : i === revealData.correctOptionIndex;
                       return (
                         <div
                           key={i}
                           className={cn(
                             'rounded-lg border px-2 sm:px-3 md:px-4 py-2 sm:py-3 md:py-4 text-white font-bold text-xs sm:text-sm md:text-base lg:text-lg xl:text-2xl flex items-center transition-all duration-500 shadow-[0_8px_18px_rgba(0,0,0,0.35)] min-h-12 sm:min-h-14 md:min-h-16',
                             VENUE_OPTION_COLOR_CLASSES[i % VENUE_OPTION_COLOR_CLASSES.length],
-                            isCorrect
+                            isRevealedWinner
                               ? 'shadow-[0_0_8px_8px_rgba(57,255,74,0.9)] z-10 scale-[1.02]'
                               : 'opacity-30 brightness-50 contrast-75 scale-[0.98]',
                           )}
@@ -1696,7 +1778,7 @@ function VenueDisplayContent() {
                             {OPTION_LETTERS[i]}.
                           </span>
                           <span className="truncate text-left flex-1">{opt.text}</span>
-                          {isCorrect && (
+                          {isRevealedWinner && (
                             <div className="ml-auto w-6 h-6 sm:w-7 h-7 md:w-8 h-8 rounded-full bg-green-500 flex items-center justify-center border-2 border-white shadow-lg shrink-0">
                               <span className="text-white text-sm sm:text-base md:text-lg">✓</span>
                             </div>
@@ -1720,22 +1802,35 @@ function VenueDisplayContent() {
               </h3>
 
               <div className="text-center mb-3 sm:mb-4 md:mb-5">
-                <p className="text-lg sm:text-2xl md:text-3xl lg:text-4xl font-extrabold text-white leading-none">
-                  The Correct Answer is :
-                </p>
-                <p className="text-xl sm:text-2xl md:text-3xl lg:text-4xl font-extrabold text-[#39ff4a] leading-none mt-1 sm:mt-2">
-                  {(() => {
-                    if (!revealData) return '-';
-                    const idx = revealData.correctOptionIndex;
-                    const letter =
-                      idx >= 0 && idx < OPTION_LETTERS.length ? OPTION_LETTERS[idx] : null;
-                    const text = (revealData.correctText || '').trim();
-                    if (letter && text) return `${letter}. ${text}`;
-                    if (text) return text;
-                    if (letter) return `${letter}.`;
-                    return '-';
-                  })()}
-                </p>
+                {(question?.roundType || '').toUpperCase() === 'MAJORITY_RULES' ? (
+                  <>
+                    <p className="text-lg sm:text-2xl md:text-3xl lg:text-4xl font-extrabold text-white leading-none">
+                      Majority Rules
+                    </p>
+                    <p className="text-xl sm:text-2xl md:text-3xl lg:text-4xl font-extrabold text-[#39ff4a] leading-none mt-1 sm:mt-2">
+                      +50 most popular vote, -50 minority vote
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <p className="text-lg sm:text-2xl md:text-3xl lg:text-4xl font-extrabold text-white leading-none">
+                      The Correct Answer is :
+                    </p>
+                    <p className="text-xl sm:text-2xl md:text-3xl lg:text-4xl font-extrabold text-[#39ff4a] leading-none mt-1 sm:mt-2">
+                      {(() => {
+                        if (!revealData) return '-';
+                        const idx = revealData.correctOptionIndex;
+                        const letter =
+                          idx >= 0 && idx < OPTION_LETTERS.length ? OPTION_LETTERS[idx] : null;
+                        const text = (revealData.correctText || '').trim();
+                        if (letter && text) return `${letter}. ${text}`;
+                        if (text) return text;
+                        if (letter) return `${letter}.`;
+                        return '-';
+                      })()}
+                    </p>
+                  </>
+                )}
               </div>
 
               <div className="grid grid-cols-[64px_minmax(0,1fr)_82px] sm:grid-cols-[74px_minmax(0,1fr)_96px] md:grid-cols-[88px_minmax(0,1fr)_120px] items-center px-2 sm:px-4 md:px-5 mb-2 sm:mb-3 text-white text-xs sm:text-sm md:text-base lg:text-lg font-bold gap-2 sm:gap-3 md:gap-4">

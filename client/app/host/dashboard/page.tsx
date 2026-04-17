@@ -160,6 +160,12 @@ const isImageMedia = (mediaType?: string, mediaUrl?: string) => {
   return /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(mediaUrl || '');
 };
 
+const isAudioMedia = (mediaType?: string, mediaUrl?: string) => {
+  const type = (mediaType || '').toLowerCase();
+  if (type === 'mp3' || type.includes('audio')) return true;
+  return /\.mp3(?:$|\?)/i.test(mediaUrl || '');
+};
+
 function formatSecondsMmSs(totalSeconds: number): string {
   const s = Math.max(0, Math.floor(totalSeconds));
   const m = Math.floor(s / 60);
@@ -432,6 +438,10 @@ function HostDashboardContent() {
     stop: stopMp3,
     setSource: setMp3Source,
   } = useAudio({ loop: false, volume: 0.7 });
+  const hasPlayableAudio = isAudioMedia(
+    currentQuestion?.question?.mediaType,
+    currentQuestion?.question?.mediaUrl,
+  );
   const prevTimerRef = useRef(0);
 
   useEffect(() => {
@@ -444,8 +454,7 @@ function HostDashboardContent() {
 
   useEffect(() => {
     if (!currentQuestion?.question?.mediaUrl) return;
-    const mediaType = (currentQuestion.question.mediaType || '').toLowerCase();
-    if (mediaType === 'mp3') {
+    if (isAudioMedia(currentQuestion.question.mediaType, currentQuestion.question.mediaUrl)) {
       setMp3Source(resolveMediaUrl(currentQuestion.question.mediaUrl));
     }
   }, [currentQuestion?.question?.mediaUrl, currentQuestion?.question?.mediaType, setMp3Source]);
@@ -860,7 +869,14 @@ function HostDashboardContent() {
     socket.on('response_count', onResponseCount);
     socket.on('live_response_update', onLiveResponseUpdate);
     socket.on('live_responses_update', onLiveResponseUpdate);
+    const onWagerCollectionStart = () => {
+      setGameState((prev) =>
+        prev ? { ...prev, state: 'WAGER_COLLECTION', questionState: 'WAITING' } : prev,
+      );
+    };
+
     socket.on('round_intro', onRoundIntro);
+    socket.on('wager_collection_start', onWagerCollectionStart);
     socket.on('scoreboard', onScoreboard);
     socket.on('scoreboard_hidden', onScoreboardHidden);
     socket.on('round_end', onRoundEnd);
@@ -914,6 +930,7 @@ function HostDashboardContent() {
       socket.off('live_response_update', onLiveResponseUpdate);
       socket.off('live_responses_update', onLiveResponseUpdate);
       socket.off('round_intro', onRoundIntro);
+      socket.off('wager_collection_start', onWagerCollectionStart);
       socket.off('scoreboard', onScoreboard);
       socket.off('scoreboard_hidden', onScoreboardHidden);
       socket.off('round_end', onRoundEnd);
@@ -944,6 +961,7 @@ function HostDashboardContent() {
     emit('start_game');
   };
   const handleNextQuestion = () => emit('next_question');
+  const handleCollectWagers = () => emit('collect_wagers');
   const handleStartNextRoundAfterCardShuffle = () => {
     setCardShuffleFinishedHold(false);
     setCardShuffleFinishedMessage('Game Over. Wait for the host to start the game.');
@@ -1158,22 +1176,36 @@ function HostDashboardContent() {
   };
 
   const handleToggleMp3 = () => {
+    const rawMediaUrl = currentQuestion?.question?.mediaUrl;
+    if (!rawMediaUrl || !hasPlayableAudio) return;
+
     if (mp3Playing) {
       stopMp3();
       setMp3Playing(false);
       emit('music_control', { action: 'pause' });
     } else {
+      setMp3Source(resolveMediaUrl(rawMediaUrl));
       playMp3();
       setMp3Playing(true);
       emit('music_control', {
         action: 'play',
-        mediaUrl: currentQuestion?.question?.mediaUrl || '',
+        mediaUrl: rawMediaUrl,
       });
     }
   };
 
+  const handleSpaceKey = useCallback(() => {
+    const s = gameStateRef.current?.state || 'LOBBY';
+    const round = gameStateRef.current?.rounds?.[gameStateRef.current?.currentRoundIndex];
+    if (s === 'ROUND_INTRO' && (round?.type === 'WAGER' || round?.type === 'FINAL_WAGER')) {
+      handleCollectWagers();
+    } else {
+      handleNextQuestion();
+    }
+  }, [handleCollectWagers, handleNextQuestion]);
+
   useKeyboardShortcuts({
-    ' ': handleNextQuestion,
+    ' ': handleSpaceKey,
     t: handleStartTimer,
     p: handlePauseTimer,
     s: handleShowScoreboard,
@@ -1244,6 +1276,8 @@ function HostDashboardContent() {
   }, [showTimerModal, closeTimerModal]);
 
   const currentRound = gameState?.rounds?.[gameState.currentRoundIndex];
+  const isCurrentRoundWagerLockRound =
+    currentRound?.type === 'WAGER' || currentRound?.type === 'FINAL_WAGER';
   const state = gameState?.state || 'LOBBY';
   const questionState = gameState?.questionState || 'WAITING';
   const teamList = gameState?.teams ? Object.values(gameState.teams) : [];
@@ -1462,13 +1496,7 @@ function HostDashboardContent() {
                 <HostSidebarTile
                   label="Play/Pause MP3"
                   active={mp3Playing}
-                  disabled={
-                    !currentQuestion ||
-                    (!currentQuestion?.question?.mediaUrl &&
-                      currentQuestion?.roundType !== 'MUSIC') ||
-                    (!!currentQuestion?.question?.mediaUrl &&
-                      (currentQuestion?.question?.mediaType || '').toLowerCase() !== 'mp3')
-                  }
+                  disabled={!currentQuestion || !hasPlayableAudio}
                   icon={
                     <svg viewBox="0 0 24 24" fill="currentColor">
                       <path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z" />
@@ -1878,36 +1906,72 @@ function HostDashboardContent() {
             </div>
           ) : (
             <div className="flex flex-1 items-center justify-center rounded-2xl border border-[rgba(0,217,255,0.25)] bg-[#151b2e]/40 p-8">
-              {state === 'ROUND_INTRO' ? (
+              {state === 'ROUND_INTRO' || state === 'WAGER_COLLECTION' ? (
                 <div className="w-full max-w-[1120px] animate-fadeIn">
-                  <div className="relative mx-auto h-[680px] w-full max-w-[860px]">
-                    <img
-                      src="/Venue Round Intro.png"
-                      alt="Round intro background"
-                      className="absolute inset-0 h-full w-full object-contain drop-shadow-[0_0_26px_rgba(0,0,0,0.6)]"
-                    />
-
-                    <div className="absolute inset-0 pointer-events-none text-center">
-                      <div className="absolute left-1/2 top-[40%] w-[62%] -translate-x-1/2 -translate-y-1/2">
-                        <h2 className="text-[65px] leading-none font-black text-[#fff4c2] drop-shadow-[0_0_18px_rgba(255,225,120,0.65)]">
-                          ROUND {(gameState?.currentRoundIndex || 0) + 1}
-                        </h2>
-                        <p className="mt-2 text-[28px] leading-[1.05] font-extrabold text-[#25eaff] drop-shadow-[0_0_16px_rgba(37,234,255,0.55)]">
-                          {normalizeRoundTitle(currentRound?.name) ||
-                            formatRoundTypeLabel(currentRound?.type || 'MULTIPLE_CHOICE')}
-                        </p>
+                  {state === 'WAGER_COLLECTION' ? (
+                    <div className="flex flex-col items-center justify-center gap-6 py-8 text-center">
+                      <div className="inline-flex items-center gap-3 rounded-full border border-[#ffc400]/55 bg-[linear-gradient(180deg,rgba(60,30,100,0.95)_0%,rgba(20,10,50,0.95)_100%)] px-8 py-3 shadow-[0_0_22px_rgba(255,196,0,0.2)]">
+                        <span className="text-sm font-semibold uppercase tracking-[0.22em] text-[#ffc400]">
+                          Wager Collection
+                        </span>
                       </div>
+                      <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-full border-2 border-[#ffc400]/50 bg-[rgba(255,196,0,0.1)] shadow-[0_0_24px_rgba(255,196,0,0.25)]">
+                        <svg
+                          className="h-10 w-10 text-[#ffc400] animate-pulse"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        >
+                          <circle cx="12" cy="12" r="10" />
+                          <path d="M16 8h-6a2 2 0 1 0 0 4h4a2 2 0 1 1 0 4H8" />
+                          <path d="M12 18V6" />
+                        </svg>
+                      </div>
+                      <h2 className="text-4xl font-black leading-tight text-white drop-shadow-[0_0_14px_rgba(255,196,0,0.35)] sm:text-5xl">
+                        Collecting Wager Points
+                      </h2>
+                      <p className="max-w-md text-lg text-[#ffc400]/80">
+                        Players are locking in their wager amounts on their devices.
+                        <br />
+                        Press <span className="font-bold text-white">
+                          &quot;Start Question&quot;
+                        </span>{' '}
+                        when ready to begin.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="relative mx-auto h-[680px] w-full max-w-[860px]">
+                      <img
+                        src="/Venue Round Intro.png"
+                        alt="Round intro background"
+                        className="absolute inset-0 h-full w-full object-contain drop-shadow-[0_0_26px_rgba(0,0,0,0.6)]"
+                      />
 
-                      <div className="absolute left-1/2 top-[79.5%] w-[74%] -translate-x-1/2 -translate-y-1/2">
-                        <p className="mb-5 text-[30px] font-black leading-none text-[#39ff14] drop-shadow-[0_0_8px_rgba(57,255,20,0.45)]">
-                          {getRoundScoringLines(currentRound?.type).positive}
-                        </p>
-                        <p className="text-[30px] font-black leading-none text-[#ff3e3e] drop-shadow-[0_0_8px_rgba(255,62,62,0.45)]">
-                          {getRoundScoringLines(currentRound?.type).negative}
-                        </p>
+                      <div className="absolute inset-0 pointer-events-none text-center">
+                        <div className="absolute left-1/2 top-[40%] w-[62%] -translate-x-1/2 -translate-y-1/2">
+                          <h2 className="text-[65px] leading-none font-black text-[#fff4c2] drop-shadow-[0_0_18px_rgba(255,225,120,0.65)]">
+                            ROUND {(gameState?.currentRoundIndex || 0) + 1}
+                          </h2>
+                          <p className="mt-2 text-[28px] leading-[1.05] font-extrabold text-[#25eaff] drop-shadow-[0_0_16px_rgba(37,234,255,0.55)]">
+                            {normalizeRoundTitle(currentRound?.name) ||
+                              formatRoundTypeLabel(currentRound?.type || 'MULTIPLE_CHOICE')}
+                          </p>
+                        </div>
+
+                        <div className="absolute left-1/2 top-[79.5%] w-[74%] -translate-x-1/2 -translate-y-1/2">
+                          <p className="mb-5 text-[30px] font-black leading-none text-[#39ff14] drop-shadow-[0_0_8px_rgba(57,255,20,0.45)]">
+                            {getRoundScoringLines(currentRound?.type).positive}
+                          </p>
+                          <p className="text-[30px] font-black leading-none text-[#ff3e3e] drop-shadow-[0_0_8px_rgba(255,62,62,0.45)]">
+                            {getRoundScoringLines(currentRound?.type).negative}
+                          </p>
+                        </div>
                       </div>
                     </div>
-                  </div>
+                  )}
                 </div>
               ) : state === 'FINAL_RESULTS' ? (
                 <div className="w-full max-w-[900px] text-center">
@@ -2177,14 +2241,23 @@ function HostDashboardContent() {
               }
               disabled={
                 (state === 'LOBBY' && startGameRequested) ||
-                !(state === 'LOBBY' || state === 'ROUND_INTRO')
+                !(state === 'LOBBY' || state === 'ROUND_INTRO' || state === 'WAGER_COLLECTION')
               }
               onClick={() => {
                 if (state === 'LOBBY') handleStartGame();
+                else if (state === 'ROUND_INTRO' && isCurrentRoundWagerLockRound)
+                  handleCollectWagers();
                 else if (state === 'ROUND_INTRO') handleNextQuestion();
+                else if (state === 'WAGER_COLLECTION') handleNextQuestion();
               }}
             >
-              {state === 'LOBBY' ? 'Start Game' : 'Start Round'}
+              {state === 'LOBBY'
+                ? 'Start Game'
+                : state === 'ROUND_INTRO' && isCurrentRoundWagerLockRound
+                  ? 'Lock Wager Points'
+                  : state === 'WAGER_COLLECTION'
+                    ? 'Start Question'
+                    : 'Start Round'}
             </HostFooterBtn>
             <HostFooterBtn
               emphasis={showRevealAnswerAction || showNextQuestionAction}

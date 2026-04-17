@@ -13,38 +13,63 @@ interface UseAudioOptions {
  * Web Audio API hook for MP3 playback on host/venue screens.
  * No audio plays on player devices.
  */
-export const useAudio = ({ src, loop = false, volume = 1, autoPlay = false }: UseAudioOptions = {}) => {
+export const useAudio = ({
+  src,
+  loop = false,
+  volume = 1,
+  autoPlay = false,
+}: UseAudioOptions = {}) => {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [duration, setDuration] = useState(0);
   const [currentTime, setCurrentTime] = useState(0);
 
   useEffect(() => {
-    if (!src) return;
-
-    const audio = new Audio(src);
+    const audio = new Audio();
     audio.loop = loop;
     audio.volume = Math.max(0, Math.min(1, volume));
     audio.preload = 'auto';
 
-    audio.addEventListener('loadedmetadata', () => setDuration(audio.duration));
-    audio.addEventListener('timeupdate', () => setCurrentTime(audio.currentTime));
-    audio.addEventListener('ended', () => setIsPlaying(false));
-    audio.addEventListener('play', () => setIsPlaying(true));
-    audio.addEventListener('pause', () => setIsPlaying(false));
+    const onLoadedMetadata = () =>
+      setDuration(Number.isFinite(audio.duration) ? audio.duration : 0);
+    const onTimeUpdate = () => setCurrentTime(audio.currentTime);
+    const onEnded = () => setIsPlaying(false);
+    const onPlay = () => setIsPlaying(true);
+    const onPause = () => setIsPlaying(false);
+
+    audio.addEventListener('loadedmetadata', onLoadedMetadata);
+    audio.addEventListener('timeupdate', onTimeUpdate);
+    audio.addEventListener('ended', onEnded);
+    audio.addEventListener('play', onPlay);
+    audio.addEventListener('pause', onPause);
 
     audioRef.current = audio;
 
-    if (autoPlay) {
-      audio.play().catch(() => {});
-    }
-
     return () => {
       audio.pause();
+      audio.removeEventListener('loadedmetadata', onLoadedMetadata);
+      audio.removeEventListener('timeupdate', onTimeUpdate);
+      audio.removeEventListener('ended', onEnded);
+      audio.removeEventListener('play', onPlay);
+      audio.removeEventListener('pause', onPause);
       audio.src = '';
       audioRef.current = null;
     };
-  }, [src, loop, autoPlay]);
+  }, []);
+
+  useEffect(() => {
+    if (!audioRef.current) return;
+    audioRef.current.loop = loop;
+  }, [loop]);
+
+  useEffect(() => {
+    if (!audioRef.current || !src) return;
+    audioRef.current.src = src;
+    audioRef.current.load();
+    if (autoPlay) {
+      audioRef.current.play().catch(() => {});
+    }
+  }, [src, autoPlay]);
 
   useEffect(() => {
     if (audioRef.current) {
@@ -74,7 +99,7 @@ export const useAudio = ({ src, loop = false, volume = 1, autoPlay = false }: Us
   }, []);
 
   const setSource = useCallback((newSrc: string) => {
-    if (audioRef.current) {
+    if (audioRef.current && newSrc) {
       audioRef.current.src = newSrc;
       audioRef.current.load();
     }

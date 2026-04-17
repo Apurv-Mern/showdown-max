@@ -27,6 +27,7 @@ type VenuePhase =
   | 'reveal'
   | 'scoreboard'
   | 'break'
+  | 'wager_collection'
   | 'mini_game'
   | 'mini_game_result'
   | 'game_end';
@@ -590,6 +591,7 @@ function VenueDisplayContent() {
       const stateToPhase: Record<string, VenuePhase> = {
         LOBBY: 'lobby',
         ROUND_INTRO: 'round_intro',
+        WAGER_COLLECTION: 'wager_collection',
         QUESTION: 'question',
         SCOREBOARD: 'scoreboard',
         BREAK: 'break',
@@ -689,6 +691,11 @@ function VenueDisplayContent() {
       setPhase('round_intro');
       setIsVenueMp3Playing(false);
       stopMp3();
+    };
+
+    const onWagerCollectionStart = (data: any) => {
+      if (data) setRoundInfo(data);
+      setPhase('wager_collection');
     };
 
     const onQuestionActive = (data: QuestionData) => {
@@ -939,6 +946,7 @@ function VenueDisplayContent() {
     socket.on('team_joined', onTeamJoined);
     socket.on('team_removed', onTeamRemoved);
     socket.on('round_intro', onRoundIntro);
+    socket.on('wager_collection_start', onWagerCollectionStart);
     socket.on('question_active', onQuestionActive);
     socket.on('timer_update', onTimerUpdate);
     socket.on('timer_expired', onTimerExpired);
@@ -965,6 +973,7 @@ function VenueDisplayContent() {
       socket.off('team_joined', onTeamJoined);
       socket.off('team_removed', onTeamRemoved);
       socket.off('round_intro', onRoundIntro);
+      socket.off('wager_collection_start', onWagerCollectionStart);
       socket.off('question_active', onQuestionActive);
       socket.off('music_control', onMusicControl);
       socket.off('timer_update', onTimerUpdate);
@@ -1253,6 +1262,39 @@ function VenueDisplayContent() {
                     - {getRoundScoringLines(roundInfo.round?.type).negative}
                   </p>
                 </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Wager Collection */}
+        {phase === 'wager_collection' && (
+          <div className="w-full h-full flex items-center justify-center animate-fadeIn px-6">
+            <div className="flex flex-col items-center justify-center gap-8 text-center max-w-[900px]">
+              <div className="inline-flex items-center gap-3 rounded-full border border-[#ffc400]/55 bg-[linear-gradient(180deg,rgba(60,30,100,0.95)_0%,rgba(20,10,50,0.95)_100%)] px-10 py-4 shadow-[0_0_28px_rgba(255,196,0,0.25)]">
+                <span className="text-lg font-semibold uppercase tracking-[0.22em] text-[#ffc400]">
+                  Round {(roundInfo?.roundIndex || 0) + 1} — Wager Round
+                </span>
+              </div>
+              <div className="mx-auto flex h-28 w-28 items-center justify-center rounded-full border-2 border-[#ffc400]/50 bg-[rgba(255,196,0,0.08)] shadow-[0_0_36px_rgba(255,196,0,0.3)]">
+                <svg className="h-14 w-14 text-[#ffc400] animate-pulse" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="12" cy="12" r="10" />
+                  <path d="M16 8h-6a2 2 0 1 0 0 4h4a2 2 0 1 1 0 4H8" />
+                  <path d="M12 18V6" />
+                </svg>
+              </div>
+              <h1 className="text-[52px] font-black leading-none text-white drop-shadow-[0_0_18px_rgba(255,196,0,0.4)]">
+                Players Are Locking
+                <br />
+                Wager Points
+              </h1>
+              <p className="text-2xl font-medium text-[#ffc400]/75">
+                Please place your wagers on your devices now...
+              </p>
+              <div className="flex items-center gap-3 mt-2">
+                <div className="h-2.5 w-2.5 rounded-full bg-[#ffc400] animate-pulse" />
+                <div className="h-2.5 w-2.5 rounded-full bg-[#ffc400] animate-pulse" style={{ animationDelay: '0.3s' }} />
+                <div className="h-2.5 w-2.5 rounded-full bg-[#ffc400] animate-pulse" style={{ animationDelay: '0.6s' }} />
               </div>
             </div>
           </div>
@@ -1672,7 +1714,7 @@ function VenueDisplayContent() {
         {/* Scoreboard */}
         {phase === 'scoreboard' && (
           <div className="w-full h-full flex flex-col items-center justify-center p-3 sm:p-4 md:p-6 animate-fadeIn">
-            <div className="w-full max-w-xl sm:max-w-xl md:max-w-2xl lg:max-w-3xl rounded-lg sm:rounded-xl md:rounded-2xl lg:rounded-3xl border border-[#9fbeff]/70 bg-[linear-gradient(180deg,rgba(24,9,76,0.95)_0%,rgba(12,6,48,0.95)_100%)] shadow-[0_0_24px_rgba(0,216,255,0.25)] px-4 sm:px-6 md:px-8 py-3 sm:py-4 md:py-6 overflow-y-auto max-h-full">
+            <div className="w-full max-w-xl sm:max-w-3xl md:max-w-4xl lg:max-w-5xl rounded-lg sm:rounded-xl md:rounded-2xl lg:rounded-3xl border border-[#9fbeff]/70 bg-[linear-gradient(180deg,rgba(24,9,76,0.95)_0%,rgba(12,6,48,0.95)_100%)] shadow-[0_0_24px_rgba(0,216,255,0.25)] px-4 sm:px-6 md:px-8 py-3 sm:py-4 md:py-6 overflow-y-auto max-h-full">
               <h3 className="text-2xl sm:text-3xl md:text-4xl lg:text-5xl font-black text-white text-center mb-2 sm:mb-3 md:mb-4">
                 Scoreboard
               </h3>
@@ -1698,7 +1740,7 @@ function VenueDisplayContent() {
 
               <div className="grid grid-cols-[64px_minmax(0,1fr)_82px] sm:grid-cols-[74px_minmax(0,1fr)_96px] md:grid-cols-[88px_minmax(0,1fr)_120px] items-center px-2 sm:px-4 md:px-5 mb-2 sm:mb-3 text-white text-xs sm:text-sm md:text-base lg:text-lg font-bold gap-2 sm:gap-3 md:gap-4">
                 <div className="text-center">Rank</div>
-                <div className="text-center">Team Name</div>
+                <div className="text-left">Team Name</div>
                 <div className="text-right">Pts</div>
               </div>
 
@@ -1726,7 +1768,7 @@ function VenueDisplayContent() {
                       </div>
                       <div
                         className={cn(
-                          'min-w-0 text-center truncate',
+                          'min-w-0 truncate',
                           team.isEliminated && 'line-through opacity-60',
                         )}
                       >

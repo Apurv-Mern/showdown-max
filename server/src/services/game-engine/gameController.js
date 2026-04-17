@@ -23,6 +23,9 @@ const getRoundWagerForTeam = (gameState, roundId, teamId) => {
   return Number(gameState?.roundWagers?.[String(roundId)]?.[String(teamId)] ?? 0);
 };
 
+const isWagerLockRound = (round) =>
+  round?.type === ROUND_TYPES.WAGER || round?.type === ROUND_TYPES.FINAL_WAGER;
+
 const parseSelectedOptionIndex = (rawResponse) => {
   if (!rawResponse) return -1;
   try {
@@ -125,7 +128,19 @@ const nextQuestion = async (io, pin) => {
   let gameState = await redisStore.getGameState(pin);
   if (!gameState) return;
 
-  if (gameState.state === GAME_STATES.ROUND_INTRO || gameState.state === GAME_STATES.SCOREBOARD) {
+  if (gameState.state === GAME_STATES.ROUND_INTRO) {
+    const round = stateMachine.getCurrentRound(gameState);
+    if (isWagerLockRound(round)) {
+      await startWagerCollection(io, pin);
+      return;
+    }
+    const transResult = stateMachine.transition(gameState, GAME_STATES.QUESTION);
+    if (!transResult.valid) return;
+    gameState = transResult.gameState;
+  } else if (
+    gameState.state === GAME_STATES.SCOREBOARD ||
+    gameState.state === GAME_STATES.WAGER_COLLECTION
+  ) {
     const transResult = stateMachine.transition(gameState, GAME_STATES.QUESTION);
     if (!transResult.valid) return;
     gameState = transResult.gameState;
@@ -240,6 +255,21 @@ const submitAnswer = async (io, pin, teamId, data) => {
   const question = stateMachine.getCurrentQuestion(gameState);
   if (!question) return;
 
+  const currentRound = stateMachine.getCurrentRound(gameState);
+  if (
+    currentRound?.type === ROUND_TYPES.ELIMINATION &&
+    (!gameState.activeTeamIds.map(Number).includes(Number(teamId)) ||
+      Boolean(gameState.teams?.[teamId]?.isEliminated))
+  ) {
+    logger.info('Rejected answer from eliminated team', {
+      pin,
+      teamId,
+      roundIndex: gameState.currentRoundIndex,
+      questionIndex: gameState.currentQuestionIndex,
+    });
+    return;
+  }
+
   const existing = await redisStore.getResponses(pin, question.id);
   if (existing[teamId.toString()]) return;
 
@@ -253,7 +283,6 @@ const submitAnswer = async (io, pin, teamId, data) => {
         : null,
   };
 
-  const currentRound = stateMachine.getCurrentRound(gameState);
   if (currentRound?.type === ROUND_TYPES.WAGER) {
     responseData.wagerAmount = getRoundWagerForTeam(gameState, currentRound.id, teamId);
   }
@@ -305,7 +334,7 @@ const submitWager = async (pin, teamId, amount) => {
   if (!gameState) return;
 
   const round = stateMachine.getCurrentRound(gameState);
-  if (!round || round.type !== ROUND_TYPES.WAGER) return;
+  if (!round || !isWagerLockRound(round)) return;
 
   const roundId = String(round.id);
   const teamIdKey = String(teamId);
@@ -346,6 +375,20 @@ const revealAnswer = async (io, pin) => {
   const round = stateMachine.getCurrentRound(gameState);
   const question = stateMachine.getCurrentQuestion(gameState);
   const rawResponses = await redisStore.getResponses(pin, question.id);
+
+  // Safety: in elimination rounds, scores for knocked-out teams must stay frozen.
+  // Keep active list strictly aligned to non-eliminated teams before scoring.
+  if (round.type === ROUND_TYPES.ELIMINATION) {
+    const filteredActiveTeamIds = (
+      Array.isArray(gameState.activeTeamIds) ? gameState.activeTeamIds : []
+    )
+      .map(Number)
+      .filter((id) => gameState.teams?.[id] && !gameState.teams[id].isEliminated);
+
+    if (filteredActiveTeamIds.length !== gameState.activeTeamIds.length) {
+      gameState.activeTeamIds = filteredActiveTeamIds;
+    }
+  }
 
   const responses = {};
   for (const [teamId, raw] of Object.entries(rawResponses)) {
@@ -1053,7 +1096,12 @@ const sanitizeForClients = (gameState) => {
 /** Full client payload for QUESTION (includes currentQuestion) — matches venue host_connect shape. */
 const clientPayloadFromGameState = (gameState) => {
   const base = sanitizeForClients(gameState);
-  if (gameState.state !== GAME_STATES.QUESTION) return base;
+  if (
+    gameState.state !== GAME_STATES.QUESTION &&
+    gameState.state !== GAME_STATES.WAGER_COLLECTION
+  ) {
+    return base;
+  }
   const round = stateMachine.getCurrentRound(gameState);
   const cq = stateMachine.getCurrentQuestion(gameState);
   if (!round || !cq) return base;
@@ -1071,6 +1119,62 @@ const clientPayloadFromGameState = (gameState) => {
     roundType: round.type || '',
   };
   return base;
+};
+
+/**
+ * Start wager collection phase for WAGER rounds.
+ * Transitions ROUND_INTRO → WAGER_COLLECTION and tells mobile to show wager input.
+ */
+const startWagerCollection = async (io, pin) => {
+  const gameState = await redisStore.getGameState(pin);
+  if (!gameState) return;
+
+  if (gameState.state !== GAME_STATES.ROUND_INTRO) {
+    logger.warn('startWagerCollection called but state is not ROUND_INTRO', {
+      pin,
+      state: gameState.state,
+    });
+    return;
+  }
+
+  const round = stateMachine.getCurrentRound(gameState);
+  if (!round || !isWagerLockRound(round)) {
+    logger.warn('startWagerCollection called on non-wager round', {
+      pin,
+      roundType: round?.type,
+    });
+    return;
+  }
+
+  const result = stateMachine.transition(gameState, GAME_STATES.WAGER_COLLECTION);
+  if (!result.valid) {
+    logger.error('Failed to transition to WAGER_COLLECTION', { pin, error: result.error });
+    return;
+  }
+
+  await redisStore.setGameState(pin, result.gameState);
+
+  io.to(`session:${pin}`).emit(SOCKET_EVENTS.WAGER_COLLECTION_START, {
+    round: {
+      id: round.id,
+      name: round.name,
+      type: round.type,
+      timerDuration: round.timerDuration,
+    },
+    roundIndex: result.gameState.currentRoundIndex,
+    totalRounds: result.gameState.rounds.length,
+  });
+
+  io.to(`session:${pin}`).emit(
+    SOCKET_EVENTS.SESSION_STATE,
+    clientPayloadFromGameState(result.gameState),
+  );
+
+  logger.info('Wager collection started', {
+    pin,
+    roundIndex: result.gameState.currentRoundIndex,
+    roundType: round.type,
+  });
 };
 
 module.exports = {
@@ -1091,4 +1195,5 @@ module.exports = {
   pauseTimer,
   startTimer,
   endGame,
+  startWagerCollection,
 };

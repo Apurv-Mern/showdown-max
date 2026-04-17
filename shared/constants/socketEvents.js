@@ -28,6 +28,7 @@ const SOCKET_EVENTS = Object.freeze({
   REMOVE_TEAM: 'remove_team',
   EDIT_TEAM_SCORE: 'edit_team_score',
   ADVANCE_ROUND: 'advance_round',
+  COLLECT_WAGERS: 'collect_wagers',
   END_GAME: 'end_game',
   MUSIC_CONTROL: 'music_control',
 
@@ -53,6 +54,7 @@ const SOCKET_EVENTS = Object.freeze({
   MINI_GAME_PLAYER_RESULT: 'mini_game_player_result',
   MINI_GAME_END: 'mini_game_end',
   ROUND_INTRO: 'round_intro',
+  WAGER_COLLECTION_START: 'wager_collection_start',
   ROUND_END: 'round_end',
   GAME_END: 'game_end',
   PLAYER_ELIMINATED: 'player_eliminated',

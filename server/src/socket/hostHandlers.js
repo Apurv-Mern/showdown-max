@@ -84,6 +84,14 @@ const hostHandlers = (io, socket) => {
     }
   });
 
+  socket.on(SOCKET_EVENTS.COLLECT_WAGERS, async (data) => {
+    try {
+      await gameController.startWagerCollection(io, data.pin);
+    } catch (err) {
+      logger.error('collect_wagers error', { error: err.message });
+    }
+  });
+
   socket.on(SOCKET_EVENTS.START_TIMER, async (data) => {
     try {
       await gameController.startTimer(io, data.pin);

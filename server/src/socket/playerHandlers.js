@@ -49,7 +49,7 @@ const playerHandlers = (io, socket) => {
 
       const sessionTeams = await Team.findAll({
         where: { sessionId: sessionData.sessionId },
-        attributes: ['id', 'teamName', 'isConnected', 'socketId', 'score'],
+        attributes: ['id', 'teamName', 'isConnected', 'socketId', 'score', 'isEliminated'],
       });
       const existingTeam = sessionTeams.find(
         (t) => normalizeTeamName(t.teamName) === normalizedTeamName,
@@ -90,6 +90,7 @@ const playerHandlers = (io, socket) => {
         teamId: team.id,
         teamName: team.teamName,
         score: team.score,
+        isEliminated: Boolean(team.isEliminated),
       };
 
       await redisStore.addTeamToLobby(pin, teamData);
@@ -100,9 +101,21 @@ const playerHandlers = (io, socket) => {
 
       const gameState = await redisStore.getGameState(pin);
       if (gameState) {
-        gameState.teams[team.id] = teamData;
-        if (!gameState.activeTeamIds.includes(team.id)) {
-          gameState.activeTeamIds.push(team.id);
+        const currentRound = gameState.rounds?.[gameState.currentRoundIndex];
+        const isEliminationRound = currentRound?.type === 'ELIMINATION';
+        const existingStateTeam = gameState.teams?.[team.id];
+        const resolvedIsEliminated =
+          existingStateTeam?.isEliminated ?? teamData.isEliminated ?? false;
+
+        gameState.teams[team.id] = {
+          ...teamData,
+          isEliminated: resolvedIsEliminated,
+        };
+
+        if (!(isEliminationRound && resolvedIsEliminated)) {
+          if (!gameState.activeTeamIds.includes(team.id)) {
+            gameState.activeTeamIds.push(team.id);
+          }
         }
         gameState.totalTeams = Object.keys(gameState.teams).length;
         await redisStore.setGameState(pin, gameState);

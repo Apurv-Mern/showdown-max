@@ -33,10 +33,8 @@ const calculate = ({ question, responses, questionIndex, activeTeamIds }) => {
 
   const allWrong = correctTeams.length === 0 && wrongTeams.length > 0;
 
-  if (!allWrong) {
-    for (const teamId of wrongTeams) {
-      eliminations.push(Number(teamId));
-    }
+  for (const teamId of wrongTeams) {
+    eliminations.push(Number(teamId));
   }
 
   return { scores, eliminations, allWrong };

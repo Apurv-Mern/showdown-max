@@ -561,6 +561,24 @@ export default function GamePage() {
           return;
         }
 
+        if (gs.state === 'WAGER_COLLECTION') {
+          setQuestion(null);
+          setTimerEndsAt(null);
+          setTimerRemaining(0);
+          setSelectedOption(null);
+          setRevealData(null);
+          setPointsGained(null);
+          setWagerSubmitted(false);
+          setWagerAmount(0);
+
+          if (currentlyEliminated) {
+            setPhase('eliminated');
+          } else {
+            setPhase('wager_input');
+          }
+          return;
+        }
+
         if (gs.state === 'BREAK') {
           const duration = Number(gs.breakRemaining ?? gs.breakDuration ?? 300);
           setBreakDuration(duration > 0 ? duration : 300);
@@ -582,12 +600,27 @@ export default function GamePage() {
       setRoundInfo(data);
       setPhase('round_intro');
       setIsEliminated(false);
+      setQuestion(null);
+      setTimerEndsAt(null);
+      setTimerRemaining(0);
       setSelectedOption(null);
       setRevealData(null);
       setWagerSubmitted(false);
       setWagerAmount(0);
       setIsPlayerMp3Playing(false);
       stopMp3();
+    };
+
+    const onWagerCollectionStart = (data: any) => {
+      if (data) setRoundInfo(data);
+      setQuestion(null);
+      setTimerEndsAt(null);
+      setTimerRemaining(0);
+      setSelectedOption(null);
+      setRevealData(null);
+      setWagerSubmitted(false);
+      setWagerAmount(0);
+      setPhase('wager_input');
     };
 
     const onQuestionActive = (data: QuestionData) => {
@@ -663,11 +696,17 @@ export default function GamePage() {
       setPointsGained(data.scores[teamIdStr] ?? 0);
       const myTeam = data.teams.find((t) => t.teamId === session.teamId);
       if (myTeam) setSession({ score: myTeam.score });
-      if (data.eliminations.includes(session.teamId!)) setIsEliminated(true);
+      if (data.eliminations.includes(session.teamId!)) {
+        setIsEliminated(true);
+        setPhase('eliminated');
+      }
     };
 
     const onPlayerEliminated = (data: { teamId: number }) => {
-      if (data.teamId === session.teamId) setIsEliminated(true);
+      if (data.teamId === session.teamId) {
+        setIsEliminated(true);
+        setPhase('eliminated');
+      }
     };
 
     const onScoreboard = (data: { teams: any[] }) => {
@@ -770,6 +809,7 @@ export default function GamePage() {
 
     socket.on('session_state', onSessionState);
     socket.on('round_intro', onRoundIntro);
+    socket.on('wager_collection_start', onWagerCollectionStart);
     socket.on('question_active', onQuestionActive);
     socket.on('timer_update', onTimerUpdate);
     socket.on('timer_expired', onTimerExpired);
@@ -788,6 +828,7 @@ export default function GamePage() {
     return () => {
       socket.off('session_state', onSessionState);
       socket.off('round_intro', onRoundIntro);
+      socket.off('wager_collection_start', onWagerCollectionStart);
       socket.off('question_active', onQuestionActive);
       socket.off('timer_update', onTimerUpdate);
       socket.off('timer_expired', onTimerExpired);
@@ -842,8 +883,20 @@ export default function GamePage() {
     if (!socket) return;
     socket.emit('submit_wager', { amount: wagerAmount });
     setWagerSubmitted(true);
-    setPhase('question');
+    // Only advance to question phase if the question is already active.
+    // During WAGER_COLLECTION, stay on wager_input — the question_active event
+    // will move the player to question phase when the host starts the round.
+    if (question) {
+      setPhase('question');
+    }
   };
+
+  const isFinalWagerRound =
+    (question?.roundType || roundInfo?.round?.type || '').toUpperCase() === 'FINAL_WAGER';
+  const lockedWagerLabel = isFinalWagerRound
+    ? `${wagerAmount}% (${Math.round((session.score * wagerAmount) / 100)} pts)`
+    : `${wagerAmount} pts`;
+  const wagerSliderMax = isFinalWagerRound ? 100 : 50;
 
   const myRank = scoreboard.findIndex((t) => t.teamId === session.teamId) + 1;
   const breakProgress =
@@ -1007,7 +1060,7 @@ export default function GamePage() {
             )}
 
             {/* ── WAGER INPUT ── */}
-            {phase === 'wager_input' && question && (
+            {phase === 'wager_input' && (
               <motion.div
                 key="wager"
                 {...pageTransition}
@@ -1017,14 +1070,24 @@ export default function GamePage() {
                   <motion.h2
                     initial={{ opacity: 0, y: -10 }}
                     animate={{ opacity: 1, y: 0 }}
-                    className="text-xl font-bold mb-2 text-glow-cyan"
+                    className="text-xl font-bold mb-4 text-glow-cyan"
                   >
                     Place Your Wager
                   </motion.h2>
-                  {question.roundType === 'FINAL_WAGER' ? (
-                    <p className="text-foreground/40 text-sm mb-6">
-                      Wager 0–100% of your {session.score} points
+                  {/* Current Score Display */}
+                  <motion.div
+                    initial={{ opacity: 0, scale: 0.9 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    transition={{ delay: 0.1 }}
+                    className="neon-border rounded-xl p-4 mb-6 bg-surface/80"
+                  >
+                    <p className="text-foreground/50 text-xs mb-1">Current Score</p>
+                    <p className="text-3xl font-mono font-bold text-neon-cyan text-glow-cyan">
+                      {session.score} pts
                     </p>
+                  </motion.div>
+                  {isFinalWagerRound ? (
+                    <p className="text-foreground/40 text-sm mb-6">Wager 0–100% of your points</p>
                   ) : (
                     <div className="mb-6 space-y-2 rounded-xl border border-white/10 bg-black/25 px-4 py-3 text-left text-sm leading-snug text-white/75 sm:text-center">
                       <p>
@@ -1047,23 +1110,38 @@ export default function GamePage() {
                     <input
                       type="range"
                       min={0}
-                      max={question.roundType === 'FINAL_WAGER' ? 100 : 50}
+                      max={wagerSliderMax}
                       value={wagerAmount}
                       onChange={(e) => setWagerAmount(Number(e.target.value))}
-                      className="w-full accent-primary h-3 touch-manipulation"
+                      disabled={wagerSubmitted}
+                      className="w-full accent-primary h-3 touch-manipulation disabled:opacity-50 disabled:cursor-not-allowed"
                     />
                     <p className="text-4xl font-mono font-bold text-neon-cyan text-glow-cyan mt-4">
-                      {question.roundType === 'FINAL_WAGER'
+                      {isFinalWagerRound
                         ? `${wagerAmount}% (${Math.round((session.score * wagerAmount) / 100)} pts)`
                         : `${wagerAmount} pts`}
                     </p>
                   </motion.div>
                   <button
                     onClick={handleSubmitWager}
-                    className="w-full py-4 text-lg font-bold rounded-xl bg-neon-cyan/20 text-neon-cyan border border-neon-cyan/50 hover:bg-neon-cyan/30 transition-colors touch-manipulation"
+                    disabled={wagerSubmitted}
+                    className={cn(
+                      'w-full py-4 text-lg font-bold rounded-xl border transition-colors touch-manipulation',
+                      wagerSubmitted
+                        ? 'bg-green-500/20 text-green-400 border-green-500/50 cursor-not-allowed'
+                        : 'bg-neon-cyan/20 text-neon-cyan border-neon-cyan/50 hover:bg-neon-cyan/30',
+                    )}
                   >
-                    Lock Wager
+                    {wagerSubmitted ? '✓ Wager Locked' : 'Lock Wager'}
                   </button>
+                  {wagerSubmitted && (
+                    <div className="mt-4 rounded-xl border border-green-500/40 bg-green-500/10 px-4 py-3 text-sm">
+                      <p className="font-semibold text-green-300">
+                        Wager locked in: {lockedWagerLabel}
+                      </p>
+                      <p className="mt-1 text-white/60">Waiting for host to start the round...</p>
+                    </div>
+                  )}
                 </div>
               </motion.div>
             )}
@@ -1106,7 +1184,7 @@ export default function GamePage() {
                   ) : (question.question.mediaType || '').toLowerCase() === 'mp4' &&
                     question.question.mediaUrl ? (
                     <div className="shrink-0">
-                      <div className="rounded-2xl border-2 border-[#11a7ff] overflow-hidden shadow-[0_0_20px_rgba(17,167,255,0.3)]">
+                      <div className="rounded-2xl border-2 overflow-hidden shadow-[0_0_20px_rgba(17,167,255,0.3)]">
                         <video
                           src={resolveMediaUrl(question.question.mediaUrl)}
                           className="max-h-[min(42vh,220px)] w-full object-cover md:max-h-[min(38vh,280px)]"
@@ -1117,7 +1195,7 @@ export default function GamePage() {
                   ) : (question.question.mediaType || '').toLowerCase() === 'mp3' ||
                     question.roundType === 'MUSIC' ? (
                     <div className="shrink-0">
-                      <div className="rounded-2xl border-2 border-[#11a7ff] overflow-hidden shadow-[0_0_20px_rgba(17,167,255,0.3)]">
+                      <div className="rounded-2xl overflow-hidden">
                         <img
                           src="/musicbg.png"
                           alt="Music round placeholder"
@@ -1314,8 +1392,7 @@ export default function GamePage() {
                     Knocked Out!
                   </h2>
                   <p className="text-foreground/50 text-sm max-w-xs">
-                    You&apos;ve been eliminated for this round. You&apos;ll be back when the next
-                    round starts.
+                    You are knocked out for this round. You can play in the next round.
                   </p>
                   <div className="neon-border rounded-xl p-4 mt-6 bg-surface/80">
                     <p className="text-foreground/40 text-xs mb-1">Your Score</p>

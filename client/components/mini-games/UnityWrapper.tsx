@@ -7,9 +7,10 @@ type UnityGameType = 'Kangaroo_race' | 'card_shuffle';
 
 export interface MiniGameUnityCommand {
   id: number;
-  game: 'card_shuffle';
-  command: 'start_game' | 'next_round' | 'reveal_cards';
+  game: 'card_shuffle' | 'kangaroo_race';
+  command: 'start_game' | 'next_round' | 'reveal_cards' | 'reveal_winner';
   roundNumber?: 1 | 2 | 3 | 4;
+  winningKangaroo?: number;
 }
 
 export interface UnityWrapperProps {
@@ -21,12 +22,31 @@ export interface UnityWrapperProps {
   className?: string;
 }
 
-const GAME_CONFIGS: Record<string, { loaderUrl: string; dataUrl: string; frameworkUrl: string; codeUrl: string }> = {
+function toCardUnityMessage(
+  type: 'MINIGAME_START' | 'MINIGAME_NEXT_ROUND' | 'MINIGAME_REVEAL',
+  payload: Record<string, unknown> = {},
+): string {
+  // Card build contract expects payload as a JSON string, not a nested object.
+  return JSON.stringify({ type, payload: JSON.stringify(payload) });
+}
+
+function toKangarooUnityMessage(
+  type: 'MINIGAME_START',
+  payload: Record<string, unknown> = {},
+): string {
+  // Kangaroo build test harness uses Racemanager.OnMessageFromReact with payload as string.
+  return JSON.stringify({ type, payload: JSON.stringify(payload) });
+}
+
+const GAME_CONFIGS: Record<
+  string,
+  { loaderUrl: string; dataUrl: string; frameworkUrl: string; codeUrl: string }
+> = {
   Kangaroo_race: {
-    loaderUrl: '/games/Kangaroo-race/Build/Kangaroo-race.loader.js',
-    dataUrl: '/games/Kangaroo-race/Build/Kangaroo-race.data',
-    frameworkUrl: '/games/Kangaroo-race/Build/Kangaroo-race.framework.js',
-    codeUrl: '/games/Kangaroo-race/Build/Kangaroo-race.wasm',
+    loaderUrl: '/KangarooGame/Build/Kangaroo_Build.loader.js?v=root-build-v3',
+    dataUrl: '/KangarooGame/Build/Kangaroo_Build.data.unityweb?v=root-build-v3',
+    frameworkUrl: '/KangarooGame/Build/Kangaroo_Build.framework.js.unityweb?v=root-build-v3',
+    codeUrl: '/KangarooGame/Build/Kangaroo_Build.wasm.unityweb?v=root-build-v3',
   },
   /** WebGL build served from repo root `CardGame/Build/` via `app/CardGame/Build/[...slug]/route.ts` */
   card_shuffle: {
@@ -47,6 +67,7 @@ const GAME_CONFIGS: Record<string, { loaderUrl: string; dataUrl: string; framewo
  * Web → Unity (via SendMessage):
  *   - `GameManager.StartGame(jsonConfig)` to initialise with team data
  *   - `GameManager.ResetGame()` to reset state for replay
+ *   - `Racemanager.OnMessageFromReact(jsonPayload)` for Kangaroo start trigger
  */
 export default function UnityWrapper({
   gameType,
@@ -163,13 +184,20 @@ export default function UnityWrapper({
         sendUnityMessageDeferred(
           'GameManager',
           'OnMessageFromReact',
-          JSON.stringify({ type: 'MINIGAME_START', payload: config }),
+          toCardUnityMessage('MINIGAME_START', config),
         );
         return;
       }
-      sendMessage('GameManager', 'StartGame', JSON.stringify(config));
+
+      if (gameType === 'Kangaroo_race') {
+        sendUnityMessageDeferred(
+          'Racemanager',
+          'OnMessageFromReact',
+          toKangarooUnityMessage('MINIGAME_START', config),
+        );
+      }
     },
-    [gameType, isLoaded, sendMessage, sendUnityMessageDeferred],
+    [gameType, isLoaded, sendUnityMessageDeferred],
   );
 
   const resetGame = useCallback(() => {
@@ -178,18 +206,10 @@ export default function UnityWrapper({
       sendUnityMessageDeferred(
         'GameManager',
         'OnMessageFromReact',
-        JSON.stringify({ type: 'MINIGAME_NEXT_ROUND', payload: {} }),
+        toCardUnityMessage('MINIGAME_NEXT_ROUND', {}),
       );
-      return;
     }
-    sendMessage('GameManager', 'ResetGame', '');
-  }, [gameType, isLoaded, sendMessage, sendUnityMessageDeferred]);
-
-  useEffect(() => {
-    if (isLoaded && gameType !== 'card_shuffle') {
-      startGame({ gameType, timestamp: Date.now() });
-    }
-  }, [isLoaded, gameType, startGame]);
+  }, [gameType, isLoaded, sendUnityMessageDeferred]);
 
   useEffect(() => {
     if (!isLoaded) return;
@@ -198,8 +218,7 @@ export default function UnityWrapper({
       onReady?.(gameType);
     };
     const timer = window.setTimeout(emitReady, gameType === 'card_shuffle' ? 900 : 0);
-    const interval =
-      gameType === 'card_shuffle' ? window.setInterval(emitReady, 3000) : undefined;
+    const interval = gameType === 'card_shuffle' ? window.setInterval(emitReady, 3000) : undefined;
 
     return () => {
       window.clearTimeout(timer);
@@ -218,15 +237,28 @@ export default function UnityWrapper({
         : command.command === 'reveal_cards'
           ? 'MINIGAME_REVEAL'
           : 'MINIGAME_NEXT_ROUND';
-    const payload =
-      command.command === 'next_round' ? { roundNumber: command.roundNumber } : {};
+    const payload = command.command === 'next_round' ? { roundNumber: command.roundNumber } : {};
 
     sendUnityMessageDeferred(
       'GameManager',
       'OnMessageFromReact',
-      JSON.stringify({ type, payload }),
+      toCardUnityMessage(type, payload),
     );
   }, [command, gameType, isLoaded, sendUnityMessageDeferred]);
+
+  useEffect(() => {
+    if (!isLoaded || gameType !== 'Kangaroo_race' || !command || command.game !== 'kangaroo_race') {
+      return;
+    }
+
+    if (command.command !== 'start_game') return;
+
+    startGame({
+      winningKangaroo: command.winningKangaroo,
+      triggeredBy: 'host_start',
+      timestamp: Date.now(),
+    });
+  }, [command, gameType, isLoaded, startGame]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -238,9 +270,7 @@ export default function UnityWrapper({
   }, [isLoaded, loadingProgression]);
 
   if (loadError && !isLoaded) {
-    return (
-      <FallbackView gameType={gameType} />
-    );
+    return <FallbackView gameType={gameType} />;
   }
 
   return (
@@ -248,10 +278,10 @@ export default function UnityWrapper({
       {/* Loading overlay */}
       {!isLoaded && (
         <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-background/80">
-          <div className="text-4xl mb-4">
-            {gameType === 'Kangaroo_race' ? '🏇' : '🃏'}
-          </div>
-          <p className="text-lg font-semibold mb-3">Loading {gameType === 'Kangaroo_race' ? 'Kangaroo Race' : 'Card Shuffle'}</p>
+          <div className="text-4xl mb-4">{gameType === 'Kangaroo_race' ? '🏇' : '🃏'}</div>
+          <p className="text-lg font-semibold mb-3">
+            Loading {gameType === 'Kangaroo_race' ? 'Kangaroo Race' : 'Card Shuffle'}
+          </p>
           <div className="w-48 h-2 bg-surface-light rounded-full overflow-hidden">
             <div
               className="h-full bg-primary rounded-full transition-all duration-300"
@@ -277,9 +307,7 @@ export default function UnityWrapper({
 function FallbackView({ gameType }: { gameType: string }) {
   return (
     <div className="w-full h-full flex flex-col items-center justify-center text-center gap-4 bg-surface/50 rounded-2xl border border-border">
-      <div className="text-7xl">
-        {gameType === 'Kangaroo_race' ? '🏇' : '🃏'}
-      </div>
+      <div className="text-7xl">{gameType === 'Kangaroo_race' ? '🏇' : '🃏'}</div>
       <h3 className="text-3xl font-black">
         {gameType === 'Kangaroo_race' ? 'Kangaroo Race' : 'Card Shuffle'}
       </h3>
@@ -288,13 +316,16 @@ function FallbackView({ gameType }: { gameType: string }) {
       </p>
       <code className="text-xs font-mono bg-surface-light px-4 py-2 rounded-lg text-primary">
         {gameType === 'Kangaroo_race'
-          ? 'client/public/games/Kangaroo-race/Build/'
+          ? 'KangarooGame/Build/ (repo root, next to client/)'
           : 'CardGame/Build/ (repo root, next to client/)'}
       </code>
-      {gameType === 'card_shuffle' ? (
+      {gameType === 'card_shuffle' || gameType === 'Kangaroo_race' ? (
         <p className="text-xs text-foreground/40 max-w-md">
-          Or set <code className="font-mono text-primary/80">CARDGAME_BUILD_DIR</code> to an absolute
-          Build folder path on the server.
+          Or set{' '}
+          <code className="font-mono text-primary/80">
+            {gameType === 'Kangaroo_race' ? 'KANGAROO_BUILD_DIR' : 'CARDGAME_BUILD_DIR'}
+          </code>{' '}
+          to an absolute Build folder path on the server.
         </p>
       ) : null}
       <div className="mt-4 bg-primary/10 border border-primary/20 rounded-xl px-6 py-3">

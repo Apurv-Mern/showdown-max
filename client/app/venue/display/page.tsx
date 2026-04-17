@@ -113,7 +113,10 @@ const getRoundScoringLines = (roundType?: string) => {
       negative: '-wagered percentage of score',
     };
   }
-  return { positive: '+10 points for correct answers', negative: '-2 points for incorrect answers' };
+  return {
+    positive: '+10 points for correct answers',
+    negative: '-2 points for incorrect answers',
+  };
 };
 
 const formatRoundTypeLabel = (roundType?: string) => {
@@ -140,9 +143,10 @@ const formatRoundTypeLabel = (roundType?: string) => {
 
 type MiniGameCommand = {
   id: number;
-  game: 'card_shuffle';
-  command: 'start_game' | 'next_round' | 'reveal_cards';
+  game: 'card_shuffle' | 'kangaroo_race';
+  command: 'start_game' | 'next_round' | 'reveal_cards' | 'reveal_winner';
   roundNumber?: 1 | 2 | 3 | 4;
+  winningKangaroo?: number;
 };
 
 type MiniGameReveal = {
@@ -150,6 +154,15 @@ type MiniGameReveal = {
   correctPosition: 1 | 2 | 3;
   roundNumber?: 1 | 2 | 3 | 4;
   cardPositions?: number[];
+};
+
+type VenueMiniGameType = 'Kangaroo_race' | 'card_shuffle';
+
+const normalizeVenueMiniGameType = (game: unknown): VenueMiniGameType | null => {
+  const g = game == null || game === '' ? '' : String(game).toLowerCase().replace(/-/g, '_');
+  if (g === 'kangaroo_race') return 'Kangaroo_race';
+  if (g === 'card_shuffle') return 'card_shuffle';
+  return null;
 };
 
 /** Unity may send `payload` as a JSON string; slots may be 0–2 or 1–3. */
@@ -247,11 +260,11 @@ function VenueDisplayContent() {
   const [revealData, setRevealData] = useState<RevealData | null>(null);
   const [scoreboard, setScoreboard] = useState<Team[]>([]);
   const [breakDuration, setBreakDuration] = useState(360);
-  const [miniGameType, setMiniGameType] = useState<string | null>(null);
+  const [miniGameType, setMiniGameType] = useState<VenueMiniGameType | null>(null);
   const [miniGameCommand, setMiniGameCommand] = useState<MiniGameCommand | null>(null);
   const [miniGameReveal, setMiniGameReveal] = useState<MiniGameReveal | null>(null);
   const [miniGameResult, setMiniGameResult] = useState<{
-    game: string;
+    game: VenueMiniGameType;
     winningCard?: number;
     winningKangaroo?: number;
     holdScreen?: boolean;
@@ -665,9 +678,10 @@ function VenueDisplayContent() {
       }
 
       // Determine the correct phase from the server state
-      if (data.activeMiniGame) {
-        setMiniGameType(data.activeMiniGame);
-        if (data.activeMiniGame !== 'card_shuffle') setMiniGameCommand(null);
+      const normalizedActiveMiniGame = normalizeVenueMiniGameType(data.activeMiniGame);
+      if (normalizedActiveMiniGame) {
+        setMiniGameType(normalizedActiveMiniGame);
+        if (normalizedActiveMiniGame !== 'card_shuffle') setMiniGameCommand(null);
         if (data.miniGameState?.game === 'card_shuffle' && data.miniGameState?.revealed) {
           setMiniGameReveal({
             game: 'card_shuffle',
@@ -868,10 +882,12 @@ function VenueDisplayContent() {
     };
 
     const onMiniGameStart = (data: { game: string }) => {
+      const normalizedGame = normalizeVenueMiniGameType(data.game);
+      if (!normalizedGame) return;
       cardShuffleRevealFlushGenRef.current += 1;
       lastCardShuffleUnityRef.current = null;
       clearCardShuffleRevealFlushTimers();
-      setMiniGameType(data.game);
+      setMiniGameType(normalizedGame);
       setMiniGameCommand(null);
       setMiniGameReveal(null);
       setMiniGameResult(null);
@@ -880,10 +896,26 @@ function VenueDisplayContent() {
 
     const onMiniGameCommand = (data: {
       game?: string;
-      command?: 'start_game' | 'next_round' | 'reveal_cards';
+      command?: 'start_game' | 'next_round' | 'reveal_cards' | 'reveal_winner';
       roundNumber?: 1 | 2 | 3 | 4;
+      winningKangaroo?: number;
     }) => {
-      if (normalizeVenueMiniGameId(data?.game) !== 'card_shuffle' || !data.command) return;
+      const gid = normalizeVenueMiniGameId(data?.game);
+      if (!gid || !data.command) return;
+
+      if (gid === 'kangaroo_race') {
+        setMiniGameCommand({
+          id: Date.now(),
+          game: 'kangaroo_race',
+          command: data.command,
+          ...(Number.isFinite(Number(data.winningKangaroo))
+            ? { winningKangaroo: Number(data.winningKangaroo) }
+            : {}),
+        });
+        return;
+      }
+
+      if (gid !== 'card_shuffle') return;
       if (data.command === 'next_round' || data.command === 'start_game') {
         lastCardShuffleUnityRef.current = null;
         clearCardShuffleRevealFlushTimers();
@@ -957,9 +989,10 @@ function VenueDisplayContent() {
       status?: string;
       message?: string;
     }) => {
-      if (data.game) {
+      const normalizedGame = normalizeVenueMiniGameType(data.game);
+      if (normalizedGame) {
         setMiniGameReveal(null);
-        if (data.game === 'card_shuffle') {
+        if (normalizedGame === 'card_shuffle') {
           setMiniGameCommand(null);
           if (data.holdScreen) {
             setMiniGameResult({
@@ -971,7 +1004,7 @@ function VenueDisplayContent() {
             setPhase('mini_game_result');
           }
         } else {
-          setMiniGameResult(data);
+          setMiniGameResult({ ...data, game: normalizedGame });
           setPhase('mini_game_result');
         }
       }

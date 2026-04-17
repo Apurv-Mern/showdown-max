@@ -5,20 +5,22 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { connectSocket } from '@/lib/socket';
 import { usePlayerSession } from '../playerSession';
 import { Button } from '@/components/shared/Button';
+import { cn } from '@/lib/utils';
 
-type MiniGameType = 'horse_race' | 'card_shuffle' | null;
+type MiniGameType = 'kangaroo_race' | 'card_shuffle' | null;
 
 interface HorseOption {
   id: number;
-  name: string;
-  color: string;
+  buttonClass: string;
 }
 
 const HORSES: HorseOption[] = [
-  { id: 1, name: 'Thunder', color: 'bg-[#e21b3c]' },
-  { id: 2, name: 'Lightning', color: 'bg-[#1368ce]' },
-  { id: 3, name: 'Storm', color: 'bg-[#d89e00]' },
-  { id: 4, name: 'Blaze', color: 'bg-[#26890c]' },
+  { id: 1, buttonClass: 'bg-[#008df5] shadow-[0_7px_0_#005aa3]' },
+  { id: 2, buttonClass: 'bg-[#ff8900] shadow-[0_7px_0_#b45f00]' },
+  { id: 3, buttonClass: 'bg-[#2aac00] shadow-[0_7px_0_#1f7b00]' },
+  { id: 4, buttonClass: 'bg-[#e09b00] shadow-[0_7px_0_#9a6b00]' },
+  { id: 5, buttonClass: 'bg-[#6c00c8] shadow-[0_7px_0_#42007c]' },
+  { id: 6, buttonClass: 'bg-[#d50024] shadow-[0_7px_0_#8a0017]' },
 ];
 
 const CARD_POSITIONS = [
@@ -224,7 +226,7 @@ export default function MiniGamePage() {
 
     const onMiniGameCommand = (data: {
       game?: string;
-      command?: 'start_game' | 'next_round' | 'reveal_cards';
+      command?: 'start_game' | 'next_round' | 'reveal_cards' | 'reveal_winner';
       roundNumber?: number;
       cardShuffleReveal?: {
         game?: string;
@@ -234,7 +236,27 @@ export default function MiniGamePage() {
         cardPositions?: number[];
       };
     }) => {
-      if (normalizeMiniGameId(data?.game) !== 'card_shuffle') return;
+      const gid = normalizeMiniGameId(data?.game);
+      if (gid === 'kangaroo_race') {
+        if (data.command === 'start_game') {
+          lockedPickRef.current = null;
+          setSelectedChoice(null);
+          setResultPhase(null);
+          setWinningValue(null);
+          setRoundOpen(true);
+          setShuffleComplete(false);
+          setRoundAnnouncement('Race started - pick your kangaroo');
+          window.setTimeout(() => setRoundAnnouncement(null), 2800);
+        }
+        if (data.command === 'reveal_winner') {
+          setRoundOpen(false);
+          setRoundAnnouncement('Revealing winner...');
+          window.setTimeout(() => setRoundAnnouncement(null), 1800);
+        }
+        return;
+      }
+
+      if (gid !== 'card_shuffle') return;
       if (data.command === 'reveal_cards') {
         // Server now explicitly sends mini_game_reveal after reveal_cards.
         // We just log here — the result will come via onMiniGameReveal.
@@ -264,10 +286,24 @@ export default function MiniGamePage() {
       game?: string;
       correctPosition?: number;
       correct_position?: number;
+      winningKangaroo?: number;
       roundNumber?: number;
       cardPositions?: number[];
     }) => {
       const gid = normalizeMiniGameId(data?.game);
+      if (gid === 'kangaroo_race') {
+        const winning = Number(data?.winningKangaroo);
+        setGameType('kangaroo_race');
+        setWinningValue(Number.isFinite(winning) ? winning : null);
+        setRoundOpen(false);
+        setRoundAnnouncement(null);
+        const pick = lockedPickRef.current ?? selectedChoiceRef.current;
+        if (Number.isFinite(winning) && pick !== null) {
+          setResultPhase(pick === winning ? 'winner' : 'loser');
+        }
+        return;
+      }
+
       if (gid && gid !== 'card_shuffle') return;
       console.log(
         '[play/mini-game] mini_game_reveal (authoritative winning slot from server):',
@@ -281,9 +317,28 @@ export default function MiniGamePage() {
       result?: 'winner' | 'loser';
       correctPosition?: number;
       correct_position?: number;
+      winningKangaroo?: number;
       selectedChoice?: number | null;
     }) => {
       const gid = normalizeMiniGameId(data?.game);
+      if (gid === 'kangaroo_race') {
+        const winning = Number(data?.winningKangaroo);
+        const selected = Number(data?.selectedChoice);
+
+        setGameType('kangaroo_race');
+        setWinningValue(Number.isFinite(winning) ? winning : null);
+        setRoundOpen(false);
+        setRoundAnnouncement(null);
+
+        if (Number.isFinite(selected) && selected >= 1 && selected <= 6) {
+          lockedPickRef.current = selected;
+          setSelectedChoice(selected);
+        }
+
+        setResultPhase(data?.result === 'winner' ? 'winner' : 'loser');
+        return;
+      }
+
       if (gid && gid !== 'card_shuffle') return;
 
       const winning = normalizeCardSlotToChoice(data?.correctPosition ?? data?.correct_position);
@@ -463,7 +518,7 @@ export default function MiniGamePage() {
   if (resultPhase && gameType !== 'card_shuffle') {
     const isWinner = resultPhase === 'winner';
     const winLabel =
-      gameType === 'horse_race' && winningValue != null ? `Kangaroo #${winningValue}` : '';
+      gameType === 'kangaroo_race' && winningValue != null ? `Kangaroo #${winningValue}` : '';
 
     return (
       <MobileFrame>
@@ -532,36 +587,66 @@ export default function MiniGamePage() {
           </div>
         ) : null}
 
-        {gameType === 'horse_race' && (
-          <div className="w-full max-w-sm text-center sm:max-w-md">
-            <div className="mb-3 text-3xl sm:text-4xl">RACE</div>
-            <h2 className="mb-2 text-xl font-bold sm:text-2xl">Horse Race</h2>
-            <p className="text-foreground/50 text-sm mb-6">
-              {selectedChoice
-                ? 'Your bet is locked! Watch the race on the big screen.'
-                : roundOpen
-                  ? 'Pick a horse to bet on!'
-                  : 'Waiting for the host to start the round...'}
-            </p>
+        {gameType === 'kangaroo_race' && (
+          <div className="relative z-10 flex min-h-0 flex-1 flex-col px-5 pb-8 pt-8 sm:px-8">
+            <header className="shrink-0 text-center">
+              <h1 className="text-[clamp(1.65rem,6vw,2.2rem)] font-black uppercase leading-tight tracking-[0.06em] text-white drop-shadow-[0_2px_12px_rgba(0,0,0,0.45)]">
+                Kangaroo Race !!
+              </h1>
+              <p className="mt-2 text-[1.05rem] font-extrabold leading-tight text-white sm:text-xl">
+                Which Kangaroo will win
+              </p>
+              <p className="text-[1.05rem] font-extrabold leading-tight text-white sm:text-xl">
+                Pick your Kangaroo
+              </p>
+            </header>
 
-            <div className="grid grid-cols-2 gap-2 sm:gap-3">
+            <div className="mx-auto mt-4 flex h-[170px] w-[170px] items-center justify-center rounded-2xl bg-[radial-gradient(circle_at_50%_10%,rgba(255,255,255,0.2),transparent_70%)]">
+              <img
+                src="/kangaroo.png"
+                alt="Kangaroo"
+                className="h-full w-full object-contain"
+                onError={(e) => {
+                  const el = e.currentTarget;
+                  el.style.display = 'none';
+                }}
+              />
+              <span className="text-7xl" aria-hidden>
+                🦘
+              </span>
+            </div>
+
+            <div className="mt-4 grid grid-cols-2 gap-3">
               {HORSES.map((horse) => (
                 <button
                   key={horse.id}
                   onClick={() => handleChoice(horse.id)}
-                  disabled={!roundOpen || selectedChoice !== null}
-                  className={`${horse.color} rounded-xl p-4 text-center text-sm font-bold text-white transition-all active:scale-95 sm:p-5 sm:text-base ${
+                  disabled={!roundOpen || selectedChoice !== null || resultPhase !== null}
+                  className={cn(
+                    'rounded-xl py-4 text-center text-5xl font-black text-white transition-all duration-200 active:translate-y-0.5 active:shadow-none',
+                    horse.buttonClass,
                     selectedChoice === horse.id
-                      ? 'ring-4 ring-white/50 scale-105'
-                      : !roundOpen || selectedChoice !== null
-                        ? 'opacity-30'
-                        : 'hover:scale-105'
-                  }`}
+                      ? 'ring-4 ring-white/55 scale-[1.02]'
+                      : !roundOpen || selectedChoice !== null || resultPhase !== null
+                        ? 'opacity-40 saturate-75'
+                        : 'hover:brightness-110 hover:scale-[1.02]',
+                  )}
                 >
-                  <div className="mb-1 text-2xl sm:text-3xl">Horse</div>
-                  <div className="text-xs sm:text-sm">{horse.name}</div>
+                  {horse.id}
                 </button>
               ))}
+            </div>
+
+            <div className="mt-5 rounded-xl border border-[#00d8ff]/65 bg-[rgba(0,0,0,0.62)] px-4 py-3 text-center shadow-[0_0_12px_rgba(0,216,255,0.25)]">
+              <p className="text-base font-black text-white">
+                {resultPhase
+                  ? 'Waiting for the host to start the next race...'
+                  : selectedChoice
+                    ? 'Pick locked! Watch the race on the venue screen !!'
+                    : roundOpen
+                      ? 'Tap a number to lock your kangaroo'
+                      : 'Waiting for host to start race...'}
+              </p>
             </div>
           </div>
         )}

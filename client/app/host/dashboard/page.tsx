@@ -58,9 +58,15 @@ function getRoundScoringLines(roundType?: string) {
     return { positive: '+wagered percentage of score', negative: '-wagered percentage of score' };
   }
   if (type === 'MAJORITY_RULES') {
-    return { positive: '+50 points for majority answers', negative: '-50 points for minority answers' };
+    return {
+      positive: '+50 points for majority answers',
+      negative: '-50 points for minority answers',
+    };
   }
-  return { positive: '+10 points for correct answers', negative: '-2 points for incorrect answers' };
+  return {
+    positive: '+10 points for correct answers',
+    negative: '-2 points for incorrect answers',
+  };
 }
 
 const KANGAROO_SLOTS = [1, 2, 3, 4, 5, 6] as const;
@@ -115,6 +121,7 @@ interface GameState {
     activeRound?: 1 | 2 | 3 | 4 | null;
     revealed?: boolean;
     correctPosition?: number | null;
+    winningKangaroo?: number | null;
     pickCounts?: Record<string, number>;
   } | null;
   currentQuestion?: QuestionData | null;
@@ -382,8 +389,9 @@ function HostDashboardContent() {
   const [editScoreValue, setEditScoreValue] = useState('');
   const [showRegisteredTeams, setShowRegisteredTeams] = useState(false);
   const [showRoundIntroductionModal, setShowRoundIntroductionModal] = useState(false);
-  const [showKangarooRaceModal, setShowKangarooRaceModal] = useState(false);
   const [winningKangaroo, setWinningKangaroo] = useState(3);
+  const [kangarooRaceStarted, setKangarooRaceStarted] = useState(false);
+  const [kangarooRaceRevealed, setKangarooRaceRevealed] = useState(false);
   const [kangarooBetCounts, setKangarooBetCounts] = useState([0, 0, 0, 0, 0, 0]);
   const [cardPickCounts, setCardPickCounts] = useState([0, 0, 0]);
   const [cardShuffleVenueReady, setCardShuffleVenueReady] = useState(false);
@@ -556,6 +564,16 @@ function HostDashboardContent() {
           if (data.miniGameState.revealed) {
             setMiniGameRevealing(false);
           }
+        } else if (data.miniGameState?.game === 'kangaroo_race') {
+          setKangarooRaceStarted(Boolean(data.miniGameState.gameStarted));
+          setKangarooRaceRevealed(Boolean(data.miniGameState.revealed));
+          const winner = Number(data.miniGameState.winningKangaroo);
+          if (Number.isFinite(winner) && winner >= 1 && winner <= 6) {
+            setWinningKangaroo(winner);
+          }
+          setKangarooBetCounts(
+            [1, 2, 3, 4, 5, 6].map((slot) => Number(data.miniGameState?.pickCounts?.[slot] || 0)),
+          );
         }
       } else if (data?.activeMiniGame === null) {
         setActiveMiniGameLocal(null);
@@ -567,6 +585,9 @@ function HostDashboardContent() {
         setCardShuffleActiveRound(null);
         setCardShuffleRevealPosition(null);
         setCardPickCounts([0, 0, 0]);
+        setKangarooRaceStarted(false);
+        setKangarooRaceRevealed(false);
+        setKangarooBetCounts([0, 0, 0, 0, 0, 0]);
         setMiniGameRevealing(false);
       }
     };
@@ -830,6 +851,11 @@ function HostDashboardContent() {
       setActiveMiniGameLocal(data.game);
       setMiniGameLoading(false);
       setCardShuffleVenueReady(false);
+      if (normalizeHostMiniGameId(data?.game) === 'kangaroo_race') {
+        setKangarooRaceStarted(false);
+        setKangarooRaceRevealed(false);
+        setKangarooBetCounts([0, 0, 0, 0, 0, 0]);
+      }
     };
 
     const onMiniGameReady = (data: { game?: string; ready?: boolean }) => {
@@ -841,9 +867,18 @@ function HostDashboardContent() {
       game?: string;
       correctPosition?: number;
       correct_position?: number;
+      winningKangaroo?: number;
       roundNumber?: 1 | 2 | 3 | 4;
     }) => {
       const gid = normalizeHostMiniGameId(data?.game);
+      if (gid === 'kangaroo_race') {
+        const winner = Number(data.winningKangaroo);
+        if (Number.isFinite(winner) && winner >= 1 && winner <= 6) {
+          setWinningKangaroo(winner);
+          setKangarooRaceRevealed(true);
+        }
+        return;
+      }
       if (gid && gid !== 'card_shuffle') return;
       setMiniGameRevealing(false);
       const slot = normalizeHostRevealSlot(data.correctPosition ?? data.correct_position);
@@ -878,6 +913,10 @@ function HostDashboardContent() {
         } else {
           setCardShuffleFinishedHold(false);
         }
+      } else if (normalizeHostMiniGameId(data?.game) === 'kangaroo_race') {
+        setKangarooRaceStarted(false);
+        setKangarooRaceRevealed(false);
+        setKangarooBetCounts([0, 0, 0, 0, 0, 0]);
       }
       setActiveMiniGameLocal(null);
       setMiniGameRevealing(false);
@@ -917,7 +956,7 @@ function HostDashboardContent() {
     const onMiniGameUpdate = (data: { action?: string; value?: number }) => {
       if (data.action !== 'select' || typeof data.value !== 'number') return;
       const ag = gameStateRef.current?.activeMiniGame;
-      const isHorse = ag === 'horse_race' || ag === 'horse-race';
+      const isHorse = ag === 'kangaroo_race' || ag === 'kangaroo-race';
       const isCards = ag === 'card_shuffle';
       if (isHorse) {
         const idx = data.value - 1;
@@ -1016,14 +1055,46 @@ function HostDashboardContent() {
     logout();
     router.replace('/host/login');
   };
-  const handleKangarooRaceSave = () => {
+  const handleKangarooRaceStart = () => {
     setKangarooBetCounts([0, 0, 0, 0, 0, 0]);
-    setMiniGameLoading(true);
-    emit('launch_mini_game', {
-      game: 'horse_race',
+    setKangarooRaceStarted(true);
+    setKangarooRaceRevealed(false);
+
+    const sendStart = () => {
+      emit('mini_game_command', {
+        game: 'kangaroo_race',
+        command: 'start_game',
+        winningKangaroo,
+      });
+    };
+
+    if (activeMiniGameLocal !== 'kangaroo_race') {
+      if (!miniGameLoading) {
+        launchKangarooRaceOnVenue();
+      }
+      window.setTimeout(sendStart, 420);
+      return;
+    }
+
+    sendStart();
+  };
+
+  const handleKangarooRaceRevealWinner = () => {
+    if (activeMiniGameLocal !== 'kangaroo_race' || !kangarooRaceStarted || kangarooRaceRevealed) {
+      return;
+    }
+    setKangarooRaceRevealed(true);
+    emit('mini_game_command', {
+      game: 'kangaroo_race',
+      command: 'reveal_winner',
+      winningKangaroo,
+    });
+  };
+
+  const handleKangarooRaceFinish = () => {
+    emit('end_mini_game', {
       config: { winningKangaroo },
     });
-    setShowKangarooRaceModal(false);
   };
 
   const launchCardShuffleOnVenue = useCallback(() => {
@@ -1042,6 +1113,24 @@ function HostDashboardContent() {
     });
     setActiveMiniGameLocal('card_shuffle');
   }, [emit]);
+
+  const launchKangarooRaceOnVenue = useCallback(() => {
+    setKangarooRaceStarted(false);
+    setKangarooRaceRevealed(false);
+    setKangarooBetCounts([0, 0, 0, 0, 0, 0]);
+    setMiniGameLoading(true);
+    emit('launch_mini_game', {
+      game: 'kangaroo_race',
+      config: { winningKangaroo },
+    });
+    setActiveMiniGameLocal('kangaroo_race');
+  }, [emit, winningKangaroo]);
+
+  const handleOpenKangarooRaceControls = useCallback(() => {
+    if (activeMiniGameLocal !== 'kangaroo_race' && !miniGameLoading) {
+      launchKangarooRaceOnVenue();
+    }
+  }, [activeMiniGameLocal, launchKangarooRaceOnVenue, miniGameLoading]);
 
   const handleOpenCardShuffleControls = () => {
     if (activeMiniGameLocal !== 'card_shuffle' && !miniGameLoading) {
@@ -1111,7 +1200,7 @@ function HostDashboardContent() {
     setCardShuffleRevealPosition(null);
     emit(
       'end_mini_game',
-      activeMiniGameLocal === 'horse_race' ? { config: { winningKangaroo } } : undefined,
+      activeMiniGameLocal === 'kangaroo_race' ? { config: { winningKangaroo } } : undefined,
     );
   };
 
@@ -1137,10 +1226,6 @@ function HostDashboardContent() {
 
   const closeRoundIntroductionModal = useCallback(() => {
     setShowRoundIntroductionModal(false);
-  }, []);
-
-  const closeKangarooRaceModal = useCallback(() => {
-    setShowKangarooRaceModal(false);
   }, []);
 
   const closeScoreboardModal = useCallback(() => {
@@ -1269,15 +1354,6 @@ function HostDashboardContent() {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [showRoundIntroductionModal, closeRoundIntroductionModal]);
-
-  useEffect(() => {
-    if (!showKangarooRaceModal) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') closeKangarooRaceModal();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [showKangarooRaceModal, closeKangarooRaceModal]);
 
   useEffect(() => {
     if (!showScoreboardModal) return;
@@ -1496,9 +1572,9 @@ function HostDashboardContent() {
                 <HostSidebarTile
                   data-node-id="232:4583"
                   label="Kangaroo Race"
-                  active={showKangarooRaceModal}
+                  active={activeMiniGameLocal === 'kangaroo_race'}
                   icon={<span className="text-4xl leading-none">🦘</span>}
-                  onClick={() => setShowKangarooRaceModal(true)}
+                  onClick={handleOpenKangarooRaceControls}
                 />
                 <HostSidebarTile
                   data-node-id="232:4588"
@@ -1581,7 +1657,7 @@ function HostDashboardContent() {
             <div className="flex min-h-0 flex-1 flex-col rounded-2xl border-2 border-[rgba(0,217,255,0.45)] bg-[linear-gradient(180deg,rgba(26,31,46,0.85)_0%,rgba(11,15,26,0.92)_100%)] p-4 shadow-[0_0_28px_rgba(0,217,255,0.12)] sm:p-6">
               <div className="mb-4 flex shrink-0 items-center justify-between">
                 <h2 className="text-2xl font-semibold text-white sm:text-[30px]">
-                  {activeMiniGameLocal === 'horse_race'
+                  {activeMiniGameLocal === 'kangaroo_race'
                     ? 'Kangaroo Race'
                     : activeMiniGameLocal === 'card_shuffle'
                       ? 'Card Shuffle'
@@ -1615,7 +1691,7 @@ function HostDashboardContent() {
               {miniGameLoading && !activeMiniGameLocal ? (
                 <div className="flex flex-1 flex-col items-center justify-center gap-4">
                   <div className="text-5xl animate-pulse">
-                    {gameState?.activeMiniGame === 'horse_race' ? '🦘' : '🃏'}
+                    {gameState?.activeMiniGame === 'kangaroo_race' ? '🦘' : '🃏'}
                   </div>
                   <p className="text-lg font-semibold text-white/60">
                     Launching mini-game on venue...
@@ -1780,13 +1856,79 @@ function HostDashboardContent() {
                     </p>
                   ) : null}
                 </div>
-              ) : activeMiniGameLocal === 'horse_race' ? (
+              ) : activeMiniGameLocal === 'kangaroo_race' ? (
                 <div className="flex flex-1 flex-col items-center justify-center gap-6">
                   <div className="text-6xl">🦘</div>
                   <p className="text-xl font-bold text-white">
                     Kangaroo Race is running on the big screen
                   </p>
                   <p className="text-sm text-white/50">Players are betting on their phones</p>
+
+                  <div className="w-full max-w-3xl rounded-2xl border border-[#00d9ff]/25 bg-[#080d1c]/80 p-4 shadow-[0_0_24px_rgba(0,217,255,0.12)]">
+                    <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                      <div>
+                        <p className="text-xs font-bold uppercase tracking-[0.22em] text-[#00d9ff]">
+                          Kangaroo Race Controls
+                        </p>
+                        <p className="mt-1 text-sm text-white/50">
+                          {kangarooRaceStarted
+                            ? kangarooRaceRevealed
+                              ? 'Winner revealed. Finish race or start again.'
+                              : 'Race started. Reveal winner when ready.'
+                            : 'Click Start Race to trigger gameplay on venue and mobile.'}
+                        </p>
+                      </div>
+                      <span
+                        className={cn(
+                          'rounded-full border px-3 py-1 text-xs font-bold uppercase tracking-wider',
+                          kangarooRaceStarted
+                            ? 'border-green-500/45 bg-green-500/15 text-green-300'
+                            : 'border-white/15 bg-white/5 text-white/45',
+                        )}
+                      >
+                        {kangarooRaceStarted ? 'Started' : 'Waiting'}
+                      </span>
+                    </div>
+
+                    <button
+                      type="button"
+                      disabled={activeMiniGameLocal !== 'kangaroo_race'}
+                      onClick={handleKangarooRaceStart}
+                      className={cn(
+                        'mb-3 h-14 w-full rounded-xl border px-5 text-lg font-black uppercase tracking-wide transition',
+                        activeMiniGameLocal === 'kangaroo_race'
+                          ? 'border-[#00d9ff]/70 bg-[linear-gradient(180deg,#00a9df_0%,#075a89_100%)] text-white shadow-[0_0_22px_rgba(0,217,255,0.28)] hover:brightness-110'
+                          : 'cursor-not-allowed border-white/10 bg-white/8 text-white/30 grayscale',
+                      )}
+                    >
+                      Start Race
+                    </button>
+
+                    <div className="grid grid-cols-2 gap-3">
+                      <button
+                        type="button"
+                        onClick={handleKangarooRaceRevealWinner}
+                        disabled={
+                          activeMiniGameLocal !== 'kangaroo_race' ||
+                          !kangarooRaceStarted ||
+                          kangarooRaceRevealed
+                        }
+                        className="h-12 rounded-lg border border-[#ffc24d]/55 bg-[linear-gradient(180deg,#f59e0b_0%,#7c3b00_100%)] px-4 text-sm font-extrabold uppercase tracking-wide text-white shadow-[0_0_18px_rgba(245,158,11,0.28)] transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40 disabled:grayscale"
+                      >
+                        {kangarooRaceRevealed ? 'Winner Revealed' : 'Reveal Winner'}
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={handleKangarooRaceFinish}
+                        disabled={activeMiniGameLocal !== 'kangaroo_race'}
+                        className="h-12 rounded-lg border border-red-500/40 bg-[linear-gradient(180deg,#dc2626_0%,#7f1d1d_100%)] px-4 text-sm font-extrabold uppercase tracking-wide text-white shadow-[0_0_16px_rgba(220,38,38,0.24)] transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40 disabled:grayscale"
+                      >
+                        Finish Race
+                      </button>
+                    </div>
+                  </div>
+
                   <div className="mt-2 flex flex-wrap justify-center gap-3">
                     {KANGAROO_SLOTS.map((n, i) => (
                       <div
@@ -2107,10 +2249,10 @@ function HostDashboardContent() {
                       ? 'All Rounds Finished'
                       : currentRound
                         ? normalizeRoundIntroTitle(
-                          currentRound.name,
-                          currentRound.type,
-                          gameState?.currentRoundIndex,
-                        )
+                            currentRound.name,
+                            currentRound.type,
+                            gameState?.currentRoundIndex,
+                          )
                         : 'This round is finished'}
                   </h2>
                   <p className="max-w-md text-base text-[#9de9ff]/90 sm:text-lg">
@@ -2580,157 +2722,6 @@ function HostDashboardContent() {
                   </p>
                 </div>
               )}
-            </div>
-          </div>
-        </div>
-      ) : null}
-
-      {showKangarooRaceModal ? (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-[rgba(0,0,0,0.5)] p-4 backdrop-blur-[5px]"
-          data-name="Host Control Kangaroo Race"
-          data-node-id="232:3091"
-          onClick={closeKangarooRaceModal}
-          role="presentation"
-        >
-          <div
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="kangaroo-race-title"
-            className="relative z-10 flex max-h-[min(92vh,820px)] w-full max-w-[1008px] flex-col rounded-2xl border-2 border-[rgba(0,217,255,0.55)] bg-[rgba(26,31,46,0.98)] shadow-[0_0_30px_rgba(0,217,255,0.18)]"
-            data-node-id="232:3096"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <button
-              type="button"
-              data-name="maki:cross"
-              data-node-id="232:3105"
-              onClick={closeKangarooRaceModal}
-              className="absolute right-4 top-4 z-10 flex size-7 items-center justify-center rounded-md text-red-500 transition-colors hover:bg-red-500/10 hover:text-red-400"
-              aria-label="Close"
-            >
-              <svg
-                width="18"
-                height="18"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2.5"
-                strokeLinecap="round"
-              >
-                <path d="M18 6L6 18M6 6l12 12" />
-              </svg>
-            </button>
-
-            <div className="flex items-center gap-2 px-6 pb-2 pt-8 pr-14" data-node-id="232:3160">
-              <h2
-                id="kangaroo-race-title"
-                className="text-[25px] font-semibold text-white"
-                data-node-id="232:3161"
-              >
-                Kangaroo Race
-              </h2>
-              <span className="text-2xl leading-none" data-node-id="232:3162" aria-hidden>
-                🦘
-              </span>
-            </div>
-
-            <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-6">
-              <p className="mb-3 text-xl font-semibold text-white" data-node-id="232:3146">
-                Select Winning Kangaroo
-              </p>
-              <div className="mb-8 grid grid-cols-3 gap-3 sm:gap-4" data-node-id="232:3147">
-                {KANGAROO_SLOTS.map((n) => {
-                  const selected = winningKangaroo === n;
-                  return (
-                    <button
-                      key={n}
-                      type="button"
-                      data-node-id={n === 1 ? '232:3148' : n === 3 ? '232:3152' : undefined}
-                      onClick={() => setWinningKangaroo(n)}
-                      className={cn(
-                        'flex h-[100px] items-center justify-center rounded-xl border-2 text-5xl font-semibold transition-colors sm:h-[120px] sm:text-7xl',
-                        selected
-                          ? 'border-white/50 bg-[#008122] text-white shadow-[0_3px_3px_rgba(0,0,0,0.3)]'
-                          : 'border-[rgba(0,217,255,0.35)] bg-[#151b2e] text-[#00d9ff] hover:border-[#00d9ff]/60',
-                      )}
-                      aria-pressed={selected}
-                      aria-label={`Select kangaroo ${n} as winner`}
-                    >
-                      {n}
-                    </button>
-                  );
-                })}
-              </div>
-
-              <p className="mb-3 text-xl font-semibold text-white" data-node-id="232:3144">
-                User Inputs
-              </p>
-              <div
-                className="mb-8 overflow-hidden rounded-lg border border-white/10"
-                data-node-id="232:3107"
-              >
-                {KANGAROO_SLOTS.map((n, i) => {
-                  const count = kangarooBetCounts[i] ?? 0;
-                  const isWinRow = winningKangaroo === n;
-                  const rightLabel =
-                    count === 0 ? 'Not Selected' : count === 1 ? '1 Team' : `${count} Teams`;
-                  return (
-                    <div
-                      key={n}
-                      className={cn(
-                        'flex h-[57px] items-center gap-4 border-b border-white/10 px-4 last:border-b-0',
-                        isWinRow ? 'bg-[#0d2818]' : 'bg-[#151b2e]',
-                      )}
-                      data-node-id={
-                        n === 1
-                          ? '232:3108'
-                          : n === 2
-                            ? '232:3116'
-                            : n === 3
-                              ? '232:3123'
-                              : undefined
-                      }
-                    >
-                      <span className="text-xl font-medium text-white">Kangaroo</span>
-                      <div
-                        className={cn(
-                          'flex size-[34px] shrink-0 items-center justify-center rounded text-lg font-semibold text-white',
-                          isWinRow
-                            ? 'border border-white/50 bg-[#008122] shadow-[0_3px_3px_rgba(0,0,0,0.3)]'
-                            : 'bg-[#2e354c]',
-                        )}
-                        data-name="Container"
-                      >
-                        {n}
-                      </div>
-                      <span className="ml-auto text-xl font-bold text-[#00d9ff]">{rightLabel}</span>
-                    </div>
-                  );
-                })}
-              </div>
-
-              <div
-                className="flex flex-wrap justify-center gap-4 sm:justify-start"
-                data-node-id="232:3097"
-              >
-                <button
-                  type="button"
-                  data-node-id="232:3099"
-                  onClick={closeKangarooRaceModal}
-                  className="h-[50px] min-w-[140px] rounded-lg border border-white/15 bg-[linear-gradient(180deg,#2e354c_0%,#1a2030_100%)] px-8 text-base font-medium uppercase tracking-wide text-white/80 shadow-[0_4px_12px_rgba(0,0,0,0.35)] transition hover:brightness-110"
-                >
-                  <span data-node-id="232:3101">CANCLE</span>
-                </button>
-                <button
-                  type="button"
-                  data-node-id="232:3103"
-                  onClick={handleKangarooRaceSave}
-                  className="h-[50px] min-w-[140px] rounded-lg border border-red-500/40 bg-[linear-gradient(180deg,#dc2626_0%,#7f1d1d_100%)] px-8 text-base font-bold uppercase tracking-wide text-white shadow-[0_4px_16px_rgba(0,0,0,0.4)] transition hover:brightness-110"
-                >
-                  <span data-node-id="232:3104">Save</span>
-                </button>
-              </div>
             </div>
           </div>
         </div>

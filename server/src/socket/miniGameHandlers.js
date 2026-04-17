@@ -15,6 +15,16 @@ const createCardShuffleRoundState = (roundNumber = null, gameStarted = true) => 
   pickCounts: { 1: 0, 2: 0, 3: 0 },
 });
 
+const createHorseRaceRoundState = (gameStarted = false, winningKangaroo = null) => ({
+  game: 'kangaroo_race',
+  ready: false,
+  gameStarted,
+  revealed: false,
+  winningKangaroo,
+  selections: {},
+  pickCounts: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0 },
+});
+
 /** Unwrap JSON strings (Unity sometimes double-encodes `payload`). */
 const normalizeUnityPayload = (value, depth = 0) => {
   if (depth > 10) return {};
@@ -60,7 +70,7 @@ const normalizeRevealSlotOneToThree = (n) => {
   // This check must come FIRST so values 1 & 2 are treated as 0-indexed (not
   // passed through as 1-indexed Middle/Right).
   if (t >= 0 && t <= 2) return t + 1; // 0→1(L), 1→2(M), 2→3(R)
-  if (t === 3) return t;              // already 1-based Right (unambiguous)
+  if (t === 3) return t; // already 1-based Right (unambiguous)
   return NaN;
 };
 
@@ -130,7 +140,8 @@ const hydrateCardShuffleState = async (pin, updater) => {
     console.warn(
       '[miniGameHandlers] hydrateCardShuffleState: activeMiniGame is',
       gameState.activeMiniGame,
-      '— bootstrapping card_shuffle state for pin', pin,
+      '— bootstrapping card_shuffle state for pin',
+      pin,
     );
     gameState.activeMiniGame = 'card_shuffle';
   }
@@ -140,7 +151,40 @@ const hydrateCardShuffleState = async (pin, updater) => {
       ? gameState.miniGameState
       : createCardShuffleRoundState();
 
-  gameState.miniGameState = updater({ ...baseState, selections: { ...(baseState.selections || {}) } });
+  gameState.miniGameState = updater({
+    ...baseState,
+    selections: { ...(baseState.selections || {}) },
+  });
+  await redisStore.setGameState(pin, gameState);
+  return gameState;
+};
+
+const hydrateHorseRaceState = async (pin, updater) => {
+  const gameState = await redisStore.getGameState(pin);
+  if (!gameState) {
+    console.warn('[miniGameHandlers] hydrateHorseRaceState: no gameState found for pin', pin);
+    return null;
+  }
+
+  if (gameState.activeMiniGame !== 'kangaroo_race') {
+    console.warn(
+      '[miniGameHandlers] hydrateHorseRaceState: activeMiniGame is',
+      gameState.activeMiniGame,
+      '— bootstrapping kangaroo_race state for pin',
+      pin,
+    );
+    gameState.activeMiniGame = 'kangaroo_race';
+  }
+
+  const baseState =
+    gameState.miniGameState?.game === 'kangaroo_race'
+      ? gameState.miniGameState
+      : createHorseRaceRoundState(false, Number(gameState.miniGameConfig?.winningKangaroo) || null);
+
+  gameState.miniGameState = updater({
+    ...baseState,
+    selections: { ...(baseState.selections || {}) },
+  });
   await redisStore.setGameState(pin, gameState);
   return gameState;
 };
@@ -159,9 +203,7 @@ const emitCardShufflePlayerResults = async (io, pin, miniGameState) => {
     if (!Number.isFinite(teamId) || teamId <= 0) continue;
 
     const rawChoice = miniGameState.selections?.[String(teamId)];
-    const selectedChoice = Number.isFinite(Number(rawChoice))
-      ? Number(rawChoice)
-      : null;
+    const selectedChoice = Number.isFinite(Number(rawChoice)) ? Number(rawChoice) : null;
 
     roomSocket.emit(SOCKET_EVENTS.MINI_GAME_PLAYER_RESULT, {
       game: 'card_shuffle',
@@ -169,6 +211,31 @@ const emitCardShufflePlayerResults = async (io, pin, miniGameState) => {
       correctPosition,
       selectedChoice,
       roundNumber: miniGameState.activeRound || undefined,
+    });
+  }
+};
+
+const emitHorseRacePlayerResults = async (io, pin, miniGameState) => {
+  if (!pin || !miniGameState || miniGameState.game !== 'kangaroo_race') return;
+
+  const winningKangaroo = Number(miniGameState.winningKangaroo);
+  if (!Number.isFinite(winningKangaroo) || winningKangaroo < 1 || winningKangaroo > 6) return;
+
+  const room = `session:${pin}`;
+  const socketsInRoom = await io.in(room).fetchSockets();
+
+  for (const roomSocket of socketsInRoom) {
+    const teamId = Number(roomSocket.data?.teamId);
+    if (!Number.isFinite(teamId) || teamId <= 0) continue;
+
+    const rawChoice = miniGameState.selections?.[String(teamId)];
+    const selectedChoice = Number.isFinite(Number(rawChoice)) ? Number(rawChoice) : null;
+
+    roomSocket.emit(SOCKET_EVENTS.MINI_GAME_PLAYER_RESULT, {
+      game: 'kangaroo_race',
+      result: selectedChoice === winningKangaroo ? 'winner' : 'loser',
+      winningKangaroo,
+      selectedChoice,
     });
   }
 };
@@ -206,7 +273,11 @@ const miniGameHandlers = (io, socket) => {
       }
 
       io.to(`session:${pin}`).emit(SOCKET_EVENTS.MINI_GAME_READY, payload);
-      logger.debug('Mini-game readiness relayed', { pin, game: payload.game, ready: payload.ready });
+      logger.debug('Mini-game readiness relayed', {
+        pin,
+        game: payload.game,
+        ready: payload.ready,
+      });
     } catch (err) {
       logger.error('mini_game_ready error', { error: err.message });
     }
@@ -296,8 +367,82 @@ const miniGameHandlers = (io, socket) => {
         });
       }
 
-      const commandOut =
-        cardShuffleReveal != null ? { ...payload, cardShuffleReveal } : payload;
+      if (payload.game === 'kangaroo_race') {
+        let horseRaceReveal = null;
+        let capturedMiniGameState = null;
+
+        if (payload.command === 'start_game') {
+          await hydrateHorseRaceState(pin, (state) => ({
+            ...state,
+            gameStarted: true,
+            revealed: false,
+            winningKangaroo:
+              Number(state.winningKangaroo) ||
+              Number(data.winningKangaroo) ||
+              Number(data.config?.winningKangaroo) ||
+              null,
+            selections: {},
+            pickCounts: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0 },
+          }));
+        }
+
+        if (payload.command === 'reveal_winner') {
+          const gsReveal = await redisStore.getGameState(pin);
+          const s = gsReveal?.miniGameState;
+          if (s?.game === 'kangaroo_race') {
+            const winnerRaw =
+              Number(data.winningKangaroo) ||
+              Number(s.winningKangaroo) ||
+              Number(gsReveal?.miniGameConfig?.winningKangaroo);
+            const winner = Number.isFinite(winnerRaw) ? Math.trunc(winnerRaw) : NaN;
+            const hasWinner = winner >= 1 && winner <= 6;
+            if (hasWinner) {
+              horseRaceReveal = {
+                game: 'kangaroo_race',
+                winningKangaroo: winner,
+              };
+              capturedMiniGameState = s;
+            }
+          }
+
+          await hydrateHorseRaceState(pin, (state) => ({
+            ...state,
+            revealed: true,
+            winningKangaroo:
+              Number(data.winningKangaroo) ||
+              Number(state.winningKangaroo) ||
+              Number(gsReveal?.miniGameConfig?.winningKangaroo) ||
+              null,
+          }));
+        }
+
+        const horseCommandOut = horseRaceReveal != null ? { ...payload, horseRaceReveal } : payload;
+        io.to(`session:${pin}`).emit(SOCKET_EVENTS.MINI_GAME_COMMAND, horseCommandOut);
+
+        if (horseRaceReveal?.winningKangaroo) {
+          const winner = Number(horseRaceReveal.winningKangaroo);
+          io.to(`session:${pin}`).emit(SOCKET_EVENTS.MINI_GAME_REVEAL, {
+            game: 'kangaroo_race',
+            winningKangaroo: winner,
+          });
+
+          const revealMgs = {
+            ...(capturedMiniGameState || {}),
+            winningKangaroo: winner,
+            revealed: true,
+          };
+          await emitHorseRacePlayerResults(io, pin, revealMgs);
+        }
+
+        logger.info('Horse race command relayed', {
+          pin,
+          command: payload.command,
+          winningKangaroo: Number(data.winningKangaroo) || undefined,
+        });
+        return;
+      }
+
+      const commandOut = cardShuffleReveal != null ? { ...payload, cardShuffleReveal } : payload;
       io.to(`session:${pin}`).emit(SOCKET_EVENTS.MINI_GAME_COMMAND, commandOut);
 
       // ── Host triggered reveal: now broadcast result to all players ──
@@ -308,7 +453,10 @@ const miniGameHandlers = (io, socket) => {
       ) {
         const revealRoom = `session:${pin}`;
         const cp = Number(cardShuffleReveal.correctPosition);
-        console.log('[miniGameHandlers] Host reveal_cards — broadcasting mini_game_reveal to room', { pin, correctPosition: cp });
+        console.log(
+          '[miniGameHandlers] Host reveal_cards — broadcasting mini_game_reveal to room',
+          { pin, correctPosition: cp },
+        );
         io.to(revealRoom).emit(SOCKET_EVENTS.MINI_GAME_REVEAL, {
           game: 'card_shuffle',
           correctPosition: cp,
@@ -356,7 +504,11 @@ const miniGameHandlers = (io, socket) => {
         let reveal = extractCardShuffleReveal(data);
         if (!reveal && data.value != null) {
           const v = normalizeUnityPayload(data.value);
-          if (v && typeof v === 'object' && String(v.type || '').toUpperCase() === 'SHUFFLE_COMPLETE') {
+          if (
+            v &&
+            typeof v === 'object' &&
+            String(v.type || '').toUpperCase() === 'SHUFFLE_COMPLETE'
+          ) {
             reveal = extractCardShuffleReveal({ ...data, action: 'SHUFFLE_COMPLETE', value: v });
           }
         }
@@ -418,7 +570,10 @@ const miniGameHandlers = (io, socket) => {
 
         if (String(data.action || '') === 'ROUND_COMPLETE') {
           // Round complete — host controls reveal, nothing to broadcast here.
-          logger.debug('Card Shuffle ROUND_COMPLETE from Unity — no auto-reveal (host controls it)', { pin: eventPin });
+          logger.debug(
+            'Card Shuffle ROUND_COMPLETE from Unity — no auto-reveal (host controls it)',
+            { pin: eventPin },
+          );
           return;
         }
 
@@ -442,32 +597,64 @@ const miniGameHandlers = (io, socket) => {
         data.action === 'select' &&
         Number.isFinite(Number(data.value))
       ) {
-        await hydrateCardShuffleState(eventPin, (state) => {
-          if (state.game !== 'card_shuffle' || state.revealed || !state.gameStarted || !teamId) {
-            shouldRelayPlayerSelection = false;
-            return state;
-          }
+        const current = await redisStore.getGameState(eventPin);
+        const activeGame = current?.miniGameState?.game;
 
-          const choice = Number(data.value);
-          if (choice < 1 || choice > 3) {
-            shouldRelayPlayerSelection = false;
-            return state;
-          }
-          if (state.selections[String(teamId)] !== undefined) {
-            shouldRelayPlayerSelection = false;
-            return state;
-          }
+        if (activeGame === 'kangaroo_race') {
+          await hydrateHorseRaceState(eventPin, (state) => {
+            if (state.game !== 'kangaroo_race' || state.revealed || !state.gameStarted || !teamId) {
+              shouldRelayPlayerSelection = false;
+              return state;
+            }
 
-          const selections = { ...(state.selections || {}), [String(teamId)]: choice };
-          const pickCounts = { ...(state.pickCounts || { 1: 0, 2: 0, 3: 0 }) };
-          pickCounts[choice] = Number(pickCounts[choice] || 0) + 1;
+            const choice = Number(data.value);
+            if (choice < 1 || choice > 6) {
+              shouldRelayPlayerSelection = false;
+              return state;
+            }
+            if (state.selections[String(teamId)] !== undefined) {
+              shouldRelayPlayerSelection = false;
+              return state;
+            }
 
-          return {
-            ...state,
-            selections,
-            pickCounts,
-          };
-        });
+            const selections = { ...(state.selections || {}), [String(teamId)]: choice };
+            const pickCounts = { ...(state.pickCounts || { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0 }) };
+            pickCounts[choice] = Number(pickCounts[choice] || 0) + 1;
+
+            return {
+              ...state,
+              selections,
+              pickCounts,
+            };
+          });
+        } else {
+          await hydrateCardShuffleState(eventPin, (state) => {
+            if (state.game !== 'card_shuffle' || state.revealed || !state.gameStarted || !teamId) {
+              shouldRelayPlayerSelection = false;
+              return state;
+            }
+
+            const choice = Number(data.value);
+            if (choice < 1 || choice > 3) {
+              shouldRelayPlayerSelection = false;
+              return state;
+            }
+            if (state.selections[String(teamId)] !== undefined) {
+              shouldRelayPlayerSelection = false;
+              return state;
+            }
+
+            const selections = { ...(state.selections || {}), [String(teamId)]: choice };
+            const pickCounts = { ...(state.pickCounts || { 1: 0, 2: 0, 3: 0 }) };
+            pickCounts[choice] = Number(pickCounts[choice] || 0) + 1;
+
+            return {
+              ...state,
+              selections,
+              pickCounts,
+            };
+          });
+        }
       }
 
       if (data.action === 'select' && !shouldRelayPlayerSelection) {
@@ -530,7 +717,12 @@ const miniGameHandlers = (io, socket) => {
 
       // Re‑room the socket and stamp socket.data so subsequent handlers work.
       socket.join(`session:${pin}`);
-      socket.data = { ...socket.data, pin, teamId: Number(teamId), teamName: teamName || socket.data?.teamName };
+      socket.data = {
+        ...socket.data,
+        pin,
+        teamId: Number(teamId),
+        teamName: teamName || socket.data?.teamName,
+      };
 
       logger.info('mini_game_rejoin: socket re‑joined room', { pin, teamId, socketId: socket.id });
 
@@ -538,7 +730,11 @@ const miniGameHandlers = (io, socket) => {
       // even if mini_game_reveal fired before the rejoin completed.
       const gameState = await redisStore.getGameState(pin);
       const mgs = gameState?.miniGameState;
-      if (mgs?.game === 'card_shuffle' && mgs.revealed && Number.isFinite(Number(mgs.correctPosition))) {
+      if (
+        mgs?.game === 'card_shuffle' &&
+        mgs.revealed &&
+        Number.isFinite(Number(mgs.correctPosition))
+      ) {
         const correctPosition = Number(mgs.correctPosition);
         socket.emit(SOCKET_EVENTS.MINI_GAME_REVEAL, {
           game: 'card_shuffle',
@@ -548,13 +744,38 @@ const miniGameHandlers = (io, socket) => {
         });
 
         const selectedChoiceRaw = mgs.selections?.[String(teamId)];
-        const selectedChoice = Number.isFinite(Number(selectedChoiceRaw)) ? Number(selectedChoiceRaw) : null;
+        const selectedChoice = Number.isFinite(Number(selectedChoiceRaw))
+          ? Number(selectedChoiceRaw)
+          : null;
         socket.emit(SOCKET_EVENTS.MINI_GAME_PLAYER_RESULT, {
           game: 'card_shuffle',
           result: selectedChoice === correctPosition ? 'winner' : 'loser',
           correctPosition,
           selectedChoice,
           roundNumber: mgs.activeRound || undefined,
+        });
+      }
+
+      if (
+        mgs?.game === 'kangaroo_race' &&
+        mgs.revealed &&
+        Number.isFinite(Number(mgs.winningKangaroo))
+      ) {
+        const winningKangaroo = Number(mgs.winningKangaroo);
+        socket.emit(SOCKET_EVENTS.MINI_GAME_REVEAL, {
+          game: 'kangaroo_race',
+          winningKangaroo,
+        });
+
+        const selectedChoiceRaw = mgs.selections?.[String(teamId)];
+        const selectedChoice = Number.isFinite(Number(selectedChoiceRaw))
+          ? Number(selectedChoiceRaw)
+          : null;
+        socket.emit(SOCKET_EVENTS.MINI_GAME_PLAYER_RESULT, {
+          game: 'kangaroo_race',
+          result: selectedChoice === winningKangaroo ? 'winner' : 'loser',
+          winningKangaroo,
+          selectedChoice,
         });
       }
     } catch (err) {

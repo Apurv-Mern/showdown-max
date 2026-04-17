@@ -1,6 +1,7 @@
 const { GAME_STATES } = require('shared/constants/gameStates');
 const { QUESTION_STATES } = require('shared/constants/questionStates');
 const { ROUND_TYPES } = require('shared/constants/roundTypes');
+const { SCORING } = require('shared/constants/scoring');
 const { SOCKET_EVENTS } = require('shared/constants/socketEvents');
 const stateMachine = require('./stateMachine');
 const { calculateScores } = require('./scoringEngine');
@@ -13,10 +14,18 @@ const logger = require('../../utils/logger');
 
 const eliminationStates = new Map();
 
-const clampWager = (amount) => {
+const clampAmount = (amount, min, max) => {
   const parsed = Number(amount);
   if (!Number.isFinite(parsed)) return 0;
-  return Math.max(0, Math.min(50, Math.round(parsed)));
+  return Math.max(min, Math.min(max, Math.round(parsed)));
+};
+
+const clampWagerByRoundType = (roundType, amount) => {
+  if (roundType === ROUND_TYPES.FINAL_WAGER) {
+    return clampAmount(amount, SCORING.FINAL_WAGER.MIN_PERCENT, SCORING.FINAL_WAGER.MAX_PERCENT);
+  }
+
+  return clampAmount(amount, SCORING.WAGER.MIN, SCORING.WAGER.MAX);
 };
 
 const getRoundWagerForTeam = (gameState, roundId, teamId) => {
@@ -318,7 +327,7 @@ const submitAnswer = async (io, pin, teamId, data) => {
         : null,
   };
 
-  if (currentRound?.type === ROUND_TYPES.WAGER) {
+  if (isWagerLockRound(currentRound)) {
     responseData.wagerAmount = getRoundWagerForTeam(gameState, currentRound.id, teamId);
   }
   await redisStore.recordResponse(pin, question.id, teamId, JSON.stringify(responseData));
@@ -362,7 +371,7 @@ const submitAnswer = async (io, pin, teamId, data) => {
 };
 
 /**
- * Handle a team's wager submission (locked once per WAGER round).
+ * Handle a team's wager submission (locked once per wager-lock round).
  */
 const submitWager = async (pin, teamId, amount) => {
   const gameState = await redisStore.getGameState(pin);
@@ -378,7 +387,7 @@ const submitWager = async (pin, teamId, amount) => {
     return;
   }
 
-  const wager = clampWager(amount);
+  const wager = clampWagerByRoundType(round.type, amount);
   if (!gameState.roundWagers) gameState.roundWagers = {};
   if (!gameState.roundWagers[roundId]) gameState.roundWagers[roundId] = {};
   gameState.roundWagers[roundId][teamIdKey] = wager;
@@ -447,10 +456,8 @@ const revealAnswer = async (io, pin) => {
         wagerAmount: 0,
       };
     }
-    if (round.type === ROUND_TYPES.WAGER) {
+    if (isWagerRound) {
       responses[tid].wagerAmount = getRoundWagerForTeam(gameState, round.id, tid);
-    } else if (isWagerRound && responses[tid].wagerAmount === undefined) {
-      responses[tid].wagerAmount = 0;
     }
   }
 

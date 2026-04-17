@@ -15,7 +15,9 @@ const { normalizeTeamName, sanitizeTeamName } = require('../utils/teamName');
  */
 const playerHandlers = (io, socket) => {
   const getLockedWager = (gameState, round, teamId) => {
-    if (!gameState || !round || round.type !== 'WAGER') return null;
+    if (!gameState || !round || (round.type !== 'WAGER' && round.type !== 'FINAL_WAGER')) {
+      return null;
+    }
     const value = gameState.roundWagers?.[String(round.id)]?.[String(teamId)];
     if (value === undefined || value === null) return null;
     const parsed = Number(value);

@@ -522,7 +522,10 @@ export default function GamePage() {
 
           const lockedWagerAmount = gs.currentQuestion.lockedWagerAmount;
           const hasLockedWager = lockedWagerAmount !== null && lockedWagerAmount !== undefined;
-          if (gs.currentQuestion.roundType === 'WAGER') {
+          if (
+            gs.currentQuestion.roundType === 'WAGER' ||
+            gs.currentQuestion.roundType === 'FINAL_WAGER'
+          ) {
             if (hasLockedWager) {
               setWagerAmount(Number(lockedWagerAmount));
               setWagerSubmitted(true);
@@ -535,10 +538,11 @@ export default function GamePage() {
           if (currentlyEliminated) {
             setPhase('eliminated');
           } else if (gs.questionState === 'ACTIVE') {
-            if (gs.currentQuestion.roundType === 'WAGER') {
+            if (
+              gs.currentQuestion.roundType === 'WAGER' ||
+              gs.currentQuestion.roundType === 'FINAL_WAGER'
+            ) {
               setPhase(hasLockedWager || wagerSubmitted ? 'question' : 'wager_input');
-            } else if (gs.currentQuestion.roundType === 'FINAL_WAGER') {
-              setPhase('wager_input');
             } else {
               setPhase('question');
             }
@@ -640,7 +644,7 @@ export default function GamePage() {
 
       if (isEliminated) {
         setPhase('eliminated');
-      } else if (data.roundType === 'WAGER') {
+      } else if (data.roundType === 'WAGER' || data.roundType === 'FINAL_WAGER') {
         const hasLockedWager =
           data.lockedWagerAmount !== null && data.lockedWagerAmount !== undefined;
         if (hasLockedWager) {
@@ -652,10 +656,6 @@ export default function GamePage() {
         } else {
           setPhase('wager_input');
         }
-      } else if (data.roundType === 'FINAL_WAGER') {
-        setWagerSubmitted(false);
-        setWagerAmount(0);
-        setPhase('wager_input');
       } else {
         setWagerSubmitted(false);
         setWagerAmount(0);

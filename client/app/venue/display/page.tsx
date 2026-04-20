@@ -206,6 +206,37 @@ function parseUnityShuffleComplete(value: unknown): { cp: number; cards: number[
   return { cp, cards };
 }
 
+function parseKangarooRoundResult(value: unknown): { winner_index?: number } | null {
+  const unwrap = (v: unknown, depth = 0): Record<string, unknown> => {
+    if (depth > 12) return {};
+    if (v == null) return {};
+    if (typeof v === 'string') {
+      const t = v.trim();
+      if (!t) return {};
+      try {
+        const p = JSON.parse(t);
+        if (typeof p === 'string') return unwrap(p, depth + 1);
+        return p && typeof p === 'object' ? (p as Record<string, unknown>) : {};
+      } catch {
+        return {};
+      }
+    }
+    return typeof v === 'object' ? (v as Record<string, unknown>) : {};
+  };
+
+  const root = unwrap(value);
+  const inner =
+    typeof root.payload === 'string' ? unwrap(root.payload) : unwrap(root.payload ?? root);
+  const raw = inner.winner_index ?? inner.winnerIndex ?? root.winner_index ?? root.winnerIndex;
+
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return {};
+  const t = Math.trunc(n);
+  const winner = t >= 1 && t <= 6 ? t : t >= 0 && t <= 5 ? t + 1 : NaN;
+  if (!Number.isFinite(winner)) return {};
+  return { winner_index: winner };
+}
+
 const normalizeRoundIntroTitle = (name?: string, roundType?: string, roundIndex?: number) => {
   const raw = (name || '').trim();
   const fallback = formatRoundTypeLabel(roundType);
@@ -288,6 +319,7 @@ function VenueDisplayContent() {
   const revealDataRef = useRef<RevealData | null>(null);
   /** Latest SHUFFLE_COMPLETE from Unity; used to re-emit canonical payload after host Reveal. */
   const lastCardShuffleUnityRef = useRef<{ cp: number; cards: number[] } | null>(null);
+  const lastKangarooWinnerRef = useRef<number | null>(null);
   const cardShuffleRevealFlushTimeoutsRef = useRef<number[]>([]);
   const cardShuffleRevealFlushGenRef = useRef(0);
 
@@ -590,6 +622,136 @@ function VenueDisplayContent() {
 
     window.addEventListener('message', onWebBridgeMessage);
     return () => window.removeEventListener('message', onWebBridgeMessage);
+  }, [socket, miniGameType]);
+
+  /**
+   * Kangaroo race also sends finish events through window.postMessage (WebBridge).
+   * Forward those events to the server so mobile players receive winner/loser.
+   */
+  useEffect(() => {
+    if (!socket || !miniGameType || miniGameType !== 'Kangaroo_race') return;
+
+    const forwardKangarooResult = (msgType: string, rawData: Record<string, unknown>) => {
+      const parsed = parseKangarooRoundResult(rawData);
+      const winner = Number(parsed?.winner_index);
+      if (Number.isFinite(winner) && winner >= 1 && winner <= 6) {
+        lastKangarooWinnerRef.current = winner;
+      }
+
+      const valuePayload = Number.isFinite(Number(lastKangarooWinnerRef.current))
+        ? {
+            ...rawData,
+            winner_index: Number(lastKangarooWinnerRef.current),
+          }
+        : rawData;
+
+      console.log('[venue/Kangaroo WebBridge→server] forwarding', msgType, valuePayload);
+      socket.emit('mini_game_action', {
+        action: msgType,
+        value: valuePayload,
+        source: 'unity',
+        game: 'kangaroo_race',
+      });
+
+      // Keep compatibility with the generic completion path used elsewhere.
+      if (msgType !== 'GAME_COMPLETE') {
+        socket.emit('mini_game_action', {
+          action: 'game_complete',
+          value: valuePayload,
+          source: 'unity',
+          game: 'kangaroo_race',
+        });
+      }
+    };
+
+    const onKangarooWebBridgeMessage = (event: MessageEvent) => {
+      let data: Record<string, unknown> | null = null;
+      try {
+        data = typeof event.data === 'string' ? JSON.parse(event.data) : event.data;
+      } catch {
+        return;
+      }
+      if (!data || typeof data !== 'object') return;
+
+      const msgType = String(data.type || '').toUpperCase();
+      if (
+        msgType !== 'ROUND_RESULT' &&
+        msgType !== 'ROUND_COMPLETE' &&
+        msgType !== 'GAME_COMPLETE' &&
+        msgType !== 'MINIGAME_REVEAL'
+      ) {
+        return;
+      }
+
+      forwardKangarooResult(msgType, data);
+    };
+
+    const parseFromConsoleArgs = (
+      args: unknown[],
+    ): { type: string; payload: Record<string, unknown> } | null => {
+      if (!Array.isArray(args) || args.length === 0) return null;
+      const joined = args
+        .map((v) => {
+          if (typeof v === 'string') return v;
+          try {
+            return JSON.stringify(v);
+          } catch {
+            return String(v);
+          }
+        })
+        .join(' ');
+
+      if (!joined.includes('[WebBridge] Received:')) return null;
+      const start = joined.indexOf('{');
+      const end = joined.lastIndexOf('}');
+      if (start < 0 || end <= start) return null;
+
+      try {
+        const parsed = JSON.parse(joined.slice(start, end + 1));
+        const msgType = String(parsed?.type || '').toUpperCase();
+        if (!msgType) return null;
+        if (
+          msgType !== 'ROUND_RESULT' &&
+          msgType !== 'ROUND_COMPLETE' &&
+          msgType !== 'GAME_COMPLETE' &&
+          msgType !== 'MINIGAME_REVEAL'
+        ) {
+          return null;
+        }
+        return {
+          type: msgType,
+          payload: parsed,
+        };
+      } catch {
+        return null;
+      }
+    };
+
+    const originalLog = console.log;
+    const originalWarn = console.warn;
+
+    console.log = (...args: unknown[]) => {
+      const parsed = parseFromConsoleArgs(args);
+      if (parsed) {
+        forwardKangarooResult(parsed.type, parsed.payload);
+      }
+      originalLog(...args);
+    };
+
+    console.warn = (...args: unknown[]) => {
+      const parsed = parseFromConsoleArgs(args);
+      if (parsed) {
+        forwardKangarooResult(parsed.type, parsed.payload);
+      }
+      originalWarn(...args);
+    };
+
+    window.addEventListener('message', onKangarooWebBridgeMessage);
+    return () => {
+      window.removeEventListener('message', onKangarooWebBridgeMessage);
+      console.log = originalLog;
+      console.warn = originalWarn;
+    };
   }, [socket, miniGameType]);
 
   useEffect(() => {

@@ -167,6 +167,10 @@ export default function MiniGamePage() {
     /** Singleton; read here so listeners always register (avoids first-paint `useSocket` null). */
     const socket = connectSocket();
 
+    const logSocketIn = (event: string, payload?: unknown) => {
+      console.log('[play/mini-game][socket][in]', event, payload ?? null);
+    };
+
     /** Re‑join the session room after any reconnect (Fast Refresh, network drop, etc.)
      *  join_session is blocked by the name-collision guard when the old socket is still
      *  briefly alive — mini_game_rejoin bypasses that and also replays the reveal state. */
@@ -215,6 +219,7 @@ export default function MiniGamePage() {
     };
 
     const onMiniGameStart = (data: { game: string }) => {
+      logSocketIn('mini_game_start', data);
       setGameType(data.game as MiniGameType);
       lockedPickRef.current = null;
       setSelectedChoice(null);
@@ -236,6 +241,7 @@ export default function MiniGamePage() {
         cardPositions?: number[];
       };
     }) => {
+      logSocketIn('mini_game_command', data);
       const gid = normalizeMiniGameId(data?.game);
       if (gid === 'kangaroo_race') {
         if (data.command === 'start_game') {
@@ -290,6 +296,7 @@ export default function MiniGamePage() {
       roundNumber?: number;
       cardPositions?: number[];
     }) => {
+      logSocketIn('mini_game_reveal', data);
       const gid = normalizeMiniGameId(data?.game);
       if (gid === 'kangaroo_race') {
         const winning = Number(data?.winningKangaroo);
@@ -320,6 +327,7 @@ export default function MiniGamePage() {
       winningKangaroo?: number;
       selectedChoice?: number | null;
     }) => {
+      logSocketIn('mini_game_player_result', data);
       const gid = normalizeMiniGameId(data?.game);
       if (gid === 'kangaroo_race') {
         const winning = Number(data?.winningKangaroo);
@@ -363,6 +371,7 @@ export default function MiniGamePage() {
       value?: unknown;
       game?: string;
     }) => {
+      logSocketIn('mini_game_update', data);
       const gid = normalizeMiniGameId(data?.game);
       if (gid && gid !== 'card_shuffle' && data?.source !== 'unity') return;
 
@@ -411,6 +420,7 @@ export default function MiniGamePage() {
       status?: string;
       message?: string;
     }) => {
+      logSocketIn('mini_game_end', data);
       if (normalizeMiniGameId(data?.game) === 'card_shuffle' && data?.holdScreen) {
         setGameType('card_shuffle');
         setWinningValue(null);
@@ -430,26 +440,32 @@ export default function MiniGamePage() {
     };
 
     const onBreakEnd = () => {
+      logSocketIn('break_end');
       exitMiniGameToGame();
     };
 
     const onRoundIntro = () => {
+      logSocketIn('round_intro');
       exitMiniGameToGame();
     };
 
     const onQuestionActive = () => {
+      logSocketIn('question_active');
       exitMiniGameToGame();
     };
 
     const onAnswerReveal = () => {
+      logSocketIn('answer_reveal');
       exitMiniGameToGame();
     };
 
     const onScoreboard = () => {
+      logSocketIn('scoreboard');
       exitMiniGameToGame();
     };
 
     const onSessionState = (data: any) => {
+      logSocketIn('session_state', data);
       const gameState = data?.gameState ?? data;
       if (!gameState || !gameState.state) return;
       if (!gameState.activeMiniGame && gameState.state !== 'LOBBY') {
@@ -458,15 +474,25 @@ export default function MiniGamePage() {
     };
 
     const onGameEnd = () => {
+      logSocketIn('game_end');
       clearSession();
       router.replace('/play/join');
     };
 
     const onSessionDeleted = (data: { pin?: string }) => {
+      logSocketIn('session_deleted', data);
       const pin = data?.pin ? String(data.pin) : '';
       if (!pin || pin !== String(sessionPinRef.current)) return;
       clearSession();
       router.replace('/play/join');
+    };
+
+    const onDisconnect = (reason: string) => {
+      console.warn('[play/mini-game][socket][disconnect]', reason);
+    };
+
+    const onConnectError = (error: Error) => {
+      console.error('[play/mini-game][socket][connect_error]', error?.message || error);
     };
 
     socket.on('mini_game_start', onMiniGameStart);
@@ -483,6 +509,8 @@ export default function MiniGamePage() {
     socket.on('session_state', onSessionState);
     socket.on('game_end', onGameEnd);
     socket.on('session_deleted', onSessionDeleted);
+    socket.on('disconnect', onDisconnect);
+    socket.on('connect_error', onConnectError);
 
     return () => {
       socket.off('connect', rejoinSession);
@@ -500,6 +528,8 @@ export default function MiniGamePage() {
       socket.off('session_state', onSessionState);
       socket.off('game_end', onGameEnd);
       socket.off('session_deleted', onSessionDeleted);
+      socket.off('disconnect', onDisconnect);
+      socket.off('connect_error', onConnectError);
     };
   }, [router, clearSession]);
 
@@ -508,6 +538,10 @@ export default function MiniGamePage() {
     if (!roundOpen || lockedPickRef.current !== null) return;
     lockedPickRef.current = choiceId;
     setSelectedChoice(choiceId);
+    console.log('[play/mini-game][socket][out] mini_game_action', {
+      action: 'select',
+      value: choiceId,
+    });
     socket.emit('mini_game_action', {
       action: 'select',
       value: choiceId,
@@ -603,7 +637,7 @@ export default function MiniGamePage() {
 
             <div className="mx-auto mt-4 flex h-[170px] w-[170px] items-center justify-center rounded-2xl bg-[radial-gradient(circle_at_50%_10%,rgba(255,255,255,0.2),transparent_70%)]">
               <img
-                src="/kangaroo.png"
+                src="/kangarooPic.png"
                 alt="Kangaroo"
                 className="h-full w-full object-contain"
                 onError={(e) => {
@@ -611,9 +645,6 @@ export default function MiniGamePage() {
                   el.style.display = 'none';
                 }}
               />
-              <span className="text-7xl" aria-hidden>
-                🦘
-              </span>
             </div>
 
             <div className="mt-4 grid grid-cols-2 gap-3">

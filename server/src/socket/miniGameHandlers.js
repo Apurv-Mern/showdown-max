@@ -25,6 +25,53 @@ const createHorseRaceRoundState = (gameStarted = false, winningKangaroo = null) 
   pickCounts: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0 },
 });
 
+const normalizeMiniGameId = (game) =>
+  game == null || game === '' ? '' : String(game).toLowerCase().replace(/-/g, '_');
+
+const normalizeRevealSlotOneToSix = (n) => {
+  if (!Number.isFinite(n)) return NaN;
+  const t = Math.trunc(Number(n));
+  if (t >= 1 && t <= 6) return t;
+  if (t >= 0 && t <= 5) return t + 1;
+  return NaN;
+};
+
+const KANGAROO_NAME_TO_SLOT = Object.freeze({
+  blue: 1,
+  orange: 2,
+  green: 3,
+  yellow: 4,
+  purple: 5,
+  red: 6,
+});
+
+const readWinningKangaroo = (obj) => {
+  if (!obj || typeof obj !== 'object') return NaN;
+
+  const rawIndex =
+    obj.winner_index ??
+    obj.winnerIndex ??
+    obj.winning_index ??
+    obj.winningIndex ??
+    obj.winningKangaroo ??
+    obj.kangaroo_index ??
+    obj.kangarooIndex ??
+    obj.results?.winner_index ??
+    obj.results?.winnerIndex ??
+    obj.results?.winningKangaroo;
+
+  const byIndex = normalizeRevealSlotOneToSix(Number(rawIndex));
+  if (Number.isFinite(byIndex)) return byIndex;
+
+  const rawName = obj.winner_name ?? obj.winnerName ?? obj.winner ?? obj.results?.winner_name;
+  if (typeof rawName === 'string') {
+    const byName = KANGAROO_NAME_TO_SLOT[rawName.trim().toLowerCase()];
+    if (Number.isFinite(byName)) return byName;
+  }
+
+  return NaN;
+};
+
 /** Unwrap JSON strings (Unity sometimes double-encodes `payload`). */
 const normalizeUnityPayload = (value, depth = 0) => {
   if (depth > 10) return {};
@@ -501,9 +548,84 @@ const miniGameHandlers = (io, socket) => {
       const room = `session:${eventPin}`;
 
       if (data.source === 'unity') {
+        const directValue = normalizeUnityPayload(data.value);
+        const directPayload = normalizeUnityPayload(directValue.payload);
+        const actionUpper = String(data.action || '').toUpperCase();
+        const valueTypeUpper = String(directValue.type || '').toUpperCase();
+
+        const currentGameState = await redisStore.getGameState(eventPin);
+        const activeGame = normalizeMiniGameId(
+          currentGameState?.miniGameState?.game ||
+            currentGameState?.activeMiniGame ||
+            data.game ||
+            directValue.game,
+        );
+
+        if (activeGame === 'kangaroo_race') {
+          const winnerCandidates = [
+            readWinningKangaroo(directPayload),
+            readWinningKangaroo(directValue),
+            readWinningKangaroo(data),
+            normalizeRevealSlotOneToSix(Number(data.winningKangaroo)),
+          ];
+          const winningKangaroo = winnerCandidates.find((n) => Number.isFinite(n));
+
+          const isResultSignal =
+            actionUpper === 'ROUND_RESULT' ||
+            actionUpper === 'ROUND_COMPLETE' ||
+            actionUpper === 'GAME_COMPLETE' ||
+            actionUpper === 'MINIGAME_REVEAL' ||
+            actionUpper === 'GAME_FINISHED' ||
+            valueTypeUpper === 'ROUND_RESULT' ||
+            valueTypeUpper === 'ROUND_COMPLETE' ||
+            valueTypeUpper === 'GAME_COMPLETE' ||
+            valueTypeUpper === 'GAME_FINISHED' ||
+            data.action === 'game_complete';
+
+          if (isResultSignal && Number.isFinite(winningKangaroo)) {
+            const winner = Number(winningKangaroo);
+            const gameState = await hydrateHorseRaceState(eventPin, (state) => ({
+              ...state,
+              gameStarted: true,
+              revealed: true,
+              winningKangaroo: winner,
+            }));
+
+            io.to(room).emit(SOCKET_EVENTS.MINI_GAME_REVEAL, {
+              game: 'kangaroo_race',
+              winningKangaroo: winner,
+            });
+
+            const revealMgs = {
+              ...(gameState?.miniGameState || {}),
+              game: 'kangaroo_race',
+              revealed: true,
+              winningKangaroo: winner,
+            };
+            await emitHorseRacePlayerResults(io, eventPin, revealMgs);
+
+            logger.info('Kangaroo race result from Unity relayed to players', {
+              pin: eventPin,
+              action: data.action,
+              resultType: valueTypeUpper || undefined,
+              winningKangaroo: winner,
+            });
+            return;
+          }
+
+          if (data.action === 'game_complete' || actionUpper === 'GAME_COMPLETE') {
+            logger.warn('Kangaroo game_complete from Unity without winner payload', {
+              pin: eventPin,
+              action: data.action,
+              resultType: valueTypeUpper || undefined,
+            });
+            return;
+          }
+        }
+
         let reveal = extractCardShuffleReveal(data);
         if (!reveal && data.value != null) {
-          const v = normalizeUnityPayload(data.value);
+          const v = directValue;
           if (
             v &&
             typeof v === 'object' &&

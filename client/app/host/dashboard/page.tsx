@@ -1079,18 +1079,6 @@ function HostDashboardContent() {
     sendStart();
   };
 
-  const handleKangarooRaceRevealWinner = () => {
-    if (activeMiniGameLocal !== 'kangaroo_race' || !kangarooRaceStarted || kangarooRaceRevealed) {
-      return;
-    }
-    setKangarooRaceRevealed(true);
-    emit('mini_game_command', {
-      game: 'kangaroo_race',
-      command: 'reveal_winner',
-      winningKangaroo,
-    });
-  };
-
   const handleKangarooRaceFinish = () => {
     emit('end_mini_game', {
       config: { winningKangaroo },
@@ -1874,7 +1862,7 @@ function HostDashboardContent() {
                           {kangarooRaceStarted
                             ? kangarooRaceRevealed
                               ? 'Winner revealed. Finish race or start again.'
-                              : 'Race started. Reveal winner when ready.'
+                              : 'Race started. Finish race when ready.'
                             : 'Click Start Race to trigger gameplay on venue and mobile.'}
                         </p>
                       </div>
@@ -1904,20 +1892,7 @@ function HostDashboardContent() {
                       Start Race
                     </button>
 
-                    <div className="grid grid-cols-2 gap-3">
-                      <button
-                        type="button"
-                        onClick={handleKangarooRaceRevealWinner}
-                        disabled={
-                          activeMiniGameLocal !== 'kangaroo_race' ||
-                          !kangarooRaceStarted ||
-                          kangarooRaceRevealed
-                        }
-                        className="h-12 rounded-lg border border-[#ffc24d]/55 bg-[linear-gradient(180deg,#f59e0b_0%,#7c3b00_100%)] px-4 text-sm font-extrabold uppercase tracking-wide text-white shadow-[0_0_18px_rgba(245,158,11,0.28)] transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40 disabled:grayscale"
-                      >
-                        {kangarooRaceRevealed ? 'Winner Revealed' : 'Reveal Winner'}
-                      </button>
-
+                    <div className="grid grid-cols-1 gap-3">
                       <button
                         type="button"
                         onClick={handleKangarooRaceFinish}

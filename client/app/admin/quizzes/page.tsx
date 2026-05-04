@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { api } from '@/lib/api';
 import { Button } from '@/components/shared/Button';
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner';
+import { Modal } from '@/components/shared/Modal';
 
 interface Round {
   id: number;
@@ -27,6 +28,8 @@ export default function QuizzesPage() {
   const [quizzes, setQuizzes] = useState<Quiz[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
+  const [deletingQuizId, setDeletingQuizId] = useState<number | null>(null);
+  const [quizToDelete, setQuizToDelete] = useState<Quiz | null>(null);
 
   const fetchQuizzes = async () => {
     try {
@@ -50,13 +53,17 @@ export default function QuizzesPage() {
     fetchQuizzes();
   };
 
-  const handleDelete = async (id: number) => {
-    if (!confirm('Are you sure you want to delete this quiz?')) return;
+  const confirmDeleteQuiz = async () => {
+    if (!quizToDelete) return;
     try {
-      await api.delete(`/api/quizzes/${id}`);
-      setQuizzes((prev) => prev.filter((q) => q.id !== id));
+      setDeletingQuizId(quizToDelete.id);
+      await api.delete(`/api/quizzes/${quizToDelete.id}`);
+      setQuizzes((prev) => prev.filter((q) => q.id !== quizToDelete.id));
+      setQuizToDelete(null);
     } catch (err) {
       console.error('Failed to delete quiz:', err);
+    } finally {
+      setDeletingQuizId(null);
     }
   };
 
@@ -128,14 +135,53 @@ export default function QuizzesPage() {
                 <Button variant="ghost" size="sm" onClick={() => handleDuplicate(quiz.id)}>
                   Duplicate
                 </Button>
-                <Button variant="danger" size="sm" onClick={() => handleDelete(quiz.id)}>
-                  Delete
+                <Button
+                  variant="danger"
+                  size="sm"
+                  onClick={() => setQuizToDelete(quiz)}
+                  disabled={deletingQuizId === quiz.id}
+                >
+                  {deletingQuizId === quiz.id ? 'Deleting...' : 'Delete'}
                 </Button>
               </div>
             </div>
           ))}
         </div>
       )}
+
+      <Modal
+        isOpen={quizToDelete !== null}
+        onClose={() => {
+          if (!deletingQuizId) setQuizToDelete(null);
+        }}
+        title="Delete Quiz?"
+        className="max-w-md"
+      >
+        {quizToDelete && (
+          <div className="space-y-4">
+            <p className="text-foreground/70">
+              Are you sure you want to delete <span className="font-semibold">{quizToDelete.title}</span>?
+              This action cannot be undone.
+            </p>
+            <div className="flex justify-end gap-3">
+              <Button
+                variant="secondary"
+                onClick={() => setQuizToDelete(null)}
+                disabled={deletingQuizId !== null}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="danger"
+                onClick={confirmDeleteQuiz}
+                disabled={deletingQuizId !== null}
+              >
+                {deletingQuizId !== null ? 'Deleting...' : 'Delete Quiz'}
+              </Button>
+            </div>
+          </div>
+        )}
+      </Modal>
     </div>
   );
 }

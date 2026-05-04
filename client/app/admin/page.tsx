@@ -13,6 +13,21 @@ interface DashboardStats {
   totalTeams: number;
 }
 
+interface ListResponse<T> {
+  success: boolean;
+  data?: {
+    total?: number;
+    quizzes?: T[];
+    questions?: T[];
+    sessions?: T[];
+  };
+}
+
+interface SessionListItem {
+  status?: string;
+  teams?: { id: number }[];
+}
+
 const STAT_CARDS: {
   key: keyof DashboardStats;
   label: string;
@@ -75,27 +90,27 @@ const STAT_CARDS: {
       </svg>
     ),
   },
-  {
-    key: 'totalTeams',
-    label: 'Total Teams Registered',
-    icon: (
-      <svg
-        width="32"
-        height="32"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="#00d9ff"
-        strokeWidth="1.5"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      >
-        <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
-        <circle cx="9" cy="7" r="4" />
-        <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
-        <path d="M16 3.13a4 4 0 0 1 0 7.75" />
-      </svg>
-    ),
-  },
+  // {
+  //   key: 'totalTeams',
+  //   label: 'Total Teams Registered',
+  //   icon: (
+  //     <svg
+  //       width="32"
+  //       height="32"
+  //       viewBox="0 0 24 24"
+  //       fill="none"
+  //       stroke="#00d9ff"
+  //       strokeWidth="1.5"
+  //       strokeLinecap="round"
+  //       strokeLinejoin="round"
+  //     >
+  //       <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+  //       <circle cx="9" cy="7" r="4" />
+  //       <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+  //       <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+  //     </svg>
+  //   ),
+  // },
 ];
 
 export default function AdminDashboardPage() {
@@ -108,45 +123,55 @@ export default function AdminDashboardPage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    let mounted = true;
+
     async function fetchStats() {
       try {
         const token = getStoredToken();
         const headers: HeadersInit = token ? { Authorization: `Bearer ${token}` } : {};
 
         const [quizRes, questionRes, sessionRes] = await Promise.allSettled([
-          fetch(`${API_URL}/api/quizzes`, { headers }),
-          fetch(`${API_URL}/api/questions`, { headers }),
-          fetch(`${API_URL}/api/sessions`, { headers }),
+          fetch(`${API_URL}/api/quizzes?limit=1`, { headers }),
+          fetch(`${API_URL}/api/questions?limit=1`, { headers }),
+          fetch(`${API_URL}/api/sessions?limit=500`, { headers }),
         ]);
 
-        const quizData =
+        const quizData: ListResponse<unknown> | null =
           quizRes.status === 'fulfilled' && quizRes.value.ok ? await quizRes.value.json() : null;
-        const questionData =
+        const questionData: ListResponse<unknown> | null =
           questionRes.status === 'fulfilled' && questionRes.value.ok
             ? await questionRes.value.json()
             : null;
-        const sessionData =
+        const sessionData: ListResponse<SessionListItem> | null =
           sessionRes.status === 'fulfilled' && sessionRes.value.ok
             ? await sessionRes.value.json()
             : null;
 
+        const sessions = sessionData?.data?.sessions ?? [];
+        if (!mounted) return;
+
         setStats({
-          totalQuizzes: quizData?.data?.length ?? quizData?.length ?? 0,
-          totalQuestions: questionData?.data?.length ?? questionData?.length ?? 0,
-          activeSessions: Array.isArray(sessionData?.data)
-            ? sessionData.data.filter(
-                (s: { status?: string }) => s.status === 'active' || s.status === 'in_progress',
-              ).length
-            : 0,
-          totalTeams: 0,
+          totalQuizzes: quizData?.data?.total ?? quizData?.data?.quizzes?.length ?? 0,
+          totalQuestions: questionData?.data?.total ?? questionData?.data?.questions?.length ?? 0,
+          activeSessions: sessions.filter(
+            (s) => s.status === 'active' || s.status === 'in_progress',
+          ).length,
+          totalTeams: sessions.reduce((count, session) => count + (session.teams?.length ?? 0), 0),
         });
       } catch {
         /* silently fallback to zeros */
       } finally {
-        setLoading(false);
+        if (mounted) setLoading(false);
       }
     }
+
     fetchStats();
+    const intervalId = setInterval(fetchStats, 10000);
+
+    return () => {
+      mounted = false;
+      clearInterval(intervalId);
+    };
   }, []);
 
   return (

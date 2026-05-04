@@ -69,6 +69,30 @@ function getRoundScoringLines(roundType?: string) {
   };
 }
 
+/** Shown on the scoreboard interstitial before advancing (player-facing tone). */
+function getNextRoundIntroBlurb(nextType?: string): string {
+  const t = (nextType || '').toUpperCase();
+  switch (t) {
+    case 'MUSIC':
+      return "where you'll identify songs and artists.";
+    case 'MULTIPLE_CHOICE':
+    case 'FINAL_MULTIPLE_CHOICE':
+      return 'answer each question by choosing the best option.';
+    case 'ELIMINATION':
+      return 'wrong answers can knock teams out until the next round.';
+    case 'WAGER':
+      return 'you will wager up to 50 points before each question.';
+    case 'FINAL_WAGER':
+      return 'you will wager a percentage of your score before each question.';
+    case 'MAJORITY_RULES':
+      return 'points go to the majority answer.';
+    case 'AUDIO_VIDEO':
+      return 'watch or listen on the venue screen and answer on your devices.';
+    default:
+      return 'when you start, the next set of questions will begin.';
+  }
+}
+
 const KANGAROO_SLOTS = [1, 2, 3, 4, 5, 6] as const;
 
 /** Matches player mini-game (left / middle / right). */
@@ -194,83 +218,6 @@ const isAudioMedia = (mediaType?: string, mediaUrl?: string) => {
   if (type === 'mp3' || type.includes('audio')) return true;
   return /\.mp3(?:$|\?)/i.test(mediaUrl || '');
 };
-
-function formatSecondsMmSs(totalSeconds: number): string {
-  const s = Math.max(0, Math.floor(totalSeconds));
-  const m = Math.floor(s / 60);
-  const sec = s % 60;
-  return `${m}:${sec.toString().padStart(2, '0')}`;
-}
-
-function HostTimerRing({
-  remaining,
-  total,
-  size = 100,
-  className,
-  hideCenter,
-}: {
-  remaining: number;
-  total: number;
-  size?: number;
-  className?: string;
-  /** Ring only; use with overlaid time label (e.g. mm:ss). */
-  hideCenter?: boolean;
-}) {
-  const stroke = Math.max(6, Math.round(size / 14));
-  const radius = (size - stroke * 2) / 2;
-  const circumference = 2 * Math.PI * radius;
-  const progress = total > 0 ? remaining / total : 0;
-  /** Arc length for remaining time; SVG is rotated -90deg in CSS so this draws clockwise from top. */
-  const arcLength = circumference * progress;
-
-  const getColor = () => {
-    if (remaining <= 5) return '#ff1744';
-    if (remaining <= 10) return '#ffc400';
-    if (progress > 0.5) return '#00ff6a';
-    return '#ffc400';
-  };
-
-  const color = getColor();
-  const digitClass = size >= 110 ? 'text-[clamp(2rem,5vw,3.25rem)]' : 'text-3xl';
-
-  return (
-    <div className={cn('timer-ring', className)} style={{ width: size, height: size }}>
-      <svg width={size} height={size}>
-        <circle
-          className="timer-ring-track"
-          cx={size / 2}
-          cy={size / 2}
-          r={radius}
-          strokeWidth={stroke}
-        />
-        <circle
-          className="timer-ring-progress"
-          cx={size / 2}
-          cy={size / 2}
-          r={radius}
-          strokeWidth={stroke}
-          stroke={color}
-          strokeDasharray={`${arcLength} ${circumference}`}
-          strokeDashoffset={0}
-          style={{ filter: `drop-shadow(0 0 6px ${color})` }}
-        />
-      </svg>
-      {!hideCenter ? (
-        <span
-          className={cn(
-            'font-black font-mono leading-none',
-            digitClass,
-            remaining <= 5
-              ? 'text-neon-red text-glow-red'
-              : 'text-white [text-shadow:0_4px_2px_rgba(0,0,0,0.4)]',
-          )}
-        >
-          {remaining}
-        </span>
-      ) : null}
-    </div>
-  );
-}
 
 function HostPanelTitle({
   children,
@@ -412,7 +359,6 @@ function HostDashboardContent() {
   const [showEndGameModal, setShowEndGameModal] = useState(false);
   const [teamPendingRemoval, setTeamPendingRemoval] = useState<Team | null>(null);
   const [isScoreboardVisible, setIsScoreboardVisible] = useState(false);
-  const [showTimerModal, setShowTimerModal] = useState(false);
   const [mp3Playing, setMp3Playing] = useState(false);
   const [mp4Playing, setMp4Playing] = useState(false);
   /** Local break countdown (synced from break_start / session_state; ticks every second). */
@@ -610,6 +556,7 @@ function HostDashboardContent() {
       });
       setMp3Playing(false);
       stopMp3();
+      setTimerPaused((data.roundType || '').toUpperCase() === 'MUSIC');
       setGameState((prev) =>
         prev ? { ...prev, state: 'QUESTION', questionState: 'ACTIVE' } : prev,
       );
@@ -980,6 +927,20 @@ function HostDashboardContent() {
     };
     socket.on('mini_game_update', onMiniGameUpdate);
 
+    const onMusicControl = (data: { action?: string; mediaUrl?: string | null }) => {
+      const action = data?.action;
+      if (action === 'play') {
+        const url = data?.mediaUrl;
+        if (url) setMp3Source(resolveMediaUrl(url));
+        playMp3();
+        setMp3Playing(true);
+        return;
+      }
+      stopMp3();
+      setMp3Playing(false);
+    };
+    socket.on('music_control', onMusicControl);
+
     return () => {
       socket.off('connect', joinHost);
       socket.off('session_state', onSessionState);
@@ -1007,8 +968,9 @@ function HostDashboardContent() {
       socket.off('mini_game_reveal', onMiniGameReveal);
       socket.off('mini_game_end', onMiniGameEnd);
       socket.off('mini_game_update', onMiniGameUpdate);
+      socket.off('music_control', onMusicControl);
     };
-  }, [socket, pin, stopMp3]);
+  }, [socket, pin, stopMp3, playMp3, setMp3Source, setMp3Playing]);
 
   const emit = useCallback(
     (event: string, data?: Record<string, unknown>) => {
@@ -1031,7 +993,6 @@ function HostDashboardContent() {
   const handleRevealAnswer = () => emit('reveal_answer');
   const handleStartTimer = () => {
     emit('start_timer');
-    setShowTimerModal(true);
   };
   const handlePauseTimer = () => emit('pause_timer');
   const handleShowScoreboard = () => {
@@ -1224,10 +1185,6 @@ function HostDashboardContent() {
     }
   }, [emit, isScoreboardVisible]);
 
-  const closeTimerModal = useCallback(() => {
-    setShowTimerModal(false);
-  }, []);
-
   const handleAddTeam = () => {
     const normalizedTeamName = addTeamName.trim().replace(/\s+/g, ' ');
     if (!normalizedTeamName) return;
@@ -1352,16 +1309,8 @@ function HostDashboardContent() {
     return () => window.removeEventListener('keydown', onKey);
   }, [showScoreboardModal, closeScoreboardModal]);
 
-  useEffect(() => {
-    if (!showTimerModal) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') closeTimerModal();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [showTimerModal, closeTimerModal]);
-
   const currentRound = gameState?.rounds?.[gameState.currentRoundIndex];
+  const nextRound = gameState?.rounds?.[(gameState.currentRoundIndex ?? 0) + 1];
   const isMajorityRulesLiveRound =
     (currentQuestion?.roundType || currentRound?.type || '').toUpperCase() === 'MAJORITY_RULES';
   const isCurrentRoundWagerLockRound =
@@ -1384,6 +1333,12 @@ function HostDashboardContent() {
       : 0;
   const showNextQuestionAction = state === 'QUESTION' && questionState === 'REVEALED';
   const showRevealAnswerAction = state === 'QUESTION' && questionState === 'ACTIVE';
+  const musicRoundAwaitingHostTimerStart =
+    isMusicRound &&
+    state === 'QUESTION' &&
+    questionState === 'ACTIVE' &&
+    timerPaused &&
+    timerRemaining > 0;
   const totalRounds = gameState?.rounds?.length || 0;
   const isLastRound = totalRounds > 0 && gameState?.currentRoundIndex === totalRounds - 1;
 
@@ -1584,7 +1539,9 @@ function HostDashboardContent() {
                 <HostSidebarTile
                   label="Play/Pause MP3"
                   active={mp3Playing}
-                  disabled={!currentQuestion || !hasPlayableAudio}
+                  disabled={
+                    !currentQuestion || !hasPlayableAudio || musicRoundAwaitingHostTimerStart
+                  }
                   icon={
                     <svg viewBox="0 0 24 24" fill="currentColor">
                       <path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z" />
@@ -1964,6 +1921,9 @@ function HostDashboardContent() {
                         controls={mp4Playing}
                         autoPlay={mp4Playing}
                       />
+                    ) : (currentQuestion.roundType || '').toUpperCase() === 'MUSIC' ||
+                      (currentQuestion.question.mediaType || '').toLowerCase() === 'mp3' ? (
+                      <img src="/venuemusicbg.png" className="h-full w-full object-cover" alt="" />
                     ) : (
                       <div className="relative flex h-full w-full items-center justify-center overflow-hidden">
                         <img
@@ -1971,11 +1931,6 @@ function HostDashboardContent() {
                           className="h-full w-full object-cover opacity-60"
                           alt="placeholder"
                         />
-                        {(currentQuestion.question.mediaType || '').toLowerCase() === 'mp3' && (
-                          <div className="absolute inset-0 flex items-center justify-center bg-blue-900/20">
-                            <span className="text-lg font-bold text-white">Audio Question</span>
-                          </div>
-                        )}
                         {!currentQuestion.question.mediaUrl && (
                           <div className="absolute inset-0 flex items-center justify-center">
                             <span className="text-[120px] font-black text-white/5 opacity-40">
@@ -2216,31 +2171,41 @@ function HostDashboardContent() {
                 <div className="flex w-full max-w-[720px] flex-col items-center justify-center gap-6 py-8 text-center animate-fadeIn">
                   <div className="inline-flex items-center gap-3 rounded-full border border-[#41d9ff]/45 bg-[linear-gradient(180deg,rgba(20,42,89,0.95)_0%,rgba(11,20,46,0.95)_100%)] px-8 py-3 shadow-[0_0_22px_rgba(0,217,255,0.2)]">
                     <span className="text-sm font-semibold uppercase tracking-[0.22em] text-[#8cdfff]">
-                      {isLastRound ? 'Quiz Complete' : 'Round complete'}
+                      {isLastRound
+                        ? 'Quiz Complete'
+                        : `${formatRoundTypeLabel(currentRound?.type).toUpperCase()} COMPLETED!`}
                     </span>
                   </div>
                   <h2 className="text-4xl font-black leading-tight text-white drop-shadow-[0_0_14px_rgba(123,194,255,0.35)] sm:text-5xl">
                     {isLastRound
                       ? 'All Rounds Finished'
-                      : currentRound
-                        ? normalizeRoundIntroTitle(
-                            currentRound.name,
-                            currentRound.type,
-                            gameState?.currentRoundIndex,
-                          )
-                        : 'This round is finished'}
+                      : nextRound
+                        ? `NEXT: ${formatRoundTypeLabel(nextRound.type)} Round`
+                        : currentRound
+                          ? normalizeRoundIntroTitle(
+                              currentRound.name,
+                              currentRound.type,
+                              gameState?.currentRoundIndex,
+                            )
+                          : 'This round is finished'}
                   </h2>
                   <p className="max-w-md text-base text-[#9de9ff]/90 sm:text-lg">
                     {isLastRound
                       ? 'All questions have been answered. View the final results.'
-                      : 'All questions in this round are done. When you are ready, go to the next round.'}
+                      : nextRound && currentRound
+                        ? `All questions for ${formatRoundTypeLabel(currentRound.type)} are done. Click below to begin the ${formatRoundTypeLabel(nextRound.type)} Round, ${getNextRoundIntroBlurb(nextRound.type)}`
+                        : 'All questions in this round are done. When you are ready, go to the next round.'}
                   </p>
                   <button
                     type="button"
                     onClick={handleAdvanceRound}
                     className="mt-2 min-w-[260px] rounded-xl border border-[rgba(0,217,255,0.55)] bg-[linear-gradient(180deg,#3a4a68_0%,#1e2a42_100%)] px-10 py-4 text-base font-black uppercase tracking-[0.14em] text-white shadow-[0_0_24px_rgba(0,217,255,0.22)] transition hover:brightness-110"
                   >
-                    {isLastRound ? 'View Final Results' : 'Start next round'}
+                    {isLastRound
+                      ? 'View Final Results'
+                      : nextRound
+                        ? `START ${formatRoundTypeLabel(nextRound.type).toUpperCase()} ROUND`
+                        : 'Start next round'}
                   </button>
                 </div>
               ) : (
@@ -2433,6 +2398,19 @@ function HostDashboardContent() {
             >
               {showNextQuestionAction ? 'Next Question' : 'Reveal Answer'}
             </HostFooterBtn>
+            {musicRoundAwaitingHostTimerStart ? (
+              <HostFooterBtn
+                emphasis
+                icon={
+                  <svg viewBox="0 0 24 24" fill="currentColor" className="text-[#00d9ff]">
+                    <path d="M8 5v14l11-7z" />
+                  </svg>
+                }
+                onClick={handleStartTimer}
+              >
+                Start Timer
+              </HostFooterBtn>
+            ) : null}
             <HostFooterBtn
               icon={
                 <svg viewBox="0 0 24 24" fill="currentColor" className="text-[#00d9ff]">
@@ -2468,7 +2446,8 @@ function HostDashboardContent() {
             </HostFooterBtn>
           </div>
           <p className="mt-2 text-center text-[10px] text-white/30">
-            Space=Next · T=Timer · P=Pause · R=Reveal · S=Scoreboard
+            Space=Next · T=Timer · P=Pause · R=Reveal · S=Scoreboard — Music: use Start Timer or T
+            to begin countdown and audio together
           </p>
         </footer>
       ) : null}
@@ -2781,103 +2760,6 @@ function HostDashboardContent() {
                   ))}
                 </ul>
               )}
-            </div>
-          </div>
-        </div>
-      ) : null}
-
-      {showTimerModal ? (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-[rgba(0,0,0,0.5)] p-4 backdrop-blur-[5px]"
-          data-name="Host Control Sttart Break"
-          data-node-id="232:3650"
-          onClick={closeTimerModal}
-          role="presentation"
-        >
-          <div
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="host-timer-modal-title"
-            className="relative z-10 w-full max-w-[min(100vw-2rem,520px)] rounded-2xl border-2 border-[rgba(0,217,255,0.55)] bg-[rgba(26,31,46,0.98)] shadow-[0_0_30px_rgba(0,217,255,0.18)]"
-            data-node-id="232:3779"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div
-              className="flex items-center gap-3 border-b border-white/10 px-5 py-4"
-              data-node-id="232:3760"
-            >
-              <button
-                type="button"
-                data-name="icon-park-solid:back"
-                data-node-id="232:3777"
-                onClick={closeTimerModal}
-                className="flex size-8 shrink-0 items-center justify-center rounded-md text-red-500 transition-colors hover:bg-red-500/10 hover:text-red-400"
-                aria-label="Close"
-              >
-                <svg
-                  width="22"
-                  height="22"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2.5"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  aria-hidden
-                >
-                  <path d="M15 18l-6-6 6-6" />
-                </svg>
-              </button>
-              <h2
-                id="host-timer-modal-title"
-                className="text-[25px] font-semibold text-white"
-                data-node-id="232:3776"
-              >
-                Break Time
-              </h2>
-            </div>
-
-            <div className="flex flex-col items-center px-6 py-10" data-node-id="232:3780">
-              <div
-                className="relative mx-auto flex w-full max-w-[350px] flex-col items-center justify-center"
-                data-node-id="232:3785"
-              >
-                <div
-                  className="pointer-events-none absolute inset-[8%] rounded-full bg-[radial-gradient(circle,rgba(0,217,255,0.07)_1px,transparent_1px)] bg-size-[14px_14px] opacity-80"
-                  data-node-id="232:3782"
-                />
-                <div className="relative mx-auto h-[300px] w-[300px]">
-                  <HostTimerRing
-                    remaining={timerRemaining}
-                    total={Math.max(1, timerDuration)}
-                    size={300}
-                    hideCenter
-                    className="drop-shadow-[0_0_24px_rgba(0,217,255,0.12)]"
-                  />
-                  <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-4 sm:gap-5">
-                    <p
-                      className={cn(
-                        'text-center text-[clamp(2.5rem,11vw,5.25rem)] font-extrabold leading-[0.95] tabular-nums text-white [text-shadow:0_4px_12px_rgba(0,0,0,0.45)]',
-                        timerRemaining <= 5 && 'text-red-400',
-                      )}
-                      data-node-id="232:3787"
-                    >
-                      {formatSecondsMmSs(timerRemaining)}
-                    </p>
-                    {timerPaused ? (
-                      <span className="text-xs font-bold uppercase tracking-widest text-amber-400 sm:text-sm">
-                        Paused
-                      </span>
-                    ) : null}
-                    <p
-                      className="text-center text-lg font-medium uppercase tracking-[1px] text-white sm:text-xl"
-                      data-node-id="232:3789"
-                    >
-                      REMAINING
-                    </p>
-                  </div>
-                </div>
-              </div>
             </div>
           </div>
         </div>

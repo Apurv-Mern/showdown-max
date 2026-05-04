@@ -50,6 +50,9 @@ export default function SessionsPage() {
   const [createSessionError, setCreateSessionError] = useState('');
   const [createdSession, setCreatedSession] = useState<NewSession | null>(null);
   const [deletingSessionId, setDeletingSessionId] = useState<number | null>(null);
+  const [endingSessionId, setEndingSessionId] = useState<number | null>(null);
+  const [sessionToEnd, setSessionToEnd] = useState<Session | null>(null);
+  const [sessionToDelete, setSessionToDelete] = useState<Session | null>(null);
 
   const fetchSessions = async (showLoader = false) => {
     try {
@@ -107,25 +110,30 @@ export default function SessionsPage() {
     }
   };
 
-  const handleEnd = async (id: number) => {
-    if (!confirm('End this session?')) return;
+  const confirmEndSession = async () => {
+    if (!sessionToEnd) return;
     try {
-      await api.post(`/api/sessions/${id}/end`, {});
+      setEndingSessionId(sessionToEnd.id);
+      await api.post(`/api/sessions/${sessionToEnd.id}/end`, {});
       fetchSessions();
       toast.success('Session ended');
+      setSessionToEnd(null);
     } catch (err) {
       console.error('Failed to end session:', err);
       toast.error('Failed to end session');
+    } finally {
+      setEndingSessionId(null);
     }
   };
 
-  const handleDelete = async (id: number, pin: string) => {
-    if (!confirm(`Delete session ${pin}? This cannot be undone.`)) return;
+  const confirmDeleteSession = async () => {
+    if (!sessionToDelete) return;
     try {
-      setDeletingSessionId(id);
-      await api.delete(`/api/sessions/${id}`);
-      setSessions((prev) => prev.filter((s) => s.id !== id));
-      toast.success(`Session ${pin} deleted`);
+      setDeletingSessionId(sessionToDelete.id);
+      await api.delete(`/api/sessions/${sessionToDelete.id}`);
+      setSessions((prev) => prev.filter((s) => s.id !== sessionToDelete.id));
+      toast.success(`Session ${sessionToDelete.pin} deleted`);
+      setSessionToDelete(null);
     } catch (err) {
       console.error('Failed to delete session:', err);
       toast.error('Failed to delete session');
@@ -200,15 +208,20 @@ export default function SessionsPage() {
                   </Button>
                 </Link>
                 {session.status !== 'completed' && (
-                  <Button variant="danger" size="sm" onClick={() => handleEnd(session.id)}>
-                    End
+                  <Button
+                    variant="danger"
+                    size="sm"
+                    onClick={() => setSessionToEnd(session)}
+                    disabled={endingSessionId === session.id || deletingSessionId === session.id}
+                  >
+                    {endingSessionId === session.id ? 'Ending...' : 'End'}
                   </Button>
                 )}
                 <Button
                   variant="danger"
                   size="sm"
-                  onClick={() => handleDelete(session.id, session.pin)}
-                  disabled={deletingSessionId === session.id}
+                  onClick={() => setSessionToDelete(session)}
+                  disabled={deletingSessionId === session.id || endingSessionId === session.id}
                 >
                   {deletingSessionId === session.id ? 'Deleting...' : 'Delete'}
                 </Button>
@@ -281,6 +294,74 @@ export default function SessionsPage() {
             </Button>
           </div>
         </div>
+      </Modal>
+
+      <Modal
+        isOpen={sessionToEnd !== null}
+        onClose={() => {
+          if (!endingSessionId) setSessionToEnd(null);
+        }}
+        title="End Session?"
+        className="max-w-md"
+      >
+        {sessionToEnd && (
+          <div className="space-y-4">
+            <p className="text-foreground/70">
+              End session <span className="font-semibold">{sessionToEnd.pin}</span>? Teams will no
+              longer be able to continue this game.
+            </p>
+            <div className="flex justify-end gap-3">
+              <Button
+                variant="secondary"
+                onClick={() => setSessionToEnd(null)}
+                disabled={endingSessionId !== null}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="danger"
+                onClick={confirmEndSession}
+                disabled={endingSessionId !== null}
+              >
+                {endingSessionId !== null ? 'Ending...' : 'End Session'}
+              </Button>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      <Modal
+        isOpen={sessionToDelete !== null}
+        onClose={() => {
+          if (!deletingSessionId) setSessionToDelete(null);
+        }}
+        title="Delete Session?"
+        className="max-w-md"
+      >
+        {sessionToDelete && (
+          <div className="space-y-4">
+            <p className="text-foreground/70">
+              Delete session <span className="font-semibold">{sessionToDelete.pin}</span>? This
+              action cannot be undone.
+            </p>
+            <div className="flex justify-end gap-3">
+              <Button
+                variant="secondary"
+                onClick={() => setSessionToDelete(null)}
+                disabled={deletingSessionId !== null}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="danger"
+                onClick={confirmDeleteSession}
+                disabled={deletingSessionId !== null}
+              >
+                {deletingSessionId !== null ? 'Deleting...' : 'Delete Session'}
+              </Button>
+            </div>
+          </div>
+        )}
       </Modal>
 
       <Modal

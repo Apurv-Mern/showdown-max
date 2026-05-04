@@ -22,7 +22,8 @@ const patchRoundSchema = z.object({
 });
 
 const reorderRoundsSchema = z.object({
-  roundIds: z.array(z.number().int().positive()).length(7),
+  /** One entry per round in the quiz, in the desired display order (same IDs as DB, no extras). */
+  roundIds: z.array(z.number().int().positive()).min(1),
 });
 
 const reorderRoundsParamsSchema = z.object({
@@ -180,9 +181,14 @@ const roundRoutes = async (fastify) => {
         order: [['order', 'ASC']],
       });
 
-      if (rounds.length !== 7) {
+      if (rounds.length === 0) {
         reply.status(400);
-        return error('Quiz must contain exactly 7 rounds', 400);
+        return error('Quiz has no rounds to reorder', 400);
+      }
+
+      if (roundIds.length !== rounds.length) {
+        reply.status(400);
+        return error('roundIds must include each round exactly once', 400);
       }
 
       const currentIds = rounds.map((round) => round.id);

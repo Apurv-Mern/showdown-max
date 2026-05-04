@@ -2,10 +2,17 @@
 
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
+import { Montserrat } from 'next/font/google';
 import { PUBLIC_API_URL } from '@/lib/env';
+import Image from 'next/image';
 
 const VENUE_PIN_STORAGE_KEY = 'venue_display_pin';
 const API_URL = PUBLIC_API_URL;
+const montserrat = Montserrat({
+  weight: ['400', '500', '600', '700', '800'],
+  subsets: ['latin'],
+  display: 'swap',
+});
 
 export default function VenueSessionLoginPage() {
   const router = useRouter();
@@ -75,59 +82,96 @@ export default function VenueSessionLoginPage() {
   };
 
   return (
-    <div className="w-full h-full flex items-center justify-center p-6 relative overflow-hidden">
-      <div className="w-full max-w-xl rounded-3xl border border-neon-cyan/35 bg-[#060d22]/85 p-8 shadow-[0_0_40px_rgba(0,229,255,0.18)] backdrop-blur-sm">
-        <div className="text-center mb-8">
-          <h1 className="text-5xl font-black tracking-tight text-neon-cyan text-glow-cyan mb-2">
-            VENUE LOGIN
-          </h1>
-          <p className="text-foreground/70 text-lg">
-            Enter the 6-digit session PIN to activate this venue screen.
-          </p>
+    <div
+      className={`${montserrat.className} flex min-h-screen w-full items-center justify-center overflow-x-hidden bg-transparent px-4 antialiased sm:px-8`}
+    >
+      <div className="m-12 flex w-full flex-col items-center justify-center gap-12 lg:flex-row lg:gap-24">
+        <div className="shrink-0 flex items-center justify-center">
+          <Image
+            src="/logo.png"
+            className="h-auto object-contain sm:w-125 lg:w-200"
+            alt="Max Showdown LIVE Logo"
+            width={800}
+            height={600}
+            priority
+          />
         </div>
 
-        {errorText ? (
-          <div className="mb-5 rounded-xl border border-neon-red/45 bg-neon-red/10 px-4 py-3 text-sm text-neon-red">
-            {errorText}
-          </div>
-        ) : null}
-        {pinError ? (
-          <div className="mb-5 rounded-xl border border-neon-red/45 bg-neon-red/10 px-4 py-3 text-sm text-neon-red">
-            {pinError}
-          </div>
-        ) : null}
+        <main className="z-10 flex w-full max-w-180 flex-col items-center justify-center">
+          <div className="flex w-full flex-col items-center">
+            <h1 className="text-center text-[clamp(1.5rem,4vw,2.25rem)] font-bold text-white">
+              Venue Login
+            </h1>
+            <p className="mt-2 text-center text-[clamp(0.875rem,2.2vw,1.125rem)] font-medium text-[#00d1ff]">
+              Enter the 6-digit session PIN to activate this venue screen
+            </p>
 
-        <form onSubmit={onSubmit} className="space-y-4">
-          <input
-            type="text"
-            value={pin}
-            onChange={(e) => {
-              setPinError('');
-              setPin(e.target.value.replace(/\D/g, '').slice(0, 6));
-            }}
-            placeholder="Session PIN"
-            maxLength={6}
-            className="w-full rounded-2xl border border-neon-cyan/35 bg-[#040a1c]/90 px-6 py-4 text-center text-4xl font-mono font-black tracking-[0.30em] text-neon-cyan outline-none focus:border-neon-cyan focus:shadow-[0_0_20px_rgba(0,229,255,0.25)]"
-          />
-          <button
-            type="submit"
-            disabled={pin.length !== 6 || isCheckingPin}
-            className="w-full rounded-2xl border border-neon-cyan/40 bg-neon-cyan/20 px-5 py-4 text-lg font-bold text-neon-cyan transition-colors hover:bg-neon-cyan/28 disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            {isCheckingPin ? 'Checking PIN...' : 'Activate Venue'}
-          </button>
-        </form>
+            <form
+              onSubmit={onSubmit}
+              className="mt-8 w-full rounded-2xl bg-[rgba(26,31,46,0.92)] px-7 py-8 sm:px-9 sm:py-10"
+            >
+              {errorText ? (
+                <div
+                  className="mb-5 rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-400"
+                  role="alert"
+                >
+                  {errorText}
+                </div>
+              ) : null}
+              {pinError ? (
+                <div
+                  className="mb-5 rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-400"
+                  role="alert"
+                >
+                  {pinError}
+                </div>
+              ) : null}
 
-        {savedPin ? (
-          <button
-            type="button"
-            onClick={() => activateVenueAsync(savedPin)}
-            disabled={isCheckingPin}
-            className="mt-4 w-full rounded-2xl border border-white/15 bg-white/5 px-5 py-3 text-sm font-semibold text-foreground/80 hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            Reconnect last session ({savedPin})
-          </button>
-        ) : null}
+              <div className="flex flex-col gap-6">
+                <div className="flex flex-col gap-2">
+                  <label htmlFor="venue-pin" className="text-sm font-bold text-white">
+                    Enter Session PIN
+                  </label>
+                  <input
+                    id="venue-pin"
+                    type="text"
+                    value={pin}
+                    onChange={(e) => {
+                      setPinError('');
+                      setPin(e.target.value.replace(/\D/g, '').slice(0, 6));
+                    }}
+                    placeholder="Enter 6-digit PIN"
+                    maxLength={6}
+                    inputMode="numeric"
+                    autoFocus
+                    className="h-12 w-full rounded-lg border border-white/10 bg-[#050508] px-3.5 text-center font-mono text-sm tracking-[0.25em] text-white outline-none transition-[border-color,box-shadow] duration-200 placeholder:tracking-normal placeholder:text-[#a1a1a1] focus:border-[rgba(0,209,255,0.5)] focus:shadow-[0_0_0_2px_rgba(0,209,255,0.15)]"
+                  />
+                </div>
+              </div>
+
+              <div className="mt-8 flex justify-center">
+                <button
+                  type="submit"
+                  disabled={pin.length !== 6 || isCheckingPin}
+                  className="h-11 min-w-[200px] max-w-[85%] rounded-lg bg-[linear-gradient(180deg,#dc2626_0%,#7f1d1d_100%)] px-10 text-base font-bold text-white shadow-[0_4px_16px_rgba(0,0,0,0.4)] transition-[filter,transform] duration-200 hover:brightness-110 active:scale-[0.98] disabled:opacity-50 sm:min-w-[240px]"
+                >
+                  {isCheckingPin ? 'Checking PIN...' : 'Activate Venue'}
+                </button>
+              </div>
+
+              {savedPin ? (
+                <button
+                  type="button"
+                  onClick={() => activateVenueAsync(savedPin)}
+                  disabled={isCheckingPin}
+                  className="mt-4 w-full rounded-lg border border-white/15 bg-white/5 px-4 py-2.5 text-sm font-semibold text-white/85 transition-colors hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Reconnect last session ({savedPin})
+                </button>
+              ) : null}
+            </form>
+          </div>
+        </main>
       </div>
     </div>
   );

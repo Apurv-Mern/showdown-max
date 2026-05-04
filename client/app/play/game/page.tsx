@@ -74,6 +74,59 @@ const OPTION_BG: Record<number, string> = {
 
 const OPTION_LETTERS = ['A', 'B', 'C', 'D', 'E', 'F'];
 
+const WAGER_POINT_OPTIONS = [0, 10, 20, 30, 40, 50] as const;
+const FINAL_WAGER_PERCENT_OPTIONS = [10, 20, 30, 40, 50, 60] as const;
+
+function initialWagerAmountForRoundType(roundType?: string): number {
+  return (roundType || '').toUpperCase() === 'FINAL_WAGER' ? FINAL_WAGER_PERCENT_OPTIONS[0] : 0;
+}
+
+function RevealOptionStatusIcon({ variant }: { variant: 'correct' | 'wrong' }) {
+  if (variant === 'correct') {
+    return (
+      <span
+        className="flex border h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#22c55e] shadow-[0_2px_8px_rgba(34,197,94,0.55)] sm:h-10 sm:w-10"
+        aria-hidden
+      >
+        <svg
+          className="h-5 w-5 text-white"
+          viewBox="0 0 24 24"
+          fill="none"
+          xmlns="http://www.w3.org/2000/svg"
+        >
+          <path
+            d="M6 12.5l3.5 3.5L18 7"
+            stroke="currentColor"
+            strokeWidth="2.75"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+      </span>
+    );
+  }
+  return (
+    <span
+      className="flex border h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#ef4444] shadow-[0_2px_8px_rgba(239,68,68,0.55)] sm:h-10 sm:w-10"
+      aria-hidden
+    >
+      <svg
+        className="h-5 w-5 text-white"
+        viewBox="0 0 24 24"
+        fill="none"
+        xmlns="http://www.w3.org/2000/svg"
+      >
+        <path
+          d="M7 7l10 10M17 7L7 17"
+          stroke="currentColor"
+          strokeWidth="2.75"
+          strokeLinecap="round"
+        />
+      </svg>
+    </span>
+  );
+}
+
 const resolveMediaUrl = (mediaUrl?: string) => {
   if (!mediaUrl) return '';
   const normalized = mediaUrl
@@ -99,6 +152,8 @@ const isImageMedia = (mediaType?: string, mediaUrl?: string) => {
   if (type.includes('image')) return true;
   return /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(mediaUrl || '');
 };
+
+const QUESTION_NO_IMAGE_PLACEHOLDER = '/withoutImagequestion.png';
 
 function QuestionImage({ mediaUrl }: { mediaUrl: string }) {
   const candidates = useMemo(() => {
@@ -161,9 +216,11 @@ function QuestionImage({ mediaUrl }: { mediaUrl: string }) {
 
   if (!candidates.length || failed) {
     return (
-      <div className="flex max-h-[min(42vh,220px)] min-h-[120px] w-full items-center justify-center rounded-xl border border-[#11a7ff] bg-[#0b1338]/70 text-sm text-white/70 sm:min-h-[140px] md:max-h-[min(38vh,260px)]">
-        Image unavailable
-      </div>
+      <img
+        src={QUESTION_NO_IMAGE_PLACEHOLDER}
+        alt=""
+        className="max-h-[min(42vh,220px)] w-full rounded-xl border border-[#11a7ff] object-cover md:max-h-[min(38vh,260px)]"
+      />
     );
   }
 
@@ -187,6 +244,70 @@ function QuestionImage({ mediaUrl }: { mediaUrl: string }) {
         }
       }}
     />
+  );
+}
+
+function QuestionMediaVisual({
+  question,
+  isPlayerMp3Playing,
+}: {
+  question: QuestionData;
+  isPlayerMp3Playing: boolean;
+}) {
+  const q = question.question;
+  const roundType = question.roundType;
+
+  if (isImageMedia(q.mediaType, q.mediaUrl) && q.mediaUrl) {
+    return (
+      <div className="shrink-0">
+        <div className="rounded-2xl border-2 border-[#11a7ff] overflow-hidden shadow-[0_0_20px_rgba(17,167,255,0.3)]">
+          <QuestionImage mediaUrl={q.mediaUrl} />
+        </div>
+      </div>
+    );
+  }
+  if ((q.mediaType || '').toLowerCase() === 'mp4' && q.mediaUrl) {
+    return (
+      <div className="shrink-0">
+        <div className="rounded-2xl border-2 overflow-hidden shadow-[0_0_20px_rgba(17,167,255,0.3)]">
+          <video
+            src={resolveMediaUrl(q.mediaUrl)}
+            className="max-h-[min(42vh,220px)] w-full object-cover md:max-h-[min(38vh,280px)]"
+            controls
+          />
+        </div>
+      </div>
+    );
+  }
+  if ((q.mediaType || '').toLowerCase() === 'mp3' || roundType === 'MUSIC') {
+    return (
+      <div className="shrink-0">
+        <div className="rounded-2xl overflow-hidden">
+          <img
+            src="/musicbg.png"
+            alt="Music round placeholder"
+            className="max-h-[min(42vh,220px)] w-full object-cover md:max-h-[min(38vh,280px)]"
+          />
+        </div>
+        <p className="mt-2 text-center text-sm font-semibold text-white sm:text-base">
+          {isPlayerMp3Playing
+            ? 'Audio is playing on Venue Screen'
+            : 'Waiting for host to play music'}
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="shrink-0">
+      <div className="rounded-2xl border-2 border-[#11a7ff] overflow-hidden shadow-[0_0_20px_rgba(17,167,255,0.3)]">
+        <img
+          src={QUESTION_NO_IMAGE_PLACEHOLDER}
+          alt=""
+          className="max-h-[min(42vh,220px)] w-full object-cover md:max-h-[min(38vh,260px)]"
+        />
+      </div>
+    </div>
   );
 }
 
@@ -573,7 +694,9 @@ export default function GamePage() {
           setRevealData(null);
           setPointsGained(null);
           setWagerSubmitted(false);
-          setWagerAmount(0);
+          const wagerRoundIdx = Number(gs.currentRoundIndex ?? 0);
+          const wagerRoundType = gs.rounds?.[wagerRoundIdx]?.type;
+          setWagerAmount(initialWagerAmountForRoundType(wagerRoundType));
 
           if (currentlyEliminated) {
             setPhase('eliminated');
@@ -623,7 +746,7 @@ export default function GamePage() {
       setSelectedOption(null);
       setRevealData(null);
       setWagerSubmitted(false);
-      setWagerAmount(0);
+      setWagerAmount(initialWagerAmountForRoundType(data?.round?.type));
       setPhase('wager_input');
     };
 
@@ -896,7 +1019,27 @@ export default function GamePage() {
   const lockedWagerLabel = isFinalWagerRound
     ? `${wagerAmount}% (${Math.round((session.score * wagerAmount) / 100)} pts)`
     : `${wagerAmount} pts`;
-  const wagerSliderMax = isFinalWagerRound ? 100 : 50;
+  const wagerChoiceValues = isFinalWagerRound ? FINAL_WAGER_PERCENT_OPTIONS : WAGER_POINT_OPTIONS;
+
+  useEffect(() => {
+    if (phase !== 'wager_input' || wagerSubmitted) return;
+    const rt = (roundInfo?.round?.type || '').toUpperCase();
+    if (rt === 'FINAL_WAGER') {
+      if (
+        !FINAL_WAGER_PERCENT_OPTIONS.includes(
+          wagerAmount as (typeof FINAL_WAGER_PERCENT_OPTIONS)[number],
+        )
+      ) {
+        setWagerAmount(FINAL_WAGER_PERCENT_OPTIONS[0]);
+      }
+      return;
+    }
+    if (rt === 'WAGER') {
+      if (!WAGER_POINT_OPTIONS.includes(wagerAmount as (typeof WAGER_POINT_OPTIONS)[number])) {
+        setWagerAmount(0);
+      }
+    }
+  }, [phase, wagerSubmitted, roundInfo?.round?.type, wagerAmount]);
 
   const myRank = scoreboard.findIndex((t) => t.teamId === session.teamId) + 1;
   const breakProgress =
@@ -1075,7 +1218,7 @@ export default function GamePage() {
                     Place Your Wager
                   </motion.h2>
                   {/* Current Score Display */}
-                  <motion.div
+                  {/* <motion.div
                     initial={{ opacity: 0, scale: 0.9 }}
                     animate={{ opacity: 1, scale: 1 }}
                     transition={{ delay: 0.1 }}
@@ -1085,13 +1228,16 @@ export default function GamePage() {
                     <p className="text-3xl font-mono font-bold text-neon-cyan text-glow-cyan">
                       {session.score} pts
                     </p>
-                  </motion.div>
+                  </motion.div> */}
                   {isFinalWagerRound ? (
-                    <p className="text-foreground/40 text-sm mb-6">Wager 0–100% of your points</p>
+                    <p className="text-foreground/40 text-sm mb-6">
+                      Pick one of six percentages (10%–60%) of your current score.
+                    </p>
                   ) : (
                     <div className="mb-6 space-y-2 rounded-xl border border-white/10 bg-black/25 px-4 py-3 text-left text-sm leading-snug text-white/75 sm:text-center">
                       <p>
-                        Players select a fixed wager (0–50 points) before the question is revealed.
+                        Choose a fixed wager: 0, 10, 20, 30, 40, or 50 points before the question is
+                        revealed.
                       </p>
                       <p>
                         <span className="font-semibold text-neon-green/90">Correct</span> = gain
@@ -1105,18 +1251,29 @@ export default function GamePage() {
                     initial={{ opacity: 0, scale: 0.95 }}
                     animate={{ opacity: 1, scale: 1 }}
                     transition={{ delay: 0.15 }}
-                    className="neon-border rounded-xl p-6 mb-4 bg-surface/80"
+                    className="neon-border rounded-xl p-4 mb-4 bg-surface/80 sm:p-6"
                   >
-                    <input
-                      type="range"
-                      min={0}
-                      max={wagerSliderMax}
-                      value={wagerAmount}
-                      onChange={(e) => setWagerAmount(Number(e.target.value))}
-                      disabled={wagerSubmitted}
-                      className="w-full accent-primary h-3 touch-manipulation disabled:opacity-50 disabled:cursor-not-allowed"
-                    />
-                    <p className="text-4xl font-mono font-bold text-neon-cyan text-glow-cyan mt-4">
+                    <div className="grid grid-cols-3 gap-2.5 sm:gap-3">
+                      {wagerChoiceValues.map((val) => (
+                        <button
+                          key={val}
+                          type="button"
+                          disabled={wagerSubmitted}
+                          onClick={() => setWagerAmount(val)}
+                          className={cn(
+                            'rounded-xl border-2 py-3.5 text-base font-black transition touch-manipulation sm:py-4 sm:text-lg',
+                            wagerAmount === val
+                              ? 'border-[#00d8ff] bg-[#00d8ff]/20 text-white shadow-[0_0_14px_rgba(0,216,255,0.35)]'
+                              : 'border-white/20 bg-black/35 text-white/90 active:brightness-110',
+                            wagerSubmitted && 'cursor-not-allowed',
+                            wagerSubmitted && wagerAmount !== val && 'opacity-35',
+                          )}
+                        >
+                          {isFinalWagerRound ? `${val}%` : val}
+                        </button>
+                      ))}
+                    </div>
+                    <p className="text-3xl font-mono font-bold text-neon-cyan text-glow-cyan mt-4 sm:text-4xl">
                       {isFinalWagerRound
                         ? `${wagerAmount}% (${Math.round((session.score * wagerAmount) / 100)} pts)`
                         : `${wagerAmount} pts`}
@@ -1174,41 +1331,10 @@ export default function GamePage() {
                 </div>
 
                 <div className="flex flex-col gap-3 sm:gap-4">
-                  {isImageMedia(question.question.mediaType, question.question.mediaUrl) &&
-                  question.question.mediaUrl ? (
-                    <div className="shrink-0">
-                      <div className="rounded-2xl border-2 border-[#11a7ff] overflow-hidden shadow-[0_0_20px_rgba(17,167,255,0.3)]">
-                        <QuestionImage mediaUrl={question.question.mediaUrl} />
-                      </div>
-                    </div>
-                  ) : (question.question.mediaType || '').toLowerCase() === 'mp4' &&
-                    question.question.mediaUrl ? (
-                    <div className="shrink-0">
-                      <div className="rounded-2xl border-2 overflow-hidden shadow-[0_0_20px_rgba(17,167,255,0.3)]">
-                        <video
-                          src={resolveMediaUrl(question.question.mediaUrl)}
-                          className="max-h-[min(42vh,220px)] w-full object-cover md:max-h-[min(38vh,280px)]"
-                          controls
-                        />
-                      </div>
-                    </div>
-                  ) : (question.question.mediaType || '').toLowerCase() === 'mp3' ||
-                    question.roundType === 'MUSIC' ? (
-                    <div className="shrink-0">
-                      <div className="rounded-2xl overflow-hidden">
-                        <img
-                          src="/musicbg.png"
-                          alt="Music round placeholder"
-                          className="max-h-[min(42vh,220px)] w-full object-cover md:max-h-[min(38vh,280px)]"
-                        />
-                      </div>
-                      <p className="mt-2 text-center text-sm font-semibold text-white sm:text-base">
-                        {isPlayerMp3Playing
-                          ? 'Audio is playing on Venue Screen'
-                          : 'Waiting for host to play music'}
-                      </p>
-                    </div>
-                  ) : null}
+                  <QuestionMediaVisual
+                    question={question}
+                    isPlayerMp3Playing={isPlayerMp3Playing}
+                  />
 
                   {/* Options - Single column vertical list */}
                   <motion.div
@@ -1298,14 +1424,10 @@ export default function GamePage() {
                 </div>
 
                 <div className="flex flex-col gap-3 sm:gap-4">
-                  {isImageMedia(question.question.mediaType, question.question.mediaUrl) &&
-                  question.question.mediaUrl ? (
-                    <div className="shrink-0">
-                      <div className="rounded-2xl border-2 border-[#11a7ff] overflow-hidden shadow-[0_0_20px_rgba(17,167,255,0.3)]">
-                        <QuestionImage mediaUrl={question.question.mediaUrl} />
-                      </div>
-                    </div>
-                  ) : null}
+                  <QuestionMediaVisual
+                    question={question}
+                    isPlayerMp3Playing={isPlayerMp3Playing}
+                  />
 
                   {/* Options - Single column vertical list */}
                   <motion.div
@@ -1326,29 +1448,28 @@ export default function GamePage() {
                         ? selectedOption !== null && !isSelectedOption
                         : !isCorrectOption && !isSelectedWrong;
 
+                      const showCorrectTick = isCorrectOption;
+                      const showWrongCross = isSelectedWrong;
+
                       return (
                         <motion.div
                           key={i}
                           variants={staggerItem}
                           className={cn(
-                            'flex min-h-14 w-full items-center justify-start rounded-xl px-4 py-3 text-white font-bold sm:min-h-16 sm:px-6 sm:py-4 md:min-h-[4.75rem]',
+                            'flex min-h-14 w-full items-center justify-between gap-3 rounded-xl border border-white/20 px-4 py-3 text-white font-bold sm:min-h-16 sm:px-6 sm:py-4 md:min-h-[4.75rem]',
                             'touch-manipulation select-none transition-all',
                             OPTION_BG[i] || 'bg-[#1565c0]',
-                            !isMajorityRulesRound &&
-                              isCorrectOption &&
-                              'shadow-[0_0_8px_8px_rgba(57,255,74,0.9),_0_0_0px_rgba(57,255,74,0.5)]',
-                            !isMajorityRulesRound &&
-                              isSelectedWrong &&
-                              'shadow-[0_0_8px_8px_rgba(255,37,37,0.8),_0_0_0px_rgba(255,37,37,0.5)]',
                             isMajorityRulesRound &&
                               isSelectedOption &&
                               'ring-2 ring-[#00e5ff] shadow-[0_0_8px_8px_rgba(0,229,255,0.65)]',
                             shouldDim && 'opacity-30 brightness-50 contrast-75 scale-[0.98]',
                           )}
                         >
-                          <span className="text-left text-base font-black leading-tight drop-shadow-md sm:text-lg md:text-xl">
+                          <span className="min-w-0 flex-1 text-left text-base font-black leading-tight drop-shadow-md sm:text-lg md:text-xl">
                             {OPTION_LETTERS[i]}. {opt.text}
                           </span>
+                          {showCorrectTick && <RevealOptionStatusIcon variant="correct" />}
+                          {showWrongCross && <RevealOptionStatusIcon variant="wrong" />}
                         </motion.div>
                       );
                     })}
@@ -1518,7 +1639,6 @@ export default function GamePage() {
                 className="flex-1 relative overflow-hidden mobile-play-bg"
               >
                 <div className="absolute inset-0 opacity-25 bg-[radial-gradient(circle_at_22%_16%,rgba(145,105,255,0.36)_0_4px,transparent_4px)] [background-size:110px_110px]" />
-                <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-72.5 h-45 opacity-55 bg-[radial-gradient(circle,rgba(0,229,255,0.26)_0_2px,transparent_2px)] [background-size:14px_14px]" />
 
                 <div className="relative z-10 flex h-full w-full flex-col items-center justify-center px-4 text-center sm:px-6">
                   <h2 className="text-[clamp(2rem,7vw,3.4rem)] font-extrabold leading-none text-white sm:text-[clamp(2.25rem,5vw,3.5rem)]">
@@ -1570,6 +1690,12 @@ export default function GamePage() {
                       </p>
                     </div>
                   </div>
+
+                  <img
+                    src="/logo.png"
+                    alt="Max Showdown Trivia"
+                    className="relative z-10 mt-8 h-auto  max-w-[360px] object-contain drop-shadow-[0_6px_24px_rgba(0,0,0,0.4)] sm:mt-10 sm:w-[min(48vw,240px)]"
+                  />
                 </div>
               </motion.div>
             )}

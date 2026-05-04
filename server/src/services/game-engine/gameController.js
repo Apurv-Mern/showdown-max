@@ -270,6 +270,20 @@ const nextQuestion = async (io, pin) => {
       // await revealAnswer(io, pin);
     },
   );
+
+  if (round.type === ROUND_TYPES.MUSIC) {
+    await pauseTimer(io, pin);
+    const gsMusic = await redisStore.getGameState(pin);
+    if (gsMusic) {
+      gsMusic.timerRemaining = effectiveTimer;
+      gsMusic.timerRunning = false;
+      await redisStore.setGameState(pin, gsMusic);
+      io.to(`session:${pin}`).emit(
+        SOCKET_EVENTS.SESSION_STATE,
+        clientPayloadFromGameState(gsMusic),
+      );
+    }
+  }
 };
 
 /**
@@ -322,7 +336,7 @@ const submitAnswer = async (io, pin, teamId, data) => {
     wagerAmount: data.wagerAmount,
     responseTime:
       Number.isFinite(Number(gameState.timerRemaining)) &&
-      Number.isFinite(Number(question.timerDuration))
+        Number.isFinite(Number(question.timerDuration))
         ? Math.max(0, Number(question.timerDuration) - Number(gameState.timerRemaining))
         : null,
   };
@@ -911,8 +925,8 @@ const endBreak = async (io, pin) => {
             pointsForQuestion:
               round.type === ROUND_TYPES.ELIMINATION
                 ? require('shared/constants/scoring').getEliminationPoints(
-                    gameState.currentQuestionIndex,
-                  )
+                  gameState.currentQuestionIndex,
+                )
                 : null,
           });
           const responsesRaw = await redisStore.getResponses(pin, question.id);
@@ -1049,27 +1063,52 @@ const pauseTimer = async (io, pin) => {
  */
 const startTimer = async (io, pin) => {
   const timerState = timerManager.getTimerState(pin);
-  if (timerState.remaining > 0 && !timerState.running) {
-    logger.info('Timer resumed', { pin, remaining: timerState.remaining });
-    timerManager.resumeTimer(
-      pin,
-      (remaining) => {
-        io.to(`session:${pin}`).emit(SOCKET_EVENTS.TIMER_UPDATE, { remaining });
-      },
-      async () => {
-        io.to(`session:${pin}`).emit(SOCKET_EVENTS.TIMER_EXPIRED, {});
-        const gs = await redisStore.getGameState(pin);
-        if (gs) {
-          gs.timerRunning = false;
-          gs.timerRemaining = 0;
-          await redisStore.setGameState(pin, gs);
-        }
-        logger.info('Timer expired for question on resumed timer, waiting for host to reveal', {
-          pin,
+  if (!(timerState.remaining > 0 && !timerState.running)) return;
+
+  logger.info('Timer resumed', { pin, remaining: timerState.remaining });
+  timerManager.resumeTimer(
+    pin,
+    (remaining) => {
+      io.to(`session:${pin}`).emit(SOCKET_EVENTS.TIMER_UPDATE, { remaining });
+    },
+    async () => {
+      io.to(`session:${pin}`).emit(SOCKET_EVENTS.TIMER_EXPIRED, {});
+      const gs = await redisStore.getGameState(pin);
+      if (gs) {
+        gs.timerRunning = false;
+        gs.timerRemaining = 0;
+        await redisStore.setGameState(pin, gs);
+      }
+      logger.info('Timer expired for question on resumed timer, waiting for host to reveal', {
+        pin,
+      });
+      // await revealAnswer(io, pin);
+    },
+  );
+
+  let gameState = await redisStore.getGameState(pin);
+  if (gameState) {
+    gameState.timerRunning = true;
+    gameState.timerRemaining = timerState.remaining;
+    await redisStore.setGameState(pin, gameState);
+  }
+  io.to(`session:${pin}`).emit(SOCKET_EVENTS.TIMER_UPDATE, {
+    remaining: timerState.remaining,
+    paused: false,
+  });
+
+  if (gameState) {
+    const round = stateMachine.getCurrentRound(gameState);
+    if (round?.type === ROUND_TYPES.MUSIC) {
+      const q = stateMachine.getCurrentQuestion(gameState);
+      const mediaUrl = q?.mediaUrl || null;
+      if (mediaUrl) {
+        io.to(`session:${pin}`).emit(SOCKET_EVENTS.MUSIC_CONTROL, {
+          action: 'play',
+          mediaUrl,
         });
-        // await revealAnswer(io, pin);
-      },
-    );
+      }
+    }
   }
 };
 

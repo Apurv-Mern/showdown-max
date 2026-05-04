@@ -333,6 +333,10 @@ function VenueDisplayContent() {
   }, [sessionPin]);
 
   const isMusicRound = question?.roundType === 'MUSIC';
+  /** Match mobile: MUSIC round or MP3 uses music art instead of generic question placeholder. */
+  const venueMusicBgPlaceholder =
+    (question?.roundType || '').toUpperCase() === 'MUSIC' ||
+    (question?.question?.mediaType || '').toLowerCase() === 'mp3';
   const { playTick, playBuzz } = useTimerSound({ enabled: true, muted: isMusicRound });
   const {
     play: playMp3,
@@ -1714,9 +1718,13 @@ function VenueDisplayContent() {
                       />
                     ) : (
                       <img
-                        src="/withoutImagequestion.png"
+                        src={
+                          venueMusicBgPlaceholder
+                            ? '/venuemusicbg.png'
+                            : '/withoutImagequestion.png'
+                        }
                         className="w-full h-full object-cover"
-                        alt="fallback"
+                        alt={venueMusicBgPlaceholder ? 'Music round' : 'Question visual'}
                       />
                     )}
                   </div>
@@ -1923,9 +1931,13 @@ function VenueDisplayContent() {
                       />
                     ) : (
                       <img
-                        src="/withoutImagequestion.png"
+                        src={
+                          venueMusicBgPlaceholder
+                            ? '/venuemusicbg.png'
+                            : '/withoutImagequestion.png'
+                        }
                         className="w-full h-full object-cover"
-                        alt="fallback"
+                        alt={venueMusicBgPlaceholder ? 'Music round' : 'Question visual'}
                       />
                     )}
                   </div>
@@ -2340,6 +2352,14 @@ function BreakView({
             </p>
           </div>
         </div>
+      </div>
+
+      <div className="relative z-10 mt-10 flex w-full justify-center px-6">
+        <img
+          src="/logo.png"
+          alt="Max Showdown Trivia"
+          className="h-auto w-[min(340px,42vw)] max-w-full object-contain drop-shadow-[0_8px_32px_rgba(0,0,0,0.45)]"
+        />
       </div>
     </div>
   );

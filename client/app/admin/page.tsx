@@ -1,31 +1,12 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { getStoredToken } from '@/lib/auth';
-import { PUBLIC_API_URL } from '@/lib/env';
-
-const API_URL = PUBLIC_API_URL;
+import { api } from '@/lib/api';
 
 interface DashboardStats {
   totalQuizzes: number;
   totalQuestions: number;
   activeSessions: number;
-  totalTeams: number;
-}
-
-interface ListResponse<T> {
-  success: boolean;
-  data?: {
-    total?: number;
-    quizzes?: T[];
-    questions?: T[];
-    sessions?: T[];
-  };
-}
-
-interface SessionListItem {
-  status?: string;
-  teams?: { id: number }[];
 }
 
 const STAT_CARDS: {
@@ -118,7 +99,6 @@ export default function AdminDashboardPage() {
     totalQuizzes: 0,
     totalQuestions: 0,
     activeSessions: 0,
-    totalTeams: 0,
   });
   const [loading, setLoading] = useState(true);
 
@@ -127,39 +107,23 @@ export default function AdminDashboardPage() {
 
     async function fetchStats() {
       try {
-        const token = getStoredToken();
-        const headers: HeadersInit = token ? { Authorization: `Bearer ${token}` } : {};
-
-        const [quizRes, questionRes, sessionRes] = await Promise.allSettled([
-          fetch(`${API_URL}/api/quizzes?limit=1`, { headers }),
-          fetch(`${API_URL}/api/questions?limit=1`, { headers }),
-          fetch(`${API_URL}/api/sessions?limit=500`, { headers }),
+        const [quizRes, questionRes, pendingRes, activeRes] = await Promise.all([
+          api.get<{ quizzes: unknown[]; total: number }>('/api/quizzes?limit=1'),
+          api.get<{ questions: unknown[]; total: number }>('/api/questions?limit=1'),
+          api.get<{ sessions: unknown[]; total: number }>('/api/sessions?status=pending&limit=1'),
+          api.get<{ sessions: unknown[]; total: number }>('/api/sessions?status=active&limit=1'),
         ]);
 
-        const quizData: ListResponse<unknown> | null =
-          quizRes.status === 'fulfilled' && quizRes.value.ok ? await quizRes.value.json() : null;
-        const questionData: ListResponse<unknown> | null =
-          questionRes.status === 'fulfilled' && questionRes.value.ok
-            ? await questionRes.value.json()
-            : null;
-        const sessionData: ListResponse<SessionListItem> | null =
-          sessionRes.status === 'fulfilled' && sessionRes.value.ok
-            ? await sessionRes.value.json()
-            : null;
-
-        const sessions = sessionData?.data?.sessions ?? [];
         if (!mounted) return;
 
         setStats({
-          totalQuizzes: quizData?.data?.total ?? quizData?.data?.quizzes?.length ?? 0,
-          totalQuestions: questionData?.data?.total ?? questionData?.data?.questions?.length ?? 0,
-          activeSessions: sessions.filter(
-            (s) => s.status === 'active' || s.status === 'in_progress',
-          ).length,
-          totalTeams: sessions.reduce((count, session) => count + (session.teams?.length ?? 0), 0),
+          totalQuizzes: Number(quizRes.data.total) || 0,
+          totalQuestions: Number(questionRes.data.total) || 0,
+          activeSessions:
+            (Number(pendingRes.data.total) || 0) + (Number(activeRes.data.total) || 0),
         });
       } catch {
-        /* silently fallback to zeros */
+        /* unauthenticated or network error — api helper redirects on 401 */
       } finally {
         if (mounted) setLoading(false);
       }

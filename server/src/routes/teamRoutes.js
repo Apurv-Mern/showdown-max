@@ -12,7 +12,7 @@ const sessionIdParamSchema = z.object({ sessionId: z.coerce.number().int().posit
  */
 const createTeamSchema = z.object({
   sessionId: z.number().int().positive(),
-  teamName: z.string().min(1).max(50),
+  teamName: z.string().trim().min(1).max(50),
   score: z.number().int().optional().default(0),
 });
 

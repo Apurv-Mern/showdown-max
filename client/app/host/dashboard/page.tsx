@@ -1249,12 +1249,17 @@ function HostDashboardContent() {
   const handleSpaceKey = useCallback(() => {
     const s = gameStateRef.current?.state || 'LOBBY';
     const round = gameStateRef.current?.rounds?.[gameStateRef.current?.currentRoundIndex];
+    const isRoundEmpty = Array.isArray(round?.questions) && round.questions.length === 0;
+    if (s === 'ROUND_INTRO' && isRoundEmpty) {
+      handleAdvanceRound();
+      return;
+    }
     if (s === 'ROUND_INTRO' && (round?.type === 'WAGER' || round?.type === 'FINAL_WAGER')) {
       handleCollectWagers();
     } else {
       handleNextQuestion();
     }
-  }, [handleCollectWagers, handleNextQuestion]);
+  }, [handleAdvanceRound, handleCollectWagers, handleNextQuestion]);
 
   useKeyboardShortcuts({
     ' ': handleSpaceKey,
@@ -1316,6 +1321,10 @@ function HostDashboardContent() {
   const isCurrentRoundWagerLockRound =
     currentRound?.type === 'WAGER' || currentRound?.type === 'FINAL_WAGER';
   const state = gameState?.state || 'LOBBY';
+  const isCurrentRoundEmpty =
+    state === 'ROUND_INTRO' &&
+    Array.isArray(currentRound?.questions) &&
+    currentRound.questions.length === 0;
   const questionState = gameState?.questionState || 'WAITING';
   const teamList = gameState?.teams ? Object.values(gameState.teams) : [];
   const sortedTeams = [...teamList].sort((a, b) => b.score - a.score);
@@ -2079,6 +2088,17 @@ function HostDashboardContent() {
                             {getRoundScoringLines(currentRound?.type).negative}
                           </p>
                         </div>
+
+                        {isCurrentRoundEmpty ? (
+                          <div className="absolute left-1/2 top-[90%] w-[70%] -translate-x-1/2 -translate-y-1/2 rounded-xl border border-[#ffd166]/55 bg-[rgba(40,28,8,0.86)] px-5 py-3 text-center shadow-[0_0_18px_rgba(255,209,102,0.25)]">
+                            <p className="text-sm font-extrabold uppercase tracking-[0.14em] text-[#ffd166]">
+                              No Questions In This Round
+                            </p>
+                            <p className="mt-1 text-xs font-medium text-[#ffe6a8]/90">
+                              Click Next Round to continue automatically.
+                            </p>
+                          </div>
+                        ) : null}
                       </div>
                     </div>
                   )}
@@ -2364,7 +2384,8 @@ function HostDashboardContent() {
               }
               disabled={
                 (state === 'LOBBY' && startGameRequested) ||
-                !(state === 'LOBBY' || state === 'ROUND_INTRO' || state === 'WAGER_COLLECTION')
+                !(state === 'LOBBY' || state === 'ROUND_INTRO' || state === 'WAGER_COLLECTION') ||
+                isCurrentRoundEmpty
               }
               onClick={() => {
                 if (state === 'LOBBY') handleStartGame();
@@ -2439,10 +2460,14 @@ function HostDashboardContent() {
                   <path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z" />
                 </svg>
               }
-              disabled={state !== 'SCOREBOARD'}
+              disabled={state !== 'SCOREBOARD' && !isCurrentRoundEmpty}
               onClick={handleAdvanceRound}
             >
-              {isLastRound && state === 'SCOREBOARD' ? 'View Final Results' : 'Next Round'}
+              {isCurrentRoundEmpty
+                ? 'Skip Empty Round'
+                : isLastRound && state === 'SCOREBOARD'
+                  ? 'View Final Results'
+                  : 'Next Round'}
             </HostFooterBtn>
           </div>
           <p className="mt-2 text-center text-[10px] text-white/30">

@@ -207,34 +207,25 @@ const hostHandlers = (io, socket) => {
 
       const cleanTeamName = sanitizeTeamName(teamName);
       const normalized = normalizeTeamName(cleanTeamName);
-      const lobbyTeams = await redisStore.getLobbyTeams(pin);
+      if (!normalized) {
+        socket.emit(SOCKET_EVENTS.ERROR, {
+          message: 'Team name is required.',
+        });
+        return;
+      }
+
       const gameState = await redisStore.getGameState(pin);
-      const liveTeamIds = new Set([
-        ...Object.keys(gameState?.teams || {}).map(Number),
-        ...lobbyTeams.map((team) => Number(team.teamId)),
-      ]);
-      const liveNameMatches = new Set([
-        ...Object.values(gameState?.teams || {}).map((team) => normalizeTeamName(team.teamName)),
-        ...lobbyTeams.map((team) => normalizeTeamName(team.teamName)),
-      ]);
 
       const existingTeams = await Team.findAll({
         where: { sessionId: sessionData.sessionId },
-        attributes: ['id', 'teamName', 'isConnected', 'socketId'],
+        attributes: ['id', 'teamName', 'isConnected'],
       });
       const duplicateTeam = existingTeams.find((t) => normalizeTeamName(t.teamName) === normalized);
       if (duplicateTeam) {
-        const isLiveDuplicate =
-          liveNameMatches.has(normalized) || liveTeamIds.has(Number(duplicateTeam.id));
-        const isConnected = duplicateTeam.isConnected === true && !!duplicateTeam.socketId;
-        if (isLiveDuplicate || isConnected) {
-          socket.emit(SOCKET_EVENTS.ERROR, {
-            message: 'Team name already taken. Please choose a different name.',
-          });
-          return;
-        }
-
-        await purgeTeamRecord(pin, duplicateTeam.id);
+        socket.emit(SOCKET_EVENTS.ERROR, {
+          message: 'Team name already taken. Please choose a different name.',
+        });
+        return;
       }
 
       const refreshedExistingTeams = await Team.findAll({

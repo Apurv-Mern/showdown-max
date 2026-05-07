@@ -24,9 +24,9 @@ const HORSES: HorseOption[] = [
 ];
 
 const CARD_POSITIONS = [
-  { id: 1, label: 'Left', buttonClass: 'bg-[#007BFF] shadow-[0_6px_0_#0056b3]' },
-  { id: 2, label: 'Middle', buttonClass: 'bg-[#FF8C00] shadow-[0_6px_0_#cc7000]' },
-  { id: 3, label: 'Right', buttonClass: 'bg-[#28A745] shadow-[0_6px_0_#1c7a32]' },
+  { id: 1, label: 'Left' },
+  { id: 2, label: 'Middle' },
+  { id: 3, label: 'Right' },
 ] as const;
 
 const CARD_LABEL_MAP: Record<number, string> = { 1: 'Left', 2: 'Middle', 3: 'Right' };
@@ -37,6 +37,9 @@ const CARD_ROUND_BONUS: Record<1 | 2 | 3 | 4, number> = {
   4: 50,
 };
 const CARD_FINISHED_MESSAGE = 'Host will Start the game shortly !!';
+const CARD_IMAGE_FACE_DOWN = '/games/card-shuffle/facedowncard.png';
+const CARD_IMAGE_JOKER = '/games/card-shuffle/jokercard.png';
+const CARD_IMAGE_QUEEN = '/games/card-shuffle/queencard.png';
 
 /** Unity may send 1–3 (Left/Middle/Right) or 0–2; player UI always uses 1–3. */
 function normalizeCardSlotToChoice(raw: unknown): number | null {
@@ -667,45 +670,37 @@ export default function MiniGamePage() {
               </header>
             ) : null}
 
-            {resultPhase === 'winner' ? (
-              <div className="mx-auto mt-6 w-full max-w-md shrink-0 animate-fadeIn rounded-xl border-2 border-[#22c55e] bg-black px-4 py-3.5 text-center shadow-[0_0_20px_rgba(34,197,94,0.35)]">
-                <p className="text-lg font-black uppercase tracking-wide text-white sm:text-xl">
-                  You win this round!
-                </p>
-                <p className="mt-2 text-[0.95rem] font-black leading-snug tracking-wide text-[#39ff14] sm:text-base">
-                  {`Correct — you found the Queen +${activeRoundBonus}`}
-                </p>
-              </div>
-            ) : resultPhase === 'loser' ? (
-              <div className="mx-auto mt-6 w-full max-w-md shrink-0 animate-fadeIn rounded-xl border-2 border-[#f87171] bg-black px-4 py-3.5 text-center shadow-[0_0_16px_rgba(248,113,113,0.25)]">
-                <p className="text-lg font-black uppercase tracking-wide text-[#fecaca] sm:text-xl">
-                  You lose this round
-                </p>
-                <p className="mt-2 text-[0.95rem] font-bold leading-snug text-[#fecaca]/90 sm:text-base">
-                  {selectedChoice == null
-                    ? 'You did not pick in time — the Queen was hiding elsewhere.'
-                    : `Not this time — the Queen was in the ${
-                        winningValue != null
-                          ? CARD_LABEL_MAP[winningValue] || `position ${winningValue}`
-                          : 'other'
-                      } position.`}
-                </p>
-              </div>
-            ) : resultPhase === 'finished' ? null : (
-              <div className="mx-auto mt-6 w-full max-w-md shrink-0 border-2 border-[#22d3ee] bg-black px-4 py-3.5 text-center shadow-[0_0_0_1px_rgba(34,211,238,0.15)]">
-                <p className="text-[0.95rem] font-bold leading-snug text-white sm:text-base">
-                  {!roundOpen
-                    ? 'Waiting for the host to start the round...'
-                    : selectedChoice
-                      ? shuffleComplete
-                        ? 'Pick locked! Waiting for the host to reveal...'
-                        : 'Your pick is locked! Watch the shuffle on the big screen.'
-                      : shuffleComplete
-                        ? '🃏 Cards have stopped! Make your pick now!'
-                        : 'Tap a Card to make your Selection !!'}
+            {resultPhase !== 'finished' ? (
+              <div
+                className={cn(
+                  'mx-auto mt-6 w-full max-w-md shrink-0 rounded-xl border-2 bg-[rgba(7,15,35,0.92)] px-4 py-3 text-center shadow-[0_0_0_1px_rgba(34,211,238,0.15)]',
+                  resultPhase === 'winner'
+                    ? 'border-[#25d366] shadow-[0_0_18px_rgba(37,211,102,0.28)]'
+                    : resultPhase === 'loser'
+                      ? 'border-[#f87171] shadow-[0_0_16px_rgba(248,113,113,0.22)]'
+                      : 'border-[#00d6ff]/80 shadow-[0_0_16px_rgba(0,214,255,0.24)]',
+                )}
+              >
+                <p
+                  className={cn(
+                    'text-[0.95rem] font-black leading-snug sm:text-[1.05rem]',
+                    resultPhase === 'winner'
+                      ? 'text-[#39ff14]'
+                      : resultPhase === 'loser'
+                        ? 'text-[#ffb4b4]'
+                        : 'text-white',
+                  )}
+                >
+                  {resultPhase === 'winner'
+                    ? `CORRECT ! You found the Queen +${activeRoundBonus}`
+                    : resultPhase === 'loser'
+                      ? selectedChoice == null
+                        ? 'Wrong ! You did not pick in time.'
+                        : `Wrong ! Queen was in ${winningValue ? CARD_LABEL_MAP[winningValue] : 'another'}`
+                      : 'Tap a Card to make your Selection !!'}
                 </p>
               </div>
-            )}
+            ) : null}
 
             <div className="flex min-h-0 flex-1 flex-col items-center justify-center py-6">
               {resultPhase === 'finished' ? (
@@ -721,54 +716,99 @@ export default function MiniGamePage() {
                 </div>
               ) : (
                 <>
-                  <div className="flex w-full max-w-md items-stretch justify-center gap-3 sm:gap-4">
+                  <div className="mt-2 flex w-full max-w-md items-stretch justify-center gap-4 sm:gap-5">
                     {CARD_POSITIONS.map((pos) => {
                       const revealed = resultPhase != null;
                       const lockedPick = selectedChoice !== null;
                       const isSelected = selectedChoice === pos.id;
                       const isWinningPos = winningValue != null && Number(winningValue) === pos.id;
+                      const showRevealedFaces = resultPhase === 'winner' || resultPhase === 'loser';
+                      const cardSrc = showRevealedFaces
+                        ? isWinningPos
+                          ? CARD_IMAGE_QUEEN
+                          : CARD_IMAGE_JOKER
+                        : CARD_IMAGE_FACE_DOWN;
 
-                      let stateClass = 'cursor-not-allowed opacity-35 saturate-[0.85]';
+                      let cardFrameClass =
+                        'border-white/90 shadow-[0_6px_18px_rgba(0,0,0,0.4)] opacity-95';
+                      let labelClass = 'text-white';
+
                       if (!revealed) {
-                        if (!roundOpen) {
-                          stateClass = 'cursor-not-allowed opacity-35';
-                        } else if (lockedPick) {
-                          stateClass = isSelected
-                            ? 'cursor-default ring-4 ring-white ring-offset-2 ring-offset-[#0a0a0c] scale-[1.02]'
-                            : 'cursor-not-allowed opacity-40 saturate-75';
-                        } else {
-                          stateClass =
-                            'hover:brightness-110 hover:scale-[1.02] active:translate-y-0.5 active:shadow-none';
+                        if (roundOpen && lockedPick && isSelected) {
+                          cardFrameClass =
+                            'border-[#33d9ff] shadow-[0_0_18px_rgba(51,217,255,0.95),0_0_35px_rgba(51,217,255,0.4)]';
+                          labelClass = 'text-[#00d6ff]';
+                        } else if (roundOpen && !lockedPick) {
+                          cardFrameClass =
+                            'border-white/95 shadow-[0_6px_18px_rgba(0,0,0,0.35)] hover:scale-[1.02] hover:brightness-110';
                         }
-                      } else if (resultPhase === 'winner') {
-                        if (isSelected && isWinningPos) {
-                          stateClass =
-                            'cursor-default scale-[1.03] shadow-[0_0_28px_rgba(57,255,20,0.95),0_0_52px_rgba(0,255,80,0.45)] ring-2 ring-[#39ff14]';
-                        } else {
-                          stateClass = 'cursor-default opacity-38 saturate-75';
-                        }
+                      } else if (isWinningPos) {
+                        cardFrameClass =
+                          'border-[#35ff5a] shadow-[0_0_20px_rgba(53,255,90,0.9),0_0_38px_rgba(53,255,90,0.35)]';
+                        labelClass = 'text-[#39ff14]';
                       } else {
-                        if (isWinningPos) {
-                          stateClass =
-                            'cursor-default scale-[1.02] shadow-[0_0_24px_rgba(57,255,20,0.75),0_0_40px_rgba(34,197,94,0.35)] ring-2 ring-[#4ade80]';
-                        } else if (isSelected) {
-                          stateClass =
-                            'cursor-default opacity-45 ring-2 ring-[#f87171] ring-offset-2 ring-offset-black saturate-75';
-                        } else {
-                          stateClass = 'cursor-default opacity-35';
-                        }
+                        cardFrameClass = 'border-white/95 shadow-[0_6px_16px_rgba(0,0,0,0.35)]';
                       }
 
                       return (
-                        <button
+                        <div
                           key={pos.id}
-                          type="button"
-                          onClick={() => handleChoice(pos.id)}
-                          disabled={!roundOpen || lockedPick || revealed}
-                          className={`flex min-h-[120px] min-w-0 flex-1 max-w-[120px] flex-col items-center justify-center rounded-xl px-2 py-5 text-center font-black uppercase tracking-wide text-white transition-all duration-300 sm:min-h-[132px] sm:max-w-[132px] sm:rounded-2xl sm:py-6 ${pos.buttonClass} ${stateClass}`}
+                          className={cn(
+                            'flex min-w-0 flex-1 max-w-[108px] flex-col items-center transition-transform duration-400',
+                            revealed && isWinningPos
+                              ? 'scale-[1.1] sm:scale-[1.1] animate-pulse z-10'
+                              : '',
+                          )}
                         >
-                          <span className="text-lg sm:text-xl">{pos.label}</span>
-                        </button>
+                          <button
+                            type="button"
+                            onClick={() => handleChoice(pos.id)}
+                            disabled={!roundOpen || lockedPick || revealed}
+                            className={cn(
+                              'group relative mx-auto w-[86px] overflow-hidden rounded-[10px] border-2 transition-all duration-250 sm:w-[94px]',
+                              'h-[132px] sm:h-[144px]',
+                              !roundOpen || lockedPick || revealed
+                                ? 'cursor-default'
+                                : 'active:translate-y-0.5',
+                              cardFrameClass,
+                            )}
+                            style={{ perspective: '900px' }}
+                          >
+                            <div
+                              className="relative h-full w-full transition-transform duration-1500"
+                              style={{
+                                transformStyle: 'preserve-3d',
+                                transform: showRevealedFaces ? 'rotateY(180deg)' : 'rotateY(0deg)',
+                              }}
+                            >
+                              <img
+                                src={CARD_IMAGE_FACE_DOWN}
+                                alt={`${pos.label} card back`}
+                                className="absolute inset-0 h-full w-full object-contain align-top"
+                                style={{ backfaceVisibility: 'hidden' }}
+                                draggable={false}
+                              />
+                              <img
+                                src={cardSrc}
+                                alt={`${pos.label} card`}
+                                className="absolute inset-0 h-full w-full object-contain align-top transition-transform duration-300"
+                                style={{
+                                  backfaceVisibility: 'hidden',
+                                  transform: 'rotateY(180deg)',
+                                }}
+                                draggable={false}
+                              />
+                            </div>
+                          </button>
+                          <span
+                            className={cn(
+                              'mt-3 text-[1.05rem] font-black tracking-wide',
+                              labelClass,
+                            )}
+                          >
+                            {pos.label}
+                          </span>
+                        </div>
                       );
                     })}
                   </div>

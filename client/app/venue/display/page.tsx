@@ -1395,7 +1395,7 @@ function VenueDisplayContent() {
                   <p className="text-foreground/50 text-[10px] sm:text-xs md:text-sm mt-0.5">
                     Session PIN
                   </p>
-                  <p className="text-xl sm:text-3xl md:text-4xl lg:text-5xl font-mono font-black tracking-widest sm:tracking-[0.15em] md:tracking-[0.2em] text-neon-cyan text-glow-cyan mt-1 sm:mt-2">
+                  <p className="text-xl sm:text-3xl md:text-3xl lg:text-3xl font-mono font-black tracking-widest sm:tracking-[0.15em] md:tracking-[0.2em] text-neon-cyan text-glow-cyan mt-1 sm:mt-2">
                     {sessionPin}
                   </p>
                 </div>

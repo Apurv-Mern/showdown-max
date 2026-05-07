@@ -680,21 +680,38 @@ const advanceToNextRound = async (io, pin) => {
   }
 
   gameState = advance.gameState;
-  const transResult = stateMachine.transition(gameState, GAME_STATES.ROUND_INTRO);
-  if (!transResult.valid) return;
+  let roundIntroState = gameState;
+  if (gameState.state !== GAME_STATES.ROUND_INTRO) {
+    const transResult = stateMachine.transition(gameState, GAME_STATES.ROUND_INTRO);
+    if (!transResult.valid) return;
+    roundIntroState = transResult.gameState;
+  } else {
+    // When skipping from an empty ROUND_INTRO, keep ROUND_INTRO and hard-reset per-round pointers.
+    roundIntroState = {
+      ...gameState,
+      state: GAME_STATES.ROUND_INTRO,
+      questionState: QUESTION_STATES.WAITING,
+      currentQuestionIndex: 0,
+      responseCount: 0,
+      timerRunning: false,
+      timerRemaining: 0,
+      eliminatedTeams: {},
+    };
+  }
 
-  await redisStore.setGameState(pin, transResult.gameState);
+  await redisStore.setGameState(pin, roundIntroState);
   logger.info('Advanced to round intro', {
     pin,
-    roundIndex: transResult.gameState.currentRoundIndex,
-    totalRounds: transResult.gameState.rounds.length,
+    roundIndex: roundIntroState.currentRoundIndex,
+    totalRounds: roundIntroState.rounds.length,
   });
 
   io.to(`session:${pin}`).emit(SOCKET_EVENTS.ROUND_INTRO, {
-    round: stateMachine.getCurrentRound(transResult.gameState),
-    roundIndex: transResult.gameState.currentRoundIndex,
-    totalRounds: transResult.gameState.rounds.length,
+    round: stateMachine.getCurrentRound(roundIntroState),
+    roundIndex: roundIntroState.currentRoundIndex,
+    totalRounds: roundIntroState.rounds.length,
   });
+  io.to(`session:${pin}`).emit(SOCKET_EVENTS.SESSION_STATE, clientPayloadFromGameState(roundIntroState));
 };
 
 /**

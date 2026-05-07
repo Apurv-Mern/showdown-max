@@ -29,58 +29,14 @@ const CARD_POSITIONS = [
   { id: 3, label: 'Right', buttonClass: 'bg-[#28A745] shadow-[0_6px_0_#1c7a32]' },
 ] as const;
 
-/** Decorative “?” marks for card shuffle backdrop */
-function CardShuffleQuestionMarks() {
-  const marks = [
-    { className: 'left-[4%] top-[10%] text-[7rem] rotate-[-12deg]' },
-    { className: 'right-[6%] top-[18%] text-[5.5rem] rotate-[8deg]' },
-    { className: 'left-[22%] top-[4%] text-[4rem] opacity-40' },
-    { className: 'right-[18%] top-[8%] text-[3.5rem] opacity-35' },
-    { className: 'left-[40%] top-[14%] text-[6rem] opacity-25 -translate-x-1/2' },
-  ];
-  return (
-    <div className="pointer-events-none absolute inset-0 z-1 overflow-hidden" aria-hidden>
-      {marks.map((m, i) => (
-        <span
-          key={i}
-          className={`absolute font-black leading-none text-[#a78bfa]/22 ${m.className}`}
-        >
-          ?
-        </span>
-      ))}
-    </div>
-  );
-}
-
-/** Semicircle of dots along the bottom (stadium-style) */
-function CardShuffleBottomDots() {
-  const n = 28;
-  const cx = 200;
-  const cy = 108;
-  const r = 168;
-  const dots = Array.from({ length: n }, (_, i) => {
-    const t = i / (n - 1);
-    const angleDeg = 200 + t * (340 - 200);
-    const rad = (angleDeg * Math.PI) / 180;
-    const x = cx + r * Math.cos(rad);
-    const y = cy + r * Math.sin(rad);
-    return { x, y, key: i };
-  });
-  return (
-    <svg
-      className="pointer-events-none absolute bottom-0 left-1/2 z-1 h-[min(28vh,200px)] w-[min(140%,28rem)] -translate-x-1/2 text-white/25"
-      viewBox="0 0 400 120"
-      preserveAspectRatio="xMidYMax meet"
-      aria-hidden
-    >
-      {dots.map((d) => (
-        <circle key={d.key} cx={d.x} cy={d.y} r={2.2} fill="currentColor" />
-      ))}
-    </svg>
-  );
-}
-
 const CARD_LABEL_MAP: Record<number, string> = { 1: 'Left', 2: 'Middle', 3: 'Right' };
+const CARD_ROUND_BONUS: Record<1 | 2 | 3 | 4, number> = {
+  1: 10,
+  2: 20,
+  3: 30,
+  4: 50,
+};
+const CARD_FINISHED_MESSAGE = 'Host will Start the game shortly !!';
 
 /** Unity may send 1–3 (Left/Middle/Right) or 0–2; player UI always uses 1–3. */
 function normalizeCardSlotToChoice(raw: unknown): number | null {
@@ -120,9 +76,9 @@ function MobileFrame({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex h-full min-h-0 w-full flex-1 flex-col bg-[#050017]">
       <div
-        className="mobile-play-bg relative flex h-full min-h-0 w-full flex-1 flex-col overflow-hidden"
+        className="relative flex h-full min-h-0 w-full flex-1 flex-col overflow-hidden"
         style={{
-          backgroundImage: "url('/Mobile_BG.png')",
+          backgroundImage: "url('/mobilebackground.png')",
           backgroundSize: '100% 100%',
           backgroundPosition: 'center',
           backgroundRepeat: 'no-repeat',
@@ -150,6 +106,7 @@ export default function MiniGamePage() {
   const [roundOpen, setRoundOpen] = useState(false);
   /** True once Unity sends SHUFFLE_COMPLETE — cards have stopped, player should pick. */
   const [shuffleComplete, setShuffleComplete] = useState(false);
+  const [activeCardRound, setActiveCardRound] = useState<1 | 2 | 3 | 4 | null>(null);
   /** Short banner when host starts round 1 / advances to round 2+ */
   const [roundAnnouncement, setRoundAnnouncement] = useState<string | null>(null);
   const sessionPinRef = useRef(session.pin);
@@ -196,6 +153,7 @@ export default function MiniGamePage() {
       setWinningValue(null);
       setRoundOpen(false);
       setShuffleComplete(false);
+      setActiveCardRound(null);
       setRoundAnnouncement(null);
       window.location.assign('/play/game');
     };
@@ -203,6 +161,7 @@ export default function MiniGamePage() {
     const applyCardShuffleReveal = (payload: {
       correctPosition?: number;
       correct_position?: number;
+      roundNumber?: number;
     }) => {
       setGameType('card_shuffle');
       const raw = payload.correctPosition ?? payload.correct_position;
@@ -210,6 +169,10 @@ export default function MiniGamePage() {
       setWinningValue(winning);
       setRoundOpen(false);
       setRoundAnnouncement(null);
+      const rn = Number(payload.roundNumber);
+      if (Number.isFinite(rn) && rn >= 1 && rn <= 4) {
+        setActiveCardRound(rn as 1 | 2 | 3 | 4);
+      }
       const pick = lockedPickRef.current ?? selectedChoiceRef.current;
       if (winning !== null && pick !== null) {
         setResultPhase(pick === winning ? 'winner' : 'loser');
@@ -226,6 +189,7 @@ export default function MiniGamePage() {
       setResultPhase(null);
       setWinningValue(null);
       setRoundOpen(false);
+      setActiveCardRound(null);
       setRoundAnnouncement(null);
     };
 
@@ -283,6 +247,9 @@ export default function MiniGamePage() {
             : Number.isFinite(Number(data.roundNumber))
               ? Number(data.roundNumber)
               : 2;
+        if (n >= 1 && n <= 4) {
+          setActiveCardRound(n as 1 | 2 | 3 | 4);
+        }
         setRoundAnnouncement(`Round ${n} — make your pick`);
         window.setTimeout(() => setRoundAnnouncement(null), 2800);
       }
@@ -326,6 +293,7 @@ export default function MiniGamePage() {
       correct_position?: number;
       winningKangaroo?: number;
       selectedChoice?: number | null;
+      roundNumber?: number;
     }) => {
       logSocketIn('mini_game_player_result', data);
       const gid = normalizeMiniGameId(data?.game);
@@ -356,6 +324,10 @@ export default function MiniGamePage() {
       setWinningValue(winning);
       setRoundOpen(false);
       setRoundAnnouncement(null);
+      const rn = Number(data?.roundNumber);
+      if (Number.isFinite(rn) && rn >= 1 && rn <= 4) {
+        setActiveCardRound(rn as 1 | 2 | 3 | 4);
+      }
 
       if (selected !== null) {
         lockedPickRef.current = selected;
@@ -425,7 +397,7 @@ export default function MiniGamePage() {
         setGameType('card_shuffle');
         setWinningValue(null);
         setRoundOpen(false);
-        setRoundAnnouncement(data.message || 'Game Over');
+        setRoundAnnouncement(CARD_FINISHED_MESSAGE);
         setResultPhase('finished');
         return;
       }
@@ -548,6 +520,9 @@ export default function MiniGamePage() {
     });
   };
 
+  const activeRoundBonus =
+    activeCardRound != null ? CARD_ROUND_BONUS[activeCardRound] : CARD_ROUND_BONUS[1];
+
   /** Card shuffle shows win/lose on the themed pick screen; horse race uses full-screen result. */
   if (resultPhase && gameType !== 'card_shuffle') {
     const isWinner = resultPhase === 'winner';
@@ -599,18 +574,7 @@ export default function MiniGamePage() {
             : 'relative flex flex-1 items-center justify-center p-4 sm:p-6 md:p-8'
         }
       >
-        {gameType === 'card_shuffle' ? (
-          <>
-            <div
-              className="pointer-events-none absolute inset-0 z-0 bg-[linear-gradient(180deg,#1e3a8a_0%,#5b21b6_32%,#4c1d95_48%,#0f0f12_62%,#000000_78%,#000000_100%)]"
-              aria-hidden
-            />
-            <CardShuffleQuestionMarks />
-            <CardShuffleBottomDots />
-          </>
-        ) : null}
-
-        {roundAnnouncement ? (
+        {roundAnnouncement && resultPhase !== 'finished' ? (
           <div
             className="pointer-events-none absolute inset-x-4 top-6 z-20 mx-auto max-w-md animate-fadeIn rounded-2xl border border-[#00d8ff]/60 bg-[linear-gradient(180deg,rgba(20,40,90,0.96)_0%,rgba(10,8,40,0.98)_100%)] px-4 py-3 text-center shadow-[0_0_24px_rgba(0,216,255,0.35)] sm:inset-x-8"
             role="status"
@@ -684,34 +648,32 @@ export default function MiniGamePage() {
 
         {gameType === 'card_shuffle' && (
           <div className="relative z-10 flex min-h-0 flex-1 flex-col px-5 pb-8 pt-10 sm:px-8">
-            <header className="shrink-0 text-center">
-              <h1 className="text-[clamp(1.75rem,6vw,2.35rem)] font-black uppercase leading-tight tracking-[0.06em] text-white drop-shadow-[0_2px_12px_rgba(0,0,0,0.45)]">
-                Card shuffle !!
-              </h1>
-              <p className="mt-3 text-base font-bold leading-snug text-white sm:text-lg">
-                Which Card is the Queen of Hearts{' '}
-                <span className="inline-block" aria-hidden>
-                  ❤️
-                </span>
-              </p>
-            </header>
+            {resultPhase !== 'finished' ? (
+              <header className="shrink-0 text-center">
+                <h1 className="text-[clamp(1.75rem,6vw,2.35rem)] font-black uppercase leading-tight tracking-[0.06em] text-white drop-shadow-[0_2px_12px_rgba(0,0,0,0.45)]">
+                  Card shuffle !!
+                </h1>
+                <p className="mt-3 text-base font-bold leading-snug text-white sm:text-lg">
+                  Which Card is the Queen of Hearts{' '}
+                  <span className="inline-block" aria-hidden>
+                    ❤️
+                  </span>
+                </p>
+                <p className="mt-2 text-xs font-extrabold uppercase tracking-[0.14em] text-cyan-200/95 sm:text-sm">
+                  {activeCardRound != null
+                    ? `Round ${activeCardRound} running • Correct pick = +${activeRoundBonus}`
+                    : 'Waiting for Round 1 to start'}
+                </p>
+              </header>
+            ) : null}
 
-            {resultPhase === 'finished' ? (
-              <div className="mx-auto mt-6 w-full max-w-md shrink-0 animate-fadeIn rounded-xl border-2 border-[#22d3ee] bg-black px-4 py-3.5 text-center shadow-[0_0_20px_rgba(34,211,238,0.28)]">
-                <p className="text-lg font-black uppercase tracking-wide text-white sm:text-xl">
-                  Game Over
-                </p>
-                <p className="mt-2 text-[0.95rem] font-bold leading-snug text-[#9cecff] sm:text-base">
-                  {roundAnnouncement || 'Game Over'}
-                </p>
-              </div>
-            ) : resultPhase === 'winner' ? (
+            {resultPhase === 'winner' ? (
               <div className="mx-auto mt-6 w-full max-w-md shrink-0 animate-fadeIn rounded-xl border-2 border-[#22c55e] bg-black px-4 py-3.5 text-center shadow-[0_0_20px_rgba(34,197,94,0.35)]">
                 <p className="text-lg font-black uppercase tracking-wide text-white sm:text-xl">
                   You win this round!
                 </p>
                 <p className="mt-2 text-[0.95rem] font-black leading-snug tracking-wide text-[#39ff14] sm:text-base">
-                  Correct — you found the Queen +10
+                  {`Correct — you found the Queen +${activeRoundBonus}`}
                 </p>
               </div>
             ) : resultPhase === 'loser' ? (
@@ -729,7 +691,7 @@ export default function MiniGamePage() {
                       } position.`}
                 </p>
               </div>
-            ) : (
+            ) : resultPhase === 'finished' ? null : (
               <div className="mx-auto mt-6 w-full max-w-md shrink-0 border-2 border-[#22d3ee] bg-black px-4 py-3.5 text-center shadow-[0_0_0_1px_rgba(34,211,238,0.15)]">
                 <p className="text-[0.95rem] font-bold leading-snug text-white sm:text-base">
                   {!roundOpen
@@ -747,13 +709,14 @@ export default function MiniGamePage() {
 
             <div className="flex min-h-0 flex-1 flex-col items-center justify-center py-6">
               {resultPhase === 'finished' ? (
-                <div className="mx-auto w-full max-w-md rounded-2xl border border-[#22d3ee]/55 bg-[rgba(6,10,25,0.86)] px-5 py-8 text-center shadow-[0_0_26px_rgba(34,211,238,0.2)]">
-                  <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full border border-[#22d3ee]/60 bg-[rgba(10,20,40,0.75)]">
-                    <span className="text-3xl">🃏</span>
-                  </div>
-                  <p className="text-xl font-black uppercase tracking-wide text-white">Game Over</p>
-                  <p className="mt-3 text-sm font-semibold leading-snug text-[#9cecff]">
-                    {roundAnnouncement || 'Game Over'}
+                <div className="mx-auto w-full max-w-md text-center">
+                  <h2 className="text-[clamp(3.2rem,18vw,5.6rem)] font-black uppercase leading-[0.9] tracking-[0.05em] text-[#59d8ff] [text-shadow:0_0_0_rgb(0,0,0),0_2px_0_#0d4d89,0_0_18px_rgba(89,216,255,0.8)]">
+                    GAME
+                    <br />
+                    OVER
+                  </h2>
+                  <p className="mt-8 text-[1.05rem] font-extrabold leading-snug text-white drop-shadow-[0_2px_8px_rgba(0,0,0,0.55)]">
+                    {CARD_FINISHED_MESSAGE}
                   </p>
                 </div>
               ) : (

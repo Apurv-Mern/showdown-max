@@ -2,6 +2,14 @@ const { SOCKET_EVENTS } = require('shared/constants/socketEvents');
 const logger = require('../utils/logger');
 const gameController = require('../services/game-engine/gameController');
 const redisStore = require('../services/redisSessionStore');
+const { Team } = require('../models');
+
+const CARD_SHUFFLE_ROUND_BONUS = Object.freeze({
+  1: 10,
+  2: 20,
+  3: 30,
+  4: 50,
+});
 
 const createCardShuffleRoundState = (roundNumber = null, gameStarted = true) => ({
   game: 'card_shuffle',
@@ -260,6 +268,99 @@ const emitCardShufflePlayerResults = async (io, pin, miniGameState) => {
       roundNumber: miniGameState.activeRound || undefined,
     });
   }
+};
+
+const applyCardShuffleBonusOnReveal = async (io, pin, miniGameState) => {
+  if (!pin || !miniGameState || miniGameState.game !== 'card_shuffle') {
+    return { awarded: false, awardedTeamIds: [], roundNumber: null, bonus: 0 };
+  }
+
+  const correctPosition = Number(miniGameState.correctPosition);
+  if (!Number.isFinite(correctPosition) || correctPosition < 1 || correctPosition > 3) {
+    return { awarded: false, awardedTeamIds: [], roundNumber: null, bonus: 0 };
+  }
+
+  const roundNumber = Number(miniGameState.activeRound);
+  const awardedRounds = { ...(miniGameState.awardedRounds || {}) };
+  if (Number.isFinite(roundNumber) && awardedRounds[String(roundNumber)]) {
+    return { awarded: false, awardedTeamIds: [], roundNumber, bonus: 0 };
+  }
+
+  const bonus = Number(CARD_SHUFFLE_ROUND_BONUS[roundNumber] || 0);
+  if (!bonus) {
+    return { awarded: false, awardedTeamIds: [], roundNumber, bonus: 0 };
+  }
+
+  const gameState = await redisStore.getGameState(pin);
+  if (!gameState?.teams) {
+    return { awarded: false, awardedTeamIds: [], roundNumber, bonus: 0 };
+  }
+
+  const winners = [];
+  for (const [teamId, rawChoice] of Object.entries(miniGameState.selections || {})) {
+    const selectedChoice = Number(rawChoice);
+    if (!Number.isFinite(selectedChoice) || selectedChoice !== correctPosition) continue;
+
+    const numericTeamId = Number(teamId);
+    if (!Number.isFinite(numericTeamId) || !gameState.teams[numericTeamId]) continue;
+
+    gameState.teams[numericTeamId].score = Number(gameState.teams[numericTeamId].score || 0) + bonus;
+    winners.push(numericTeamId);
+  }
+
+  if (winners.length === 0) {
+    if (Number.isFinite(roundNumber)) {
+      awardedRounds[String(roundNumber)] = true;
+      gameState.miniGameState = {
+        ...(gameState.miniGameState || {}),
+        awardedRounds,
+      };
+      await redisStore.setGameState(pin, gameState);
+    }
+    return { awarded: false, awardedTeamIds: [], roundNumber, bonus };
+  }
+
+  for (const teamId of winners) {
+    await redisStore.updateTeamData(pin, teamId, gameState.teams[teamId]);
+  }
+
+  await Promise.all(
+    winners.map((teamId) => Team.update({ score: gameState.teams[teamId].score }, { where: { id: teamId } })),
+  );
+
+  if (Number.isFinite(roundNumber)) {
+    awardedRounds[String(roundNumber)] = true;
+  }
+  gameState.miniGameState = {
+    ...(gameState.miniGameState || {}),
+    awardedRounds,
+  };
+
+  await redisStore.setGameState(pin, gameState);
+
+  const room = `session:${pin}`;
+  for (const teamId of winners) {
+    io.to(room).emit(SOCKET_EVENTS.TEAM_UPDATED, {
+      teamId,
+      teamName: gameState.teams[teamId].teamName,
+      score: gameState.teams[teamId].score,
+    });
+  }
+
+  // Keep both payload shapes for all clients.
+  io.to(room).emit(SOCKET_EVENTS.SESSION_STATE, {
+    ...gameState,
+    gameState,
+  });
+
+  if (gameState.scoreboardVisible) {
+    io.to(room).emit(SOCKET_EVENTS.SCOREBOARD, {
+      teams: Object.values(gameState.teams).sort((a, b) => Number(b.score || 0) - Number(a.score || 0)),
+      source: 'manual',
+    });
+  }
+
+  return { awarded: true, awardedTeamIds: winners, roundNumber, bonus };
 };
 
 const emitHorseRacePlayerResults = async (io, pin, miniGameState) => {
@@ -522,6 +623,15 @@ const miniGameHandlers = (io, socket) => {
           correctPosition: cp,
         });
         await emitCardShufflePlayerResults(io, pin, revealMgs);
+        const bonusResult = await applyCardShuffleBonusOnReveal(io, pin, revealMgs);
+        if (bonusResult.awarded) {
+          logger.info('Card Shuffle bonus points awarded', {
+            pin,
+            roundNumber: bonusResult.roundNumber,
+            bonus: bonusResult.bonus,
+            winners: bonusResult.awardedTeamIds,
+          });
+        }
         logger.info('Host triggered reveal — result sent to players', { pin, correctPosition: cp });
       }
 

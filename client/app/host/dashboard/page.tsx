@@ -2090,12 +2090,12 @@ function HostDashboardContent() {
                         </div>
 
                         {isCurrentRoundEmpty ? (
-                          <div className="absolute left-1/2 top-[90%] w-[70%] -translate-x-1/2 -translate-y-1/2 rounded-xl border border-[#ffd166]/55 bg-[rgba(40,28,8,0.86)] px-5 py-3 text-center shadow-[0_0_18px_rgba(255,209,102,0.25)]">
-                            <p className="text-sm font-extrabold uppercase tracking-[0.14em] text-[#ffd166]">
+                          <div className="absolute left-1/2 top-[56%] w-[72%] -translate-x-1/2 -translate-y-1/2 rounded-2xl border border-[#ffd166]/60 bg-[rgba(40,28,8,0.9)] px-6 py-5 text-center shadow-[0_0_20px_rgba(255,209,102,0.3)]">
+                            <p className="text-base font-extrabold uppercase tracking-[0.14em] text-[#ffd166]">
                               No Questions In This Round
                             </p>
-                            <p className="mt-1 text-xs font-medium text-[#ffe6a8]/90">
-                              Click Next Round to continue automatically.
+                            <p className="mt-2 text-sm font-medium text-[#ffe6a8]/95">
+                              Click Skip Empty Round to continue.
                             </p>
                           </div>
                         ) : null}

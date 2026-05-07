@@ -10,7 +10,7 @@ export interface MiniGameUnityCommand {
   game: 'card_shuffle' | 'kangaroo_race';
   command: 'start_game' | 'next_round' | 'reveal_cards' | 'reveal_winner';
   roundNumber?: 1 | 2 | 3 | 4;
-  winningKangaroo?: number;
+  kangarooNames?: string[];
 }
 
 export interface UnityWrapperProps {
@@ -254,7 +254,7 @@ export default function UnityWrapper({
     if (command.command !== 'start_game') return;
 
     startGame({
-      winningKangaroo: command.winningKangaroo,
+      kangarooNames: Array.isArray(command.kangarooNames) ? command.kangarooNames : [],
       triggeredBy: 'host_start',
       timestamp: Date.now(),
     });

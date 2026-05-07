@@ -3,6 +3,11 @@ const { QUESTION_STATES } = require('shared/constants/questionStates');
 const { ROUND_TYPES } = require('shared/constants/roundTypes');
 const { SCORING } = require('shared/constants/scoring');
 const { SOCKET_EVENTS } = require('shared/constants/socketEvents');
+const {
+  DEFAULT_KANGAROO_NAMES,
+  KANGAROO_NAME_MAX_LENGTH,
+  KANGAROO_SLOT_COUNT,
+} = require('shared/constants/kangarooRace');
 const stateMachine = require('./stateMachine');
 const { calculateScores } = require('./scoringEngine');
 const knockoutEngine = require('./knockoutEngine');
@@ -120,6 +125,40 @@ const createCardShuffleState = (roundNumber = null) => ({
   cardPositions: [],
   selections: {},
   pickCounts: { 1: 0, 2: 0, 3: 0 },
+});
+
+const normalizeKangarooNames = (input) => {
+  const rawNames = Array.isArray(input) ? input : [];
+  const names = [];
+  for (let i = 0; i < KANGAROO_SLOT_COUNT; i += 1) {
+    const fallback = DEFAULT_KANGAROO_NAMES[i] || `Kangaroo #${i + 1}`;
+    const raw = rawNames[i];
+    const normalized =
+      typeof raw === 'string' ? raw.trim().replace(/\s+/g, ' ').slice(0, KANGAROO_NAME_MAX_LENGTH) : '';
+    names.push(normalized || fallback);
+  }
+  return names;
+};
+
+const hasValidKangarooNames = (input) => {
+  if (!Array.isArray(input) || input.length !== KANGAROO_SLOT_COUNT) return false;
+  return input.every((value) => {
+    if (typeof value !== 'string') return false;
+    const normalized = value.trim().replace(/\s+/g, ' ');
+    return normalized.length > 0 && normalized.length <= KANGAROO_NAME_MAX_LENGTH;
+  });
+};
+
+const createHorseRaceState = (kangarooNames = DEFAULT_KANGAROO_NAMES) => ({
+  game: 'kangaroo_race',
+  ready: false,
+  gameStarted: false,
+  revealed: false,
+  kangarooNames: normalizeKangarooNames(kangarooNames),
+  finishOrder: [],
+  resultsAwarded: false,
+  selections: {},
+  pickCounts: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0 },
 });
 
 /**
@@ -1028,14 +1067,26 @@ const launchMiniGame = async (io, pin, gameType, config = {}) => {
     };
   }
 
+  const normalizedConfig = { ...(config || {}) };
+  if (gameType === 'kangaroo_race') {
+    if (!hasValidKangarooNames(config?.kangarooNames)) {
+      throw new Error('Kangaroo race requires exactly 6 non-empty kangaroo names');
+    }
+    normalizedConfig.kangarooNames = normalizeKangarooNames(config?.kangarooNames);
+  }
+
   gameState.activeMiniGame = gameType;
-  gameState.miniGameConfig = config;
+  gameState.miniGameConfig = normalizedConfig;
   gameState.miniGameState =
-    gameType === 'card_shuffle' ? createCardShuffleState() : { game: gameType };
+    gameType === 'card_shuffle'
+      ? createCardShuffleState()
+      : gameType === 'kangaroo_race'
+        ? createHorseRaceState(normalizedConfig.kangarooNames)
+        : { game: gameType };
   await redisStore.setGameState(pin, gameState);
 
   io.to(`session:${pin}`).emit(SOCKET_EVENTS.SESSION_STATE, sanitizeForClients(gameState));
-  io.to(`session:${pin}`).emit(SOCKET_EVENTS.MINI_GAME_START, { game: gameType, ...config });
+  io.to(`session:${pin}`).emit(SOCKET_EVENTS.MINI_GAME_START, { game: gameType, ...normalizedConfig });
   logger.info('Mini game launched', { pin, gameType });
 };
 

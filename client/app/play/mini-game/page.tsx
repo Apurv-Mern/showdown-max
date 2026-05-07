@@ -22,6 +22,14 @@ const HORSES: HorseOption[] = [
   { id: 5, buttonClass: 'bg-[#6c00c8] shadow-[0_7px_0_#42007c]' },
   { id: 6, buttonClass: 'bg-[#d50024] shadow-[0_7px_0_#8a0017]' },
 ];
+const DEFAULT_KANGAROO_NAMES = [
+  'Blue Bolt',
+  'Orange Flash',
+  'Green Dash',
+  'Golden Hop',
+  'Purple Rocket',
+  'Red Thunder',
+] as const;
 
 const CARD_POSITIONS = [
   { id: 1, label: 'Left' },
@@ -106,6 +114,10 @@ export default function MiniGamePage() {
   const selectedChoiceRef = useRef<number | null>(null);
   const [resultPhase, setResultPhase] = useState<ResultPhase>(null);
   const [winningValue, setWinningValue] = useState<number | null>(null);
+  const [kangarooNames, setKangarooNames] = useState<string[]>([...DEFAULT_KANGAROO_NAMES]);
+  const [finishRank, setFinishRank] = useState<number | null>(null);
+  const [pointsEarned, setPointsEarned] = useState<number | null>(null);
+  const [finishOrder, setFinishOrder] = useState<number[]>([]);
   const [roundOpen, setRoundOpen] = useState(false);
   /** True once Unity sends SHUFFLE_COMPLETE — cards have stopped, player should pick. */
   const [shuffleComplete, setShuffleComplete] = useState(false);
@@ -115,6 +127,12 @@ export default function MiniGamePage() {
   const sessionPinRef = useRef(session.pin);
   sessionPinRef.current = session.pin;
   selectedChoiceRef.current = selectedChoice;
+  const labelForKangaroo = (slot: number | null) => {
+    if (!Number.isFinite(Number(slot))) return '';
+    const idx = Number(slot) - 1;
+    const name = kangarooNames[idx] || DEFAULT_KANGAROO_NAMES[idx] || `Kangaroo #${slot}`;
+    return `${name} (#${slot})`;
+  };
 
   useEffect(() => {
     if (!session.pin || !session.teamId) {
@@ -184,13 +202,19 @@ export default function MiniGamePage() {
       }
     };
 
-    const onMiniGameStart = (data: { game: string }) => {
+    const onMiniGameStart = (data: { game: string; kangarooNames?: string[] }) => {
       logSocketIn('mini_game_start', data);
       setGameType(data.game as MiniGameType);
+      if (Array.isArray(data.kangarooNames) && data.kangarooNames.length >= 6) {
+        setKangarooNames(data.kangarooNames.slice(0, 6).map((name) => String(name || '').trim()));
+      }
       lockedPickRef.current = null;
       setSelectedChoice(null);
       setResultPhase(null);
       setWinningValue(null);
+      setFinishRank(null);
+      setPointsEarned(null);
+      setFinishOrder([]);
       setRoundOpen(false);
       setActiveCardRound(null);
       setRoundAnnouncement(null);
@@ -200,6 +224,7 @@ export default function MiniGamePage() {
       game?: string;
       command?: 'start_game' | 'next_round' | 'reveal_cards' | 'reveal_winner';
       roundNumber?: number;
+      kangarooNames?: string[];
       cardShuffleReveal?: {
         game?: string;
         correctPosition?: number;
@@ -212,10 +237,18 @@ export default function MiniGamePage() {
       const gid = normalizeMiniGameId(data?.game);
       if (gid === 'kangaroo_race') {
         if (data.command === 'start_game') {
+          if (Array.isArray(data.kangarooNames) && data.kangarooNames.length >= 6) {
+            setKangarooNames(
+              data.kangarooNames.slice(0, 6).map((name) => String(name || '').trim()),
+            );
+          }
           lockedPickRef.current = null;
           setSelectedChoice(null);
           setResultPhase(null);
           setWinningValue(null);
+          setFinishRank(null);
+          setPointsEarned(null);
+          setFinishOrder([]);
           setRoundOpen(true);
           setShuffleComplete(false);
           setRoundAnnouncement('Race started - pick your kangaroo');
@@ -263,6 +296,8 @@ export default function MiniGamePage() {
       correctPosition?: number;
       correct_position?: number;
       winningKangaroo?: number;
+      finishOrder?: number[];
+      kangarooNames?: string[];
       roundNumber?: number;
       cardPositions?: number[];
     }) => {
@@ -270,6 +305,15 @@ export default function MiniGamePage() {
       const gid = normalizeMiniGameId(data?.game);
       if (gid === 'kangaroo_race') {
         const winning = Number(data?.winningKangaroo);
+        if (Array.isArray(data.kangarooNames) && data.kangarooNames.length >= 6) {
+          setKangarooNames(data.kangarooNames.slice(0, 6).map((name) => String(name || '').trim()));
+        }
+        const parsedFinishOrder = Array.isArray(data.finishOrder)
+          ? data.finishOrder
+              .map((value) => Number(value))
+              .filter((value) => Number.isFinite(value) && value >= 1 && value <= 6)
+          : [];
+        setFinishOrder(parsedFinishOrder);
         setGameType('kangaroo_race');
         setWinningValue(Number.isFinite(winning) ? winning : null);
         setRoundOpen(false);
@@ -295,7 +339,11 @@ export default function MiniGamePage() {
       correctPosition?: number;
       correct_position?: number;
       winningKangaroo?: number;
+      finishOrder?: number[];
+      kangarooNames?: string[];
       selectedChoice?: number | null;
+      finishRank?: number | null;
+      pointsEarned?: number | null;
       roundNumber?: number;
     }) => {
       logSocketIn('mini_game_player_result', data);
@@ -303,6 +351,19 @@ export default function MiniGamePage() {
       if (gid === 'kangaroo_race') {
         const winning = Number(data?.winningKangaroo);
         const selected = Number(data?.selectedChoice);
+        if (Array.isArray(data.kangarooNames) && data.kangarooNames.length >= 6) {
+          setKangarooNames(data.kangarooNames.slice(0, 6).map((name) => String(name || '').trim()));
+        }
+        const parsedFinishOrder = Array.isArray(data.finishOrder)
+          ? data.finishOrder
+              .map((value) => Number(value))
+              .filter((value) => Number.isFinite(value) && value >= 1 && value <= 6)
+          : [];
+        setFinishOrder(parsedFinishOrder);
+        const rank = Number(data.finishRank);
+        const points = Number(data.pointsEarned);
+        setFinishRank(Number.isFinite(rank) && rank > 0 ? rank : null);
+        setPointsEarned(Number.isFinite(points) ? points : null);
 
         setGameType('kangaroo_race');
         setWinningValue(Number.isFinite(winning) ? winning : null);
@@ -443,6 +504,16 @@ export default function MiniGamePage() {
       logSocketIn('session_state', data);
       const gameState = data?.gameState ?? data;
       if (!gameState || !gameState.state) return;
+      if (gameState?.miniGameState?.game === 'kangaroo_race') {
+        const names = Array.isArray(gameState.miniGameState.kangarooNames)
+          ? gameState.miniGameState.kangarooNames
+          : Array.isArray(gameState.miniGameConfig?.kangarooNames)
+            ? gameState.miniGameConfig.kangarooNames
+            : null;
+        if (names?.length >= 6) {
+          setKangarooNames(names.slice(0, 6).map((name: string) => String(name || '').trim()));
+        }
+      }
       if (!gameState.activeMiniGame && gameState.state !== 'LOBBY') {
         exitMiniGameToGame();
       }
@@ -529,39 +600,60 @@ export default function MiniGamePage() {
   /** Card shuffle shows win/lose on the themed pick screen; horse race uses full-screen result. */
   if (resultPhase && gameType !== 'card_shuffle') {
     const isWinner = resultPhase === 'winner';
-    const winLabel =
-      gameType === 'kangaroo_race' && winningValue != null ? `Kangaroo #${winningValue}` : '';
+    const resolvedWinningSlot =
+      gameType === 'kangaroo_race'
+        ? (winningValue ?? (finishOrder.length > 0 ? finishOrder[0] : null))
+        : null;
+    const winLabel = gameType === 'kangaroo_race' ? labelForKangaroo(resolvedWinningSlot) : '';
+    const rankLabel =
+      finishRank == null
+        ? 'Unknown'
+        : finishRank === 1
+          ? '1st'
+          : finishRank === 2
+            ? '2nd'
+            : finishRank === 3
+              ? '3rd'
+              : `${finishRank}th`;
 
     return (
       <MobileFrame>
         <div className="flex flex-1 items-center justify-center p-4 sm:p-6 md:p-8">
           <div className="w-full max-w-sm text-center sm:max-w-md">
-            {isWinner ? (
-              <>
-                <div className="mb-4 text-5xl sm:text-6xl">WIN</div>
-                <h2 className="mb-2 text-2xl font-black text-[#ffd700] sm:text-3xl">
-                  You win this round!
-                </h2>
-                <p className="text-foreground/60 text-sm mb-4">
-                  You picked <span className="font-bold text-[#ffd700]">{winLabel}</span> — that was
-                  the winner.
+            {pointsEarned != null ? (
+              <div className="mb-3 rounded-xl border-2 border-[#00f5ff] bg-[linear-gradient(180deg,rgba(13,24,60,0.95),rgba(4,10,25,0.98))] px-4 py-3 shadow-[0_0_18px_rgba(0,245,255,0.25)]">
+                <p className="text-3xl font-black text-[#39ff14]">
+                  Scored : +{pointsEarned} Points
                 </p>
-              </>
-            ) : (
-              <>
-                <div className="mb-4 text-5xl sm:text-6xl">LOSE</div>
-                <h2 className="mb-2 text-2xl font-black text-foreground/60 sm:text-3xl">
-                  You lose this round
-                </h2>
-                <p className="text-foreground/40 text-sm mb-4">
-                  The winning pick was <span className="font-bold text-primary">{winLabel}</span>
-                  {selectedChoice != null ? `; you picked #${selectedChoice}.` : '.'}
+              </div>
+            ) : null}
+
+            {finishRank != null ? (
+              <div className="mb-10 rounded-lg border border-[#6f42ff]/50 bg-[linear-gradient(180deg,#2e0c7f_0%,#17063e_100%)] px-4 py-2">
+                <p className="text-2xl font-black text-white">
+                  Your Kangaroo Finished <span className="text-[#39ff14]">{rankLabel}</span> !!
                 </p>
-              </>
-            )}
-            <p className="text-xs text-foreground/30 mt-6">
-              Waiting for the host to start the next round...
-            </p>
+              </div>
+            ) : null}
+
+            <h2
+              className={cn(
+                'mb-3 text-2xl font-black sm:text-3xl',
+                isWinner ? 'text-[#ffd700]' : 'text-foreground/70',
+              )}
+            ></h2>
+
+            <div className="mx-auto mb-4 flex h-auto w-auto items-center justify-center rounded-2xl">
+              <img
+                src="/KangarooPic.png"
+                alt="Kangaroo"
+                className="h-full w-full object-contain"
+                onError={(e) => {
+                  const el = e.currentTarget;
+                  el.style.display = 'none';
+                }}
+              />
+            </div>
           </div>
         </div>
       </MobileFrame>
@@ -604,7 +696,7 @@ export default function MiniGamePage() {
 
             <div className="mx-auto mt-4 flex h-[170px] w-[170px] items-center justify-center rounded-2xl bg-[radial-gradient(circle_at_50%_10%,rgba(255,255,255,0.2),transparent_70%)]">
               <img
-                src="/kangarooPic.png"
+                src="/KangarooPic.png"
                 alt="Kangaroo"
                 className="h-full w-full object-contain"
                 onError={(e) => {
@@ -630,7 +722,12 @@ export default function MiniGamePage() {
                         : 'hover:brightness-110 hover:scale-[1.02]',
                   )}
                 >
-                  {horse.id}
+                  <div className="flex flex-col items-center">
+                    <span className="text-xl font-black">{horse.id}</span>
+                    <span className="text-[11px] font-semibold leading-tight">
+                      {kangarooNames[horse.id - 1] || `Kangaroo ${horse.id}`}
+                    </span>
+                  </div>
                 </button>
               ))}
             </div>

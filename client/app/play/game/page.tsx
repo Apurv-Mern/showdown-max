@@ -1391,7 +1391,7 @@ export default function GamePage() {
                     animate={{ opacity: 1, y: 0 }}
                     className="text-center mt-6"
                   >
-                    <p className="text-2xl font-black leading-none text-white drop-shadow-[0_0_10px_rgba(255,255,255,0.4)] sm:text-3xl md:text-4xl">
+                    <p className="text-2xl font-black leading-none text-[#00D9FF] drop-shadow-[0_0_10px_rgba(255,255,255,0.4)] sm:text-3xl md:text-4xl">
                       Answer Submitted !!
                     </p>
                   </motion.div>
@@ -1491,7 +1491,7 @@ export default function GamePage() {
                           className={cn(
                             'text-lg font-black leading-none sm:text-xl md:text-2xl',
                             selectedOption === null
-                              ? 'text-white drop-shadow-[0_0_15px_rgba(255,255,255,0.4)]'
+                              ? 'text-[#00D9FF] drop-shadow-[0_0_15px_rgba(255,255,255,0.4)]'
                               : selectedOption === revealData.correctOptionIndex
                                 ? 'text-[#53ff57] drop-shadow-[0_0_15px_rgba(83,255,87,0.8)]'
                                 : 'text-[#ff2525] drop-shadow-[0_0_15px_rgba(255,37,37,0.8)]',
@@ -1511,7 +1511,7 @@ export default function GamePage() {
                         className={cn(
                           'text-lg font-black leading-none sm:text-xl md:text-2xl',
                           selectedOption === null
-                            ? 'text-white drop-shadow-[0_0_15px_rgba(255,255,255,0.4)]'
+                            ? 'text-[#00D9FF] drop-shadow-[0_0_15px_rgba(255,255,255,0.4)]'
                             : (pointsGained ?? 0) > 0
                               ? 'text-[#53ff57] drop-shadow-[0_0_15px_rgba(83,255,87,0.8)]'
                               : 'text-[#ff2525] drop-shadow-[0_0_15px_rgba(255,37,37,0.8)]',
@@ -1529,7 +1529,7 @@ export default function GamePage() {
               </motion.div>
             )}
 
-            {/* â”€â”€ ELIMINATED â”€â”€ */}
+            {/* ELIMINATED */}
             {phase === 'eliminated' && (
               <motion.div
                 key="eliminated"

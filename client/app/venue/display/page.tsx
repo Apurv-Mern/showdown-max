@@ -146,7 +146,7 @@ type MiniGameCommand = {
   game: 'card_shuffle' | 'kangaroo_race';
   command: 'start_game' | 'next_round' | 'reveal_cards' | 'reveal_winner';
   roundNumber?: 1 | 2 | 3 | 4;
-  winningKangaroo?: number;
+  kangarooNames?: string[];
 };
 
 type MiniGameReveal = {
@@ -206,7 +206,9 @@ function parseUnityShuffleComplete(value: unknown): { cp: number; cards: number[
   return { cp, cards };
 }
 
-function parseKangarooRoundResult(value: unknown): { winner_index?: number } | null {
+function parseKangarooRoundResult(
+  value: unknown,
+): { winner_index?: number; finishOrderSlots?: number[] } | null {
   const unwrap = (v: unknown, depth = 0): Record<string, unknown> => {
     if (depth > 12) return {};
     if (v == null) return {};
@@ -227,12 +229,49 @@ function parseKangarooRoundResult(value: unknown): { winner_index?: number } | n
   const root = unwrap(value);
   const inner =
     typeof root.payload === 'string' ? unwrap(root.payload) : unwrap(root.payload ?? root);
-  const raw = inner.winner_index ?? inner.winnerIndex ?? root.winner_index ?? root.winnerIndex;
+  const innerResults =
+    inner.results && typeof inner.results === 'object'
+      ? (inner.results as Record<string, unknown>)
+      : {};
+  const normalizeSlot = (rawSlot: unknown) => {
+    const n = Number(rawSlot);
+    if (!Number.isFinite(n)) return NaN;
+    const t = Math.trunc(n);
+    if (t >= 1 && t <= 6) return t;
+    if (t >= 0 && t <= 5) return t + 1;
+    return NaN;
+  };
 
-  const n = Number(raw);
-  if (!Number.isFinite(n)) return {};
-  const t = Math.trunc(n);
-  const winner = t >= 1 && t <= 6 ? t : t >= 0 && t <= 5 ? t + 1 : NaN;
+  const finishOrderRaw =
+    inner.finishOrderSlots ??
+    inner.finishOrder ??
+    root.finishOrderSlots ??
+    root.finishOrder ??
+    innerResults.finishOrderSlots ??
+    innerResults.finishOrder;
+  const finishOrderSlots = Array.isArray(finishOrderRaw)
+    ? finishOrderRaw
+        .map((entry) => {
+          if (entry && typeof entry === 'object') {
+            return normalizeSlot(
+              (entry as Record<string, unknown>).slot ??
+                (entry as Record<string, unknown>).kangaroo_index ??
+                (entry as Record<string, unknown>).index,
+            );
+          }
+          return normalizeSlot(entry);
+        })
+        .filter((slot, idx, arr) => Number.isFinite(slot) && arr.indexOf(slot) === idx)
+    : [];
+
+  const raw = inner.winner_index ?? inner.winnerIndex ?? root.winner_index ?? root.winnerIndex;
+  const winner = normalizeSlot(raw);
+  if (finishOrderSlots.length > 0) {
+    return {
+      winner_index: Number.isFinite(winner) ? winner : Number(finishOrderSlots[0]),
+      finishOrderSlots,
+    };
+  }
   if (!Number.isFinite(winner)) return {};
   return { winner_index: winner };
 }
@@ -574,8 +613,12 @@ function VenueDisplayContent() {
 
   const handleUnityReady = useCallback(
     (gameType: 'Kangaroo_race' | 'card_shuffle') => {
-      if (!socket || gameType !== 'card_shuffle') return;
-      socket.emit('mini_game_ready', { game: 'card_shuffle', ready: true, source: 'venue' });
+      if (!socket) return;
+      if (gameType === 'card_shuffle') {
+        socket.emit('mini_game_ready', { game: 'card_shuffle', ready: true, source: 'venue' });
+        return;
+      }
+      socket.emit('mini_game_ready', { game: 'kangaroo_race', ready: true, source: 'venue' });
     },
     [socket],
   );
@@ -638,6 +681,9 @@ function VenueDisplayContent() {
     const forwardKangarooResult = (msgType: string, rawData: Record<string, unknown>) => {
       const parsed = parseKangarooRoundResult(rawData);
       const winner = Number(parsed?.winner_index);
+      const finishOrderSlots = Array.isArray(parsed?.finishOrderSlots)
+        ? parsed.finishOrderSlots
+        : undefined;
       if (Number.isFinite(winner) && winner >= 1 && winner <= 6) {
         lastKangarooWinnerRef.current = winner;
       }
@@ -646,6 +692,7 @@ function VenueDisplayContent() {
         ? {
             ...rawData,
             winner_index: Number(lastKangarooWinnerRef.current),
+            ...(finishOrderSlots ? { finishOrderSlots } : {}),
           }
         : rawData;
 
@@ -1064,7 +1111,7 @@ function VenueDisplayContent() {
       game?: string;
       command?: 'start_game' | 'next_round' | 'reveal_cards' | 'reveal_winner';
       roundNumber?: 1 | 2 | 3 | 4;
-      winningKangaroo?: number;
+      kangarooNames?: string[];
     }) => {
       const gid = normalizeVenueMiniGameId(data?.game);
       if (!gid || !data.command) return;
@@ -1074,9 +1121,7 @@ function VenueDisplayContent() {
           id: Date.now(),
           game: 'kangaroo_race',
           command: data.command,
-          ...(Number.isFinite(Number(data.winningKangaroo))
-            ? { winningKangaroo: Number(data.winningKangaroo) }
-            : {}),
+          ...(Array.isArray(data.kangarooNames) ? { kangarooNames: data.kangarooNames } : {}),
         });
         return;
       }

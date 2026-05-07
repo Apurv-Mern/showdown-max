@@ -94,6 +94,14 @@ function getNextRoundIntroBlurb(nextType?: string): string {
 }
 
 const KANGAROO_SLOTS = [1, 2, 3, 4, 5, 6] as const;
+const DEFAULT_KANGAROO_NAMES = [
+  'Blue Bolt',
+  'Orange Flash',
+  'Green Dash',
+  'Golden Hop',
+  'Purple Rocket',
+  'Red Thunder',
+] as const;
 
 /** Matches player mini-game (left / middle / right). */
 const CARD_SHUFFLE_SLOTS = [1, 2, 3] as const;
@@ -138,6 +146,9 @@ interface GameState {
   teams: Record<string, Team>;
   activeTeamIds: number[];
   activeMiniGame?: string | null;
+  miniGameConfig?: {
+    kangarooNames?: string[];
+  } | null;
   miniGameState?: {
     game?: string;
     ready?: boolean;
@@ -145,7 +156,8 @@ interface GameState {
     activeRound?: 1 | 2 | 3 | 4 | null;
     revealed?: boolean;
     correctPosition?: number | null;
-    winningKangaroo?: number | null;
+    kangarooNames?: string[];
+    finishOrder?: number[];
     pickCounts?: Record<string, number>;
   } | null;
   currentQuestion?: QuestionData | null;
@@ -336,9 +348,12 @@ function HostDashboardContent() {
   const [editScoreValue, setEditScoreValue] = useState('');
   const [showRegisteredTeams, setShowRegisteredTeams] = useState(false);
   const [showRoundIntroductionModal, setShowRoundIntroductionModal] = useState(false);
-  const [winningKangaroo, setWinningKangaroo] = useState(3);
+  const [kangarooNames, setKangarooNames] = useState<string[]>([...DEFAULT_KANGAROO_NAMES]);
+  const [kangarooVenueReady, setKangarooVenueReady] = useState(false);
+  const [kangarooVenueLoading, setKangarooVenueLoading] = useState(false);
   const [kangarooRaceStarted, setKangarooRaceStarted] = useState(false);
   const [kangarooRaceRevealed, setKangarooRaceRevealed] = useState(false);
+  const [kangarooFinishOrder, setKangarooFinishOrder] = useState<number[]>([]);
   const [kangarooBetCounts, setKangarooBetCounts] = useState([0, 0, 0, 0, 0, 0]);
   const [cardPickCounts, setCardPickCounts] = useState([0, 0, 0]);
   const [cardShuffleVenueReady, setCardShuffleVenueReady] = useState(false);
@@ -513,9 +528,22 @@ function HostDashboardContent() {
         } else if (data.miniGameState?.game === 'kangaroo_race') {
           setKangarooRaceStarted(Boolean(data.miniGameState.gameStarted));
           setKangarooRaceRevealed(Boolean(data.miniGameState.revealed));
-          const winner = Number(data.miniGameState.winningKangaroo);
-          if (Number.isFinite(winner) && winner >= 1 && winner <= 6) {
-            setWinningKangaroo(winner);
+          setKangarooVenueReady(Boolean(data.miniGameState.ready));
+          setKangarooVenueLoading(!Boolean(data.miniGameState.ready));
+          setKangarooFinishOrder(
+            Array.isArray(data.miniGameState.finishOrder)
+              ? data.miniGameState.finishOrder
+                  .map((value) => Number(value))
+                  .filter((value) => Number.isFinite(value) && value >= 1 && value <= 6)
+              : [],
+          );
+          const incomingNames = Array.isArray(data.miniGameState.kangarooNames)
+            ? data.miniGameState.kangarooNames
+            : Array.isArray(data.miniGameConfig?.kangarooNames)
+              ? data.miniGameConfig.kangarooNames
+              : null;
+          if (incomingNames?.length === 6) {
+            setKangarooNames(incomingNames.map((name) => String(name || '').trim()));
           }
           setKangarooBetCounts(
             [1, 2, 3, 4, 5, 6].map((slot) => Number(data.miniGameState?.pickCounts?.[slot] || 0)),
@@ -533,6 +561,9 @@ function HostDashboardContent() {
         setCardPickCounts([0, 0, 0]);
         setKangarooRaceStarted(false);
         setKangarooRaceRevealed(false);
+        setKangarooVenueReady(false);
+        setKangarooVenueLoading(false);
+        setKangarooFinishOrder([]);
         setKangarooBetCounts([0, 0, 0, 0, 0, 0]);
         setMiniGameRevealing(false);
       }
@@ -801,29 +832,40 @@ function HostDashboardContent() {
       if (normalizeHostMiniGameId(data?.game) === 'kangaroo_race') {
         setKangarooRaceStarted(false);
         setKangarooRaceRevealed(false);
+        setKangarooVenueReady(false);
+        setKangarooVenueLoading(true);
+        setKangarooFinishOrder([]);
         setKangarooBetCounts([0, 0, 0, 0, 0, 0]);
       }
     };
 
     const onMiniGameReady = (data: { game?: string; ready?: boolean }) => {
-      if (normalizeHostMiniGameId(data?.game) !== 'card_shuffle') return;
-      setCardShuffleVenueReady(data.ready !== false);
+      const gid = normalizeHostMiniGameId(data?.game);
+      if (gid === 'card_shuffle') {
+        setCardShuffleVenueReady(data.ready !== false);
+      }
+      if (gid === 'kangaroo_race') {
+        setKangarooVenueReady(data.ready !== false);
+        setKangarooVenueLoading(data.ready === false);
+      }
     };
 
     const onMiniGameReveal = (data: {
       game?: string;
       correctPosition?: number;
       correct_position?: number;
-      winningKangaroo?: number;
+      finishOrder?: number[];
       roundNumber?: 1 | 2 | 3 | 4;
     }) => {
       const gid = normalizeHostMiniGameId(data?.game);
       if (gid === 'kangaroo_race') {
-        const winner = Number(data.winningKangaroo);
-        if (Number.isFinite(winner) && winner >= 1 && winner <= 6) {
-          setWinningKangaroo(winner);
-          setKangarooRaceRevealed(true);
-        }
+        const finishOrder = Array.isArray(data.finishOrder)
+          ? data.finishOrder
+              .map((value) => Number(value))
+              .filter((value) => Number.isFinite(value) && value >= 1 && value <= 6)
+          : [];
+        setKangarooFinishOrder(finishOrder);
+        setKangarooRaceRevealed(true);
         return;
       }
       if (gid && gid !== 'card_shuffle') return;
@@ -838,7 +880,6 @@ function HostDashboardContent() {
     const onMiniGameEnd = (data: {
       game?: string;
       winningCard?: number;
-      winningKangaroo?: number;
       holdScreen?: boolean;
       status?: string;
       message?: string;
@@ -863,6 +904,9 @@ function HostDashboardContent() {
       } else if (normalizeHostMiniGameId(data?.game) === 'kangaroo_race') {
         setKangarooRaceStarted(false);
         setKangarooRaceRevealed(false);
+        setKangarooVenueReady(false);
+        setKangarooVenueLoading(false);
+        setKangarooFinishOrder([]);
         setKangarooBetCounts([0, 0, 0, 0, 0, 0]);
       }
       setActiveMiniGameLocal(null);
@@ -1016,34 +1060,35 @@ function HostDashboardContent() {
     logout();
     router.replace('/host/login');
   };
+  const normalizedKangarooNames = kangarooNames.map((name, idx) => {
+    const normalized = String(name || '')
+      .trim()
+      .replace(/\s+/g, ' ');
+    return normalized || DEFAULT_KANGAROO_NAMES[idx];
+  });
+  const isKangarooNamesValid =
+    normalizedKangarooNames.length === 6 &&
+    normalizedKangarooNames.every((name) => name.length > 0 && name.length <= 32);
+
+  const updateKangarooName = (slotIndex: number, value: string) => {
+    const cleaned = value.replace(/\s+/g, ' ').slice(0, 32);
+    setKangarooNames((prev) => prev.map((name, idx) => (idx === slotIndex ? cleaned : name)));
+  };
   const handleKangarooRaceStart = () => {
+    if (activeMiniGameLocal !== 'kangaroo_race' || !kangarooVenueReady) return;
     setKangarooBetCounts([0, 0, 0, 0, 0, 0]);
     setKangarooRaceStarted(true);
     setKangarooRaceRevealed(false);
+    setKangarooFinishOrder([]);
 
-    const sendStart = () => {
-      emit('mini_game_command', {
-        game: 'kangaroo_race',
-        command: 'start_game',
-        winningKangaroo,
-      });
-    };
-
-    if (activeMiniGameLocal !== 'kangaroo_race') {
-      if (!miniGameLoading) {
-        launchKangarooRaceOnVenue();
-      }
-      window.setTimeout(sendStart, 420);
-      return;
-    }
-
-    sendStart();
+    emit('mini_game_command', {
+      game: 'kangaroo_race',
+      command: 'start_game',
+    });
   };
 
   const handleKangarooRaceFinish = () => {
-    emit('end_mini_game', {
-      config: { winningKangaroo },
-    });
+    emit('end_mini_game');
   };
 
   const launchCardShuffleOnVenue = useCallback(() => {
@@ -1064,22 +1109,29 @@ function HostDashboardContent() {
   }, [emit]);
 
   const launchKangarooRaceOnVenue = useCallback(() => {
+    if (!isKangarooNamesValid) {
+      toast.error('Please enter all 6 kangaroo names before loading the race.');
+      return;
+    }
     setKangarooRaceStarted(false);
     setKangarooRaceRevealed(false);
+    setKangarooVenueReady(false);
+    setKangarooVenueLoading(true);
+    setKangarooFinishOrder([]);
     setKangarooBetCounts([0, 0, 0, 0, 0, 0]);
     setMiniGameLoading(true);
     emit('launch_mini_game', {
       game: 'kangaroo_race',
-      config: { winningKangaroo },
+      config: { kangarooNames: normalizedKangarooNames },
     });
     setActiveMiniGameLocal('kangaroo_race');
-  }, [emit, winningKangaroo]);
+  }, [emit, isKangarooNamesValid, normalizedKangarooNames]);
 
   const handleOpenKangarooRaceControls = useCallback(() => {
-    if (activeMiniGameLocal !== 'kangaroo_race' && !miniGameLoading) {
-      launchKangarooRaceOnVenue();
+    if (activeMiniGameLocal !== 'kangaroo_race') {
+      setActiveMiniGameLocal('kangaroo_race');
     }
-  }, [activeMiniGameLocal, launchKangarooRaceOnVenue, miniGameLoading]);
+  }, [activeMiniGameLocal]);
 
   const handleOpenCardShuffleControls = () => {
     if (activeMiniGameLocal !== 'card_shuffle' && !miniGameLoading) {
@@ -1147,10 +1199,7 @@ function HostDashboardContent() {
     cardShuffleStartLockRef.current = false;
     setCardShuffleActiveRound(null);
     setCardShuffleRevealPosition(null);
-    emit(
-      'end_mini_game',
-      activeMiniGameLocal === 'kangaroo_race' ? { config: { winningKangaroo } } : undefined,
-    );
+    emit('end_mini_game');
   };
 
   const handleFinishCardShuffle = () => {
@@ -1828,8 +1877,8 @@ function HostDashboardContent() {
                           {kangarooRaceStarted
                             ? kangarooRaceRevealed
                               ? 'Winner revealed. Finish race or start again.'
-                              : 'Race started. Finish race when ready.'
-                            : 'Click Start Race to trigger gameplay on venue and mobile.'}
+                              : 'Race started. Unity decides random finishing order.'
+                            : 'Set names, load race on venue, then start when venue is ready.'}
                         </p>
                       </div>
                       <span
@@ -1844,13 +1893,73 @@ function HostDashboardContent() {
                       </span>
                     </div>
 
+                    <div className="mb-3 rounded-xl border border-white/10 bg-black/20 p-3">
+                      <p className="mb-2 text-xs font-bold uppercase tracking-[0.2em] text-white/60">
+                        Kangaroo Names
+                      </p>
+                      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                        {KANGAROO_SLOTS.map((slot, idx) => (
+                          <label
+                            key={slot}
+                            className="flex items-center gap-2 text-xs text-white/70"
+                          >
+                            <span className="w-6 text-center font-bold">#{slot}</span>
+                            <input
+                              value={kangarooNames[idx] ?? ''}
+                              onChange={(event) => updateKangarooName(idx, event.target.value)}
+                              className="h-9 w-full rounded-md border border-white/15 bg-white/5 px-3 text-sm text-white outline-none focus:border-[#00d9ff]"
+                              maxLength={32}
+                              placeholder={`Kangaroo ${slot}`}
+                            />
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+
                     <button
                       type="button"
-                      disabled={activeMiniGameLocal !== 'kangaroo_race'}
+                      disabled={
+                        miniGameLoading ||
+                        kangarooVenueLoading ||
+                        kangarooVenueReady ||
+                        !isKangarooNamesValid
+                      }
+                      onClick={launchKangarooRaceOnVenue}
+                      className={cn(
+                        'mb-3 h-12 w-full rounded-xl border px-5 text-sm font-black uppercase tracking-wide transition',
+                        !miniGameLoading &&
+                          !kangarooVenueLoading &&
+                          !kangarooVenueReady &&
+                          isKangarooNamesValid
+                          ? 'border-violet-400/60 bg-[linear-gradient(180deg,#7c3aed_0%,#4c1d95_100%)] text-white shadow-[0_0_18px_rgba(124,58,237,0.3)] hover:brightness-110'
+                          : 'cursor-not-allowed border-white/10 bg-white/8 text-white/30 grayscale',
+                      )}
+                    >
+                      {kangarooVenueLoading ? (
+                        <span className="inline-flex items-center gap-2">
+                          <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/70 border-t-transparent" />
+                          Loading on venue...
+                        </span>
+                      ) : (
+                        'Load Race on Venue'
+                      )}
+                    </button>
+
+                    <button
+                      type="button"
+                      disabled={
+                        activeMiniGameLocal !== 'kangaroo_race' ||
+                        !kangarooVenueReady ||
+                        kangarooRaceStarted ||
+                        !isKangarooNamesValid
+                      }
                       onClick={handleKangarooRaceStart}
                       className={cn(
                         'mb-3 h-14 w-full rounded-xl border px-5 text-lg font-black uppercase tracking-wide transition',
-                        activeMiniGameLocal === 'kangaroo_race'
+                        activeMiniGameLocal === 'kangaroo_race' &&
+                          kangarooVenueReady &&
+                          !kangarooRaceStarted &&
+                          isKangarooNamesValid
                           ? 'border-[#00d9ff]/70 bg-[linear-gradient(180deg,#00a9df_0%,#075a89_100%)] text-white shadow-[0_0_22px_rgba(0,217,255,0.28)] hover:brightness-110'
                           : 'cursor-not-allowed border-white/10 bg-white/8 text-white/30 grayscale',
                       )}
@@ -1859,6 +1968,12 @@ function HostDashboardContent() {
                     </button>
 
                     <div className="grid grid-cols-1 gap-3">
+                      <div className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs text-white/70">
+                        Venue status:{' '}
+                        <span className={kangarooVenueReady ? 'text-green-300' : 'text-yellow-300'}>
+                          {kangarooVenueReady ? 'Unity ready' : 'Waiting for Unity ready'}
+                        </span>
+                      </div>
                       <button
                         type="button"
                         onClick={handleKangarooRaceFinish}
@@ -1876,15 +1991,22 @@ function HostDashboardContent() {
                         key={n}
                         className={cn(
                           'flex flex-col items-center gap-1 rounded-xl border-2 px-4 py-3 transition-all',
-                          winningKangaroo === n
+                          kangarooFinishOrder[0] === n
                             ? 'border-green-500/60 bg-green-500/10'
                             : 'border-white/10 bg-white/5',
                         )}
                       >
                         <span className="text-2xl">🦘</span>
-                        <span className="text-xs font-bold text-white">#{n}</span>
+                        <span className="text-xs font-bold text-white">
+                          #{n} {normalizedKangarooNames[i]}
+                        </span>
                         <span className="text-base font-mono font-bold text-[#00d9ff]">
                           {kangarooBetCounts[i] ?? 0}
+                        </span>
+                        <span className="text-[10px] uppercase tracking-wider text-green-300">
+                          {kangarooFinishOrder.length > 0
+                            ? `P${kangarooFinishOrder.indexOf(n) + 1}`
+                            : '—'}
                         </span>
                         <span className="text-[10px] uppercase tracking-wider text-white/40">
                           bets
@@ -2059,7 +2181,7 @@ function HostDashboardContent() {
                       </p>
                     </div>
                   ) : (
-                    <div className="relative mx-auto h-[680px] w-full max-w-[860px]">
+                    <div className="relative mx-auto aspect-[860/680] w-full max-w-[860px]">
                       <img
                         src="/Venue Round Intro.png"
                         alt="Round intro background"
@@ -2067,11 +2189,11 @@ function HostDashboardContent() {
                       />
 
                       <div className="absolute inset-0 pointer-events-none text-center">
-                        <div className="absolute left-1/2 top-[40%] w-[62%] -translate-x-1/2 -translate-y-1/2">
-                          <h2 className="text-[65px] leading-none font-black text-[#fff4c2] drop-shadow-[0_0_18px_rgba(255,225,120,0.65)]">
+                        <div className="absolute left-1/2 top-[40%] w-[70%] -translate-x-1/2 -translate-y-1/2 sm:w-[62%]">
+                          <h2 className="text-4xl leading-[0.95] font-black text-[#fff4c2] drop-shadow-[0_0_18px_rgba(255,225,120,0.65)] sm:text-5xl md:text-6xl lg:text-[35px]">
                             ROUND {(gameState?.currentRoundIndex || 0) + 1}
                           </h2>
-                          <p className="mt-2 text-[28px] leading-[1.05] font-extrabold text-[#25eaff] drop-shadow-[0_0_16px_rgba(37,234,255,0.55)]">
+                          <p className="mt-1 text-lg leading-[1.02] font-extrabold text-[#25eaff] drop-shadow-[0_0_16px_rgba(37,234,255,0.55)] sm:text-xl md:text-2xl lg:text-[28px]">
                             {normalizeRoundIntroTitle(
                               currentRound?.name,
                               currentRound?.type,
@@ -2080,14 +2202,12 @@ function HostDashboardContent() {
                           </p>
                         </div>
 
-                        <div className="absolute left-1/2 top-[79.5%] w-[74%] -translate-x-1/2 -translate-y-1/2">
-                          <p className="mb-5 text-[30px] font-black leading-none text-[#39ff14] drop-shadow-[0_0_8px_rgba(57,255,20,0.45)]">
-                            {getRoundScoringLines(currentRound?.type).positive}
-                          </p>
-                          <p className="text-[30px] font-black leading-none text-[#ff3e3e] drop-shadow-[0_0_8px_rgba(255,62,62,0.45)]">
-                            {getRoundScoringLines(currentRound?.type).negative}
-                          </p>
-                        </div>
+                        <p className="absolute left-1/2 top-[79.8%] w-[88%] -translate-x-1/2 -translate-y-1/2 px-2 text-xs font-black leading-[0.98] text-[#39ff14] drop-shadow-[0_0_8px_rgba(57,255,20,0.45)] sm:top-[77.8%] sm:w-[74%] sm:px-0 sm:text-xl md:text-2xl lg:text-[18px]">
+                          {getRoundScoringLines(currentRound?.type).positive}
+                        </p>
+                        <p className="absolute left-1/2 top-[90.2%] w-[88%] -translate-x-1/2 -translate-y-1/2 px-2 text-xs font-black leading-[0.98] text-[#ff3e3e] drop-shadow-[0_0_8px_rgba(255,62,62,0.45)] sm:top-[89.2%] sm:w-[74%] sm:px-0 sm:text-xl md:text-2xl lg:text-[18px]">
+                          {getRoundScoringLines(currentRound?.type).negative}
+                        </p>
 
                         {isCurrentRoundEmpty ? (
                           <div className="absolute left-1/2 top-[56%] w-[72%] -translate-x-1/2 -translate-y-1/2 rounded-2xl border border-[#ffd166]/60 bg-[rgba(40,28,8,0.9)] px-6 py-5 text-center shadow-[0_0_20px_rgba(255,209,102,0.3)]">

@@ -249,7 +249,10 @@ const playerHandlers = (io, socket) => {
           });
         }
         if (gameState.activeMiniGame) {
-          socket.emit(SOCKET_EVENTS.MINI_GAME_START, { game: gameState.activeMiniGame });
+          socket.emit(SOCKET_EVENTS.MINI_GAME_START, {
+            game: gameState.activeMiniGame,
+            ...(gameState.miniGameConfig || {}),
+          });
           if (
             gameState.miniGameState?.game === 'card_shuffle' &&
             gameState.miniGameState?.revealed
@@ -273,6 +276,48 @@ const playerHandlers = (io, socket) => {
               correctPosition,
               selectedChoice,
               roundNumber: gameState.miniGameState.activeRound || undefined,
+            });
+          }
+          if (
+            gameState.miniGameState?.game === 'kangaroo_race' &&
+            gameState.miniGameState?.revealed &&
+            Array.isArray(gameState.miniGameState?.finishOrder) &&
+            gameState.miniGameState.finishOrder.length > 0
+          ) {
+            const finishOrder = gameState.miniGameState.finishOrder
+              .map((value) => Number(value))
+              .filter((value) => Number.isFinite(value));
+            const winningKangaroo = Number(finishOrder[0]);
+            const kangarooNames = Array.isArray(gameState.miniGameState.kangarooNames)
+              ? gameState.miniGameState.kangarooNames
+              : Array.isArray(gameState.miniGameConfig?.kangarooNames)
+                ? gameState.miniGameConfig.kangarooNames
+                : [];
+            socket.emit(SOCKET_EVENTS.MINI_GAME_REVEAL, {
+              game: 'kangaroo_race',
+              winningKangaroo,
+              finishOrder,
+              kangarooNames,
+              pointsByRank: [50, 40, 30, 20, 10, 0],
+            });
+            const selectedChoiceRaw = gameState.miniGameState.selections?.[String(team.id)];
+            const selectedChoice = Number.isFinite(Number(selectedChoiceRaw))
+              ? Number(selectedChoiceRaw)
+              : null;
+            const finishRank =
+              selectedChoice != null ? finishOrder.findIndex((slot) => slot === selectedChoice) + 1 : 0;
+            const pointsByRank = [50, 40, 30, 20, 10, 0];
+            const pointsEarned =
+              finishRank >= 1 && finishRank <= pointsByRank.length ? pointsByRank[finishRank - 1] : 0;
+            socket.emit(SOCKET_EVENTS.MINI_GAME_PLAYER_RESULT, {
+              game: 'kangaroo_race',
+              result: pointsEarned === pointsByRank[0] ? 'winner' : 'loser',
+              winningKangaroo,
+              finishOrder,
+              selectedChoice,
+              finishRank: finishRank || null,
+              pointsEarned,
+              kangarooNames,
             });
           }
         }

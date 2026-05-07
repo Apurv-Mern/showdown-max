@@ -1,4 +1,10 @@
 const { SOCKET_EVENTS } = require('shared/constants/socketEvents');
+const {
+  DEFAULT_KANGAROO_NAMES,
+  KANGAROO_NAME_MAX_LENGTH,
+  KANGAROO_POINTS_BY_RANK,
+  KANGAROO_SLOT_COUNT,
+} = require('shared/constants/kangarooRace');
 const logger = require('../utils/logger');
 const gameController = require('../services/game-engine/gameController');
 const redisStore = require('../services/redisSessionStore');
@@ -23,12 +29,14 @@ const createCardShuffleRoundState = (roundNumber = null, gameStarted = true) => 
   pickCounts: { 1: 0, 2: 0, 3: 0 },
 });
 
-const createHorseRaceRoundState = (gameStarted = false, winningKangaroo = null) => ({
+const createHorseRaceRoundState = (gameStarted = false, kangarooNames = DEFAULT_KANGAROO_NAMES) => ({
   game: 'kangaroo_race',
   ready: false,
   gameStarted,
   revealed: false,
-  winningKangaroo,
+  kangarooNames,
+  finishOrder: [],
+  resultsAwarded: false,
   selections: {},
   pickCounts: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0 },
 });
@@ -52,6 +60,60 @@ const KANGAROO_NAME_TO_SLOT = Object.freeze({
   purple: 5,
   red: 6,
 });
+
+const normalizeKangarooNames = (input) => {
+  const source = Array.isArray(input) ? input : [];
+  const names = [];
+  for (let i = 0; i < KANGAROO_SLOT_COUNT; i += 1) {
+    const fallback = DEFAULT_KANGAROO_NAMES[i] || `Kangaroo #${i + 1}`;
+    const raw = source[i];
+    const cleaned =
+      typeof raw === 'string' ? raw.trim().replace(/\s+/g, ' ').slice(0, KANGAROO_NAME_MAX_LENGTH) : '';
+    names.push(cleaned || fallback);
+  }
+  return names;
+};
+
+const normalizeFinishOrderSlots = (finishOrderRaw, kangarooNames = DEFAULT_KANGAROO_NAMES) => {
+  const input = Array.isArray(finishOrderRaw) ? finishOrderRaw : [];
+  const normalizedNames = normalizeKangarooNames(kangarooNames);
+  const nameToSlot = new Map(
+    normalizedNames.map((name, idx) => [String(name).trim().toLowerCase(), idx + 1]),
+  );
+
+  const slots = [];
+  for (const item of input) {
+    if (slots.length >= KANGAROO_SLOT_COUNT) break;
+    let slot = NaN;
+    if (typeof item === 'number' || typeof item === 'string') {
+      slot = normalizeRevealSlotOneToSix(Number(item));
+      if (!Number.isFinite(slot) && typeof item === 'string') {
+        slot = Number(nameToSlot.get(item.trim().toLowerCase()) || NaN);
+      }
+    } else if (item && typeof item === 'object') {
+      const candidate =
+        item.slot ?? item.kangarooSlot ?? item.kangaroo_index ?? item.kangarooIndex ?? item.index;
+      slot = normalizeRevealSlotOneToSix(Number(candidate));
+      if (!Number.isFinite(slot)) {
+        const nameCandidate = item.name ?? item.kangarooName ?? item.winner_name ?? item.winnerName;
+        if (typeof nameCandidate === 'string') {
+          slot = Number(nameToSlot.get(nameCandidate.trim().toLowerCase()) || NaN);
+        }
+      }
+    }
+    if (!Number.isFinite(slot) || slots.includes(slot)) continue;
+    slots.push(slot);
+  }
+
+  if (slots.length === 0) return [];
+  if (slots.length === KANGAROO_SLOT_COUNT) return slots;
+
+  const existing = new Set(slots);
+  for (let slot = 1; slot <= KANGAROO_SLOT_COUNT; slot += 1) {
+    if (!existing.has(slot)) slots.push(slot);
+  }
+  return slots.slice(0, KANGAROO_SLOT_COUNT);
+};
 
 const readWinningKangaroo = (obj) => {
   if (!obj || typeof obj !== 'object') return NaN;
@@ -234,7 +296,7 @@ const hydrateHorseRaceState = async (pin, updater) => {
   const baseState =
     gameState.miniGameState?.game === 'kangaroo_race'
       ? gameState.miniGameState
-      : createHorseRaceRoundState(false, Number(gameState.miniGameConfig?.winningKangaroo) || null);
+      : createHorseRaceRoundState(false, gameState.miniGameConfig?.kangarooNames);
 
   gameState.miniGameState = updater({
     ...baseState,
@@ -366,8 +428,16 @@ const applyCardShuffleBonusOnReveal = async (io, pin, miniGameState) => {
 const emitHorseRacePlayerResults = async (io, pin, miniGameState) => {
   if (!pin || !miniGameState || miniGameState.game !== 'kangaroo_race') return;
 
-  const winningKangaroo = Number(miniGameState.winningKangaroo);
-  if (!Number.isFinite(winningKangaroo) || winningKangaroo < 1 || winningKangaroo > 6) return;
+  const finishOrder = normalizeFinishOrderSlots(
+    miniGameState.finishOrder,
+    miniGameState.kangarooNames || DEFAULT_KANGAROO_NAMES,
+  );
+  if (finishOrder.length !== KANGAROO_SLOT_COUNT) return;
+
+  const rankBySlot = {};
+  finishOrder.forEach((slot, idx) => {
+    rankBySlot[slot] = idx + 1;
+  });
 
   const room = `session:${pin}`;
   const socketsInRoom = await io.in(room).fetchSockets();
@@ -378,14 +448,102 @@ const emitHorseRacePlayerResults = async (io, pin, miniGameState) => {
 
     const rawChoice = miniGameState.selections?.[String(teamId)];
     const selectedChoice = Number.isFinite(Number(rawChoice)) ? Number(rawChoice) : null;
+    const finishRank = selectedChoice != null ? Number(rankBySlot[selectedChoice] || 0) : 0;
+    const pointsEarned =
+      finishRank >= 1 && finishRank <= KANGAROO_POINTS_BY_RANK.length
+        ? Number(KANGAROO_POINTS_BY_RANK[finishRank - 1])
+        : 0;
 
     roomSocket.emit(SOCKET_EVENTS.MINI_GAME_PLAYER_RESULT, {
       game: 'kangaroo_race',
-      result: selectedChoice === winningKangaroo ? 'winner' : 'loser',
-      winningKangaroo,
+      result: pointsEarned === KANGAROO_POINTS_BY_RANK[0] ? 'winner' : 'loser',
+      finishOrder,
       selectedChoice,
+      finishRank: finishRank || null,
+      pointsEarned,
+      kangarooNames: normalizeKangarooNames(miniGameState.kangarooNames),
     });
   }
+};
+
+const applyKangarooRacePointsOnResult = async (io, pin, miniGameState) => {
+  if (!pin || !miniGameState || miniGameState.game !== 'kangaroo_race') {
+    return { awarded: false, updatedTeamIds: [] };
+  }
+
+  const finishOrder = normalizeFinishOrderSlots(
+    miniGameState.finishOrder,
+    miniGameState.kangarooNames || DEFAULT_KANGAROO_NAMES,
+  );
+  if (finishOrder.length !== KANGAROO_SLOT_COUNT) {
+    return { awarded: false, updatedTeamIds: [] };
+  }
+  if (miniGameState.resultsAwarded) {
+    return { awarded: false, updatedTeamIds: [] };
+  }
+
+  const gameState = await redisStore.getGameState(pin);
+  if (!gameState?.teams) return { awarded: false, updatedTeamIds: [] };
+
+  const rankBySlot = {};
+  finishOrder.forEach((slot, idx) => {
+    rankBySlot[slot] = idx + 1;
+  });
+
+  const updatedTeamIds = [];
+  for (const [teamId, rawChoice] of Object.entries(miniGameState.selections || {})) {
+    const selectedChoice = Number(rawChoice);
+    const rank = Number(rankBySlot[selectedChoice] || 0);
+    const points =
+      rank >= 1 && rank <= KANGAROO_POINTS_BY_RANK.length
+        ? Number(KANGAROO_POINTS_BY_RANK[rank - 1])
+        : 0;
+    const numericTeamId = Number(teamId);
+    if (!Number.isFinite(numericTeamId) || !gameState.teams[numericTeamId]) continue;
+    gameState.teams[numericTeamId].score = Number(gameState.teams[numericTeamId].score || 0) + points;
+    updatedTeamIds.push(numericTeamId);
+  }
+
+  gameState.miniGameState = {
+    ...(gameState.miniGameState || {}),
+    finishOrder,
+    resultsAwarded: true,
+    revealed: true,
+    kangarooNames: normalizeKangarooNames(
+      gameState.miniGameState?.kangarooNames || gameState.miniGameConfig?.kangarooNames,
+    ),
+  };
+  await redisStore.setGameState(pin, gameState);
+
+  for (const teamId of updatedTeamIds) {
+    await redisStore.updateTeamData(pin, teamId, gameState.teams[teamId]);
+  }
+  await Promise.all(
+    updatedTeamIds.map((teamId) => Team.update({ score: gameState.teams[teamId].score }, { where: { id: teamId } })),
+  );
+
+  const room = `session:${pin}`;
+  for (const teamId of updatedTeamIds) {
+    io.to(room).emit(SOCKET_EVENTS.TEAM_UPDATED, {
+      teamId,
+      teamName: gameState.teams[teamId].teamName,
+      score: gameState.teams[teamId].score,
+    });
+  }
+
+  io.to(room).emit(SOCKET_EVENTS.SESSION_STATE, {
+    ...gameState,
+    gameState,
+  });
+
+  if (gameState.scoreboardVisible) {
+    io.to(room).emit(SOCKET_EVENTS.SCOREBOARD, {
+      teams: Object.values(gameState.teams).sort((a, b) => Number(b.score || 0) - Number(a.score || 0)),
+      source: 'manual',
+    });
+  }
+
+  return { awarded: true, updatedTeamIds };
 };
 
 /**
@@ -415,6 +573,11 @@ const miniGameHandlers = (io, socket) => {
 
       if (payload.game === 'card_shuffle') {
         await hydrateCardShuffleState(pin, (state) => ({
+          ...state,
+          ready: payload.ready,
+        }));
+      } else if (payload.game === 'kangaroo_race') {
+        await hydrateHorseRaceState(pin, (state) => ({
           ...state,
           ready: payload.ready,
         }));
@@ -516,76 +679,35 @@ const miniGameHandlers = (io, socket) => {
       }
 
       if (payload.game === 'kangaroo_race') {
-        let horseRaceReveal = null;
-        let capturedMiniGameState = null;
+        const gameState = await redisStore.getGameState(pin);
+        const normalizedNames = normalizeKangarooNames(
+          data.kangarooNames || gameState?.miniGameConfig?.kangarooNames,
+        );
 
         if (payload.command === 'start_game') {
           await hydrateHorseRaceState(pin, (state) => ({
             ...state,
             gameStarted: true,
             revealed: false,
-            winningKangaroo:
-              Number(state.winningKangaroo) ||
-              Number(data.winningKangaroo) ||
-              Number(data.config?.winningKangaroo) ||
-              null,
+            ready: state.ready,
+            kangarooNames: normalizedNames,
+            finishOrder: [],
+            resultsAwarded: false,
             selections: {},
             pickCounts: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0 },
           }));
         }
 
-        if (payload.command === 'reveal_winner') {
-          const gsReveal = await redisStore.getGameState(pin);
-          const s = gsReveal?.miniGameState;
-          if (s?.game === 'kangaroo_race') {
-            const winnerRaw =
-              Number(data.winningKangaroo) ||
-              Number(s.winningKangaroo) ||
-              Number(gsReveal?.miniGameConfig?.winningKangaroo);
-            const winner = Number.isFinite(winnerRaw) ? Math.trunc(winnerRaw) : NaN;
-            const hasWinner = winner >= 1 && winner <= 6;
-            if (hasWinner) {
-              horseRaceReveal = {
-                game: 'kangaroo_race',
-                winningKangaroo: winner,
-              };
-              capturedMiniGameState = s;
-            }
-          }
-
-          await hydrateHorseRaceState(pin, (state) => ({
-            ...state,
-            revealed: true,
-            winningKangaroo:
-              Number(data.winningKangaroo) ||
-              Number(state.winningKangaroo) ||
-              Number(gsReveal?.miniGameConfig?.winningKangaroo) ||
-              null,
-          }));
-        }
-
-        const horseCommandOut = horseRaceReveal != null ? { ...payload, horseRaceReveal } : payload;
+        const horseCommandOut = {
+          ...payload,
+          kangarooNames: normalizedNames,
+        };
         io.to(`session:${pin}`).emit(SOCKET_EVENTS.MINI_GAME_COMMAND, horseCommandOut);
-
-        if (horseRaceReveal?.winningKangaroo) {
-          const winner = Number(horseRaceReveal.winningKangaroo);
-          io.to(`session:${pin}`).emit(SOCKET_EVENTS.MINI_GAME_REVEAL, {
-            game: 'kangaroo_race',
-            winningKangaroo: winner,
-          });
-
-          const revealMgs = {
-            ...(capturedMiniGameState || {}),
-            winningKangaroo: winner,
-            revealed: true,
-          };
-          await emitHorseRacePlayerResults(io, pin, revealMgs);
-        }
 
         logger.info('Horse race command relayed', {
           pin,
           command: payload.command,
-          winningKangaroo: Number(data.winningKangaroo) || undefined,
+          kangarooNameCount: normalizedNames.length,
         });
         return;
       }
@@ -672,11 +794,26 @@ const miniGameHandlers = (io, socket) => {
         );
 
         if (activeGame === 'kangaroo_race') {
+          const finishOrderCandidates = [
+            directPayload.finishOrderSlots,
+            directPayload.finishOrder,
+            directValue.finishOrderSlots,
+            directValue.finishOrder,
+            data.finishOrderSlots,
+            data.finishOrder,
+          ];
+          const configNames = currentGameState?.miniGameConfig?.kangarooNames;
+          const stateNames = currentGameState?.miniGameState?.kangarooNames;
+          const finishOrder = finishOrderCandidates
+            .map((candidate) => normalizeFinishOrderSlots(candidate, stateNames || configNames))
+            .find((candidate) => candidate.length === KANGAROO_SLOT_COUNT);
+
           const winnerCandidates = [
             readWinningKangaroo(directPayload),
             readWinningKangaroo(directValue),
             readWinningKangaroo(data),
             normalizeRevealSlotOneToSix(Number(data.winningKangaroo)),
+            Array.isArray(finishOrder) ? Number(finishOrder[0]) : NaN,
           ];
           const winningKangaroo = winnerCandidates.find((n) => Number.isFinite(n));
 
@@ -690,28 +827,42 @@ const miniGameHandlers = (io, socket) => {
             valueTypeUpper === 'ROUND_COMPLETE' ||
             valueTypeUpper === 'GAME_COMPLETE' ||
             valueTypeUpper === 'GAME_FINISHED' ||
+            valueTypeUpper === 'RACE_FINISH' ||
             data.action === 'game_complete';
 
-          if (isResultSignal && Number.isFinite(winningKangaroo)) {
-            const winner = Number(winningKangaroo);
+          if (isResultSignal && (Array.isArray(finishOrder) || Number.isFinite(winningKangaroo))) {
+            const derivedFinishOrder = Array.isArray(finishOrder)
+              ? finishOrder
+              : normalizeFinishOrderSlots(
+                  [Number(winningKangaroo)],
+                  stateNames || configNames || DEFAULT_KANGAROO_NAMES,
+                );
+            const winner = Number(derivedFinishOrder[0] || winningKangaroo);
+            const kangarooNames = normalizeKangarooNames(stateNames || configNames);
             const gameState = await hydrateHorseRaceState(eventPin, (state) => ({
               ...state,
               gameStarted: true,
               revealed: true,
-              winningKangaroo: winner,
+              kangarooNames,
+              finishOrder: derivedFinishOrder,
             }));
 
             io.to(room).emit(SOCKET_EVENTS.MINI_GAME_REVEAL, {
               game: 'kangaroo_race',
               winningKangaroo: winner,
+              finishOrder: derivedFinishOrder,
+              kangarooNames,
+              pointsByRank: KANGAROO_POINTS_BY_RANK,
             });
 
             const revealMgs = {
               ...(gameState?.miniGameState || {}),
               game: 'kangaroo_race',
               revealed: true,
-              winningKangaroo: winner,
+              kangarooNames,
+              finishOrder: derivedFinishOrder,
             };
+            await applyKangarooRacePointsOnResult(io, eventPin, revealMgs);
             await emitHorseRacePlayerResults(io, eventPin, revealMgs);
 
             logger.info('Kangaroo race result from Unity relayed to players', {
@@ -719,6 +870,7 @@ const miniGameHandlers = (io, socket) => {
               action: data.action,
               resultType: valueTypeUpper || undefined,
               winningKangaroo: winner,
+              finishOrder: derivedFinishOrder,
             });
             return;
           }
@@ -912,10 +1064,14 @@ const miniGameHandlers = (io, socket) => {
           });
         }
       }
+      const freshState = await redisStore.getGameState(eventPin);
+      const relayedGame =
+        freshState?.miniGameState?.game || freshState?.activeMiniGame || data.game || undefined;
 
       io.to(room).emit(SOCKET_EVENTS.MINI_GAME_UPDATE, {
         teamId,
         teamName: socket.data?.teamName,
+        game: relayedGame,
         action: data.action,
         value: data.value,
         source: data.source || 'player',
@@ -991,23 +1147,42 @@ const miniGameHandlers = (io, socket) => {
       if (
         mgs?.game === 'kangaroo_race' &&
         mgs.revealed &&
-        Number.isFinite(Number(mgs.winningKangaroo))
+        Array.isArray(mgs.finishOrder) &&
+        mgs.finishOrder.length > 0
       ) {
-        const winningKangaroo = Number(mgs.winningKangaroo);
+        const finishOrder = normalizeFinishOrderSlots(mgs.finishOrder, mgs.kangarooNames);
+        const winningKangaroo = Number(finishOrder[0]);
+        const kangarooNames = normalizeKangarooNames(mgs.kangarooNames);
+        const rank = {};
+        finishOrder.forEach((slot, idx) => {
+          rank[slot] = idx + 1;
+        });
         socket.emit(SOCKET_EVENTS.MINI_GAME_REVEAL, {
           game: 'kangaroo_race',
           winningKangaroo,
+          finishOrder,
+          kangarooNames,
+          pointsByRank: KANGAROO_POINTS_BY_RANK,
         });
 
         const selectedChoiceRaw = mgs.selections?.[String(teamId)];
         const selectedChoice = Number.isFinite(Number(selectedChoiceRaw))
           ? Number(selectedChoiceRaw)
           : null;
+        const finishRank = selectedChoice != null ? Number(rank[selectedChoice] || 0) : 0;
+        const pointsEarned =
+          finishRank >= 1 && finishRank <= KANGAROO_POINTS_BY_RANK.length
+            ? Number(KANGAROO_POINTS_BY_RANK[finishRank - 1])
+            : 0;
         socket.emit(SOCKET_EVENTS.MINI_GAME_PLAYER_RESULT, {
           game: 'kangaroo_race',
-          result: selectedChoice === winningKangaroo ? 'winner' : 'loser',
+          result: pointsEarned === KANGAROO_POINTS_BY_RANK[0] ? 'winner' : 'loser',
           winningKangaroo,
+          finishOrder,
+          kangarooNames,
           selectedChoice,
+          finishRank: finishRank || null,
+          pointsEarned,
         });
       }
     } catch (err) {

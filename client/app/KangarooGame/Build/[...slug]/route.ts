@@ -43,17 +43,12 @@ function resolveBuildDir(): string {
 }
 
 function mimeFor(filePath: string): string {
-  const lower = filePath.toLowerCase().replace(/\.br$/i, '');
-  if (
-    lower.endsWith('.js') ||
-    lower.endsWith('.framework.js') ||
-    lower.endsWith('.framework.js.unityweb')
-  ) {
+  const lower = filePath.toLowerCase().replace(/\.(br|gz)$/i, '');
+  if (lower.endsWith('.js') || lower.endsWith('.gz')) {
     return 'application/javascript; charset=utf-8';
   }
-  if (lower.endsWith('.wasm') || lower.endsWith('.wasm.unityweb')) return 'application/wasm';
-  if (lower.endsWith('.data') || lower.endsWith('.data.unityweb'))
-    return 'application/octet-stream';
+  if (lower.endsWith('.wasm') || lower.endsWith('.wasm.gz')) return 'application/wasm';
+  if (lower.endsWith('.data') || lower.endsWith('.data.gz')) return 'application/octet-stream';
   if (lower.endsWith('.json')) return 'application/json';
   if (lower.endsWith('.symbols.json')) return 'application/json';
   return 'application/octet-stream';
@@ -62,7 +57,7 @@ function mimeFor(filePath: string): string {
 function contentEncodingFor(filePath: string): 'gzip' | 'br' | null {
   const lower = filePath.toLowerCase();
   if (lower.endsWith('.br')) return 'br';
-  if (!lower.endsWith('.unityweb')) return null;
+  if (!lower.endsWith('.gz')) return null;
 
   // Unity .unityweb may be gzip or brotli depending on build settings.
   // If it starts with gzip magic bytes (1f 8b), set gzip; otherwise default to br.

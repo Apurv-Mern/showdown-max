@@ -80,20 +80,40 @@ const normalizeFinishOrderSlots = (finishOrderRaw, kangarooNames = DEFAULT_KANGA
   const nameToSlot = new Map(
     normalizedNames.map((name, idx) => [String(name).trim().toLowerCase(), idx + 1]),
   );
+  const numericEntries = input
+    .map((item) => {
+      if (typeof item === 'number' || typeof item === 'string') return Number(item);
+      if (item && typeof item === 'object') {
+        const candidate =
+          item.slot ?? item.kangarooSlot ?? item.kangaroo_index ?? item.kangarooIndex ?? item.index;
+        return Number(candidate);
+      }
+      return NaN;
+    })
+    .filter((n) => Number.isFinite(n))
+    .map((n) => Math.trunc(n));
+  const treatAsZeroBased =
+    numericEntries.length > 0 &&
+    numericEntries.every((n) => n >= 0 && n <= 5) &&
+    numericEntries.includes(0);
 
   const slots = [];
   for (const item of input) {
     if (slots.length >= KANGAROO_SLOT_COUNT) break;
     let slot = NaN;
     if (typeof item === 'number' || typeof item === 'string') {
-      slot = normalizeRevealSlotOneToSix(Number(item));
+      const raw = Number(item);
+      slot = treatAsZeroBased ? normalizeRevealSlotOneToSix(raw + 1) : normalizeRevealSlotOneToSix(raw);
       if (!Number.isFinite(slot) && typeof item === 'string') {
         slot = Number(nameToSlot.get(item.trim().toLowerCase()) || NaN);
       }
     } else if (item && typeof item === 'object') {
       const candidate =
         item.slot ?? item.kangarooSlot ?? item.kangaroo_index ?? item.kangarooIndex ?? item.index;
-      slot = normalizeRevealSlotOneToSix(Number(candidate));
+      const rawCandidate = Number(candidate);
+      slot = treatAsZeroBased
+        ? normalizeRevealSlotOneToSix(rawCandidate + 1)
+        : normalizeRevealSlotOneToSix(rawCandidate);
       if (!Number.isFinite(slot)) {
         const nameCandidate = item.name ?? item.kangarooName ?? item.winner_name ?? item.winnerName;
         if (typeof nameCandidate === 'string') {
@@ -608,6 +628,8 @@ const miniGameHandlers = (io, socket) => {
 
       /** Snapshot for mobile/venue when host triggers reveal (before state is cleared). */
       let cardShuffleReveal = null;
+      /** Full miniGameState snapshot at reveal time (contains player selections). */
+      let capturedMiniGameState = null;
 
       if (payload.game === 'card_shuffle') {
         if (payload.command === 'start_game') {
@@ -617,9 +639,6 @@ const miniGameHandlers = (io, socket) => {
             return;
           }
         }
-
-        /** Full miniGameState from Redis at reveal time — includes player selections. */
-        let capturedMiniGameState = null;
 
         if (payload.command === 'reveal_cards') {
           const gsReveal = await redisStore.getGameState(pin);
@@ -818,6 +837,7 @@ const miniGameHandlers = (io, socket) => {
           const winningKangaroo = winnerCandidates.find((n) => Number.isFinite(n));
 
           const isResultSignal =
+            actionUpper === 'RACE_FINISH' ||
             actionUpper === 'ROUND_RESULT' ||
             actionUpper === 'ROUND_COMPLETE' ||
             actionUpper === 'GAME_COMPLETE' ||

@@ -729,7 +729,8 @@ function VenueDisplayContent() {
         msgType !== 'ROUND_RESULT' &&
         msgType !== 'ROUND_COMPLETE' &&
         msgType !== 'GAME_COMPLETE' &&
-        msgType !== 'MINIGAME_REVEAL'
+        msgType !== 'MINIGAME_REVEAL' &&
+        msgType !== 'RACE_FINISH'
       ) {
         return;
       }
@@ -765,7 +766,8 @@ function VenueDisplayContent() {
           msgType !== 'ROUND_RESULT' &&
           msgType !== 'ROUND_COMPLETE' &&
           msgType !== 'GAME_COMPLETE' &&
-          msgType !== 'MINIGAME_REVEAL'
+          msgType !== 'MINIGAME_REVEAL' &&
+          msgType !== 'RACE_FINISH'
         ) {
           return null;
         }
@@ -1215,6 +1217,16 @@ function VenueDisplayContent() {
             setPhase('mini_game_result');
           }
         } else {
+          if (data.holdScreen) {
+            setMiniGameResult({
+              game: 'Kangaroo_race',
+              holdScreen: true,
+              status: data.status,
+              message: data.message,
+            });
+            setPhase('mini_game_result');
+            return;
+          }
           setMiniGameResult({ ...data, game: normalizedGame });
           setPhase('mini_game_result');
         }
@@ -2220,7 +2232,19 @@ function VenueDisplayContent() {
                 </div>
               </>
             ) : null}
-            {miniGameResult.game === 'Kangaroo_race' && miniGameResult.winningKangaroo && (
+            {miniGameResult.game === 'Kangaroo_race' && miniGameResult.holdScreen ? (
+              <div className="w-full max-w-[980px] rounded-[32px] border border-[#2ec7ff]/45 bg-[linear-gradient(180deg,rgba(38,14,95,0.95)_0%,rgba(15,11,55,0.96)_100%)] px-12 py-16 text-center shadow-[0_0_36px_rgba(0,229,255,0.16)]">
+                <div className="mx-auto mb-8 flex h-24 w-24 items-center justify-center rounded-full border-2 border-[#2ec7ff]/55 bg-[rgba(4,14,38,0.85)] shadow-[0_0_28px_rgba(0,229,255,0.2)]">
+                  <span className="text-2xl font-black tracking-[0.18em] text-[#8fefff]">KR</span>
+                </div>
+                <h2 className="text-6xl font-black text-white drop-shadow-[0_0_16px_rgba(255,255,255,0.18)]">
+                  Game Finished
+                </h2>
+                <p className="mt-5 text-2xl font-semibold text-[#8fefff]">
+                  {miniGameResult.message || 'Wait for the host to start the game.'}
+                </p>
+              </div>
+            ) : miniGameResult.game === 'Kangaroo_race' && miniGameResult.winningKangaroo ? (
               <>
                 <div className="text-7xl mb-6">🦘</div>
                 <h2 className="text-5xl font-black mb-4 text-glow-cyan">Winning Kangaroo</h2>
@@ -2256,7 +2280,7 @@ function VenueDisplayContent() {
                   })}
                 </div>
               </>
-            )}
+            ) : null}
           </div>
         )}
         {/* ── GAME END ── */}

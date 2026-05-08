@@ -1088,7 +1088,13 @@ function HostDashboardContent() {
   };
 
   const handleKangarooRaceFinish = () => {
-    emit('end_mini_game');
+    emit('end_mini_game', {
+      config: {
+        holdScreen: true,
+        status: 'finished',
+        message: 'Game Finished. Wait for the host to start the game.',
+      },
+    });
   };
 
   const launchCardShuffleOnVenue = useCallback(() => {

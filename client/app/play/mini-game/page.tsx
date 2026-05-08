@@ -45,6 +45,7 @@ const CARD_ROUND_BONUS: Record<1 | 2 | 3 | 4, number> = {
   4: 50,
 };
 const CARD_FINISHED_MESSAGE = 'Host will Start the game shortly !!';
+const MINI_GAME_FINISHED_MESSAGE = 'Game Finished. Wait for the host to start the game.';
 const CARD_IMAGE_FACE_DOWN = '/games/card-shuffle/facedowncard.png';
 const CARD_IMAGE_JOKER = '/games/card-shuffle/jokercard.png';
 const CARD_IMAGE_QUEEN = '/games/card-shuffle/queencard.png';
@@ -124,6 +125,7 @@ export default function MiniGamePage() {
   const [activeCardRound, setActiveCardRound] = useState<1 | 2 | 3 | 4 | null>(null);
   /** Short banner when host starts round 1 / advances to round 2+ */
   const [roundAnnouncement, setRoundAnnouncement] = useState<string | null>(null);
+  const [miniGameEndMessage, setMiniGameEndMessage] = useState<string>(MINI_GAME_FINISHED_MESSAGE);
   const sessionPinRef = useRef(session.pin);
   sessionPinRef.current = session.pin;
   selectedChoiceRef.current = selectedChoice;
@@ -457,11 +459,21 @@ export default function MiniGamePage() {
       message?: string;
     }) => {
       logSocketIn('mini_game_end', data);
-      if (normalizeMiniGameId(data?.game) === 'card_shuffle' && data?.holdScreen) {
+      if (data?.holdScreen && normalizeMiniGameId(data?.game) === 'card_shuffle') {
         setGameType('card_shuffle');
         setWinningValue(null);
         setRoundOpen(false);
-        setRoundAnnouncement(CARD_FINISHED_MESSAGE);
+        setMiniGameEndMessage(data?.message || MINI_GAME_FINISHED_MESSAGE);
+        setRoundAnnouncement(data?.message || CARD_FINISHED_MESSAGE);
+        setResultPhase('finished');
+        return;
+      }
+      if (data?.holdScreen && normalizeMiniGameId(data?.game) === 'kangaroo_race') {
+        setGameType('kangaroo_race');
+        setWinningValue(null);
+        setRoundOpen(false);
+        setMiniGameEndMessage(data?.message || MINI_GAME_FINISHED_MESSAGE);
+        setRoundAnnouncement(data?.message || MINI_GAME_FINISHED_MESSAGE);
         setResultPhase('finished');
         return;
       }
@@ -599,6 +611,25 @@ export default function MiniGamePage() {
 
   /** Card shuffle shows win/lose on the themed pick screen; horse race uses full-screen result. */
   if (resultPhase && gameType !== 'card_shuffle') {
+    if (resultPhase === 'finished') {
+      return (
+        <MobileFrame>
+          <div className="flex min-h-0 flex-1 flex-col items-center justify-center py-6">
+            <div className="mx-auto w-full max-w-md text-center">
+              <h2 className="text-[clamp(3.2rem,18vw,5.6rem)] font-black uppercase leading-[0.9] tracking-[0.05em] text-[#59d8ff] [text-shadow:0_0_0_rgb(0,0,0),0_2px_0_#0d4d89,0_0_18px_rgba(89,216,255,0.8)]">
+                GAME
+                <br />
+                OVER
+              </h2>
+              <p className="mt-8 text-[1.05rem] font-extrabold leading-snug text-white drop-shadow-[0_2px_8px_rgba(0,0,0,0.55)]">
+                {miniGameEndMessage}
+              </p>
+            </div>
+          </div>
+        </MobileFrame>
+      );
+    }
+
     const isWinner = resultPhase === 'winner';
     const resolvedWinningSlot =
       gameType === 'kangaroo_race'
@@ -694,7 +725,7 @@ export default function MiniGamePage() {
               </p>
             </header>
 
-            <div className="mx-auto mt-4 flex h-[170px] w-[170px] items-center justify-center rounded-2xl bg-[radial-gradient(circle_at_50%_10%,rgba(255,255,255,0.2),transparent_70%)]">
+            <div className="mx-auto mt-4 flex h-[170px] w-[170px] items-center justify-center rounded-2xl">
               <img
                 src="/KangarooPic.png"
                 alt="Kangaroo"

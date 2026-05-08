@@ -43,10 +43,10 @@ const GAME_CONFIGS: Record<
   { loaderUrl: string; dataUrl: string; frameworkUrl: string; codeUrl: string }
 > = {
   Kangaroo_race: {
-    loaderUrl: '/KangarooGame/Build/Kangaroo_Build.loader.js?v=root-build-v3',
-    dataUrl: '/KangarooGame/Build/Kangaroo_Build.data.unityweb?v=root-build-v3',
-    frameworkUrl: '/KangarooGame/Build/Kangaroo_Build.framework.js.unityweb?v=root-build-v3',
-    codeUrl: '/KangarooGame/Build/Kangaroo_Build.wasm.unityweb?v=root-build-v3',
+    loaderUrl: '/KangarooGame/Build/Kangaroo_Build.loader.js',
+    dataUrl: '/KangarooGame/Build/Kangaroo_Build.data.gz',
+    frameworkUrl: '/KangarooGame/Build/Kangaroo_Build.framework.js.gz',
+    codeUrl: '/KangarooGame/Build/Kangaroo_Build.wasm.gz',
   },
   /** WebGL build served from repo root `CardGame/Build/` via `app/CardGame/Build/[...slug]/route.ts` */
   card_shuffle: {

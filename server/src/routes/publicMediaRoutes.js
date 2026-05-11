@@ -22,9 +22,12 @@ const publicMediaRoutes = async (fastify) => {
       mp4: 'video/mp4',
       jpg: 'image/jpeg',
       jpeg: 'image/jpeg',
+      jfif: 'image/jpeg',
       png: 'image/png',
       gif: 'image/gif',
       webp: 'image/webp',
+      bmp: 'image/bmp',
+      svg: 'image/svg+xml',
     };
     const contentType = mimeMap[ext] || 'application/octet-stream';
 

@@ -124,14 +124,6 @@ function IconImage({ className }: { className?: string }) {
   );
 }
 
-function IconPlay({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 12 12" fill="currentColor" aria-hidden>
-      <path d="M2.5 1.5L10.5 6 2.5 10.5V1.5z" />
-    </svg>
-  );
-}
-
 function IconTrash({ className }: { className?: string }) {
   return (
     <svg className={className} viewBox="0 0 12 12" fill="none" aria-hidden>
@@ -150,6 +142,91 @@ function formatSize(bytes: number) {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+const PREVIEW_IMAGE_EXTS = new Set([
+  'jpg',
+  'jpeg',
+  'jfif',
+  'png',
+  'gif',
+  'webp',
+  'bmp',
+  'svg',
+]);
+
+function isPreviewableImageFile(file: MediaFile): boolean {
+  const mt = String(file.mediaType || '').toLowerCase();
+  if (mt === 'image' || PREVIEW_IMAGE_EXTS.has(mt)) return true;
+  const ext = file.filename.includes('.')
+    ? (file.filename.split('.').pop() || '').toLowerCase()
+    : '';
+  return PREVIEW_IMAGE_EXTS.has(ext);
+}
+
+function publicMediaFileUrl(filename: string) {
+  return `${API_URL}/api/public/media/files/${encodeURIComponent(filename)}`;
+}
+
+function MediaInlinePlayer({
+  filename,
+  mediaType,
+}: {
+  filename: string;
+  mediaType: string;
+}) {
+  const src = publicMediaFileUrl(filename);
+  const t = String(mediaType || '').toLowerCase();
+
+  if (t === 'mp3') {
+    return (
+      <audio
+        key={filename}
+        src={src}
+        controls
+        preload="metadata"
+        className="h-10 w-full min-w-0 rounded-md"
+      />
+    );
+  }
+
+  if (t === 'mp4') {
+    return (
+      <video
+        key={filename}
+        src={src}
+        controls
+        playsInline
+        preload="metadata"
+        className="max-h-40 w-full rounded-md bg-black"
+      />
+    );
+  }
+
+  return null;
+}
+
+function MediaImagePreview({ filename }: { filename: string }) {
+  const [broken, setBroken] = useState(false);
+  if (broken) {
+    return (
+      <div className="mb-3 flex h-[140px] items-center justify-center rounded-[10px] bg-[#252b45]">
+        <IconImage className="size-8 text-[#00d9ff]" />
+      </div>
+    );
+  }
+  return (
+    <div className="mb-3 flex h-[140px] items-center justify-center overflow-hidden rounded-[10px] bg-[#1a1f2e]">
+      <img
+        src={publicMediaFileUrl(filename)}
+        alt=""
+        loading="lazy"
+        decoding="async"
+        className="max-h-full max-w-full object-contain"
+        onError={() => setBroken(true)}
+      />
+    </div>
+  );
 }
 
 export default function MediaPage() {
@@ -500,23 +577,16 @@ export default function MediaPage() {
                         )}
                       </div>
 
-                      <div className="mt-auto flex gap-2">
-                        <a
-                          href={`${API_URL}${file.url}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="flex flex-1 items-center justify-center rounded-[10px] border border-[rgba(0,217,255,0.3)] bg-[#252b45] py-2 text-[#00d9ff] transition-colors hover:bg-[#2e354c]"
-                          aria-label={`Play or open ${file.filename}`}
-                        >
-                          <IconPlay className="size-3" />
-                        </a>
+                      <div className="mt-auto flex flex-col gap-2">
+                        <MediaInlinePlayer filename={file.filename} mediaType={file.mediaType} />
                         <button
                           type="button"
                           onClick={() => setDeleteTarget(file.filename)}
-                          className="flex flex-1 items-center justify-center rounded-[10px] border border-[rgba(255,0,128,0.3)] bg-[#252b45] py-2 text-white/90 transition-colors hover:bg-[#2e354c]"
+                          className="flex w-full items-center justify-center gap-2 rounded-[10px] border border-[rgba(255,0,128,0.3)] bg-[#252b45] py-2 text-sm text-white/90 transition-colors hover:bg-[#2e354c]"
                           aria-label={`Delete ${file.filename}`}
                         >
                           <IconTrash className="size-3" />
+                          Delete
                         </button>
                       </div>
                     </article>
@@ -531,11 +601,7 @@ export default function MediaPage() {
               <h2 className="mb-4 text-lg font-semibold text-white">Images &amp; other files</h2>
               <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
                 {otherFiles.map((file) => {
-                  const isImage =
-                    file.mediaType === 'image' ||
-                    ['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(
-                      String(file.mediaType || '').toLowerCase(),
-                    );
+                  const showImageThumb = isPreviewableImageFile(file);
 
                   return (
                     <article
@@ -545,13 +611,13 @@ export default function MediaPage() {
                         BG_MEDIA_CARD,
                       )}
                     >
-                      <div className="mb-3 flex h-[140px] items-center justify-center rounded-[10px] bg-[#252b45]">
-                        {isImage ? (
-                          <IconImage className="size-8 text-[#00d9ff]" />
-                        ) : (
+                      {showImageThumb ? (
+                        <MediaImagePreview filename={file.filename} />
+                      ) : (
+                        <div className="mb-3 flex h-[140px] items-center justify-center rounded-[10px] bg-[#252b45]">
                           <span className="text-xs text-white/50">{file.mediaType || 'file'}</span>
-                        )}
-                      </div>
+                        </div>
+                      )}
                       <p className="mb-3 truncate text-sm text-white" title={file.filename}>
                         {file.filename}
                       </p>
@@ -559,23 +625,15 @@ export default function MediaPage() {
                         {file.mediaType?.toUpperCase() || 'Unknown'} · {formatSize(file.size)} ·{' '}
                         {new Date(file.createdAt).toLocaleDateString()}
                       </p>
-                      <div className="mt-auto flex gap-2">
-                        <a
-                          href={`${API_URL}${file.url}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="flex flex-1 items-center justify-center rounded-[10px] border border-[rgba(0,217,255,0.3)] bg-[#252b45] py-2 text-[#00d9ff] transition-colors hover:bg-[#2e354c]"
-                          aria-label={`Open ${file.filename}`}
-                        >
-                          <IconPlay className="size-3" />
-                        </a>
+                      <div className="mt-auto flex flex-col gap-2">
                         <button
                           type="button"
                           onClick={() => setDeleteTarget(file.filename)}
-                          className="flex flex-1 items-center justify-center rounded-[10px] border border-[rgba(255,0,128,0.3)] bg-[#252b45] py-2 text-white/90 transition-colors hover:bg-[#2e354c]"
+                          className="flex w-full items-center justify-center gap-2 rounded-[10px] border border-[rgba(255,0,128,0.3)] bg-[#252b45] py-2 text-sm text-white/90 transition-colors hover:bg-[#2e354c]"
                           aria-label={`Delete ${file.filename}`}
                         >
                           <IconTrash className="size-3" />
+                          Delete
                         </button>
                       </div>
                     </article>

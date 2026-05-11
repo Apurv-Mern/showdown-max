@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import toast from 'react-hot-toast';
 import { api, apiUpload } from '@/lib/api';
 import { Modal } from '@/components/shared/Modal';
@@ -42,6 +42,91 @@ interface MediaReference {
 
 interface LibraryMediaFile extends MediaFile {
   references: MediaReference[];
+}
+
+interface MediaLibraryPayload {
+  music: LibraryMediaFile[];
+  images: LibraryMediaFile[];
+}
+
+function usedInFingerprint(r: MediaReference) {
+  return [
+    r.quizId ?? 'bank',
+    r.roundId ?? 'noround',
+    r.questionOrder,
+    String(r.questionPreview || '').trim(),
+  ].join('|');
+}
+
+function UsedInReferences({ references }: { references: MediaReference[] }) {
+  const uniqueRefs = useMemo(() => {
+    const out: MediaReference[] = [];
+    const seenIds = new Set<string>();
+    const seenFp = new Set<string>();
+    for (const r of references) {
+      const idKey = String(r.questionId);
+      const fp = usedInFingerprint(r);
+      if (seenIds.has(idKey)) continue;
+      if (seenFp.has(fp)) continue;
+      seenIds.add(idKey);
+      seenFp.add(fp);
+      out.push(r);
+    }
+    return out;
+  }, [references]);
+
+  return (
+    <div className="mb-3 grow rounded-lg border border-white/10 bg-black/25 p-3 text-left">
+      <p className="mb-2 text-[10px] font-bold uppercase tracking-wider text-white/50">Used in</p>
+      {uniqueRefs.length === 0 ? (
+        <p className="text-xs text-[#99a1af]">Not linked to any question.</p>
+      ) : (
+        <>
+          {/* {uniqueRefs.length > 1 ? (
+            <p className="mb-2 text-[11px] leading-snug text-amber-200/80">
+              This file is attached to <span className="font-bold text-amber-100">{uniqueRefs.length}</span>{' '}
+              different questions (each row is a separate quiz/question in the database).
+            </p>
+          ) : null} */}
+          <ul className="max-h-40 space-y-3 overflow-y-auto text-xs text-white/85">
+            {uniqueRefs.map((ref) => (
+              <li
+                key={ref.questionId}
+                className="border-b border-white/5 pb-2 last:border-b-0 last:pb-0"
+              >
+                {ref.quizId != null ? (
+                  <Link
+                    href={`/admin/quizzes/${ref.quizId}`}
+                    className="font-semibold text-[#00d9ff] hover:underline"
+                  >
+                    {ref.quizTitle || `Quiz #${ref.quizId}`}
+                  </Link>
+                ) : (
+                  <Link
+                    href="/admin/questions"
+                    className="font-semibold text-[#a78bfa] hover:underline"
+                  >
+                    Question bank
+                  </Link>
+                )}
+                <span className="text-white/50">
+                  {' '}
+                  · {ref.roundName ? `${ref.roundName}` : 'No round'} · Q #{ref.questionOrder + 1}
+                </span>
+                <p className="mt-0.5 line-clamp-2 text-[11px] text-white/45">
+                  {ref.questionPreview}
+                </p>
+                <p className="mt-1 font-mono text-[10px] text-white/35">
+                  Question id {ref.questionId}
+                  {ref.quizId != null ? ` · Quiz id ${ref.quizId}` : ''}
+                </p>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+    </div>
+  );
 }
 
 function IconUploadLarge({ className }: { className?: string }) {
@@ -144,16 +229,7 @@ function formatSize(bytes: number) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-const PREVIEW_IMAGE_EXTS = new Set([
-  'jpg',
-  'jpeg',
-  'jfif',
-  'png',
-  'gif',
-  'webp',
-  'bmp',
-  'svg',
-]);
+const PREVIEW_IMAGE_EXTS = new Set(['jpg', 'jpeg', 'jfif', 'png', 'gif', 'webp', 'bmp', 'svg']);
 
 function isPreviewableImageFile(file: MediaFile): boolean {
   const mt = String(file.mediaType || '').toLowerCase();
@@ -168,13 +244,7 @@ function publicMediaFileUrl(filename: string) {
   return `${API_URL}/api/public/media/files/${encodeURIComponent(filename)}`;
 }
 
-function MediaInlinePlayer({
-  filename,
-  mediaType,
-}: {
-  filename: string;
-  mediaType: string;
-}) {
+function MediaInlinePlayer({ filename, mediaType }: { filename: string; mediaType: string }) {
   const src = publicMediaFileUrl(filename);
   const t = String(mediaType || '').toLowerCase();
 
@@ -231,7 +301,7 @@ function MediaImagePreview({ filename }: { filename: string }) {
 
 export default function MediaPage() {
   const [libraryItems, setLibraryItems] = useState<LibraryMediaFile[]>([]);
-  const [otherFiles, setOtherFiles] = useState<MediaFile[]>([]);
+  const [otherFiles, setOtherFiles] = useState<LibraryMediaFile[]>([]);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [dragOver, setDragOver] = useState(false);
@@ -245,18 +315,19 @@ export default function MediaPage() {
   const fetchFiles = async () => {
     try {
       setLoading(true);
-      const [libRes, allRes] = await Promise.all([
-        api.get<LibraryMediaFile[]>('/api/media/library'),
-        api.get<MediaFile[]>('/api/media/files'),
-      ]);
-      setLibraryItems(Array.isArray(libRes.data) ? libRes.data : []);
-      const all = (allRes.data || []).filter((f) => f.filename !== '.gitkeep');
-      setOtherFiles(
-        all.filter((f) => {
-          const t = String(f.mediaType || '').toLowerCase();
-          return t !== 'mp3' && t !== 'mp4';
-        }),
-      );
+      const libRes = await api.get<MediaLibraryPayload | LibraryMediaFile[]>('/api/media/library');
+      const raw = libRes.data;
+      let music: LibraryMediaFile[] = [];
+      let images: LibraryMediaFile[] = [];
+      if (raw && typeof raw === 'object' && !Array.isArray(raw) && 'music' in raw) {
+        const p = raw as MediaLibraryPayload;
+        music = Array.isArray(p.music) ? p.music : [];
+        images = Array.isArray(p.images) ? p.images : [];
+      } else if (Array.isArray(raw)) {
+        music = raw;
+      }
+      setLibraryItems(music);
+      setOtherFiles(images);
     } catch (err: unknown) {
       console.error('Failed to fetch files:', err);
       toast.error('Failed to load media library');
@@ -531,7 +602,9 @@ export default function MediaPage() {
               <span
                 className={cn(
                   'rounded-full px-2 py-0.5 text-xs font-black tabular-nums',
-                  mediaTab === 'music' ? 'bg-[#00d9ff]/20 text-[#00d9ff]' : 'bg-white/10 text-white/50',
+                  mediaTab === 'music'
+                    ? 'bg-[#00d9ff]/20 text-[#00d9ff]'
+                    : 'bg-white/10 text-white/50',
                 )}
               >
                 {libraryItems.length}
@@ -556,7 +629,9 @@ export default function MediaPage() {
               <span
                 className={cn(
                   'rounded-full px-2 py-0.5 text-xs font-black tabular-nums',
-                  mediaTab === 'images' ? 'bg-[#00d9ff]/20 text-[#00d9ff]' : 'bg-white/10 text-white/50',
+                  mediaTab === 'images'
+                    ? 'bg-[#00d9ff]/20 text-[#00d9ff]'
+                    : 'bg-white/10 text-white/50',
                 )}
               >
                 {otherFiles.length}
@@ -613,44 +688,7 @@ export default function MediaPage() {
                           {new Date(file.createdAt).toLocaleDateString()}
                         </p>
 
-                        <div className="mb-3 grow rounded-lg border border-white/10 bg-black/25 p-3 text-left">
-                          <p className="mb-2 text-[10px] font-bold uppercase tracking-wider text-white/50">
-                            Used in
-                          </p>
-                          {file.references.length === 0 ? (
-                            <p className="text-xs text-[#99a1af]">Not linked to any question.</p>
-                          ) : (
-                            <ul className="max-h-40 space-y-2 overflow-y-auto text-xs text-white/85">
-                              {file.references.map((ref) => (
-                                <li key={ref.questionId}>
-                                  {ref.quizId != null ? (
-                                    <Link
-                                      href={`/admin/quizzes/${ref.quizId}`}
-                                      className="font-semibold text-[#00d9ff] hover:underline"
-                                    >
-                                      {ref.quizTitle || `Quiz #${ref.quizId}`}
-                                    </Link>
-                                  ) : (
-                                    <Link
-                                      href="/admin/questions"
-                                      className="font-semibold text-[#a78bfa] hover:underline"
-                                    >
-                                      Question bank
-                                    </Link>
-                                  )}
-                                  <span className="text-white/50">
-                                    {' '}
-                                    · {ref.roundName ? `Round: ${ref.roundName}` : 'No round'} · Q #
-                                    {ref.questionOrder}
-                                  </span>
-                                  <p className="mt-0.5 line-clamp-2 text-[11px] text-white/45">
-                                    {ref.questionPreview}
-                                  </p>
-                                </li>
-                              ))}
-                            </ul>
-                          )}
-                        </div>
+                        <UsedInReferences references={file.references} />
 
                         <div className="mt-auto flex flex-col gap-2">
                           <MediaInlinePlayer filename={file.filename} mediaType={file.mediaType} />
@@ -678,7 +716,8 @@ export default function MediaPage() {
               aria-labelledby="media-tab-images"
             >
               <p className="mb-4 text-sm text-[#99a1af]">
-                Images and other uploads. Thumbnails use the public file URL.
+                Images and other uploads. Thumbnails use the public file URL. Usage shows which quiz
+                and question reference each file.
               </p>
               {otherFiles.length === 0 ? (
                 <div
@@ -706,7 +745,9 @@ export default function MediaPage() {
                           <MediaImagePreview filename={file.filename} />
                         ) : (
                           <div className="mb-3 flex h-[140px] items-center justify-center rounded-[10px] bg-[#252b45]">
-                            <span className="text-xs text-white/50">{file.mediaType || 'file'}</span>
+                            <span className="text-xs text-white/50">
+                              {file.mediaType || 'file'}
+                            </span>
                           </div>
                         )}
                         <p className="mb-3 truncate text-sm text-white" title={file.filename}>
@@ -716,6 +757,7 @@ export default function MediaPage() {
                           {file.mediaType?.toUpperCase() || 'Unknown'} · {formatSize(file.size)} ·{' '}
                           {new Date(file.createdAt).toLocaleDateString()}
                         </p>
+                        <UsedInReferences references={file.references} />
                         <div className="mt-auto flex flex-col gap-2">
                           <button
                             type="button"

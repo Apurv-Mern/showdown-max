@@ -19,29 +19,28 @@ const filenameFromMediaUrl = (mediaUrl) => {
   return tail ? decodeURIComponent(tail[1]) : null;
 };
 
-/**
- * MP3/MP4 files on disk with quiz/round/question usage.
- */
-const listMediaLibrary = async () => {
-  const allFiles = mediaService.listFiles().filter((f) => f.filename !== '.gitkeep');
-  const audioVideo = allFiles.filter((f) => {
-    const ext = path.extname(f.filename).slice(1).toLowerCase();
-    const t = String(f.mediaType || ext).toLowerCase();
-    return t === 'mp3' || t === 'mp4';
-  });
+const isAudioVideoFile = (file) => {
+  const ext = path.extname(file.filename).slice(1).toLowerCase();
+  const t = String(file.mediaType || ext).toLowerCase();
+  return t === 'mp3' || t === 'mp4';
+};
 
+/**
+ * Build map filename -> quiz/round/question rows for every question with media.
+ * @returns {Promise<Map<string, object[]>>}
+ */
+const referenceFingerprint = (row) =>
+  [
+    row.quizId ?? 'bank',
+    row.roundId ?? 'noround',
+    row.questionOrder,
+    String(row.questionPreview || '').trim(),
+  ].join('|');
+
+const buildReferencesByFilename = async () => {
   const questions = await Question.findAll({
     where: {
-      [Op.and]: [
-        { mediaUrl: { [Op.and]: [{ [Op.ne]: null }, { [Op.ne]: '' }] } },
-        {
-          [Op.or]: [
-            { mediaType: { [Op.in]: ['mp3', 'mp4'] } },
-            { mediaUrl: { [Op.like]: '%.mp3' } },
-            { mediaUrl: { [Op.like]: '%.mp4' } },
-          ],
-        },
-      ],
+      mediaUrl: { [Op.and]: [{ [Op.ne]: null }, { [Op.ne]: '' }] },
     },
     attributes: ['id', 'text', 'mediaUrl', 'mediaType', 'order', 'roundId'],
     include: [
@@ -71,17 +70,41 @@ const listMediaLibrary = async () => {
       roundOrder: q.round?.order ?? null,
     };
     if (!byFilename.has(fn)) byFilename.set(fn, []);
-    byFilename.get(fn).push(row);
+    const list = byFilename.get(fn);
+    const fp = referenceFingerprint(row);
+    if (list.some((r) => r.questionId === row.questionId)) continue;
+    if (list.some((r) => referenceFingerprint(r) === fp)) continue;
+    list.push(row);
   }
+  return byFilename;
+};
 
-  return audioVideo.map((file) => ({
-    filename: file.filename,
-    url: file.url,
-    mediaType: String(file.mediaType || path.extname(file.filename).slice(1)).toLowerCase(),
-    size: file.size,
-    createdAt: file.createdAt,
-    references: byFilename.get(file.filename) || [],
-  }));
+const mapDiskFile = (file, byFilename) => ({
+  filename: file.filename,
+  url: file.url,
+  mediaType: String(file.mediaType || path.extname(file.filename).slice(1)).toLowerCase(),
+  size: file.size,
+  createdAt: file.createdAt,
+  references: byFilename.get(file.filename) || [],
+});
+
+/**
+ * MP3/MP4 and other (e.g. image) files on disk with quiz/round/question usage.
+ * Each file's `references` may include multiple rows when the same upload URL is
+ * attached to more than one question (e.g. reused across quizzes) — that is expected.
+ * @returns {{ music: object[], images: object[] }}
+ */
+const listMediaLibrary = async () => {
+  const allFiles = mediaService.listFiles().filter((f) => f.filename !== '.gitkeep');
+  const byFilename = await buildReferencesByFilename();
+
+  const musicFiles = allFiles.filter(isAudioVideoFile);
+  const imageFiles = allFiles.filter((f) => !isAudioVideoFile(f));
+
+  return {
+    music: musicFiles.map((file) => mapDiskFile(file, byFilename)),
+    images: imageFiles.map((file) => mapDiskFile(file, byFilename)),
+  };
 };
 
 /**

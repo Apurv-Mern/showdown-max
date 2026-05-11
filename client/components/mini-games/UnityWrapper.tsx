@@ -278,7 +278,19 @@ export default function UnityWrapper({
       {/* Loading overlay */}
       {!isLoaded && (
         <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-background/80">
-          <div className="text-4xl mb-4">{gameType === 'Kangaroo_race' ? '🏇' : '🃏'}</div>
+          <div className="mb-4 flex h-24 w-28 items-center justify-center sm:h-28 sm:w-32">
+            {gameType === 'Kangaroo_race' ? (
+              <img
+                src="/KangarooPic.png"
+                alt=""
+                className="max-h-full w-full object-contain object-bottom"
+              />
+            ) : (
+              <span className="text-4xl" aria-hidden>
+                🃏
+              </span>
+            )}
+          </div>
           <p className="text-lg font-semibold mb-3">
             Loading {gameType === 'Kangaroo_race' ? 'Kangaroo Race' : 'Card Shuffle'}
           </p>
@@ -307,7 +319,19 @@ export default function UnityWrapper({
 function FallbackView({ gameType }: { gameType: string }) {
   return (
     <div className="w-full h-full flex flex-col items-center justify-center text-center gap-4 bg-surface/50 rounded-2xl border border-border">
-      <div className="text-7xl">{gameType === 'Kangaroo_race' ? '🏇' : '🃏'}</div>
+      <div className="flex h-32 w-36 items-center justify-center sm:h-36 sm:w-40">
+        {gameType === 'Kangaroo_race' ? (
+          <img
+            src="/KangarooPic.png"
+            alt=""
+            className="max-h-full w-full object-contain object-bottom"
+          />
+        ) : (
+          <span className="text-7xl" aria-hidden>
+            🃏
+          </span>
+        )}
+      </div>
       <h3 className="text-3xl font-black">
         {gameType === 'Kangaroo_race' ? 'Kangaroo Race' : 'Card Shuffle'}
       </h3>

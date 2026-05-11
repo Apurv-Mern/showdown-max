@@ -367,6 +367,9 @@ function HostDashboardContent() {
   const [miniGameLoading, setMiniGameLoading] = useState(false);
   const [miniGameRevealing, setMiniGameRevealing] = useState(false);
   const [cardShuffleFinishedHold, setCardShuffleFinishedHold] = useState(false);
+  const [finishedMiniGameType, setFinishedMiniGameType] = useState<'card_shuffle' | 'kangaroo_race' | null>(
+    null,
+  );
   const [cardShuffleFinishedMessage, setCardShuffleFinishedMessage] = useState(
     'Game Over. Wait for the host to start the game.',
   );
@@ -475,6 +478,7 @@ function HostDashboardContent() {
       if (data?.state) {
         if (data.state !== 'QUESTION' && data.state !== 'ROUND_INTRO') {
           setCardShuffleFinishedHold(false);
+          setFinishedMiniGameType(null);
         }
         setGameState(data);
         if (data.state === 'BREAK') {
@@ -571,6 +575,7 @@ function HostDashboardContent() {
 
     const onQuestionActive = (data: QuestionData) => {
       setCardShuffleFinishedHold(false);
+      setFinishedMiniGameType(null);
       setCurrentQuestion(data);
       setRevealData(null);
       setTimerDuration(data.timerDuration);
@@ -652,6 +657,7 @@ function HostDashboardContent() {
 
     const onRoundIntro = (data: { roundIndex?: number }) => {
       setCardShuffleFinishedHold(false);
+      setFinishedMiniGameType(null);
       setCurrentQuestion(null);
       setRevealData(null);
       setIsScoreboardVisible(false);
@@ -738,6 +744,7 @@ function HostDashboardContent() {
 
     const onBreakStart = (payload?: { duration?: number; breakDuration?: number }) => {
       setCardShuffleFinishedHold(false);
+      setFinishedMiniGameType(null);
       setIsScoreboardVisible(false);
       const d = Number(
         payload?.duration ?? payload?.breakDuration ?? gameStateRef.current?.breakDuration ?? 360,
@@ -756,6 +763,7 @@ function HostDashboardContent() {
 
     const onGameEnd = (data?: { teams?: Team[] }) => {
       setCardShuffleFinishedHold(false);
+      setFinishedMiniGameType(null);
       setCurrentQuestion(null);
       setRevealData(null);
       setIsScoreboardVisible(false);
@@ -826,6 +834,7 @@ function HostDashboardContent() {
 
     const onMiniGameStart = (data: { game: string }) => {
       setCardShuffleFinishedHold(false);
+      setFinishedMiniGameType(null);
       setActiveMiniGameLocal(data.game);
       setMiniGameLoading(false);
       setCardShuffleVenueReady(false);
@@ -895,11 +904,13 @@ function HostDashboardContent() {
         setCardPickCounts([0, 0, 0]);
         if (data?.holdScreen) {
           setCardShuffleFinishedHold(true);
+          setFinishedMiniGameType('card_shuffle');
           setCardShuffleFinishedMessage(
             data.message || 'Game Over. Wait for the host to start the game.',
           );
         } else {
           setCardShuffleFinishedHold(false);
+          setFinishedMiniGameType(null);
         }
       } else if (normalizeHostMiniGameId(data?.game) === 'kangaroo_race') {
         setKangarooRaceStarted(false);
@@ -908,6 +919,16 @@ function HostDashboardContent() {
         setKangarooVenueLoading(false);
         setKangarooFinishOrder([]);
         setKangarooBetCounts([0, 0, 0, 0, 0, 0]);
+        if (data?.holdScreen) {
+          setCardShuffleFinishedHold(true);
+          setFinishedMiniGameType('kangaroo_race');
+          setCardShuffleFinishedMessage(
+            data.message || 'Game Over. Wait for the host to start the game.',
+          );
+        } else {
+          setCardShuffleFinishedHold(false);
+          setFinishedMiniGameType(null);
+        }
       }
       setActiveMiniGameLocal(null);
       setMiniGameRevealing(false);
@@ -1031,6 +1052,7 @@ function HostDashboardContent() {
   const handleCollectWagers = () => emit('collect_wagers');
   const handleStartNextRoundAfterCardShuffle = () => {
     setCardShuffleFinishedHold(false);
+    setFinishedMiniGameType(null);
     setCardShuffleFinishedMessage('Game Over. Wait for the host to start the game.');
     handleNextQuestion();
   };
@@ -1642,10 +1664,12 @@ function HostDashboardContent() {
             <div className="flex min-h-0 flex-1 items-center justify-center rounded-2xl border-2 border-[rgba(0,217,255,0.45)] bg-[linear-gradient(180deg,rgba(26,31,46,0.85)_0%,rgba(11,15,26,0.92)_100%)] p-6 shadow-[0_0_28px_rgba(0,217,255,0.12)] sm:p-6">
               <div className="w-full max-w-3xl rounded-[28px] border border-[#2ec7ff]/45 bg-[linear-gradient(180deg,rgba(38,14,95,0.95)_0%,rgba(15,11,55,0.96)_100%)] px-8 py-12 text-center shadow-[0_0_36px_rgba(0,229,255,0.16)]">
                 <div className="mx-auto mb-6 flex h-24 w-24 items-center justify-center rounded-full border-2 border-[#2ec7ff]/55 bg-[rgba(4,14,38,0.85)] shadow-[0_0_28px_rgba(0,229,255,0.2)]">
-                  <span className="text-2xl font-black tracking-[0.18em] text-[#8fefff]">CS</span>
+                  <span className="text-2xl font-black tracking-[0.18em] text-[#8fefff]">
+                    {finishedMiniGameType === 'kangaroo_race' ? 'KR' : 'CS'}
+                  </span>
                 </div>
                 <p className="text-sm font-black uppercase tracking-[0.28em] text-[#2be9ff]">
-                  Card Shuffle
+                  {finishedMiniGameType === 'kangaroo_race' ? 'Kangaroo Race' : 'Card Shuffle'}
                 </p>
                 <h2 className="mt-4 text-5xl font-black text-white drop-shadow-[0_0_16px_rgba(255,255,255,0.18)] sm:text-6xl">
                   Game Over

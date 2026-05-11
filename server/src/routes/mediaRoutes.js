@@ -1,6 +1,7 @@
 const path = require('path');
 const { success, error } = require('../utils/responseWrapper');
 const mediaService = require('../services/mediaService');
+const mediaReferenceService = require('../services/mediaReferenceService');
 
 /**
  * @param {import('fastify').FastifyInstance} fastify
@@ -27,6 +28,11 @@ const mediaRoutes = async (fastify) => {
   fastify.get('/files', async () => {
     const files = mediaService.listFiles();
     return success(files, 'Files listed');
+  });
+
+  fastify.get('/library', async () => {
+    const items = await mediaReferenceService.listMediaLibrary();
+    return success(items, 'Media library');
   });
 
   fastify.get('/files/:filename', async (request, reply) => {
@@ -57,14 +63,16 @@ const mediaRoutes = async (fastify) => {
   });
 
   fastify.delete('/files/:filename', async (request, reply) => {
-    const { filename } = request.params;
-    const deleted = mediaService.deleteFile(filename);
+    const raw = request.params.filename;
+    const filename = typeof raw === 'string' ? decodeURIComponent(raw) : raw;
+    const { deleted, detachedQuestionCount } =
+      await mediaReferenceService.detachQuestionsAndDeleteFile(filename);
 
     if (!deleted) {
       reply.status(404);
       return error('File not found', 404);
     }
-    return success(null, 'File deleted');
+    return success({ detachedQuestionCount }, 'File deleted');
   });
 };
 

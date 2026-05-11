@@ -2154,8 +2154,22 @@ function VenueDisplayContent() {
         {phase === 'mini_game' && miniGameType && (
           <div className="flex flex-col animate-fadeIn">
             <div className="px-6 py-3 flex items-center justify-between border-b border-border/30">
-              <h2 className="text-2xl font-black text-neon-cyan text-glow-cyan">
-                {miniGameType === 'Kangaroo_race' ? '🏇 Kangaroo Race' : '🃏 Card Shuffle'}
+              <h2 className="flex items-center gap-2 text-2xl font-black text-neon-cyan text-glow-cyan">
+                {miniGameType === 'Kangaroo_race' ? (
+                  <>
+                    <img
+                      src="/KangarooPic.png"
+                      alt=""
+                      className="h-9 w-9 shrink-0 object-contain sm:h-10 sm:w-10"
+                    />
+                    <span>Kangaroo Race</span>
+                  </>
+                ) : (
+                  <>
+                    <span aria-hidden>🃏</span>
+                    <span>Card Shuffle</span>
+                  </>
+                )}
               </h2>
               <p className="text-foreground/40 text-sm">Players pick on their devices</p>
             </div>

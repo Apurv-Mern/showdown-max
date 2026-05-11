@@ -237,6 +237,7 @@ export default function MediaPage() {
   const [dragOver, setDragOver] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
+  const [mediaTab, setMediaTab] = useState<'music' | 'images'>('music');
   const browseInputRef = useRef<HTMLInputElement>(null);
   const mp3InputRef = useRef<HTMLInputElement>(null);
   const mp4InputRef = useRef<HTMLInputElement>(null);
@@ -267,6 +268,15 @@ export default function MediaPage() {
   useEffect(() => {
     fetchFiles();
   }, []);
+
+  useEffect(() => {
+    if (loading) return;
+    setMediaTab((prev) => {
+      if (libraryItems.length === 0 && otherFiles.length > 0) return 'images';
+      if (otherFiles.length === 0 && libraryItems.length > 0) return 'music';
+      return prev;
+    });
+  }, [loading, libraryItems.length, otherFiles.length]);
 
   const doUpload = useCallback(async (file: File) => {
     const formData = new FormData();
@@ -496,152 +506,234 @@ export default function MediaPage() {
           </p>
         </div>
       ) : (
-        <div className="flex flex-col gap-10">
-          <section data-name="MP3 MP4 Library">
-            <h2 className="mb-4 text-lg font-semibold text-white">MP3 &amp; MP4 (quiz usage)</h2>
-            {libraryItems.length === 0 ? (
-              <div
+        <div>
+          <div
+            role="tablist"
+            aria-label="Media categories"
+            className="mb-6 flex flex-wrap gap-2 border-b border-white/10 pb-3"
+          >
+            <button
+              type="button"
+              role="tab"
+              aria-selected={mediaTab === 'music'}
+              id="media-tab-music"
+              aria-controls="media-panel-music"
+              onClick={() => setMediaTab('music')}
+              className={cn(
+                'flex items-center gap-2 rounded-t-lg border border-b-0 px-5 py-2.5 text-sm font-bold uppercase tracking-wide transition',
+                mediaTab === 'music'
+                  ? 'border-[rgba(0,217,255,0.45)] bg-[linear-gradient(180deg,rgba(0,217,255,0.12)_0%,rgba(15,20,32,0.95)_100%)] text-[#00d9ff] shadow-[0_-4px_16px_rgba(0,217,255,0.08)]'
+                  : 'border-transparent bg-white/5 text-white/55 hover:bg-white/10 hover:text-white/80',
+              )}
+            >
+              <IconMusic className="size-4 shrink-0" />
+              Music
+              <span
                 className={cn(
-                  'rounded-2xl border-2 border-[rgba(0,217,255,0.2)] py-10 text-center text-[#99a1af]',
-                  BG_MEDIA_CARD,
+                  'rounded-full px-2 py-0.5 text-xs font-black tabular-nums',
+                  mediaTab === 'music' ? 'bg-[#00d9ff]/20 text-[#00d9ff]' : 'bg-white/10 text-white/50',
                 )}
               >
-                No audio or video files in storage yet.
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 gap-6 lg:grid-cols-2 xl:grid-cols-3">
-                {libraryItems.map((file) => {
-                  const isMp3 = file.mediaType === 'mp3';
-                  const isMp4 = file.mediaType === 'mp4';
+                {libraryItems.length}
+              </span>
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={mediaTab === 'images'}
+              id="media-tab-images"
+              aria-controls="media-panel-images"
+              onClick={() => setMediaTab('images')}
+              className={cn(
+                'flex items-center gap-2 rounded-t-lg border border-b-0 px-5 py-2.5 text-sm font-bold uppercase tracking-wide transition',
+                mediaTab === 'images'
+                  ? 'border-[rgba(0,217,255,0.45)] bg-[linear-gradient(180deg,rgba(0,217,255,0.12)_0%,rgba(15,20,32,0.95)_100%)] text-[#00d9ff] shadow-[0_-4px_16px_rgba(0,217,255,0.08)]'
+                  : 'border-transparent bg-white/5 text-white/55 hover:bg-white/10 hover:text-white/80',
+              )}
+            >
+              <IconImage className="size-4 shrink-0" />
+              Images
+              <span
+                className={cn(
+                  'rounded-full px-2 py-0.5 text-xs font-black tabular-nums',
+                  mediaTab === 'images' ? 'bg-[#00d9ff]/20 text-[#00d9ff]' : 'bg-white/10 text-white/50',
+                )}
+              >
+                {otherFiles.length}
+              </span>
+            </button>
+          </div>
 
-                  return (
-                    <article
-                      key={file.filename}
-                      data-name="Container"
-                      className={cn(
-                        'flex flex-col rounded-2xl border-2 border-[rgba(0,217,255,0.3)] p-4',
-                        BG_MEDIA_CARD,
-                      )}
-                    >
-                      <div className="mb-3 flex h-[100px] items-center justify-center rounded-[10px] bg-[#252b45]">
-                        {isMp3 && <IconMusic className="size-8 text-[#00d9ff]" />}
-                        {isMp4 && <IconVideo className="size-8 text-[#00d9ff]" />}
-                      </div>
-                      <p
-                        className="mb-2 truncate text-sm font-medium text-white"
-                        title={file.filename}
-                      >
-                        {file.filename}
-                      </p>
-                      <p className="mb-3 text-xs text-[#99a1af]">
-                        {file.mediaType?.toUpperCase() || 'Unknown'} · {formatSize(file.size)} ·{' '}
-                        {new Date(file.createdAt).toLocaleDateString()}
-                      </p>
+          {mediaTab === 'music' ? (
+            <section
+              data-name="MP3 MP4 Library"
+              id="media-panel-music"
+              role="tabpanel"
+              aria-labelledby="media-tab-music"
+            >
+              <p className="mb-4 text-sm text-[#99a1af]">
+                MP3 / MP4 with quiz and question usage. Play inline below each file.
+              </p>
+              {libraryItems.length === 0 ? (
+                <div
+                  className={cn(
+                    'rounded-2xl border-2 border-[rgba(0,217,255,0.2)] py-10 text-center text-[#99a1af]',
+                    BG_MEDIA_CARD,
+                  )}
+                >
+                  No audio or video files in storage yet.
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 gap-6 lg:grid-cols-2 xl:grid-cols-3">
+                  {libraryItems.map((file) => {
+                    const isMp3 = file.mediaType === 'mp3';
+                    const isMp4 = file.mediaType === 'mp4';
 
-                      <div className="mb-3 grow rounded-lg border border-white/10 bg-black/25 p-3 text-left">
-                        <p className="mb-2 text-[10px] font-bold uppercase tracking-wider text-white/50">
-                          Used in
-                        </p>
-                        {file.references.length === 0 ? (
-                          <p className="text-xs text-[#99a1af]">Not linked to any question.</p>
-                        ) : (
-                          <ul className="max-h-40 space-y-2 overflow-y-auto text-xs text-white/85">
-                            {file.references.map((ref) => (
-                              <li key={ref.questionId}>
-                                {ref.quizId != null ? (
-                                  <Link
-                                    href={`/admin/quizzes/${ref.quizId}`}
-                                    className="font-semibold text-[#00d9ff] hover:underline"
-                                  >
-                                    {ref.quizTitle || `Quiz #${ref.quizId}`}
-                                  </Link>
-                                ) : (
-                                  <Link
-                                    href="/admin/questions"
-                                    className="font-semibold text-[#a78bfa] hover:underline"
-                                  >
-                                    Question bank
-                                  </Link>
-                                )}
-                                <span className="text-white/50">
-                                  {' '}
-                                  · {ref.roundName ? `Round: ${ref.roundName}` : 'No round'} · Q #
-                                  {ref.questionOrder}
-                                </span>
-                                <p className="mt-0.5 line-clamp-2 text-[11px] text-white/45">
-                                  {ref.questionPreview}
-                                </p>
-                              </li>
-                            ))}
-                          </ul>
+                    return (
+                      <article
+                        key={file.filename}
+                        data-name="Container"
+                        className={cn(
+                          'flex flex-col rounded-2xl border-2 border-[rgba(0,217,255,0.3)] p-4',
+                          BG_MEDIA_CARD,
                         )}
-                      </div>
-
-                      <div className="mt-auto flex flex-col gap-2">
-                        <MediaInlinePlayer filename={file.filename} mediaType={file.mediaType} />
-                        <button
-                          type="button"
-                          onClick={() => setDeleteTarget(file.filename)}
-                          className="flex w-full items-center justify-center gap-2 rounded-[10px] border border-[rgba(255,0,128,0.3)] bg-[#252b45] py-2 text-sm text-white/90 transition-colors hover:bg-[#2e354c]"
-                          aria-label={`Delete ${file.filename}`}
-                        >
-                          <IconTrash className="size-3" />
-                          Delete
-                        </button>
-                      </div>
-                    </article>
-                  );
-                })}
-              </div>
-            )}
-          </section>
-
-          {otherFiles.length > 0 ? (
-            <section data-name="Other Media">
-              <h2 className="mb-4 text-lg font-semibold text-white">Images &amp; other files</h2>
-              <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-                {otherFiles.map((file) => {
-                  const showImageThumb = isPreviewableImageFile(file);
-
-                  return (
-                    <article
-                      key={file.filename}
-                      className={cn(
-                        'flex flex-col rounded-2xl border-2 border-[rgba(0,217,255,0.3)] p-4',
-                        BG_MEDIA_CARD,
-                      )}
-                    >
-                      {showImageThumb ? (
-                        <MediaImagePreview filename={file.filename} />
-                      ) : (
-                        <div className="mb-3 flex h-[140px] items-center justify-center rounded-[10px] bg-[#252b45]">
-                          <span className="text-xs text-white/50">{file.mediaType || 'file'}</span>
+                      >
+                        <div className="mb-3 flex h-[100px] items-center justify-center rounded-[10px] bg-[#252b45]">
+                          {isMp3 && <IconMusic className="size-8 text-[#00d9ff]" />}
+                          {isMp4 && <IconVideo className="size-8 text-[#00d9ff]" />}
                         </div>
-                      )}
-                      <p className="mb-3 truncate text-sm text-white" title={file.filename}>
-                        {file.filename}
-                      </p>
-                      <p className="mb-3 text-xs text-[#99a1af]">
-                        {file.mediaType?.toUpperCase() || 'Unknown'} · {formatSize(file.size)} ·{' '}
-                        {new Date(file.createdAt).toLocaleDateString()}
-                      </p>
-                      <div className="mt-auto flex flex-col gap-2">
-                        <button
-                          type="button"
-                          onClick={() => setDeleteTarget(file.filename)}
-                          className="flex w-full items-center justify-center gap-2 rounded-[10px] border border-[rgba(255,0,128,0.3)] bg-[#252b45] py-2 text-sm text-white/90 transition-colors hover:bg-[#2e354c]"
-                          aria-label={`Delete ${file.filename}`}
+                        <p
+                          className="mb-2 truncate text-sm font-medium text-white"
+                          title={file.filename}
                         >
-                          <IconTrash className="size-3" />
-                          Delete
-                        </button>
-                      </div>
-                    </article>
-                  );
-                })}
-              </div>
+                          {file.filename}
+                        </p>
+                        <p className="mb-3 text-xs text-[#99a1af]">
+                          {file.mediaType?.toUpperCase() || 'Unknown'} · {formatSize(file.size)} ·{' '}
+                          {new Date(file.createdAt).toLocaleDateString()}
+                        </p>
+
+                        <div className="mb-3 grow rounded-lg border border-white/10 bg-black/25 p-3 text-left">
+                          <p className="mb-2 text-[10px] font-bold uppercase tracking-wider text-white/50">
+                            Used in
+                          </p>
+                          {file.references.length === 0 ? (
+                            <p className="text-xs text-[#99a1af]">Not linked to any question.</p>
+                          ) : (
+                            <ul className="max-h-40 space-y-2 overflow-y-auto text-xs text-white/85">
+                              {file.references.map((ref) => (
+                                <li key={ref.questionId}>
+                                  {ref.quizId != null ? (
+                                    <Link
+                                      href={`/admin/quizzes/${ref.quizId}`}
+                                      className="font-semibold text-[#00d9ff] hover:underline"
+                                    >
+                                      {ref.quizTitle || `Quiz #${ref.quizId}`}
+                                    </Link>
+                                  ) : (
+                                    <Link
+                                      href="/admin/questions"
+                                      className="font-semibold text-[#a78bfa] hover:underline"
+                                    >
+                                      Question bank
+                                    </Link>
+                                  )}
+                                  <span className="text-white/50">
+                                    {' '}
+                                    · {ref.roundName ? `Round: ${ref.roundName}` : 'No round'} · Q #
+                                    {ref.questionOrder}
+                                  </span>
+                                  <p className="mt-0.5 line-clamp-2 text-[11px] text-white/45">
+                                    {ref.questionPreview}
+                                  </p>
+                                </li>
+                              ))}
+                            </ul>
+                          )}
+                        </div>
+
+                        <div className="mt-auto flex flex-col gap-2">
+                          <MediaInlinePlayer filename={file.filename} mediaType={file.mediaType} />
+                          <button
+                            type="button"
+                            onClick={() => setDeleteTarget(file.filename)}
+                            className="flex w-full items-center justify-center gap-2 rounded-[10px] border border-[rgba(255,0,128,0.3)] bg-[#252b45] py-2 text-sm text-white/90 transition-colors hover:bg-[#2e354c]"
+                            aria-label={`Delete ${file.filename}`}
+                          >
+                            <IconTrash className="size-3" />
+                            Delete
+                          </button>
+                        </div>
+                      </article>
+                    );
+                  })}
+                </div>
+              )}
             </section>
-          ) : null}
+          ) : (
+            <section
+              data-name="Other Media"
+              id="media-panel-images"
+              role="tabpanel"
+              aria-labelledby="media-tab-images"
+            >
+              <p className="mb-4 text-sm text-[#99a1af]">
+                Images and other uploads. Thumbnails use the public file URL.
+              </p>
+              {otherFiles.length === 0 ? (
+                <div
+                  className={cn(
+                    'rounded-2xl border-2 border-[rgba(0,217,255,0.2)] py-10 text-center text-[#99a1af]',
+                    BG_MEDIA_CARD,
+                  )}
+                >
+                  No image or other files in storage yet.
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                  {otherFiles.map((file) => {
+                    const showImageThumb = isPreviewableImageFile(file);
+
+                    return (
+                      <article
+                        key={file.filename}
+                        className={cn(
+                          'flex flex-col rounded-2xl border-2 border-[rgba(0,217,255,0.3)] p-4',
+                          BG_MEDIA_CARD,
+                        )}
+                      >
+                        {showImageThumb ? (
+                          <MediaImagePreview filename={file.filename} />
+                        ) : (
+                          <div className="mb-3 flex h-[140px] items-center justify-center rounded-[10px] bg-[#252b45]">
+                            <span className="text-xs text-white/50">{file.mediaType || 'file'}</span>
+                          </div>
+                        )}
+                        <p className="mb-3 truncate text-sm text-white" title={file.filename}>
+                          {file.filename}
+                        </p>
+                        <p className="mb-3 text-xs text-[#99a1af]">
+                          {file.mediaType?.toUpperCase() || 'Unknown'} · {formatSize(file.size)} ·{' '}
+                          {new Date(file.createdAt).toLocaleDateString()}
+                        </p>
+                        <div className="mt-auto flex flex-col gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setDeleteTarget(file.filename)}
+                            className="flex w-full items-center justify-center gap-2 rounded-[10px] border border-[rgba(255,0,128,0.3)] bg-[#252b45] py-2 text-sm text-white/90 transition-colors hover:bg-[#2e354c]"
+                            aria-label={`Delete ${file.filename}`}
+                          >
+                            <IconTrash className="size-3" />
+                            Delete
+                          </button>
+                        </div>
+                      </article>
+                    );
+                  })}
+                </div>
+              )}
+            </section>
+          )}
         </div>
       )}
     </div>

@@ -304,7 +304,7 @@ function QuestionMediaVisual({
       musicBanner === 'playing'
         ? 'Audio is playing on Venue Screen'
         : musicBanner === 'waiting'
-          ? 'Waiting for host to start the timer'
+          ? 'Audio is playing on Venue Screen'
           : null;
     return (
       <div className="shrink-0">

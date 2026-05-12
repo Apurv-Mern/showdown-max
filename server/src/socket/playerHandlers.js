@@ -118,11 +118,30 @@ const playerHandlers = (io, socket) => {
         });
       }
 
+      // The DB row read by `Team.findByPk` lags behind Redis whenever `persistScoresToDB` is
+      // still in-flight (it's fire-and-forget after each reveal). When a player refreshes
+      // mid-game we must not overwrite the live Redis score with the stale DB value — that
+      // shows up to the player as their score "resetting to zero" right after a refresh.
+      // Read whatever we already have in Redis first, then merge the live score back in.
+      const existingGameState = await redisStore.getGameState(pin);
+      const existingStateTeamPre =
+        existingGameState?.teams?.[team.id] ?? existingGameState?.teams?.[String(team.id)] ?? null;
+      const liveScoreRaw = existingStateTeamPre?.score;
+      const liveScoreIsValid =
+        liveScoreRaw !== undefined &&
+        liveScoreRaw !== null &&
+        Number.isFinite(Number(liveScoreRaw));
+      const preservedScore = liveScoreIsValid ? Number(liveScoreRaw) : Number(team.score) || 0;
+      const preservedIsEliminated =
+        existingStateTeamPre?.isEliminated !== undefined
+          ? Boolean(existingStateTeamPre.isEliminated)
+          : Boolean(team.isEliminated);
+
       const teamData = {
         teamId: team.id,
         teamName: team.teamName,
-        score: team.score,
-        isEliminated: Boolean(team.isEliminated),
+        score: preservedScore,
+        isEliminated: preservedIsEliminated,
       };
 
       await redisStore.addTeamToLobby(pin, teamData);
@@ -131,7 +150,7 @@ const playerHandlers = (io, socket) => {
       socket.join(`session:${pin}`);
       socket.data = { pin, teamId: team.id, teamName: team.teamName };
 
-      let gameState = await redisStore.getGameState(pin);
+      let gameState = existingGameState;
       if (gameState) {
         const merged = await redisStore.updateGameState(pin, (current) => {
           const currentRound = current.rounds?.[current.currentRoundIndex];
@@ -143,6 +162,7 @@ const playerHandlers = (io, socket) => {
           const mergedTeams = {
             ...(current.teams || {}),
             [team.id]: {
+              ...(existingStateTeam || {}),
               ...teamData,
               isEliminated: resolvedIsEliminated,
             },
@@ -464,7 +484,9 @@ const playerHandlers = (io, socket) => {
       const { pin, teamId, teamName } = socket.data || {};
       if (!pin || !teamId) return;
 
-      await gameController.handlePlayerSocketDisconnect(io, pin, teamId);
+      // intentional: true → server removes the team mid-game too. A passive socket drop falls
+      // through to the disconnect path below and keeps the team in the leaderboard.
+      await gameController.handlePlayerSocketDisconnect(io, pin, teamId, { intentional: true });
 
       socket.leave(`session:${pin}`);
       socket.data = {};

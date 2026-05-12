@@ -81,7 +81,9 @@ const OPTION_BG: Record<number, string> = {
 const OPTION_LETTERS = ['A', 'B', 'C', 'D', 'E', 'F'];
 
 const WAGER_POINT_OPTIONS = [0, 10, 20, 30, 40, 50] as const;
-const FINAL_WAGER_PERCENT_OPTIONS = [10, 20, 30, 40, 50, 60] as const;
+// Project scope: Final wager spans 0–100% of total score (max-showdown-trivia.mdc, Round Types).
+// Earlier we capped this at 60% which contradicted the rules and prevented a high-stakes finale.
+const FINAL_WAGER_PERCENT_OPTIONS = [0, 20, 40, 60, 80, 100] as const;
 
 function initialWagerAmountForRoundType(roundType?: string): number {
   return (roundType || '').toUpperCase() === 'FINAL_WAGER' ? FINAL_WAGER_PERCENT_OPTIONS[0] : 0;
@@ -274,15 +276,27 @@ function QuestionMediaVisual({
     );
   }
   if ((q.mediaType || '').toLowerCase() === 'mp4' && q.mediaUrl) {
+    // Per design: MP4 plays on the venue projector only — players see the same music-themed
+    // thumbnail used for MP3 questions so the player UI stays consistent with the venue's
+    // music-round look, and 30 phones don't all stream the same video clip.
+    const caption =
+      musicBanner === 'playing'
+        ? 'Video is playing on Venue Screen'
+        : musicBanner === 'waiting'
+          ? 'Waiting for host to start the timer'
+          : 'Watch the venue screen for the video';
     return (
       <div className="shrink-0">
-        <div className="rounded-2xl border-2 overflow-hidden shadow-[0_0_20px_rgba(17,167,255,0.3)]">
-          <video
-            src={resolveMediaUrl(q.mediaUrl)}
+        <div className="rounded-2xl overflow-hidden">
+          <img
+            src="/venuemusicbg.png"
+            alt={caption}
             className="max-h-[min(42vh,220px)] w-full object-cover md:max-h-[min(38vh,280px)]"
-            controls
           />
         </div>
+        <p className="mt-2 text-center text-sm font-semibold text-white sm:text-base">
+          {caption}
+        </p>
       </div>
     );
   }
@@ -344,18 +358,30 @@ const getRoundScoringLines = (roundType?: string) => {
   const type = (roundType || '').toUpperCase();
   if (type === 'WAGER') {
     return {
-      positive: '+0 to +50 points for correct answers',
-      negative: '-0 to -50 points for incorrect answers',
+      positive: '+ Wagered points for a correct answer',
+      negative: '- Wagered points for a wrong answer',
     };
   }
   if (type === 'MAJORITY_RULES') {
     return {
-      positive: '+50 points for majority answers',
-      negative: '-50 points for minority answers',
+      positive: '+50 points if you side with the majority',
+      negative: '-50 points if you side with the minority',
+    };
+  }
+  if (type === 'ELIMINATION') {
+    // Per project rule (max-showdown-trivia.mdc → Knockout): incremental 10–120 points across
+    // 12 questions, wrong answer eliminates you until the round ends, all-wrong question
+    // skips the knockout. The default `+10 / -2` line was misleading for this round.
+    return {
+      positive: '+10 to +120 points for correct answers',
+      negative: 'Wrong answer → knocked out until end of round',
     };
   }
   if (type === 'FINAL_WAGER') {
-    return { positive: '+wagered percentage of score', negative: '-wagered percentage of score' };
+    return {
+      positive: '+ Wagered % of your score for a correct answer',
+      negative: '- Wagered % of your score for a wrong answer',
+    };
   }
   return {
     positive: '+10 points for correct answers',
@@ -498,6 +524,11 @@ export default function GamePage() {
   const [breakSkewMs, setBreakSkewMs] = useState(0);
   const [timerRunning, setTimerRunning] = useState(false);
   const [showBreakEndedNotice, setShowBreakEndedNotice] = useState(false);
+  // Becomes true the first time we receive any state (session_state OR a sessionStorage replay
+  // from the lobby/join page). Used to suppress the "Waiting for game to start" splash on a
+  // bare refresh until the server has actually told us we're in LOBBY — otherwise the
+  // 100–500 ms gap between mount and join_session reply renders a misleading "Waiting" UI.
+  const [hasInitialState, setHasInitialState] = useState(false);
   /** Synced in socket handlers (same tick as session_state) so question_active cannot overwrite elimination. */
   const isEliminatedRef = useRef(false);
   const phaseRef = useRef<GamePhase>('waiting');
@@ -543,6 +574,7 @@ export default function GamePage() {
         const data = JSON.parse(savedRoundIntro);
         setRoundInfo(data);
         setPhase('round_intro');
+        setHasInitialState(true);
       } catch {
         /* ignore */
       }
@@ -552,6 +584,7 @@ export default function GamePage() {
     if (savedQuestion) {
       try {
         const data = JSON.parse(savedQuestion);
+        setHasInitialState(true);
         const tid = session.teamId != null ? Number(session.teamId) : NaN;
         const inEliminatedList =
           Number.isFinite(tid) &&
@@ -615,14 +648,21 @@ export default function GamePage() {
     tick();
     const t = setInterval(tick, 250);
     const onVis = () => {
-      if (document.visibilityState === 'visible') tick();
+      if (document.visibilityState === 'visible') {
+        tick();
+        // Coming back from a backgrounded/throttled tab: ask the server for an authoritative
+        // resync, otherwise a missed break_end leaves the break screen stuck.
+        if (socket && session.pin && session.teamName) {
+          socket.emit('join_session', { pin: session.pin, teamName: session.teamName });
+        }
+      }
     };
     document.addEventListener('visibilitychange', onVis);
     return () => {
       clearInterval(t);
       document.removeEventListener('visibilitychange', onVis);
     };
-  }, [phase, breakDuration, breakEndsAtMs, breakSkewMs]);
+  }, [phase, breakDuration, breakEndsAtMs, breakSkewMs, socket, session.pin, session.teamName]);
 
   useEffect(() => {
     if (!timerEndsAt) return;
@@ -640,8 +680,15 @@ export default function GamePage() {
     if (!socket || !session.pin || !session.teamName) return;
 
     const onSessionState = (data: any) => {
-      if (data.gameState) {
-        const gs = data.gameState;
+      // Server emits SESSION_STATE in two shapes:
+      //   • on join_session reply, the gameState is wrapped under `data.gameState`
+      //   • on every other update (break_end, scoreboard, etc.) it is the flat payload itself
+      // Handling both keeps players in sync even when discrete events (break_end, etc.) are
+      // dropped on flaky mobile networks or backgrounded tabs.
+      if (data) {
+        const gs = data.gameState ?? data;
+        if (!gs || typeof gs !== 'object' || !('state' in gs)) return;
+        setHasInitialState(true);
         if (gs.state !== 'BREAK') {
           setBreakEndsAtMs(null);
           setBreakSkewMs(0);
@@ -860,6 +907,7 @@ export default function GamePage() {
     };
 
     const onRoundIntro = (data: any) => {
+      setHasInitialState(true);
       setRoundInfo(data);
       setPhase('round_intro');
       isEliminatedRef.current = false;
@@ -889,6 +937,7 @@ export default function GamePage() {
     };
 
     const onQuestionActive = (data: QuestionData) => {
+      setHasInitialState(true);
       const teamId = session.teamId != null ? Number(session.teamId) : NaN;
       const onEliminatedList =
         Number.isFinite(teamId) &&
@@ -970,9 +1019,18 @@ export default function GamePage() {
     };
 
     const onAnswerReveal = (data: RevealData) => {
+      setHasInitialState(true);
       setRevealData(data);
       setTimerRunning(false);
-      setPhase('reveal');
+      // If the player is already eliminated coming into this reveal (e.g. they got knocked out
+      // on an earlier elimination question and are just resyncing on a refresh), keep them on
+      // the "eliminated" UI instead of flashing the live reveal screen. The
+      // `data.eliminations` array only carries this question's knockouts, so by itself it
+      // can't tell us about prior rounds.
+      const myTeam = data.teams.find((t) => t.teamId === session.teamId);
+      const persistEliminated =
+        isEliminatedRef.current || Boolean(myTeam?.isEliminated);
+      setPhase(persistEliminated ? 'eliminated' : 'reveal');
       const myResponse = data.responseDetails?.find((r) => r.teamId === session.teamId);
       if (myResponse && Number.isFinite(Number(myResponse.selectedOptionIndex))) {
         const selectedIdx = Number(myResponse.selectedOptionIndex);
@@ -982,12 +1040,20 @@ export default function GamePage() {
       }
       const teamIdStr = String(session.teamId);
       setPointsGained(data.scores[teamIdStr] ?? 0);
-      const myTeam = data.teams.find((t) => t.teamId === session.teamId);
       if (myTeam) setSession({ score: myTeam.score });
-      if (data.eliminations.includes(session.teamId!)) {
+      // Per the all-teams-wrong rule (`server/.../knockoutEngine.js`), nobody is knocked out
+      // when every active team got the question wrong — the server already keeps them in
+      // `activeTeamIds` and now also skips the PLAYER_ELIMINATED emit, but the eliminations
+      // array on `answer_reveal` still carries the wrong-team list for telemetry. Honour
+      // `allWrong` here so the last surviving player isn't bounced into the eliminated UI
+      // when they answer alone and miss.
+      if (!data.allWrong && data.eliminations.includes(session.teamId!)) {
         isEliminatedRef.current = true;
         setIsEliminated(true);
         setPhase('eliminated');
+      } else if (persistEliminated) {
+        isEliminatedRef.current = true;
+        setIsEliminated(true);
       }
     };
 
@@ -1000,6 +1066,7 @@ export default function GamePage() {
     };
 
     const onScoreboard = (data: { teams: any[] }) => {
+      setHasInitialState(true);
       if (phaseRef.current !== 'scoreboard') {
         previousPhaseBeforeScoreboardRef.current = phaseRef.current;
       }
@@ -1056,6 +1123,7 @@ export default function GamePage() {
       breakEndsAt?: number;
       serverNow?: number;
     }) => {
+      setHasInitialState(true);
       const w = resolveBreakWallClock({
         breakEndsAt: data?.breakEndsAt,
         breakRemaining: data?.breakRemaining ?? data?.duration,
@@ -1071,12 +1139,18 @@ export default function GamePage() {
     };
 
     const onBreakEnd = () => {
+      // Don't reload (unreliable when tab is throttled/backgrounded — break_end can be missed
+      // entirely). Clear break locals; the follow-up `session_state` flips us out of break phase
+      // even if this event is dropped.
       setBreakRemaining(0);
+      setBreakEndsAtMs(null);
+      setBreakSkewMs(0);
       setShowBreakEndedNotice(true);
-      // Full reload so break UI, timers, and phase fully reset (matches “refresh mobile” after break).
-      window.setTimeout(() => {
-        window.location.reload();
-      }, 200);
+      window.setTimeout(() => setShowBreakEndedNotice(false), 2000);
+      if (phaseRef.current === 'break') {
+        setTimerRunning(false);
+        setPhase(isEliminatedRef.current ? 'eliminated' : 'waiting');
+      }
     };
 
     const onMiniGameStart = (data: { game: string }) => {
@@ -1104,6 +1178,16 @@ export default function GamePage() {
       router.replace('/play/join');
     };
 
+    // Re-emit join_session on socket (re)connect so server replays a fresh session_state — this
+    // is the safety net for long disconnects (mobile screen lock, tab throttling) where transient
+    // events like break_end / question_active were missed during the gap.
+    const rejoinSession = () => {
+      if (session.pin && session.teamName) {
+        socket.emit('join_session', { pin: session.pin, teamName: session.teamName });
+      }
+    };
+    socket.on('connect', rejoinSession);
+
     socket.on('session_state', onSessionState);
     socket.on('round_intro', onRoundIntro);
     socket.on('wager_collection_start', onWagerCollectionStart);
@@ -1123,6 +1207,7 @@ export default function GamePage() {
     socket.on('game_end', onGameEnd);
 
     return () => {
+      socket.off('connect', rejoinSession);
       socket.off('session_state', onSessionState);
       socket.off('round_intro', onRoundIntro);
       socket.off('wager_collection_start', onWagerCollectionStart);
@@ -1223,12 +1308,17 @@ export default function GamePage() {
   const breakRemainingLength = breakCircumference * breakProgress;
   const breakMinutes = Math.floor(breakRemaining / 60);
   const breakSeconds = breakRemaining % 60;
+  const isMusicQuestion = (question?.roundType || '').toUpperCase() === 'MUSIC';
   const isAnswerSelectionLocked =
     selectedOption !== null ||
     isEliminatedRef.current ||
     isEliminated ||
     timerRemaining <= 0 ||
-    phase !== 'question';
+    phase !== 'question' ||
+    // Music rounds pause the timer until the host hits Start Timer / plays the audio. Players
+    // must not be able to lock in an answer before that countdown begins, otherwise they could
+    // pre-pick before hearing the song clip.
+    (isMusicQuestion && !timerRunning);
   const showTimeExpiredState =
     timerRemaining <= 0 &&
     (phase === 'question' || phase === 'answered') &&
@@ -1237,6 +1327,10 @@ export default function GamePage() {
   const questionMusicBanner: 'none' | 'waiting' | 'playing' = (() => {
     if (!question || (question.roundType || '').toUpperCase() !== 'MUSIC') return 'none';
     if (phase !== 'question' && phase !== 'answered') return 'none';
+    // Once the answer is on its way / revealed, never show "Waiting for host to play music" —
+    // even if the player UI hasn't transitioned to the reveal phase yet (race between
+    // answer_reveal arrival and phase state update).
+    if (revealData) return 'none';
     if (timerRunning) return 'playing';
     if (timerRemaining > 0) return 'waiting';
     return 'none';
@@ -1322,7 +1416,7 @@ export default function GamePage() {
             )}
 
             {/* ── WAITING ── */}
-            {phase === 'waiting' && (
+            {phase === 'waiting' && hasInitialState && (
               <motion.div
                 key="waiting"
                 {...pageTransition}
@@ -1386,6 +1480,26 @@ export default function GamePage() {
               </motion.div>
             )}
 
+            {/* ── CONNECTING ── While we wait for the first session_state after a refresh,
+                show a neutral reconnecting splash instead of the LOBBY-flavoured "Waiting for
+                game to start" text — that copy is reserved for the legitimate pre-game state. */}
+            {phase === 'waiting' && !hasInitialState && (
+              <motion.div
+                key="connecting"
+                {...pageTransition}
+                className="flex-1 relative overflow-hidden mobile-play-bg"
+              >
+                <div className="relative z-10 flex h-full items-center justify-center p-4">
+                  <div className="flex flex-col items-center gap-4 text-white/80">
+                    <div className="h-10 w-10 animate-spin rounded-full border-2 border-white/20 border-t-[#00d8ff]" />
+                    <p className="text-sm font-medium tracking-wide sm:text-base">
+                      Reconnecting…
+                    </p>
+                  </div>
+                </div>
+              </motion.div>
+            )}
+
             {/* ── WAGER INPUT ── */}
             {phase === 'wager_input' && (
               <motion.div
@@ -1415,7 +1529,7 @@ export default function GamePage() {
                   </motion.div> */}
                   {isFinalWagerRound ? (
                     <p className="text-foreground/40 text-sm mb-6">
-                      Pick one of six percentages (10%–60%) of your current score.
+                      Wager 0%–100% of your current score on the final question.
                     </p>
                   ) : (
                     <div className="mb-6 space-y-2 rounded-xl border border-white/10 bg-black/25 px-4 py-3 text-left text-sm leading-snug text-white/75 sm:text-center">

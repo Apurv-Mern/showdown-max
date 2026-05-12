@@ -98,20 +98,28 @@ const getRoundScoringLines = (roundType?: string) => {
   const type = (roundType || '').toUpperCase();
   if (type === 'WAGER') {
     return {
-      positive: '+0 to +50 points for correct answers',
-      negative: '-0 to -50 points for incorrect answers',
+      positive: '+ Wagered points for a correct answer',
+      negative: '- Wagered points for a wrong answer',
     };
   }
   if (type === 'MAJORITY_RULES') {
     return {
-      positive: '+50 points for majority answers',
-      negative: '-50 points for minority answers',
+      positive: '+50 points if you side with the majority',
+      negative: '-50 points if you side with the minority',
+    };
+  }
+  if (type === 'ELIMINATION') {
+    // Mirror the player intro so both surfaces convey the knockout rule (10–120 points,
+    // wrong answer eliminates you for the round) instead of the default +10/-2 fallback.
+    return {
+      positive: '+10 to +120 points for correct answers',
+      negative: 'Wrong answer → knocked out until end of round',
     };
   }
   if (type === 'FINAL_WAGER') {
     return {
-      positive: '+wagered percentage of score',
-      negative: '-wagered percentage of score',
+      positive: '+ Wagered % of your score for a correct answer',
+      negative: '- Wagered % of your score for a wrong answer',
     };
   }
   return {
@@ -353,6 +361,9 @@ function VenueDisplayContent() {
   const [isVenueMp3Playing, setIsVenueMp3Playing] = useState(false);
   const [showBreakEndedNotice, setShowBreakEndedNotice] = useState(false);
   const questionMediaUrlRef = useRef<string | undefined>(undefined);
+  /** MP4 question playback ref — driven by `music_control` events (host Play/Pause MP4) and
+   *  the question lifecycle. Stops on reveal / round end / scoreboard. */
+  const venueMp4Ref = useRef<HTMLVideoElement | null>(null);
   const phaseRef = useRef<VenuePhase>('welcome');
   const showVenueSplashRef = useRef(showVenueSplash);
   const welcomeHoldRef = useRef(welcomeHold);
@@ -568,6 +579,17 @@ function VenueDisplayContent() {
     return () => {
       stopMp3();
       setIsVenueMp3Playing(false);
+      // Tear down MP4 playback when leaving this question — prevents stale audio bleeding into
+      // the next round and resets the element's currentTime ready for re-use.
+      const v = venueMp4Ref.current;
+      if (v) {
+        try {
+          v.pause();
+          v.currentTime = 0;
+        } catch {
+          /* ignore */
+        }
+      }
     };
   }, [question?.question?.mediaUrl, question?.question?.mediaType, setMp3Source, stopMp3]);
 
@@ -1095,7 +1117,21 @@ function VenueDisplayContent() {
     };
 
     const onBreakEnd = () => {
-      // Phase is restored by server via session_state.
+      // Drop break locals immediately so the BreakView countdown can't briefly resurface while we
+      // wait for the follow-up session_state. The actual phase swap is server-driven via
+      // session_state, but if that frame is delayed we at least stop showing the timer.
+      setVenueBreakEndsAtMs(null);
+      setVenueBreakSkewMs(0);
+      if (phaseRef.current === 'break') {
+        // Optimistically leave the break screen — session_state will reconcile to question /
+        // round_intro within milliseconds. Avoids a perceptible "stuck on break" frame on
+        // slower projector hardware.
+        if (questionRef.current) {
+          setPhase('question');
+        } else {
+          setPhase('lobby');
+        }
+      }
       setShowBreakEndedNotice(true);
       setTimeout(() => setShowBreakEndedNotice(false), 2400);
     };
@@ -1217,8 +1253,26 @@ function VenueDisplayContent() {
       const action = data?.action;
       if (!action) return;
 
+      const currentMediaType = (questionRef.current?.question?.mediaType || '').toLowerCase();
+
       if (action === 'play') {
         const mediaUrl = data?.mediaUrl || questionMediaUrlRef.current;
+        if (currentMediaType === 'mp4') {
+          // Host clicked Play/Pause MP4 — drive the venue <video> element. Players already see a
+          // placeholder image; only the projector should ever play this stream.
+          const v = venueMp4Ref.current;
+          if (v) {
+            try {
+              const playPromise = v.play();
+              if (playPromise && typeof playPromise.catch === 'function') {
+                playPromise.catch(() => {});
+              }
+            } catch {
+              /* ignore: autoplay restrictions etc. */
+            }
+          }
+          return;
+        }
         if (mediaUrl) {
           setMp3Source(resolveMediaUrl(mediaUrl));
         }
@@ -1227,6 +1281,19 @@ function VenueDisplayContent() {
         return;
       }
 
+      // pause / stop
+      if (currentMediaType === 'mp4') {
+        const v = venueMp4Ref.current;
+        if (v) {
+          try {
+            v.pause();
+            if (action === 'stop') v.currentTime = 0;
+          } catch {
+            /* ignore seek errors */
+          }
+        }
+        return;
+      }
       stopMp3();
       setIsVenueMp3Playing(false);
     };
@@ -1812,6 +1879,16 @@ function VenueDisplayContent() {
                         className="w-full h-full object-cover"
                         alt="media"
                       />
+                    ) : resolveMediaUrl(question.question.mediaUrl) &&
+                      (question.question.mediaType || '').toLowerCase() === 'mp4' ? (
+                      <video
+                        ref={venueMp4Ref}
+                        key={resolveMediaUrl(question.question.mediaUrl)}
+                        src={resolveMediaUrl(question.question.mediaUrl)}
+                        className="w-full h-full object-cover bg-black"
+                        playsInline
+                        preload="auto"
+                      />
                     ) : (
                       <img
                         src={
@@ -2024,6 +2101,18 @@ function VenueDisplayContent() {
                         src={resolveMediaUrl(question.question.mediaUrl)}
                         className="w-full h-full object-cover"
                         alt="media"
+                      />
+                    ) : resolveMediaUrl(question.question.mediaUrl) &&
+                      (question.question.mediaType || '').toLowerCase() === 'mp4' ? (
+                      // Reveal phase keeps the last frame so the audience sees what was just
+                      // shown, but playback is paused (host-driven elsewhere). No new playback
+                      // starts automatically post-reveal.
+                      <video
+                        key={`reveal-${resolveMediaUrl(question.question.mediaUrl)}`}
+                        src={resolveMediaUrl(question.question.mediaUrl)}
+                        className="w-full h-full object-cover bg-black"
+                        playsInline
+                        preload="auto"
                       />
                     ) : (
                       <img

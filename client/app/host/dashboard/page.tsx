@@ -1077,6 +1077,19 @@ function HostDashboardContent() {
 
     const onMusicControl = (data: { action?: string; mediaUrl?: string | null }) => {
       const action = data?.action;
+      // Music_control is now also used to drive the venue MP4 element. The host echoes its own
+      // emit (Socket.io broadcasts to the whole session room), so for MP4 questions we mirror the
+      // play/pause state into the host's `mp4Playing` flag (so the sidebar tile label reflects
+      // reality) and bail BEFORE touching the MP3 audio element — otherwise we'd push an MP4 URL
+      // into <audio> and emit playback errors.
+      const currentMediaType = (
+        gameStateRef.current?.currentQuestion?.question?.mediaType || ''
+      ).toLowerCase();
+      if (currentMediaType === 'mp4') {
+        if (action === 'play') setMp4Playing(true);
+        else if (action === 'pause' || action === 'stop') setMp4Playing(false);
+        return;
+      }
       if (action === 'play') {
         const gs = gameStateRef.current;
         if (gs?.state === 'QUESTION') {
@@ -1554,6 +1567,16 @@ function HostDashboardContent() {
     questionState === 'ACTIVE' &&
     timerPaused &&
     timerRemaining > 0;
+  // Mirror of the above for the Stop Timer affordance in music rounds — visible while the music
+  // round timer is actively counting down so the host can pause both the countdown AND the
+  // MP3/MP4 playback in a single action (server-side `pauseTimer` echoes `music_control: pause`
+  // for music rounds, which the venue MP4 / MP3 listeners pick up).
+  const musicRoundCanStopTimer =
+    isMusicRound &&
+    state === 'QUESTION' &&
+    questionState === 'ACTIVE' &&
+    !timerPaused &&
+    timerRemaining > 0;
   const hostMediaReplayLocked =
     state === 'QUESTION' &&
     (questionState === 'REVEALED' ||
@@ -1573,6 +1596,28 @@ function HostDashboardContent() {
       }
     }
   }, [hostMediaReplayLocked]);
+
+  // Drive the host's preview <video> imperatively from `hostVideoPlaybackActive`. The `autoPlay`
+  // prop only fires on mount, so when start_timer (in a music round with MP4) flips mp4Playing
+  // to true, we need to call play() ourselves. Same on Stop Timer / Pause MP4 → call pause().
+  useEffect(() => {
+    const v = hostPreviewVideoRef.current;
+    if (!v) return;
+    if (hostVideoPlaybackActive) {
+      try {
+        const p = v.play();
+        if (p && typeof p.catch === 'function') p.catch(() => {});
+      } catch {
+        /* autoplay restrictions; user can click the tile to retry */
+      }
+    } else {
+      try {
+        v.pause();
+      } catch {
+        /* ignore */
+      }
+    }
+  }, [hostVideoPlaybackActive]);
   const isLastRound = totalRounds > 0 && gameState?.currentRoundIndex === totalRounds - 1;
 
   if (!pin) {
@@ -1800,7 +1845,19 @@ function HostDashboardContent() {
                   }
                   onClick={() => {
                     if (hostMediaReplayLocked && !mp4Playing) return;
-                    setMp4Playing((p) => !p);
+                    setMp4Playing((p) => {
+                      const next = !p;
+                      // Mirror the MP3 control: tell the venue projector to start / stop the
+                      // <video> element. Players still see a placeholder image regardless.
+                      if (socket && pin) {
+                        socket.emit('music_control', {
+                          pin,
+                          action: next ? 'play' : 'pause',
+                          mediaUrl: currentQuestion?.question?.mediaUrl || null,
+                        });
+                      }
+                      return next;
+                    });
                   }}
                 />
               </div>
@@ -2739,6 +2796,18 @@ function HostDashboardContent() {
                 Start Timer
               </HostFooterBtn>
             ) : null}
+            {musicRoundCanStopTimer ? (
+              <HostFooterBtn
+                icon={
+                  <svg viewBox="0 0 24 24" fill="currentColor" className="text-[#00d9ff]">
+                    <path d="M6 6h12v12H6z" />
+                  </svg>
+                }
+                onClick={handlePauseTimer}
+              >
+                Stop Timer
+              </HostFooterBtn>
+            ) : null}
             <HostFooterBtn
               icon={
                 <svg viewBox="0 0 24 24" fill="currentColor" className="text-[#00d9ff]">
@@ -2757,6 +2826,11 @@ function HostDashboardContent() {
                   <path d="M5 3h4v2H5V3zm0 6h4v2H5V9zm0 6h4v2H5v-2zm6-12h10v2H11V3zm0 6h10v2H11V9zm0 6h10v2H11v-2z" />
                 </svg>
               }
+              // Pre-game (LOBBY) the player and venue screens haven't mounted the leaderboard
+              // route yet, so toggling it on the host has no visual effect anywhere else and
+              // just creates confusion. Same goes for FINAL_RESULTS — the final podium is
+              // already shown.
+              disabled={state === 'LOBBY' || state === 'FINAL_RESULTS'}
               onClick={handleShowScoreboard}
             >
               {isScoreboardVisible ? 'Hide Leaderboard' : 'Show Leaderboard'}
@@ -2786,8 +2860,8 @@ function HostDashboardContent() {
             </HostFooterBtn>
           </div>
           <p className="mt-2 text-center text-[10px] text-white/30">
-            Space=Next · T=Timer · P=Pause · R=Reveal · S=Leaderboard — Music: use Start Timer or T
-            to begin countdown and audio together
+            Space=Next · T=Timer · P=Pause · R=Reveal · S=Leaderboard — Music: Start Timer / T
+            begins countdown + media; Stop Timer / P pauses both
           </p>
         </footer>
       ) : null}

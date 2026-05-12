@@ -197,11 +197,11 @@ export default function SessionsPage() {
                 </div>
               </div>
               <div className="flex gap-2">
-                {session.status !== 'completed' && (
+                {/* {session.status !== 'completed' && (
                   <Link href={`/host/dashboard?pin=${session.pin}&sessionId=${session.id}`}>
                     <Button size="sm">Host</Button>
                   </Link>
-                )}
+                )} */}
                 <Link href={`/admin/sessions/${session.id}/results`}>
                   <Button variant="secondary" size="sm">
                     Results
@@ -385,11 +385,11 @@ export default function SessionsPage() {
             )}
             <p className="text-foreground/50 text-sm">{createdSession.quizTitle}</p>
             <div className="flex gap-3 justify-center pt-2">
-              <Link
+              {/* <Link
                 href={`/host/dashboard?pin=${createdSession.pin}&sessionId=${createdSession.id}`}
               >
                 <Button>Start Hosting</Button>
-              </Link>
+              </Link> */}
               <Button variant="secondary" onClick={() => setCreatedSession(null)}>
                 Close
               </Button>

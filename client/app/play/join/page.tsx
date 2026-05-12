@@ -234,7 +234,15 @@ function JoinContent() {
                   inputMode="numeric"
                   placeholder="Enter Session PIN"
                   value={pin}
-                  onChange={(e) => setPin(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                  onChange={(e) => {
+                    const next = e.target.value.replace(/\D/g, '').slice(0, 6);
+                    setPin(next);
+                    // Clear any leftover error/flash banner the moment the user starts editing
+                    // a new PIN — otherwise a stale "Session not found" or kicked-by-host
+                    // message lingers above the input until the next submit, which looks like
+                    // a spurious error appearing for valid PINs.
+                    if (error) setError('');
+                  }}
                   className="h-12 w-full rounded-[10px] border border-[#00d8ff]/70 bg-[rgba(10,18,40,0.92)] px-4 text-base font-medium tracking-[0.06em] text-white placeholder:text-[#93a0b5] focus:outline-none focus:shadow-[0_0_14px_rgba(0,216,255,0.35)] sm:h-14 sm:text-[17px]"
                   maxLength={6}
                   autoFocus

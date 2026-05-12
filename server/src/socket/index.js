@@ -23,7 +23,10 @@ const initializeSocket = (httpServer) => {
     pingTimeout: 60000,
     pingInterval: 25000,
     connectionStateRecovery: {
-      maxDisconnectionDuration: 120000,
+      // Mobile screen lock + Wi-Fi handoff routinely produce 5–10 minute gaps; the previous 2 min
+      // window forced a full re-auth on every meaningful pause. 15 minutes covers the common
+      // "host pauses to chat with the audience" case without keeping ghosts forever.
+      maxDisconnectionDuration: 900000,
       skipMiddlewares: false,
     },
   });

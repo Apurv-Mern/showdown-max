@@ -3,7 +3,13 @@
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { api, apiUpload } from '@/lib/api';
+import {
+  api,
+  apiUpload,
+  MAX_UPLOAD_SIZE_BYTES,
+  MAX_UPLOAD_SIZE_LABEL,
+  formatBytes,
+} from '@/lib/api';
 import { Button } from '@/components/shared/Button';
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner';
 import { Modal } from '@/components/shared/Modal';
@@ -141,6 +147,15 @@ export default function QuizDetailPage() {
   const [editTitle, setEditTitle] = useState('');
   const [editDescription, setEditDescription] = useState('');
   const [savingInfo, setSavingInfo] = useState(false);
+  // Local draft for the Round Configuration card so type/timer edits queue up under the new
+  // Save button instead of auto-persisting on every change. Keyed by round id so flipping
+  // between rounds doesn't leak edits across them.
+  const [roundDraft, setRoundDraft] = useState<{
+    roundId: number | null;
+    type: string;
+    timerDuration: string;
+  }>({ roundId: null, type: '', timerDuration: '' });
+  const [savingRoundConfig, setSavingRoundConfig] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const fetchQuiz = useCallback(
@@ -205,6 +220,54 @@ export default function QuizDetailPage() {
 
   const selectedRound = sortedRounds.find((r) => r.id === selectedRoundId) ?? null;
 
+  // Reset the draft each time the user switches between rounds OR the underlying round refetches
+  // after a successful save. We key off id + type + timerDuration so live-edits persist while
+  // the user is interacting with the same row.
+  useEffect(() => {
+    if (!selectedRound) {
+      setRoundDraft({ roundId: null, type: '', timerDuration: '' });
+      return;
+    }
+    setRoundDraft({
+      roundId: selectedRound.id,
+      type: selectedRound.type,
+      timerDuration: String(selectedRound.timerDuration ?? ''),
+    });
+    // We intentionally re-seed the draft only when the underlying round identity / persisted
+    // values change (id / type / timerDuration). Including the full `selectedRound` object would
+    // re-fire on every render because it's derived from `sortedRounds.find(...)`.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedRound?.id, selectedRound?.type, selectedRound?.timerDuration]);
+
+  const roundConfigDirty =
+    !!selectedRound &&
+    roundDraft.roundId === selectedRound.id &&
+    (roundDraft.type !== selectedRound.type ||
+      Number(roundDraft.timerDuration) !== selectedRound.timerDuration);
+
+  const saveRoundConfig = async () => {
+    if (!selectedRound || !roundConfigDirty) return;
+    const timerNum = Number(roundDraft.timerDuration);
+    if (!Number.isFinite(timerNum) || timerNum < 5 || timerNum > 300) {
+      toast.error('Timer must be between 5 and 300 seconds');
+      return;
+    }
+    const patch: Partial<{ name: string; type: string; timerDuration: number }> = {};
+    if (roundDraft.type !== selectedRound.type) patch.type = roundDraft.type;
+    if (timerNum !== selectedRound.timerDuration) patch.timerDuration = timerNum;
+    if (Object.keys(patch).length === 0) return;
+    try {
+      setSavingRoundConfig(true);
+      await api.patch(`/api/rounds/${selectedRound.id}`, patch);
+      await fetchQuiz();
+      toast.success('Round saved');
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : 'Failed to save round');
+    } finally {
+      setSavingRoundConfig(false);
+    }
+  };
+
   const startEditingInfo = () => {
     if (!quiz) return;
     setEditTitle(quiz.title || '');
@@ -230,19 +293,6 @@ export default function QuizDetailPage() {
       toast.error(err.message || 'Failed to update quiz info');
     } finally {
       setSavingInfo(false);
-    }
-  };
-
-  const patchRound = async (
-    roundId: number,
-    patch: Partial<{ name: string; type: string; timerDuration: number }>,
-  ) => {
-    try {
-      await api.patch(`/api/rounds/${roundId}`, patch);
-      await fetchQuiz();
-      toast.success('Round updated');
-    } catch (e: unknown) {
-      toast.error(e instanceof Error ? e.message : 'Failed to update round');
     }
   };
 
@@ -321,6 +371,17 @@ export default function QuizDetailPage() {
     } else if (isAudioOrVideo) {
       toast.error(
         'Audio and video files (including MP3 and MP4) are only allowed for Music rounds',
+      );
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      return;
+    }
+
+    // Pre-flight size check — server rejects with HTTP 413 ("request file too large") for
+    // anything over the configured cap; short-circuit on the client so the admin gets the
+    // exact size + limit instead of waiting for a failed upload round-trip.
+    if (file.size > MAX_UPLOAD_SIZE_BYTES) {
+      toast.error(
+        `File too large (${formatBytes(file.size)}). Maximum allowed size is ${MAX_UPLOAD_SIZE_LABEL}.`,
       );
       if (fileInputRef.current) fileInputRef.current.value = '';
       return;
@@ -547,6 +608,7 @@ export default function QuizDetailPage() {
                 key={round.id}
                 type="button"
                 onClick={() => setSelectedRoundId(round.id)}
+                title={getRoundDisplayName(round)}
                 className={`relative flex h-24 w-40 shrink-0 items-center justify-center rounded-[14px] border-2 text-base font-normal text-white transition-all duration-150 ${
                   active
                     ? 'border-[rgba(60,255,0,0.6)] bg-[#252b45] shadow-[0_0_16px_rgba(0,217,255,0.15)]'
@@ -603,7 +665,11 @@ export default function QuizDetailPage() {
                     ↓
                   </button>
                 </div>
-                {getRoundDisplayName(round)}
+                {/* Pad away from index badge (top-right) and arrow controls (bottom-left)
+                    so long round names never bleed under those overlays. */}
+                <span className="pointer-events-none mx-2 mb-7 mt-3 line-clamp-3 max-w-[8rem] break-words text-center text-sm leading-tight">
+                  {getRoundDisplayName(round)}
+                </span>
               </button>
             );
           })}
@@ -628,8 +694,16 @@ export default function QuizDetailPage() {
             <div className="flex flex-col gap-2">
               <label className="text-sm font-medium leading-5 text-[#99a1af]">Round Type</label>
               <select
-                value={selectedRound.type}
-                onChange={(e) => patchRound(selectedRound.id, { type: e.target.value })}
+                value={
+                  roundDraft.roundId === selectedRound.id ? roundDraft.type : selectedRound.type
+                }
+                onChange={(e) =>
+                  setRoundDraft((d) => ({
+                    ...d,
+                    roundId: selectedRound.id,
+                    type: e.target.value,
+                  }))
+                }
                 className="h-[49px] w-full rounded-[10px] border border-[rgba(0,217,255,0.3)] bg-[#252b45] px-4 text-sm text-white outline-none focus:border-[rgba(0,217,255,0.55)]"
               >
                 {Object.entries(ROUND_TYPE_LABELS).map(([value, label]) => (
@@ -643,11 +717,11 @@ export default function QuizDetailPage() {
               <label className="text-sm font-medium leading-5 text-[#99a1af]">
                 Timer (seconds)
               </label>
-              <p className="text-xs leading-snug text-[#99a1af]/80">
+              {/* <p className="text-xs leading-snug text-[#99a1af]/80">
                 Default for every question in this round. A per-question timer in the question
                 editor overrides this; saving here clears those overrides so this value applies to
                 all questions.
-              </p>
+              </p> */}
               <div className="relative">
                 <svg
                   className="absolute left-3 top-1/2 size-5 -translate-y-1/2 text-[#00d9ff]/80"
@@ -663,18 +737,18 @@ export default function QuizDetailPage() {
                   type="number"
                   min={5}
                   max={300}
-                  defaultValue={selectedRound.timerDuration}
-                  key={selectedRound.id}
-                  onBlur={(e) => {
-                    const v = Number(e.target.value);
-                    if (!Number.isFinite(v) || v < 5 || v > 300) return;
-                    const hasQuestionTimerOverrides = selectedRound.questions.some(
-                      (q) => q.timerDuration != null,
-                    );
-                    if (v !== selectedRound.timerDuration || hasQuestionTimerOverrides) {
-                      patchRound(selectedRound.id, { timerDuration: v });
-                    }
-                  }}
+                  value={
+                    roundDraft.roundId === selectedRound.id
+                      ? roundDraft.timerDuration
+                      : String(selectedRound.timerDuration ?? '')
+                  }
+                  onChange={(e) =>
+                    setRoundDraft((d) => ({
+                      ...d,
+                      roundId: selectedRound.id,
+                      timerDuration: e.target.value,
+                    }))
+                  }
                   className="h-[50px] w-full rounded-[10px] border border-[rgba(0,217,255,0.3)] bg-[#252b45] pl-11 pr-4 text-base text-white outline-none focus:border-[rgba(0,217,255,0.55)]"
                 />
               </div>
@@ -695,11 +769,41 @@ export default function QuizDetailPage() {
                 <circle cx="12" cy="12" r="2" />
               </svg>
               <p className="text-sm leading-5 text-white">
-                {ROUND_POINTS_PREVIEW[selectedRound.type] ||
-                  ROUND_TYPE_SCORING[selectedRound.type] ||
+                {ROUND_POINTS_PREVIEW[
+                  roundDraft.roundId === selectedRound.id ? roundDraft.type : selectedRound.type
+                ] ||
+                  ROUND_TYPE_SCORING[
+                    roundDraft.roundId === selectedRound.id ? roundDraft.type : selectedRound.type
+                  ] ||
                   '—'}
               </p>
             </div>
+          </div>
+          <div className="flex items-center justify-end gap-3 pb-4 pt-2">
+            {roundConfigDirty ? (
+              <button
+                type="button"
+                onClick={() =>
+                  setRoundDraft({
+                    roundId: selectedRound.id,
+                    type: selectedRound.type,
+                    timerDuration: String(selectedRound.timerDuration ?? ''),
+                  })
+                }
+                disabled={savingRoundConfig}
+                className="h-[42px] rounded-[10px] border border-white/15 bg-transparent px-4 text-sm font-medium text-white/70 transition hover:border-white/30 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                Cancel
+              </button>
+            ) : null}
+            <button
+              type="button"
+              onClick={saveRoundConfig}
+              disabled={!roundConfigDirty || savingRoundConfig}
+              className="h-[42px] rounded-[10px] bg-[#00d9ff] px-5 text-sm font-semibold text-[#0b1020] shadow-[0_0_18px_rgba(0,217,255,0.35)] transition hover:bg-[#33e0ff] disabled:cursor-not-allowed disabled:bg-[#1f2a3d] disabled:text-white/40 disabled:shadow-none"
+            >
+              {savingRoundConfig ? 'Saving…' : 'Save'}
+            </button>
           </div>
         </section>
       )}
@@ -711,7 +815,9 @@ export default function QuizDetailPage() {
             <div>
               <div className="flex items-center gap-3">
                 <span className="font-mono text-sm text-foreground/30">R{roundIdx + 1}</span>
-                <h2 className="text-lg font-semibold text-white">{getRoundDisplayName(selectedRound)}</h2>
+                <h2 className="text-lg font-semibold text-white">
+                  {getRoundDisplayName(selectedRound)}
+                </h2>
               </div>
               <div className="mt-1.5 flex flex-wrap gap-2">
                 <span
@@ -842,7 +948,7 @@ export default function QuizDetailPage() {
             <div>
               <label className="block text-sm font-medium text-foreground/70 mb-1">
                 Timer (seconds)
-                <span className="text-foreground/30 font-normal ml-1">optional override</span>
+                {/* <span className="text-foreground/30 font-normal ml-1">optional override</span> */}
               </label>
               <input
                 type="number"

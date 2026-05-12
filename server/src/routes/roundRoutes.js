@@ -134,15 +134,20 @@ const roundRoutes = async (fastify) => {
       }
 
       const { name, type, timerDuration } = request.body;
+      const previousTimerDuration = round.timerDuration;
       await round.update({
         ...(name !== undefined ? { name } : {}),
         ...(type !== undefined ? { type } : {}),
         ...(timerDuration !== undefined ? { timerDuration } : {}),
       });
 
-      // Per-question timer overrides the round default in the game engine. Clearing them when
-      // the host edits the round timer keeps "Round configuration" as the single source of truth.
-      if (timerDuration !== undefined) {
+      // Only clear per-question timer overrides when the round timer ACTUALLY changes value —
+      // patches that include the same value (e.g. when admin saves other round metadata) used to
+      // wipe out custom per-question timers and silently regress the quiz to round defaults.
+      if (
+        timerDuration !== undefined &&
+        Number(timerDuration) !== Number(previousTimerDuration)
+      ) {
         await Question.update({ timerDuration: null }, { where: { roundId: round.id } });
       }
 

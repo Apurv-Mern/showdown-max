@@ -587,11 +587,18 @@ const revealAnswer = async (io, pin) => {
 
     gameState.activeTeamIds = elimState.activeTeamIds;
 
-    for (const teamId of result.eliminations) {
-      if (gameState.teams[teamId]) {
-        gameState.teams[teamId].isEliminated = true;
+    // Per the all-teams-wrong rule (knockoutEngine.processElimination already returns the
+    // unchanged activeTeamIds in this case), nobody should be marked eliminated or notified
+    // PLAYER_ELIMINATED. Without this guard the last surviving player would still get a
+    // PLAYER_ELIMINATED event whenever they answered alone and got it wrong, even though the
+    // engine correctly kept them in `activeTeamIds`.
+    if (!result.allWrong) {
+      for (const teamId of result.eliminations) {
+        if (gameState.teams[teamId]) {
+          gameState.teams[teamId].isEliminated = true;
+        }
+        io.to(`session:${pin}`).emit(SOCKET_EVENTS.PLAYER_ELIMINATED, { teamId });
       }
-      io.to(`session:${pin}`).emit(SOCKET_EVENTS.PLAYER_ELIMINATED, { teamId });
     }
 
     if (knockoutEngine.shouldEndEarly(elimState)) {
@@ -819,78 +826,124 @@ const advanceToNextRound = async (io, pin) => {
  * Player socket gone (tab close, network loss, or leave_session). Team row and score stay in MySQL for rejoin;
  * removed from Redis lobby, live gameState, and host/venue UIs via team_removed.
  */
-const handlePlayerSocketDisconnect = async (io, pin, teamIdRaw) => {
+const handlePlayerSocketDisconnect = async (io, pin, teamIdRaw, options = {}) => {
   const teamId = Number(teamIdRaw);
   if (!pin || !Number.isFinite(teamId)) return;
 
+  // Intentional leaves (player taps "Leave Game") should still purge — the team's score and
+  // tracking row aren't useful once they've explicitly opted out. Transient socket drops
+  // (default path) must NOT.
+  const intentional = Boolean(options.intentional);
+
   await Team.update({ isConnected: false, socketId: null }, { where: { id: teamId } });
-  await redisStore.removeTeamFromLobby(pin, teamId);
 
   const gameState = await redisStore.getGameState(pin);
-  if (gameState) {
-    if (gameState.teams && gameState.teams[teamId]) {
-      delete gameState.teams[teamId];
+
+  // Once the game is in flight, a transient socket drop (mobile sleep, Wi-Fi handoff, browser
+  // throttling) MUST NOT erase the team — otherwise their score vanishes from the leaderboard
+  // and they can't be auto-restored by socket reconnection. Only purge teams during LOBBY (where
+  // the count gates the start-game flow), after the game ends, or on intentional leave.
+  const isPreGameOrEnded =
+    !gameState ||
+    gameState.state === GAME_STATES.LOBBY ||
+    gameState.state === GAME_STATES.FINAL_RESULTS;
+
+  if (isPreGameOrEnded || intentional) {
+    await redisStore.removeTeamFromLobby(pin, teamId);
+
+    if (gameState) {
+      if (gameState.teams && gameState.teams[teamId]) {
+        delete gameState.teams[teamId];
+      }
+      gameState.activeTeamIds = (
+        Array.isArray(gameState.activeTeamIds) ? gameState.activeTeamIds : []
+      )
+        .map(Number)
+        .filter((id) => id !== teamId);
+      gameState.totalTeams = Object.keys(gameState.teams || {}).length;
+      await redisStore.setGameState(pin, gameState);
     }
-    gameState.activeTeamIds = (
-      Array.isArray(gameState.activeTeamIds) ? gameState.activeTeamIds : []
-    )
-      .map(Number)
-      .filter((id) => id !== teamId);
-    gameState.totalTeams = Object.keys(gameState.teams || {}).length;
 
-    if (eliminationStates.has(pin)) {
-      const es = eliminationStates.get(pin);
-      es.activeTeamIds = (es.activeTeamIds || []).map(Number).filter((id) => id !== teamId);
-    }
+    io.to(`session:${pin}`).emit(SOCKET_EVENTS.TEAM_REMOVED, { teamId });
+    logger.info('Player socket disconnected during lobby/final — team removed', { pin, teamId });
+    return;
+  }
 
-    await redisStore.setGameState(pin, gameState);
+  // Mid-game disconnect: keep the team's score and slot. Socket.io reconnection (and our
+  // join_session reconnect handler) will mark them connected again. Host can still manually
+  // remove the team via the dashboard if they don't come back.
+  if (gameState.teams && gameState.teams[teamId]) {
+    gameState.teams[teamId] = {
+      ...gameState.teams[teamId],
+      isConnected: false,
+    };
+  }
 
-    if (
-      gameState.state === GAME_STATES.QUESTION &&
-      gameState.questionState === QUESTION_STATES.ACTIVE
-    ) {
-      const question = stateMachine.getCurrentQuestion(gameState);
-      if (question) {
-        const responsesRaw = await redisStore.getResponses(pin, question.id);
-        const answeredAmongActive = countValidAnswersAmongTeamIds(
-          responsesRaw,
-          gameState.activeTeamIds,
-        );
-        gameState.responseCount = answeredAmongActive;
-        await redisStore.setGameState(pin, gameState);
-        io.to(`session:${pin}`).emit(SOCKET_EVENTS.RESPONSE_COUNT, {
-          count: answeredAmongActive,
-          total: gameState.activeTeamIds.length,
+  // Drop the team from the *active* answer cohort for the current question only — without this
+  // a still-pending response from a disconnected team blocks auto-reveal — but keep them in the
+  // leaderboard. They re-join the active set on the next round / reconnect.
+  gameState.activeTeamIds = (
+    Array.isArray(gameState.activeTeamIds) ? gameState.activeTeamIds : []
+  )
+    .map(Number)
+    .filter((id) => id !== teamId);
+
+  if (eliminationStates.has(pin)) {
+    const es = eliminationStates.get(pin);
+    es.activeTeamIds = (es.activeTeamIds || []).map(Number).filter((id) => id !== teamId);
+  }
+
+  await redisStore.setGameState(pin, gameState);
+
+  if (
+    gameState.state === GAME_STATES.QUESTION &&
+    gameState.questionState === QUESTION_STATES.ACTIVE
+  ) {
+    const question = stateMachine.getCurrentQuestion(gameState);
+    if (question) {
+      const responsesRaw = await redisStore.getResponses(pin, question.id);
+      const answeredAmongActive = countValidAnswersAmongTeamIds(
+        responsesRaw,
+        gameState.activeTeamIds,
+      );
+      gameState.responseCount = answeredAmongActive;
+      await redisStore.setGameState(pin, gameState);
+      io.to(`session:${pin}`).emit(SOCKET_EVENTS.RESPONSE_COUNT, {
+        count: answeredAmongActive,
+        total: gameState.activeTeamIds.length,
+      });
+      io.to(`session:${pin}`).emit(
+        SOCKET_EVENTS.LIVE_RESPONSE_UPDATE,
+        buildLiveResponseStats(gameState, question, responsesRaw),
+      );
+
+      if (
+        gameState.activeTeamIds.length > 0 &&
+        answeredAmongActive >= gameState.activeTeamIds.length
+      ) {
+        timerManager.forceExpire(pin);
+        io.to(`session:${pin}`).emit(SOCKET_EVENTS.TIMER_UPDATE, {
+          remaining: 0,
+          timerRunning: false,
         });
-        io.to(`session:${pin}`).emit(
-          SOCKET_EVENTS.LIVE_RESPONSE_UPDATE,
-          buildLiveResponseStats(gameState, question, responsesRaw),
-        );
-
-        // Do not use raw `getResponseCount` here: Redis still holds the disconnecting team's
-        // submission, but `activeTeamIds` was already shrunk — that mismatch falsely triggered
-        // auto-reveal and zeroed the timer for host/venue.
-        if (
-          gameState.activeTeamIds.length > 0 &&
-          answeredAmongActive >= gameState.activeTeamIds.length
-        ) {
-          timerManager.forceExpire(pin);
-          io.to(`session:${pin}`).emit(SOCKET_EVENTS.TIMER_UPDATE, {
-            remaining: 0,
-            timerRunning: false,
-          });
-          io.to(`session:${pin}`).emit(SOCKET_EVENTS.TIMER_EXPIRED, {});
-          gameState.timerRunning = false;
-          gameState.timerRemaining = 0;
-          await redisStore.setGameState(pin, gameState);
-          io.to(`session:${pin}`).emit(SOCKET_EVENTS.AUTO_REVEAL, {});
-        }
+        io.to(`session:${pin}`).emit(SOCKET_EVENTS.TIMER_EXPIRED, {});
+        gameState.timerRunning = false;
+        gameState.timerRemaining = 0;
+        await redisStore.setGameState(pin, gameState);
+        io.to(`session:${pin}`).emit(SOCKET_EVENTS.AUTO_REVEAL, {});
       }
     }
   }
 
-  io.to(`session:${pin}`).emit(SOCKET_EVENTS.TEAM_REMOVED, { teamId });
-  logger.info('Player socket disconnected — removed from live session views', { pin, teamId });
+  // Do NOT emit TEAM_REMOVED mid-game — that erases the team from the host's responses and
+  // leaderboard UIs. Emit team_updated instead so dashboards can dim/flag disconnected teams
+  // without dropping them.
+  io.to(`session:${pin}`).emit(SOCKET_EVENTS.TEAM_UPDATED, {
+    teamId,
+    isConnected: false,
+    score: gameState.teams?.[teamId]?.score ?? 0,
+  });
+  logger.info('Player socket disconnected mid-game — kept in scoreboard', { pin, teamId });
 };
 
 /**
@@ -1100,7 +1153,27 @@ const endBreak = async (io, pin) => {
       gameState.questionState === QUESTION_STATES.ACTIVE &&
       Number(gameState.timerRemaining) > 0
     ) {
-      await startTimer(io, pin);
+      const resumeRound = stateMachine.getCurrentRound(gameState);
+      if (resumeRound?.type === ROUND_TYPES.MUSIC) {
+        // Music rounds intentionally pair the countdown with audio/video playback — both must
+        // begin together when the host hits "Start Timer". Auto-resuming on break end would
+        // start the timer (and broadcast MUSIC_CONTROL play) without the host's input, so we
+        // keep the timer paused here and emit a TIMER_UPDATE so all clients render the
+        // "awaiting host timer" UI consistently with how the question first activated.
+        io.to(`session:${pin}`).emit(SOCKET_EVENTS.TIMER_UPDATE, {
+          remaining: Number(gameState.timerRemaining || 0),
+          paused: true,
+          timerRunning: false,
+        });
+        logger.info('Break ended during music question — leaving timer paused for host', {
+          pin,
+          roundIndex: gameState.currentRoundIndex,
+          questionIndex: gameState.currentQuestionIndex,
+          timerRemaining: gameState.timerRemaining,
+        });
+      } else {
+        await startTimer(io, pin);
+      }
     }
     return;
   }
@@ -1232,6 +1305,21 @@ const pauseTimer = async (io, pin) => {
     timerRunning: false,
   });
   persistTimerRemainingIfActiveQuestion(pin, remaining);
+
+  // Stop Timer in a music round must also stop the audio/video on host + venue. The
+  // start-timer path (above) emits MUSIC_CONTROL `play`; we mirror that here so the projector's
+  // MP3/MP4 element pauses in lock-step with the countdown. Players never receive audio, so this
+  // is purely a venue/host concern, but emitting to the room is harmless on player clients.
+  try {
+    const gameState = await redisStore.getGameState(pin);
+    const round = gameState ? stateMachine.getCurrentRound(gameState) : null;
+    if (round?.type === ROUND_TYPES.MUSIC) {
+      io.to(`session:${pin}`).emit(SOCKET_EVENTS.MUSIC_CONTROL, { action: 'pause' });
+    }
+  } catch (err) {
+    logger.warn('pauseTimer music_control echo failed', { error: err.message });
+  }
+
   logger.info('Timer paused', { pin, remaining });
 };
 

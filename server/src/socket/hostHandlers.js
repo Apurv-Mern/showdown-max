@@ -338,30 +338,22 @@ const hostHandlers = (io, socket) => {
         await redisStore.updateTeamData(pin, teamId, patched.teams[teamId]);
       }
 
-      const latestGameState = patched || (await redisStore.getGameState(pin));
-
+      // Only broadcast a focused TEAM_UPDATED event. Both the host's `onTeamUpdated` and the
+      // player's `onTeamUpdated` already merge the new score into their local state without
+      // touching the active question/phase. We deliberately *don't* emit a fresh
+      // `session_state` here — even an enriched one — because:
+      //   • on the host, `setCurrentQuestion(state==='QUESTION' ? data.currentQuestion : null)`
+      //     could blank the question card during edge phases;
+      //   • on the player, `onSessionState` resets `selectedOption` whenever
+      //     `mySubmittedOptionIndex` is missing from the payload (and we'd have to recompute
+      //     it per-team to avoid that), which previously bounced players from the
+      //     "Answer Submitted" UI back to the question screen — or to "Waiting for Game to
+      //     Start" — every time the host nudged a score.
       io.to(`session:${pin}`).emit(SOCKET_EVENTS.TEAM_UPDATED, {
         teamId,
         teamName: teamData.teamName,
         score: updatedScore,
       });
-
-      if (latestGameState) {
-        // Keep backward compatibility (flat payload) and mobile compatibility (`data.gameState`).
-        io.to(`session:${pin}`).emit(SOCKET_EVENTS.SESSION_STATE, {
-          ...latestGameState,
-          gameState: latestGameState,
-        });
-      } else {
-        io.to(`session:${pin}`).emit(SOCKET_EVENTS.SESSION_STATE, {
-          teams: Object.fromEntries([[teamId, teamData]]),
-          totalTeams: 1,
-          gameState: {
-            teams: Object.fromEntries([[teamId, teamData]]),
-            totalTeams: 1,
-          },
-        });
-      }
       logger.info('Team score edited', { pin, teamId, score: updatedScore });
     } catch (err) {
       logger.error('edit_team_score error', { error: err.message });

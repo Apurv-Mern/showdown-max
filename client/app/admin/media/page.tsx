@@ -3,7 +3,13 @@
 import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import toast from 'react-hot-toast';
-import { api, apiUpload } from '@/lib/api';
+import {
+  api,
+  apiUpload,
+  MAX_UPLOAD_SIZE_BYTES,
+  MAX_UPLOAD_SIZE_LABEL,
+  formatBytes,
+} from '@/lib/api';
 import { Modal } from '@/components/shared/Modal';
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner';
 import { cn } from '@/lib/utils';
@@ -350,6 +356,18 @@ export default function MediaPage() {
   }, [loading, libraryItems.length, otherFiles.length]);
 
   const doUpload = useCallback(async (file: File) => {
+    // Pre-flight size guard so a 50+ MB drag-and-drop doesn't blow up over the wire — the
+    // server caps uploads at MAX_UPLOAD_SIZE_BYTES and will respond 413 otherwise.
+    if (file.size > MAX_UPLOAD_SIZE_BYTES) {
+      toast.error(
+        `File too large (${formatBytes(file.size)}). Maximum allowed size is ${MAX_UPLOAD_SIZE_LABEL}.`,
+      );
+      if (browseInputRef.current) browseInputRef.current.value = '';
+      if (mp3InputRef.current) mp3InputRef.current.value = '';
+      if (mp4InputRef.current) mp4InputRef.current.value = '';
+      return;
+    }
+
     const formData = new FormData();
     formData.append('file', file);
     try {

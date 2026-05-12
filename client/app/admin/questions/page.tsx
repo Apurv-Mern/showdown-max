@@ -2,7 +2,13 @@
 
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import toast from 'react-hot-toast';
-import { api, apiUpload } from '@/lib/api';
+import {
+  api,
+  apiUpload,
+  MAX_UPLOAD_SIZE_BYTES,
+  MAX_UPLOAD_SIZE_LABEL,
+  formatBytes,
+} from '@/lib/api';
 import { Button } from '@/components/shared/Button';
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner';
 import { Modal } from '@/components/shared/Modal';
@@ -262,6 +268,14 @@ export default function QuestionsPage() {
     } else if (isAudioOrVideo) {
       toast.error(
         'Audio and video files (including MP3 and MP4) are only allowed for Music rounds',
+      );
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      return;
+    }
+
+    if (file.size > MAX_UPLOAD_SIZE_BYTES) {
+      toast.error(
+        `File too large (${formatBytes(file.size)}). Maximum allowed size is ${MAX_UPLOAD_SIZE_LABEL}.`,
       );
       if (fileInputRef.current) fileInputRef.current.value = '';
       return;

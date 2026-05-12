@@ -17,6 +17,27 @@ interface ApiError {
 }
 
 /**
+ * Server cap for `/api/media/upload` — keep in sync with `mediaService.MAX_FILE_SIZE`
+ * on the backend (50 MB). Used to short-circuit oversize uploads on the client and to
+ * format the user-facing error message when the server rejects with HTTP 413.
+ */
+export const MAX_UPLOAD_SIZE_BYTES = 50 * 1024 * 1024;
+export const MAX_UPLOAD_SIZE_LABEL = '50 MB';
+
+/** Human-readable byte size, e.g. 73891734 → "70.5 MB" — used in upload error toasts. */
+export const formatBytes = (bytes: number): string => {
+  if (!Number.isFinite(bytes) || bytes < 0) return '';
+  const units = ['B', 'KB', 'MB', 'GB'];
+  let value = bytes;
+  let unitIndex = 0;
+  while (value >= 1024 && unitIndex < units.length - 1) {
+    value /= 1024;
+    unitIndex += 1;
+  }
+  return `${value.toFixed(value >= 10 || unitIndex === 0 ? 0 : 1)} ${units[unitIndex]}`;
+};
+
+/**
  * Generic fetch wrapper for the backend API.
  * Automatically attaches JWT Bearer token from localStorage.
  */
@@ -136,19 +157,38 @@ export const apiUpload = async <T>(
     body: formData,
   });
 
-  const data = await response.json();
+  // 413 may arrive with a non-JSON body (e.g. a reverse proxy boilerplate page) when the
+  // request body is rejected before reaching Fastify. Guard the JSON parse so we still
+  // surface a clear toast in that case.
+  let data: unknown = null;
+  try {
+    data = await response.json();
+  } catch {
+    data = null;
+  }
 
   if (!response.ok) {
-    const error = data as ApiError;
+    const apiError = (data || {}) as Partial<ApiError>;
+    const rawMessage = apiError.error || '';
+
+    // Map the raw multipart-plugin / reverse-proxy 413 into something the admin can act on.
+    // Server message arrives as "request file too large" (no size context); we substitute
+    // the configured cap so the operator knows exactly which limit they hit.
+    let friendlyMessage = rawMessage || 'Upload failed';
+    if (response.status === 413 || /file too large|payload too large|FST_REQ_FILE/i.test(rawMessage)) {
+      friendlyMessage = `File too large. Maximum allowed size is ${MAX_UPLOAD_SIZE_LABEL}.`;
+    }
+
     clientLogger.error('api', 'Upload failed', {
       requestId,
       endpoint,
       url,
       status: response.status,
       durationMs: Date.now() - startedAt,
-      error: error.error || 'Upload failed',
+      error: friendlyMessage,
+      rawError: rawMessage,
     });
-    throw new Error(error.error || 'Upload failed');
+    throw new Error(friendlyMessage);
   }
 
   clientLogger.info('api', 'Upload succeeded', {

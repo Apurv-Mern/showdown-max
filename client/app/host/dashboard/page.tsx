@@ -456,7 +456,14 @@ function HostDashboardContent() {
   ]);
 
   const isMusicRound = currentQuestion?.roundType === 'MUSIC';
-  const { playTick, playBuzz } = useTimerSound({ enabled: true, muted: isMusicRound });
+  // Mute the question-timer tick/buzz while a mini-game is on the venue. The
+  // server keeps the underlying question timer ticking (so the host can resume
+  // mid-question once the mini-game ends), but the audible tick during a
+  // Kangaroo Race / Card Shuffle is jarring and competes with the mini-game.
+  const { playTick, playBuzz } = useTimerSound({
+    enabled: true,
+    muted: isMusicRound || activeMiniGameLocal != null,
+  });
   const {
     play: playMp3,
     stop: stopMp3,
@@ -1704,7 +1711,11 @@ function HostDashboardContent() {
             className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 whitespace-nowrap text-center text-base font-semibold uppercase tracking-[0.2em] lg:text-xl"
             data-node-id="232:4449"
           >
-            {state === 'SCOREBOARD' ? null : currentRound ? (
+            {state === 'SCOREBOARD' ? null : activeMiniGameLocal === 'kangaroo_race' ? (
+              <span className="text-[#00d9ff]">Kangaroo Race</span>
+            ) : activeMiniGameLocal === 'card_shuffle' ? (
+              <span className="text-[#00d9ff]">Card Shuffle</span>
+            ) : currentRound ? (
               <>
                 <span className="text-white">
                   Round {(gameState?.currentRoundIndex ?? 0) + 1}-{' '}

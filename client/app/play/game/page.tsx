@@ -276,27 +276,26 @@ function QuestionMediaVisual({
     );
   }
   if ((q.mediaType || '').toLowerCase() === 'mp4' && q.mediaUrl) {
-    // Per design: MP4 plays on the venue projector only — players see the same music-themed
-    // thumbnail used for MP3 questions so the player UI stays consistent with the venue's
-    // music-round look, and 30 phones don't all stream the same video clip.
+    // Per design: MP4 plays on the venue projector only — players see a
+    // video-themed thumbnail (`/videobg.png`) so the mobile UI clearly signals
+    // "watch the venue" without us streaming the actual clip to 30+ phones.
+    // MP3 questions keep using `/venuemusicbg.png` (handled below).
     const caption =
       musicBanner === 'playing'
         ? 'Video is playing on Venue Screen'
         : musicBanner === 'waiting'
-          ? 'Waiting for host to start the timer'
-          : 'Watch the venue screen for the video';
+          ? 'Video is playing on Venue Screen'
+          : 'Video is playing on Venue Screen';
     return (
       <div className="shrink-0">
         <div className="rounded-2xl overflow-hidden">
           <img
-            src="/venuemusicbg.png"
+            src="/videobg.png"
             alt={caption}
             className="max-h-[min(42vh,220px)] w-full object-cover md:max-h-[min(38vh,280px)]"
           />
         </div>
-        <p className="mt-2 text-center text-sm font-semibold text-white sm:text-base">
-          {caption}
-        </p>
+        <p className="mt-2 text-center text-sm font-semibold text-white sm:text-base">{caption}</p>
       </div>
     );
   }
@@ -608,7 +607,9 @@ export default function GamePage() {
         } else {
           const mine = data.mySubmittedOptionIndex;
           const restored =
-            mine !== undefined && mine !== null && Number.isFinite(Number(mine)) ? Number(mine) : null;
+            mine !== undefined && mine !== null && Number.isFinite(Number(mine))
+              ? Number(mine)
+              : null;
           if (restored !== null) {
             setSelectedOption(restored);
             setPhase('answered');
@@ -697,8 +698,7 @@ export default function GamePage() {
           | Record<number | string, { isEliminated?: boolean; score?: number }>
           | undefined;
         const stid = session.teamId;
-        const myTeam =
-          stid != null && teamsMap ? teamsMap[stid] ?? teamsMap[String(stid)] : null;
+        const myTeam = stid != null && teamsMap ? (teamsMap[stid] ?? teamsMap[String(stid)]) : null;
         const currentlyEliminated = Boolean(myTeam?.isEliminated);
         isEliminatedRef.current = currentlyEliminated;
         if (myTeam?.score !== undefined) {
@@ -1028,8 +1028,7 @@ export default function GamePage() {
       // `data.eliminations` array only carries this question's knockouts, so by itself it
       // can't tell us about prior rounds.
       const myTeam = data.teams.find((t) => t.teamId === session.teamId);
-      const persistEliminated =
-        isEliminatedRef.current || Boolean(myTeam?.isEliminated);
+      const persistEliminated = isEliminatedRef.current || Boolean(myTeam?.isEliminated);
       setPhase(persistEliminated ? 'eliminated' : 'reveal');
       const myResponse = data.responseDetails?.find((r) => r.teamId === session.teamId);
       if (myResponse && Number.isFinite(Number(myResponse.selectedOptionIndex))) {
@@ -1492,9 +1491,7 @@ export default function GamePage() {
                 <div className="relative z-10 flex h-full items-center justify-center p-4">
                   <div className="flex flex-col items-center gap-4 text-white/80">
                     <div className="h-10 w-10 animate-spin rounded-full border-2 border-white/20 border-t-[#00d8ff]" />
-                    <p className="text-sm font-medium tracking-wide sm:text-base">
-                      Reconnecting…
-                    </p>
+                    <p className="text-sm font-medium tracking-wide sm:text-base">Reconnecting…</p>
                   </div>
                 </div>
               </motion.div>
@@ -1769,6 +1766,14 @@ export default function GamePage() {
                             isMajorityRulesRound &&
                               isSelectedOption &&
                               'ring-2 ring-[#00e5ff] shadow-[0_0_8px_8px_rgba(0,229,255,0.65)]',
+                            // Reveal-phase highlight rings: bright green halo for the
+                            // correct option, bright red halo for the player's
+                            // wrong pick. Mirrors the Figma reveal screen so the
+                            // outcome is unmistakable on a phone.
+                            showCorrectTick &&
+                              'ring-2 ring-[#39ff14] shadow-[0_0_18px_4px_rgba(57,255,20,0.7)]',
+                            showWrongCross &&
+                              'ring-2 ring-[#ff2525] shadow-[0_0_18px_4px_rgba(255,37,37,0.7)]',
                             shouldDim && 'opacity-30 brightness-50 contrast-75 scale-[0.98]',
                           )}
                         >

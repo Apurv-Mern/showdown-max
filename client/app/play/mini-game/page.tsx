@@ -46,6 +46,8 @@ const CARD_ROUND_BONUS: Record<1 | 2 | 3 | 4, number> = {
 };
 const CARD_FINISHED_MESSAGE = 'Host will Start the game shortly !!';
 const MINI_GAME_FINISHED_MESSAGE = 'Game Finished. Wait for the host to start the game.';
+/** Window the player has to lock a kangaroo once the host fires Start Race. */
+const KANGAROO_PICK_WINDOW_SECONDS = 20;
 const CARD_IMAGE_FACE_DOWN = '/games/card-shuffle/facedowncard.png';
 const CARD_IMAGE_JOKER = '/games/card-shuffle/jokercard.png';
 const CARD_IMAGE_QUEEN = '/games/card-shuffle/queencard.png';
@@ -126,6 +128,10 @@ export default function MiniGamePage() {
   /** Short banner when host starts round 1 / advances to round 2+ */
   const [roundAnnouncement, setRoundAnnouncement] = useState<string | null>(null);
   const [miniGameEndMessage, setMiniGameEndMessage] = useState<string>(MINI_GAME_FINISHED_MESSAGE);
+  /** Epoch-ms deadline for the kangaroo pick window. `null` means no countdown. */
+  const [kangarooPickDeadline, setKangarooPickDeadline] = useState<number | null>(null);
+  /** Whole seconds remaining derived from the deadline; drives both the badge and disable. */
+  const [kangarooPickSecondsLeft, setKangarooPickSecondsLeft] = useState<number | null>(null);
   const sessionPinRef = useRef(session.pin);
   sessionPinRef.current = session.pin;
   selectedChoiceRef.current = selectedChoice;
@@ -142,6 +148,27 @@ export default function MiniGamePage() {
       return;
     }
   }, [session, router]);
+
+  // Drive the kangaroo pick countdown off the absolute deadline so the badge stays
+  // accurate even if requestAnimationFrame / setInterval gets throttled (mobile
+  // background tab, etc.) and so a rejoin can simply restore the deadline value.
+  useEffect(() => {
+    if (kangarooPickDeadline == null) {
+      setKangarooPickSecondsLeft(null);
+      return;
+    }
+    const tick = () => {
+      const remainingMs = kangarooPickDeadline - Date.now();
+      const seconds = remainingMs > 0 ? Math.ceil(remainingMs / 1000) : 0;
+      setKangarooPickSecondsLeft(seconds);
+      if (remainingMs <= 0) {
+        window.clearInterval(intervalId);
+      }
+    };
+    tick();
+    const intervalId = window.setInterval(tick, 250);
+    return () => window.clearInterval(intervalId);
+  }, [kangarooPickDeadline]);
 
   useEffect(() => {
     /** Singleton; read here so listeners always register (avoids first-paint `useSocket` null). */
@@ -178,6 +205,8 @@ export default function MiniGamePage() {
       setShuffleComplete(false);
       setActiveCardRound(null);
       setRoundAnnouncement(null);
+      setKangarooPickDeadline(null);
+      setKangarooPickSecondsLeft(null);
       window.location.assign('/play/game');
     };
 
@@ -220,6 +249,8 @@ export default function MiniGamePage() {
       setRoundOpen(false);
       setActiveCardRound(null);
       setRoundAnnouncement(null);
+      setKangarooPickDeadline(null);
+      setKangarooPickSecondsLeft(null);
     };
 
     const onMiniGameCommand = (data: {
@@ -253,11 +284,19 @@ export default function MiniGamePage() {
           setFinishOrder([]);
           setRoundOpen(true);
           setShuffleComplete(false);
+          // 20-second window starts the moment Start Race fires. Using a deadline (vs
+          // a per-second decrement) keeps the countdown accurate even if the tab is
+          // throttled by the browser, and lets the rejoin path resync on its own.
+          const deadline = Date.now() + KANGAROO_PICK_WINDOW_SECONDS * 1000;
+          setKangarooPickDeadline(deadline);
+          setKangarooPickSecondsLeft(KANGAROO_PICK_WINDOW_SECONDS);
           setRoundAnnouncement('Race started - pick your kangaroo');
           window.setTimeout(() => setRoundAnnouncement(null), 2800);
         }
         if (data.command === 'reveal_winner') {
           setRoundOpen(false);
+          setKangarooPickDeadline(null);
+          setKangarooPickSecondsLeft(null);
           setRoundAnnouncement('Revealing winner...');
           window.setTimeout(() => setRoundAnnouncement(null), 1800);
         }
@@ -320,6 +359,8 @@ export default function MiniGamePage() {
         setWinningValue(Number.isFinite(winning) ? winning : null);
         setRoundOpen(false);
         setRoundAnnouncement(null);
+        setKangarooPickDeadline(null);
+        setKangarooPickSecondsLeft(null);
         const pick = lockedPickRef.current ?? selectedChoiceRef.current;
         if (Number.isFinite(winning) && pick !== null) {
           setResultPhase(pick === winning ? 'winner' : 'loser');
@@ -371,6 +412,8 @@ export default function MiniGamePage() {
         setWinningValue(Number.isFinite(winning) ? winning : null);
         setRoundOpen(false);
         setRoundAnnouncement(null);
+        setKangarooPickDeadline(null);
+        setKangarooPickSecondsLeft(null);
 
         if (Number.isFinite(selected) && selected >= 1 && selected <= 6) {
           lockedPickRef.current = selected;
@@ -594,6 +637,16 @@ export default function MiniGamePage() {
   const handleChoice = (choiceId: number) => {
     const socket = connectSocket();
     if (!roundOpen || lockedPickRef.current !== null) return;
+    // Block late picks for kangaroo race once the 20s window has expired (the
+    // selection grid is also visually disabled, but this guards keyboard /
+    // accessibility paths and any race conditions between tick and click).
+    if (
+      gameType === 'kangaroo_race' &&
+      kangarooPickSecondsLeft != null &&
+      kangarooPickSecondsLeft <= 0
+    ) {
+      return;
+    }
     lockedPickRef.current = choiceId;
     setSelectedChoice(choiceId);
     console.log('[play/mini-game][socket][out] mini_game_action', {
@@ -649,20 +702,32 @@ export default function MiniGamePage() {
 
     return (
       <MobileFrame>
-        <div className="flex flex-1 items-center justify-center p-4 sm:p-6 md:p-8">
+        <div className="flex flex-1 flex-col items-center justify-start p-4 sm:p-6 md:p-8">
           <div className="w-full max-w-sm text-center sm:max-w-md">
+            {/* Title pill — “KANGAROO RACE !!” + finish rank, mirrored from the
+                Figma screenshot. Always shows even when the player didn't lock
+                a pick (rank fallback "—") so the result screen never collapses
+                to just an icon. */}
+            <div className="mb-4 rounded-xl border-2 border-[#00d8ff] bg-[linear-gradient(180deg,#3a04a6_0%,#1a0263_100%)] px-4 py-3 shadow-[0_0_22px_rgba(0,216,255,0.35)]">
+              <h2 className="text-2xl font-black uppercase tracking-[0.06em] text-white drop-shadow-[0_2px_8px_rgba(0,0,0,0.45)] sm:text-3xl">
+                Kangaroo Race !!
+              </h2>
+              {finishRank != null ? (
+                <p className="mt-1 text-base font-extrabold text-white sm:text-lg">
+                  Your Kangaroo Finished{' '}
+                  <span className="text-[#39ff14]">{rankLabel}</span> !!
+                </p>
+              ) : (
+                <p className="mt-1 text-base font-extrabold text-white/85 sm:text-lg">
+                  Race finished
+                </p>
+              )}
+            </div>
+
             {pointsEarned != null ? (
               <div className="mb-3 rounded-xl border-2 border-[#00f5ff] bg-[linear-gradient(180deg,rgba(13,24,60,0.95),rgba(4,10,25,0.98))] px-4 py-3 shadow-[0_0_18px_rgba(0,245,255,0.25)]">
                 <p className="text-3xl font-black text-[#39ff14]">
                   Scored : +{pointsEarned} Points
-                </p>
-              </div>
-            ) : null}
-
-            {finishRank != null ? (
-              <div className="mb-10 rounded-lg border border-[#6f42ff]/50 bg-[linear-gradient(180deg,#2e0c7f_0%,#17063e_100%)] px-4 py-2">
-                <p className="text-2xl font-black text-white">
-                  Your Kangaroo Finished <span className="text-[#39ff14]">{rankLabel}</span> !!
                 </p>
               </div>
             ) : null}
@@ -747,69 +812,213 @@ export default function MiniGamePage() {
               </div>
             </div>
           ) : (
-            <div className="relative z-10 flex min-h-0 flex-1 flex-col px-5 pb-8 pt-8 sm:px-8">
-              <header className="shrink-0 text-center">
-                <h1 className="text-[clamp(1.65rem,6vw,2.2rem)] font-black uppercase leading-tight tracking-[0.06em] text-white drop-shadow-[0_2px_12px_rgba(0,0,0,0.45)]">
-                  Kangaroo Race !!
-                </h1>
-                <p className="mt-2 text-[1.05rem] font-extrabold leading-tight text-white sm:text-xl">
-                  Which Kangaroo will win
-                </p>
-                <p className="text-[1.05rem] font-extrabold leading-tight text-white sm:text-xl">
-                  Pick your Kangaroo
-                </p>
-              </header>
+            (() => {
+              const pickWindowActive =
+                kangarooPickSecondsLeft != null && kangarooPickSecondsLeft > 0;
+              const pickWindowExpired =
+                kangarooPickSecondsLeft != null && kangarooPickSecondsLeft <= 0;
+              const buttonsDisabled =
+                !roundOpen || selectedChoice !== null || resultPhase !== null || pickWindowExpired;
+              const timerWarning = pickWindowActive && (kangarooPickSecondsLeft as number) <= 5;
+              return (
+                <div className="relative z-10 flex min-h-0 flex-1 flex-col px-5 pb-8 pt-8 sm:px-8">
+                  <header className="shrink-0 text-center">
+                    <h1 className="text-[clamp(1.65rem,6vw,2.2rem)] font-black uppercase leading-tight tracking-[0.06em] text-white drop-shadow-[0_2px_12px_rgba(0,0,0,0.45)]">
+                      Kangaroo Race !!
+                    </h1>
+                    <p className="mt-2 text-[1.05rem] font-extrabold leading-tight text-white sm:text-xl">
+                      Which Kangaroo will win
+                    </p>
+                    <p className="text-[1.05rem] font-extrabold leading-tight text-white sm:text-xl">
+                      Pick your Kangaroo
+                    </p>
+                  </header>
 
-              <div className="mx-auto mt-4 flex h-[170px] w-[170px] items-center justify-center rounded-2xl">
-                <img
-                  src="/KangarooPic.png"
-                  alt="Kangaroo"
-                  className="h-full w-full object-contain"
-                  onError={(e) => {
-                    const el = e.currentTarget;
-                    el.style.display = 'none';
-                  }}
-                />
-              </div>
+                  {kangarooPickSecondsLeft != null ? (
+                    <div
+                      className={cn(
+                        'mx-auto mt-3 flex items-center justify-center transition-opacity',
+                        pickWindowExpired ? 'opacity-65' : 'opacity-100',
+                        timerWarning ? 'animate-pulse' : '',
+                      )}
+                      role="timer"
+                      aria-live="polite"
+                      aria-label={
+                        pickWindowExpired
+                          ? "Time's up"
+                          : `${kangarooPickSecondsLeft} seconds left to pick a kangaroo`
+                      }
+                    >
+                      {/* Stylised stopwatch icon — yellow face with black ticks
+                          and motion lines. Slightly overlaps the red counter
+                          pill (negative margin) to match the Figma reference. */}
+                      <svg
+                        viewBox="0 0 28 28"
+                        className="relative z-10 -mr-2 h-9 w-9 drop-shadow-[0_2px_4px_rgba(0,0,0,0.45)]"
+                        aria-hidden="true"
+                      >
+                        <line
+                          x1="6"
+                          y1="3"
+                          x2="3"
+                          y2="0"
+                          stroke="#0b0b0b"
+                          strokeWidth="1.6"
+                          strokeLinecap="round"
+                        />
+                        <line
+                          x1="14"
+                          y1="2"
+                          x2="14"
+                          y2="-0.5"
+                          stroke="#0b0b0b"
+                          strokeWidth="1.6"
+                          strokeLinecap="round"
+                        />
+                        <line
+                          x1="22"
+                          y1="3"
+                          x2="25"
+                          y2="0"
+                          stroke="#0b0b0b"
+                          strokeWidth="1.6"
+                          strokeLinecap="round"
+                        />
+                        <circle
+                          cx="14"
+                          cy="16"
+                          r="10"
+                          fill="#fde047"
+                          stroke="#0b0b0b"
+                          strokeWidth="1.6"
+                        />
+                        <circle cx="14" cy="16" r="6.5" fill="#facc15" />
+                        <line
+                          x1="14"
+                          y1="9"
+                          x2="14"
+                          y2="10.5"
+                          stroke="#0b0b0b"
+                          strokeWidth="1.2"
+                          strokeLinecap="round"
+                        />
+                        <line
+                          x1="21"
+                          y1="16"
+                          x2="19.5"
+                          y2="16"
+                          stroke="#0b0b0b"
+                          strokeWidth="1.2"
+                          strokeLinecap="round"
+                        />
+                        <line
+                          x1="14"
+                          y1="23"
+                          x2="14"
+                          y2="21.5"
+                          stroke="#0b0b0b"
+                          strokeWidth="1.2"
+                          strokeLinecap="round"
+                        />
+                        <line
+                          x1="7"
+                          y1="16"
+                          x2="8.5"
+                          y2="16"
+                          stroke="#0b0b0b"
+                          strokeWidth="1.2"
+                          strokeLinecap="round"
+                        />
+                        <line
+                          x1="14"
+                          y1="16"
+                          x2="14"
+                          y2="11"
+                          stroke="#0b0b0b"
+                          strokeWidth="1.7"
+                          strokeLinecap="round"
+                        />
+                        <line
+                          x1="14"
+                          y1="16"
+                          x2="17.5"
+                          y2="16"
+                          stroke="#0b0b0b"
+                          strokeWidth="1.7"
+                          strokeLinecap="round"
+                        />
+                        <circle cx="14" cy="16" r="1.2" fill="#0b0b0b" />
+                      </svg>
 
-              <div className="mt-4 grid grid-cols-2 gap-3">
-                {HORSES.map((horse) => (
-                  <button
-                    key={horse.id}
-                    onClick={() => handleChoice(horse.id)}
-                    disabled={!roundOpen || selectedChoice !== null || resultPhase !== null}
-                    className={cn(
-                      'rounded-xl py-4 text-center text-5xl font-black text-white transition-all duration-200 active:translate-y-0.5 active:shadow-none',
-                      horse.buttonClass,
-                      selectedChoice === horse.id
-                        ? 'ring-4 ring-white/55 scale-[1.02]'
-                        : !roundOpen || selectedChoice !== null || resultPhase !== null
-                          ? 'opacity-40 saturate-75'
-                          : 'hover:brightness-110 hover:scale-[1.02]',
-                    )}
-                  >
-                    <div className="flex flex-col items-center">
-                      <span className="text-xl font-black">{horse.id}</span>
-                      <span className="text-[11px] font-semibold leading-tight">
-                        {kangarooNames[horse.id - 1] || `Kangaroo ${horse.id}`}
-                      </span>
+                      <div
+                        className={cn(
+                          'flex min-w-13 items-center justify-center rounded-full border-2 px-4 py-0.5 text-2xl font-black tabular-nums text-white shadow-[0_4px_10px_rgba(0,0,0,0.4)]',
+                          pickWindowExpired
+                            ? 'border-white/30 bg-[#4b5563]'
+                            : timerWarning
+                              ? 'border-[#ffd1d8] bg-[linear-gradient(180deg,#ff3055_0%,#a8001b_100%)]'
+                              : 'border-[#ffd1d8] bg-[linear-gradient(180deg,#e0103a_0%,#7a0014_100%)]',
+                        )}
+                      >
+                        {pickWindowExpired ? '0' : kangarooPickSecondsLeft}
+                      </div>
                     </div>
-                  </button>
-                ))}
-              </div>
+                  ) : null}
 
-              <div className="mt-5 rounded-xl border border-[#00d8ff]/65 bg-[rgba(0,0,0,0.62)] px-4 py-3 text-center shadow-[0_0_12px_rgba(0,216,255,0.25)]">
-                <p className="text-base font-black text-white">
-                  {resultPhase
-                    ? 'Waiting for the host to start the next race...'
-                    : selectedChoice
-                      ? 'Pick locked! Watch the race on the venue screen !!'
-                      : roundOpen
-                        ? 'Tap a number to lock your kangaroo'
-                        : 'Waiting for host to start race...'}
-                </p>
-              </div>
-            </div>
+                  <div className="mx-auto mt-4 flex h-[170px] w-[170px] items-center justify-center rounded-2xl">
+                    <img
+                      src="/KangarooPic.png"
+                      alt="Kangaroo"
+                      className="h-full w-full object-contain"
+                      onError={(e) => {
+                        const el = e.currentTarget;
+                        el.style.display = 'none';
+                      }}
+                    />
+                  </div>
+
+                  <div className="mt-4 grid grid-cols-2 gap-3">
+                    {HORSES.map((horse) => (
+                      <button
+                        key={horse.id}
+                        onClick={() => handleChoice(horse.id)}
+                        disabled={buttonsDisabled}
+                        className={cn(
+                          'rounded-xl py-4 text-center text-5xl font-black text-white transition-all duration-200 active:translate-y-0.5 active:shadow-none',
+                          horse.buttonClass,
+                          selectedChoice === horse.id
+                            ? 'ring-4 ring-white/55 scale-[1.02]'
+                            : buttonsDisabled
+                              ? 'opacity-40 saturate-75'
+                              : 'hover:brightness-110 hover:scale-[1.02]',
+                        )}
+                      >
+                        <div className="flex flex-col items-center">
+                          <span className="text-xl font-black">{horse.id}</span>
+                          <span className="text-[11px] font-semibold leading-tight">
+                            {kangarooNames[horse.id - 1] || `Kangaroo ${horse.id}`}
+                          </span>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+
+                  <div className="mt-5 rounded-xl border border-[#00d8ff]/65 bg-[rgba(0,0,0,0.62)] px-4 py-3 text-center shadow-[0_0_12px_rgba(0,216,255,0.25)]">
+                    <p className="text-base font-black text-white">
+                      {resultPhase
+                        ? 'Waiting for the host to start the next race...'
+                        : selectedChoice
+                          ? 'Pick locked! Watch the race on the Venue screen !!'
+                          : pickWindowExpired
+                            ? "Time's up — watch the race on the Venue screen."
+                            : roundOpen
+                              ? 'Race started! Tap a number to lock your kangaroo and watch it on the Venue screen.'
+                              : 'Waiting for host to start race...'}
+                    </p>
+                  </div>
+                </div>
+              );
+            })()
           ))}
 
         {gameType === 'card_shuffle' && (

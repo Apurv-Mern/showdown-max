@@ -147,6 +147,11 @@ export default function QuizDetailPage() {
   const [editTitle, setEditTitle] = useState('');
   const [editDescription, setEditDescription] = useState('');
   const [savingInfo, setSavingInfo] = useState(false);
+  // Question pending deletion — shows the in-app confirm modal instead of the
+  // native browser confirm() dialog (which doesn't match the dark admin theme
+  // and exposes the host's URL via "localhost:5003 says").
+  const [pendingDeleteQuestionId, setPendingDeleteQuestionId] = useState<number | null>(null);
+  const [deletingQuestion, setDeletingQuestion] = useState(false);
   // Local draft for the Round Configuration card so type/timer edits queue up under the new
   // Save button instead of auto-persisting on every change. Keyed by round id so flipping
   // between rounds doesn't leak edits across them.
@@ -476,15 +481,28 @@ export default function QuizDetailPage() {
     }
   };
 
-  const handleDeleteQuestion = async (questionId: number) => {
-    if (!confirm('Delete this question?')) return;
+  const handleDeleteQuestion = (questionId: number) => {
+    setPendingDeleteQuestionId(questionId);
+  };
+
+  const confirmDeleteQuestion = async () => {
+    if (pendingDeleteQuestionId == null) return;
+    setDeletingQuestion(true);
     try {
-      await api.delete(`/api/questions/${questionId}`);
+      await api.delete(`/api/questions/${pendingDeleteQuestionId}`);
       fetchQuiz();
       toast.success('Question deleted');
+      setPendingDeleteQuestionId(null);
     } catch (err: any) {
       toast.error(err.message || 'Failed to delete question');
+    } finally {
+      setDeletingQuestion(false);
     }
+  };
+
+  const cancelDeleteQuestion = () => {
+    if (deletingQuestion) return;
+    setPendingDeleteQuestionId(null);
   };
 
   const setCorrectOption = (index: number) => {
@@ -692,26 +710,14 @@ export default function QuizDetailPage() {
           </div>
           <div className="grid grid-cols-1 gap-6 lg:grid-cols-2 lg:gap-8">
             <div className="flex flex-col gap-2">
-              <label className="text-sm font-medium leading-5 text-[#99a1af]">Round Type</label>
-              <select
-                value={
-                  roundDraft.roundId === selectedRound.id ? roundDraft.type : selectedRound.type
-                }
-                onChange={(e) =>
-                  setRoundDraft((d) => ({
-                    ...d,
-                    roundId: selectedRound.id,
-                    type: e.target.value,
-                  }))
-                }
-                className="h-[49px] w-full rounded-[10px] border border-[rgba(0,217,255,0.3)] bg-[#252b45] px-4 text-sm text-white outline-none focus:border-[rgba(0,217,255,0.55)]"
-              >
-                {Object.entries(ROUND_TYPE_LABELS).map(([value, label]) => (
-                  <option key={value} value={value}>
-                    {label}
-                  </option>
-                ))}
-              </select>
+              <span className="text-sm font-medium leading-5 text-[#99a1af]">Round Type</span>
+              {/* Round type is fixed once a round is created — quiz flow, scoring
+                  rules, and player UI all hinge on it, so we show a read-only
+                  badge here instead of a dropdown that lets the host silently
+                  break a session by switching types after questions exist. */}
+              <div className="flex h-[49px] w-full items-center rounded-[10px] border border-[rgba(0,217,255,0.3)] bg-[#252b45] px-4 text-sm text-white">
+                {ROUND_TYPE_LABELS[selectedRound.type] || selectedRound.type}
+              </div>
             </div>
             <div className="flex flex-col gap-2">
               <label className="text-sm font-medium leading-5 text-[#99a1af]">
@@ -880,7 +886,21 @@ export default function QuizDetailPage() {
                             {q.mediaType.toUpperCase()}
                           </span>
                         )}
-                        {q.timerDuration && <span>⏱ {q.timerDuration}s</span>}
+                        {/* Always show an effective timer for the question — fall
+                            back to the round-level default when the question
+                            has no per-question override, and tag it as
+                            "(default)" so the host knows where the value comes
+                            from. Avoids a blank cell in the list when the host
+                            saved without filling the timer. */}
+                        {(() => {
+                          const effective = q.timerDuration ?? selectedRound.timerDuration;
+                          if (!effective) return null;
+                          return (
+                            <span title={q.timerDuration ? 'Per-question timer' : 'Round default timer'}>
+                              ⏱ {effective}s{!q.timerDuration ? ' (default)' : ''}
+                            </span>
+                          );
+                        })()}
                       </div>
                     </div>
                     <div className="flex shrink-0 gap-1 opacity-0 transition-opacity group-hover:opacity-100">
@@ -1102,6 +1122,52 @@ export default function QuizDetailPage() {
             </Button>
             <Button variant="secondary" onClick={closeModal}>
               Cancel
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Confirm Delete Question Modal — themed replacement for the native
+          browser confirm() so the dialog matches the rest of the admin UI and
+          gives the host a moment to back out before destroying content. */}
+      <Modal
+        isOpen={pendingDeleteQuestionId !== null}
+        onClose={cancelDeleteQuestion}
+        title="Delete this question?"
+        className="max-w-md"
+      >
+        <div className="flex flex-col gap-5">
+          <div className="rounded-lg border border-danger/40 bg-danger/10 px-4 py-3">
+            <p className="text-sm text-foreground/80">
+              {(() => {
+                const all = (quiz?.rounds || []).flatMap((r) => r.questions);
+                const target = all.find((q) => q.id === pendingDeleteQuestionId);
+                const preview = target?.text?.trim();
+                return preview ? (
+                  <>
+                    You&apos;re about to permanently delete:
+                    <span className="mt-2 block text-foreground font-semibold">
+                      &ldquo;{preview.length > 140 ? `${preview.slice(0, 140)}…` : preview}&rdquo;
+                    </span>
+                  </>
+                ) : (
+                  <>This question and its options will be permanently deleted.</>
+                );
+              })()}
+            </p>
+            <p className="mt-2 text-xs text-foreground/50">This action cannot be undone.</p>
+          </div>
+
+          <div className="flex justify-end gap-3">
+            <Button variant="secondary" onClick={cancelDeleteQuestion} disabled={deletingQuestion}>
+              Cancel
+            </Button>
+            <Button
+              variant="danger"
+              onClick={confirmDeleteQuestion}
+              disabled={deletingQuestion}
+            >
+              {deletingQuestion ? 'Deleting...' : 'Delete Question'}
             </Button>
           </div>
         </div>

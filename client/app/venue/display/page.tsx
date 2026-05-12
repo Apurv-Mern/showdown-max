@@ -60,6 +60,7 @@ interface QuestionData {
   };
   timerDuration: number;
   timerRemaining?: number;
+  timerRunning?: boolean;
   roundType: string;
   pointsForQuestion?: number;
 }
@@ -337,6 +338,11 @@ function VenueDisplayContent() {
   const [question, setQuestion] = useState<QuestionData | null>(null);
   const [timerRemaining, setTimerRemaining] = useState(0);
   const [timerDuration, setTimerDuration] = useState(30);
+  // Whether the question timer is currently running on the server. Used by the
+  // venue to render a "Waiting for host to play music or video" overlay during
+  // music rounds while the host has not yet pressed Start Timer (which both
+  // resumes the timer and triggers MP3/MP4 playback).
+  const [timerRunning, setTimerRunning] = useState(false);
   const [totalTeams, setTotalTeams] = useState(0);
   const [liveResponses, setLiveResponses] = useState({
     correct: 0,
@@ -402,7 +408,13 @@ function VenueDisplayContent() {
   const venueMusicBgPlaceholder =
     (question?.roundType || '').toUpperCase() === 'MUSIC' ||
     (question?.question?.mediaType || '').toLowerCase() === 'mp3';
-  const { playTick, playBuzz } = useTimerSound({ enabled: true, muted: isMusicRound });
+  // Mute the question-timer tick/buzz while a mini-game is on the venue, so the
+  // host launching Kangaroo Race / Card Shuffle mid-question doesn't have the
+  // ticking competing with the mini-game audio/UI on the projector.
+  const { playTick, playBuzz } = useTimerSound({
+    enabled: true,
+    muted: isMusicRound || phase === 'mini_game' || phase === 'mini_game_result',
+  });
   const {
     play: playMp3,
     stop: stopMp3,
@@ -928,6 +940,12 @@ function VenueDisplayContent() {
           Number(data.currentQuestion.timerDuration ?? data.timerDuration ?? 30) || 30,
         );
         setTimerRemaining(data.timerRemaining ?? data.currentQuestion.timerDuration ?? 0);
+        // Mirror the server's timerRunning flag so the music-round waiting
+        // overlay can render correctly on initial connect / reconnect, where
+        // we only get session_state and not a fresh question_active event.
+        if (typeof data.timerRunning === 'boolean') {
+          setTimerRunning(data.timerRunning);
+        }
         const total = Number(data.totalTeams ?? 0);
         setLiveResponses({ correct: 0, incorrect: 0, noAnswer: 0, total });
       } else if (data.state !== 'QUESTION') {
@@ -1043,6 +1061,15 @@ function VenueDisplayContent() {
       setQuestion(data);
       setTimerDuration(data.timerDuration);
       setTimerRemaining(data.timerRemaining ?? data.timerDuration);
+      // Music rounds explicitly arrive with `timerRunning: false` (host must
+      // press Start Timer). Other round types may omit the flag — fall back to
+      // "running" so the waiting overlay only shows when the server actually
+      // told us the timer is paused.
+      setTimerRunning(
+        typeof data.timerRunning === 'boolean'
+          ? data.timerRunning
+          : (data.roundType || '').toUpperCase() !== 'MUSIC',
+      );
       setLiveResponses({
         correct: 0,
         incorrect: 0,
@@ -1055,8 +1082,16 @@ function VenueDisplayContent() {
       setPhase('question');
     };
 
-    const onTimerUpdate = (data: { remaining: number }) => setTimerRemaining(data.remaining);
-    const onTimerExpired = () => setTimerRemaining(0);
+    const onTimerUpdate = (data: { remaining: number; timerRunning?: boolean }) => {
+      setTimerRemaining(data.remaining);
+      if (typeof data.timerRunning === 'boolean') {
+        setTimerRunning(data.timerRunning);
+      }
+    };
+    const onTimerExpired = () => {
+      setTimerRemaining(0);
+      setTimerRunning(false);
+    };
 
     const onResponseCount = (data: { count: number; total: number }) => {
       setTotalTeams(data.total);
@@ -1952,6 +1987,25 @@ function VenueDisplayContent() {
                       />
                     )}
                   </div>
+
+                  {/* Waiting-for-host overlay (Music rounds only) — shows on the
+                      venue while a Music round question has been loaded but the
+                      host has not yet pressed Start Timer (which simultaneously
+                      resumes the timer and triggers MP3/MP4 playback). Hidden
+                      once the timer starts ticking, so it doesn't reappear if
+                      the host pauses mid-track. */}
+                  {/* {isMusicRound &&
+                    !timerRunning &&
+                    timerRemaining >= timerDuration &&
+                    timerDuration > 0 && (
+                      <div className="absolute inset-0 z-20 flex items-center justify-center pointer-events-none px-4">
+                        <div className="rounded-2xl border border-[#1de8ff]/70 bg-black/70 px-5 md:px-7 py-2.5 md:py-3 shadow-[0_0_24px_rgba(29,232,255,0.35)] backdrop-blur-sm">
+                          <p className="text-base md:text-lg lg:text-xl font-extrabold text-white tracking-wide drop-shadow-[0_2px_6px_rgba(0,0,0,0.45)]">
+                            Waiting for host to play music or video...
+                          </p>
+                        </div>
+                      </div>
+                    )} */}
 
                   {/* Timer Arch - Pulled down to overlap the section below */}
                   <div className="absolute left-1/2 -translate-x-1/2 bottom-px z-30 w-48 h-24 md:w-56 md:h-28 lg:w-64 lg:h-32 overflow-hidden">

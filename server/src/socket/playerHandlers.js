@@ -83,6 +83,21 @@ const playerHandlers = (io, socket) => {
         where: { sessionId: sessionData.sessionId },
         attributes: ['id', 'teamName', 'isConnected', 'socketId', 'score', 'isEliminated'],
       });
+      const preJoinGameState = await redisStore.getGameState(pin);
+      const wasRemovedByHost =
+        Array.isArray(preJoinGameState?.removedTeamNames) &&
+        preJoinGameState.removedTeamNames.map((name) => normalizeTeamName(name)).includes(normalizedTeamName);
+      if (wasRemovedByHost) {
+        socket.emit(SOCKET_EVENTS.TEAM_REMOVED, {
+          teamName: cleanTeamName,
+          reason: 'removed_by_host',
+        });
+        socket.emit(SOCKET_EVENTS.JOIN_ERROR, {
+          message: 'You have been removed from this game by the host.',
+          code: 'TEAM_REMOVED',
+        });
+        return;
+      }
       const existingTeam = sessionTeams.find(
         (t) => normalizeTeamName(t.teamName) === normalizedTeamName,
       );
@@ -123,7 +138,7 @@ const playerHandlers = (io, socket) => {
       // mid-game we must not overwrite the live Redis score with the stale DB value — that
       // shows up to the player as their score "resetting to zero" right after a refresh.
       // Read whatever we already have in Redis first, then merge the live score back in.
-      const existingGameState = await redisStore.getGameState(pin);
+      const existingGameState = preJoinGameState || (await redisStore.getGameState(pin));
       const existingStateTeamPre =
         existingGameState?.teams?.[team.id] ?? existingGameState?.teams?.[String(team.id)] ?? null;
       const liveScoreRaw = existingStateTeamPre?.score;

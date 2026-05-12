@@ -9,6 +9,9 @@ const { Session, Quiz, Round, Question, Team } = require('../models');
 const { normalizeTeamName, sanitizeTeamName } = require('../utils/teamName');
 
 const purgeTeamRecord = async (pin, teamId) => {
+  const team = await Team.findByPk(teamId, { attributes: ['id', 'teamName', 'socketId'] });
+  const removedSocketId = team?.socketId || null;
+  const removedTeamName = team?.teamName || null;
   await Team.destroy({ where: { id: teamId } });
   await redisStore.removeTeamFromLobby(pin, teamId);
   await redisStore.removeTeamData(pin, teamId);
@@ -22,14 +25,27 @@ const purgeTeamRecord = async (pin, teamId) => {
         const activeTeamIds = (current.activeTeamIds || []).filter(
           (id) => Number(id) !== Number(teamId),
         );
+        const removedTeamIds = Array.from(
+          new Set([...(current.removedTeamIds || []).map(Number), Number(teamId)]),
+        ).filter((id) => Number.isFinite(id));
+        const removedTeamNames = Array.from(
+          new Set([
+            ...(current.removedTeamNames || []).map((name) => normalizeTeamName(name)),
+            ...(removedTeamName ? [normalizeTeamName(removedTeamName)] : []),
+          ]),
+        ).filter(Boolean);
         return {
           teams,
           activeTeamIds,
+          removedTeamIds,
+          removedTeamNames,
           totalTeams: Object.keys(teams).length,
         };
       });
     }
   }
+
+  return { removedSocketId };
 };
 
 /**
@@ -299,9 +315,12 @@ const hostHandlers = (io, socket) => {
   socket.on(SOCKET_EVENTS.REMOVE_TEAM, async (data) => {
     try {
       const { pin, teamId } = data;
-      await purgeTeamRecord(pin, teamId);
+      const { removedSocketId } = await purgeTeamRecord(pin, teamId);
 
       io.to(`session:${pin}`).emit(SOCKET_EVENTS.TEAM_REMOVED, { teamId });
+      if (removedSocketId) {
+        io.to(removedSocketId).emit(SOCKET_EVENTS.TEAM_REMOVED, { teamId, direct: true });
+      }
       logger.info('Team removed', { pin, teamId });
     } catch (err) {
       logger.error('remove_team error', { error: err.message });

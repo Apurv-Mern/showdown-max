@@ -151,7 +151,10 @@ export default function UnityWrapper({
     (objectName: string, methodName: string, message: string) => {
       if (!isLoaded) return;
 
-      const initialDelay = gameType === 'card_shuffle' ? 150 : 0;
+      // The Kangaroo build reports WebGL loaded before Racemanager is always ready to receive
+      // SendMessage. A short delay plus extra retries avoids the venue-side error that sometimes
+      // appeared immediately after the host clicked Start Race.
+      const initialDelay = gameType === 'card_shuffle' ? 150 : 350;
       const sendWithRetry = (attempt: number) => {
         window.setTimeout(
           () => {
@@ -165,7 +168,7 @@ export default function UnityWrapper({
                 attempt,
                 error,
               });
-              if (attempt < 3) sendWithRetry(attempt + 1);
+              if (attempt < 6) sendWithRetry(attempt + 1);
             }
           },
           attempt === 1 ? initialDelay : 450,
@@ -217,8 +220,8 @@ export default function UnityWrapper({
     const emitReady = () => {
       onReady?.(gameType);
     };
-    const timer = window.setTimeout(emitReady, gameType === 'card_shuffle' ? 900 : 0);
-    const interval = gameType === 'card_shuffle' ? window.setInterval(emitReady, 3000) : undefined;
+    const timer = window.setTimeout(emitReady, gameType === 'card_shuffle' ? 900 : 1200);
+    const interval = window.setInterval(emitReady, 3000);
 
     return () => {
       window.clearTimeout(timer);

@@ -396,6 +396,22 @@ const submitAnswer = async (io, pin, teamId, data) => {
   if (!question) return;
 
   const currentRound = stateMachine.getCurrentRound(gameState);
+  const teamExistsInLiveState = Boolean(
+    gameState.teams?.[teamId] || gameState.teams?.[String(teamId)],
+  );
+  const wasRemovedByHost =
+    Array.isArray(gameState.removedTeamIds) &&
+    gameState.removedTeamIds.map(Number).includes(Number(teamId));
+  if (!teamExistsInLiveState || wasRemovedByHost) {
+    logger.info('Rejected answer from removed team', {
+      pin,
+      teamId,
+      roundIndex: gameState.currentRoundIndex,
+      questionIndex: gameState.currentQuestionIndex,
+    });
+    return;
+  }
+
   if (
     currentRound?.type === ROUND_TYPES.ELIMINATION &&
     (!gameState.activeTeamIds.map(Number).includes(Number(teamId)) ||

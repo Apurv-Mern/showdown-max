@@ -1002,6 +1002,21 @@ const miniGameHandlers = (io, socket) => {
         Number.isFinite(Number(data.value))
       ) {
         const current = await redisStore.getGameState(eventPin);
+        const numericTeamId = Number(teamId);
+        const teamExistsInLiveState = Boolean(
+          current?.teams?.[numericTeamId] || current?.teams?.[String(numericTeamId)],
+        );
+        const wasRemovedByHost =
+          Array.isArray(current?.removedTeamIds) &&
+          current.removedTeamIds.map(Number).includes(numericTeamId);
+        if (!teamExistsInLiveState || wasRemovedByHost) {
+          logger.info('Rejected mini-game selection from removed team', {
+            pin: eventPin,
+            teamId,
+            action: data.action,
+          });
+          return;
+        }
         const activeGame = current?.miniGameState?.game;
 
         if (activeGame === 'kangaroo_race') {
@@ -1137,7 +1152,34 @@ const miniGameHandlers = (io, socket) => {
       // Replay the current mini-game state so the player sees winner/loser
       // even if mini_game_reveal fired before the rejoin completed.
       const gameState = await redisStore.getGameState(pin);
+      const numericTeamId = Number(teamId);
+      const teamExistsInLiveState = Boolean(
+        gameState?.teams?.[numericTeamId] || gameState?.teams?.[String(numericTeamId)],
+      );
+      const wasRemovedByHost =
+        Array.isArray(gameState?.removedTeamIds) &&
+        gameState.removedTeamIds.map(Number).includes(numericTeamId);
+      if (!teamExistsInLiveState || wasRemovedByHost) {
+        socket.emit(SOCKET_EVENTS.TEAM_REMOVED, { teamId: numericTeamId, direct: true });
+        return;
+      }
       const mgs = gameState?.miniGameState;
+      if (mgs?.game === 'kangaroo_race') {
+        const kangarooNames = normalizeKangarooNames(
+          mgs.kangarooNames || gameState?.miniGameConfig?.kangarooNames,
+        );
+        socket.emit(SOCKET_EVENTS.MINI_GAME_START, {
+          game: 'kangaroo_race',
+          kangarooNames,
+        });
+        if (mgs.gameStarted && !mgs.revealed) {
+          socket.emit(SOCKET_EVENTS.MINI_GAME_COMMAND, {
+            game: 'kangaroo_race',
+            command: 'start_game',
+            kangarooNames,
+          });
+        }
+      }
       if (
         mgs?.game === 'card_shuffle' &&
         mgs.revealed &&

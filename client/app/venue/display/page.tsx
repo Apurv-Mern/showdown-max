@@ -17,6 +17,14 @@ import { PUBLIC_API_URL } from '@/lib/env';
 const API_URL = PUBLIC_API_URL;
 const VENUE_PIN_STORAGE_KEY = 'venue_display_pin';
 const VENUE_STATE_STORAGE_KEY_PREFIX = 'venue_display_state';
+const DEFAULT_KANGAROO_NAMES = [
+  'Blue Bolt',
+  'Orange Flash',
+  'Green Dash',
+  'Golden Hop',
+  'Purple Rocket',
+  'Red Thunder',
+] as const;
 
 const getVenueStateStorageKey = (pin: string) => `${VENUE_STATE_STORAGE_KEY_PREFIX}:${pin}`;
 
@@ -345,6 +353,9 @@ function VenueDisplayContent() {
   const [miniGameType, setMiniGameType] = useState<VenueMiniGameType | null>(null);
   const [miniGameCommand, setMiniGameCommand] = useState<MiniGameCommand | null>(null);
   const [miniGameReveal, setMiniGameReveal] = useState<MiniGameReveal | null>(null);
+  const [venueKangarooNames, setVenueKangarooNames] = useState<string[]>([
+    ...DEFAULT_KANGAROO_NAMES,
+  ]);
   const [miniGameResult, setMiniGameResult] = useState<{
     game: VenueMiniGameType;
     winningCard?: number;
@@ -512,13 +523,10 @@ function VenueDisplayContent() {
     const pinNorm = String(sessionPin);
     const check = async () => {
       try {
-        const res = await fetch(
-          `${PUBLIC_API_URL}/api/public/sessions/pin/${pinNorm}?for=exists`,
-          {
-            method: 'GET',
-            cache: 'no-store',
-          },
-        );
+        const res = await fetch(`${PUBLIC_API_URL}/api/public/sessions/pin/${pinNorm}?for=exists`, {
+          method: 'GET',
+          cache: 'no-store',
+        });
         if (res.status === 404) {
           if (typeof window !== 'undefined') {
             window.localStorage.removeItem(VENUE_PIN_STORAGE_KEY);
@@ -931,6 +939,18 @@ function VenueDisplayContent() {
       if (normalizedActiveMiniGame) {
         setMiniGameType(normalizedActiveMiniGame);
         if (normalizedActiveMiniGame !== 'card_shuffle') setMiniGameCommand(null);
+        if (normalizedActiveMiniGame === 'Kangaroo_race') {
+          const names = Array.isArray(data.miniGameState?.kangarooNames)
+            ? data.miniGameState.kangarooNames
+            : Array.isArray(data.miniGameConfig?.kangarooNames)
+              ? data.miniGameConfig.kangarooNames
+              : null;
+          if (names?.length >= 6) {
+            setVenueKangarooNames(
+              names.slice(0, 6).map((name: string) => String(name || '').trim()),
+            );
+          }
+        }
         if (data.miniGameState?.game === 'card_shuffle' && data.miniGameState?.revealed) {
           setMiniGameReveal({
             game: 'card_shuffle',
@@ -1169,9 +1189,18 @@ function VenueDisplayContent() {
       });
     };
 
-    const onMiniGameStart = (data: { game: string }) => {
+    const onMiniGameStart = (data: { game: string; kangarooNames?: string[] }) => {
       const normalizedGame = normalizeVenueMiniGameType(data.game);
       if (!normalizedGame) return;
+      if (
+        normalizedGame === 'Kangaroo_race' &&
+        Array.isArray(data.kangarooNames) &&
+        data.kangarooNames.length >= 6
+      ) {
+        setVenueKangarooNames(
+          data.kangarooNames.slice(0, 6).map((name) => String(name || '').trim()),
+        );
+      }
       cardShuffleRevealFlushGenRef.current += 1;
       lastCardShuffleUnityRef.current = null;
       clearCardShuffleRevealFlushTimers();
@@ -1192,6 +1221,11 @@ function VenueDisplayContent() {
       if (!gid || !data.command) return;
 
       if (gid === 'kangaroo_race') {
+        if (Array.isArray(data.kangarooNames) && data.kangarooNames.length >= 6) {
+          setVenueKangarooNames(
+            data.kangarooNames.slice(0, 6).map((name) => String(name || '').trim()),
+          );
+        }
         setMiniGameCommand({
           id: Date.now(),
           game: 'kangaroo_race',
@@ -1645,8 +1679,11 @@ function VenueDisplayContent() {
 
         {/* Round Intro */}
         {phase === 'round_intro' && roundInfo && (
-          <div className="w-full h-full flex items-center justify-center animate-fadeIn px-6">
-            <div className="relative w-full max-w-[1240px] h-[720px]">
+          <div className="w-full h-full flex items-center justify-center animate-fadeIn px-4 sm:px-6">
+            {/* Wrapper matches the round-intro PNG's portrait aspect so percentage-based
+                overlays (title + scoring lines) land on the real image bounds rather than
+                spilling into the empty horizontal margins object-contain creates. */}
+            <div className="relative h-full max-h-[min(92vh,960px)] aspect-[820/1024] mx-auto">
               <img
                 src="/Venue Round Intro.png"
                 alt="Round intro background"
@@ -1654,11 +1691,11 @@ function VenueDisplayContent() {
               />
 
               <div className="absolute inset-0 pointer-events-none text-center">
-                <div className="absolute left-1/2 top-[44%] w-[62%] -translate-x-1/2 -translate-y-1/2">
-                  <h1 className="text-[60px]  leading-none font-black text-[#fff4c2] drop-shadow-[0_0_18px_rgba(255,225,120,0.65)]">
+                <div className="absolute left-1/2 top-[42%] w-[62%] -translate-x-1/2 -translate-y-1/2">
+                  <h1 className="text-[clamp(2.25rem,6vh,4.5rem)] leading-none font-black text-[#fff4c2] drop-shadow-[0_0_18px_rgba(255,225,120,0.65)]">
                     ROUND {(roundInfo.roundIndex || 0) + 1}
                   </h1>
-                  <p className="mt-2 text-[30px] leading-[1.05] font-extrabold text-[#25eaff] drop-shadow-[0_0_16px_rgba(37,234,255,0.55)]">
+                  <p className="mt-2 text-[clamp(1.15rem,3vh,2.1rem)] leading-[1.05] font-extrabold text-[#25eaff] drop-shadow-[0_0_16px_rgba(37,234,255,0.55)]">
                     {normalizeRoundIntroTitle(
                       roundInfo.round?.name,
                       roundInfo.round?.type,
@@ -1667,13 +1704,27 @@ function VenueDisplayContent() {
                   </p>
                 </div>
 
-                <div className="absolute left-1/2 top-[83%] w-[74%] -translate-x-1/2 -translate-y-1/2">
-                  <p className="text-[28px] font-black text-[#39ff14] leading-none mb-5 drop-shadow-[0_0_8px_rgba(57,255,20,0.45)]">
-                    {getRoundScoringLines(roundInfo.round?.type).positive}
-                  </p>
-                  <p className="text-[28px] font-black text-[#ff3e3e] leading-none drop-shadow-[0_0_8px_rgba(255,62,62,0.45)]">
-                    {getRoundScoringLines(roundInfo.round?.type).negative}
-                  </p>
+                <div className="absolute left-1/2 top-[84%] flex w-[88%] -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-2 px-2 sm:gap-3">
+                  <div className="flex w-full items-center justify-center gap-2 sm:gap-3">
+                    <img
+                      src="/plus10.png"
+                      alt=""
+                      className="h-[clamp(1.4rem,2.6vh,2.25rem)] w-auto shrink-0"
+                    />
+                    <span className="text-pretty text-[clamp(0.95rem,2.3vh,1.75rem)] font-black leading-tight text-[#39ff14] drop-shadow-[0_0_8px_rgba(57,255,20,0.45)] wrap-anywhere">
+                      {getRoundScoringLines(roundInfo.round?.type).positive}
+                    </span>
+                  </div>
+                  <div className="flex w-full items-center justify-center gap-2 sm:gap-3">
+                    <img
+                      src="/minus2.png"
+                      alt=""
+                      className="h-[clamp(1.4rem,2.6vh,2.25rem)] w-auto shrink-0"
+                    />
+                    <span className="text-pretty text-[clamp(0.95rem,2.3vh,1.75rem)] font-black leading-tight text-[#ff3e3e] drop-shadow-[0_0_8px_rgba(255,62,62,0.45)] wrap-anywhere">
+                      {getRoundScoringLines(roundInfo.round?.type).negative}
+                    </span>
+                  </div>
                 </div>
               </div>
             </div>
@@ -2276,6 +2327,20 @@ function VenueDisplayContent() {
               </h2>
               <p className="text-foreground/40 text-sm">Players pick on their devices</p>
             </div>
+            {/* {miniGameType === 'Kangaroo_race' ? (
+              <div className="border-b border-border/20 bg-black/25 px-6 py-2">
+                <div className="grid grid-cols-3 gap-2 text-xs font-bold text-white/85 xl:grid-cols-6">
+                  {venueKangarooNames.map((name, idx) => (
+                    <div
+                      key={`${idx}-${name}`}
+                      className="truncate rounded-lg border border-[#00d9ff]/25 bg-[#080d1c]/75 px-3 py-2 text-center"
+                    >
+                      #{idx + 1} {name || DEFAULT_KANGAROO_NAMES[idx]}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null} */}
             <div className="flex-1 p-4">
               <DynamicUnityGame
                 gameType={miniGameType as 'Kangaroo_race' | 'card_shuffle'}

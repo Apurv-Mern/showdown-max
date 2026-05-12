@@ -29,6 +29,14 @@ function PlayerReconnector({
       }
     },
     onJoinError: (data) => {
+      if (data?.code === 'TEAM_REMOVED' && session.pin) {
+        if (typeof window !== 'undefined' && data.message) {
+          sessionStorage.setItem(PLAY_JOIN_FLASH_KEY, data.message);
+        }
+        clearSession();
+        router.replace('/play/join');
+        return;
+      }
       if (data?.code === 'NO_ASSIGNED_HOST' && session.pin) {
         const p = String(session.pin);
         if (typeof window !== 'undefined' && data.message) {

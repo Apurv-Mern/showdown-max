@@ -711,71 +711,106 @@ export default function MiniGamePage() {
           </div>
         ) : null}
 
-        {gameType === 'kangaroo_race' && (
-          <div className="relative z-10 flex min-h-0 flex-1 flex-col px-5 pb-8 pt-8 sm:px-8">
-            <header className="shrink-0 text-center">
-              <h1 className="text-[clamp(1.65rem,6vw,2.2rem)] font-black uppercase leading-tight tracking-[0.06em] text-white drop-shadow-[0_2px_12px_rgba(0,0,0,0.45)]">
-                Kangaroo Race !!
-              </h1>
-              <p className="mt-2 text-[1.05rem] font-extrabold leading-tight text-white sm:text-xl">
-                Which Kangaroo will win
-              </p>
-              <p className="text-[1.05rem] font-extrabold leading-tight text-white sm:text-xl">
-                Pick your Kangaroo
-              </p>
-            </header>
+        {gameType === 'kangaroo_race' &&
+          (!roundOpen && resultPhase === null ? (
+            // Pre-race screen — shown after the host loads the race on the venue but
+            // before they click "Start Race". Player sees the kangaroo branding and a
+            // "Race is about to Start !!" pill instead of the (disabled) selection grid.
+            <div className="relative z-10 flex min-h-0 flex-1 flex-col px-5 pb-8 pt-10 sm:px-8">
+              <header className="shrink-0 text-center">
+                <h1 className="text-[clamp(1.75rem,6.4vw,2.35rem)] font-black uppercase leading-tight tracking-[0.06em] text-white drop-shadow-[0_2px_12px_rgba(0,0,0,0.45)]">
+                  Kangaroo Race !!
+                </h1>
+                <p className="mt-2 text-[1.1rem] font-extrabold leading-tight text-white sm:text-xl">
+                  Which Kangaroo will Win
+                </p>
+              </header>
 
-            <div className="mx-auto mt-4 flex h-[170px] w-[170px] items-center justify-center rounded-2xl">
-              <img
-                src="/KangarooPic.png"
-                alt="Kangaroo"
-                className="h-full w-full object-contain"
-                onError={(e) => {
-                  const el = e.currentTarget;
-                  el.style.display = 'none';
-                }}
-              />
-            </div>
+              <div className="flex flex-1 items-center justify-center py-4">
+                <div className="flex h-[clamp(220px,52vh,360px)] w-[clamp(220px,52vh,360px)] items-center justify-center">
+                  <img
+                    src="/KangarooPic.png"
+                    alt="Kangaroo"
+                    className="h-full w-full object-contain drop-shadow-[0_12px_24px_rgba(0,0,0,0.45)]"
+                    onError={(e) => {
+                      const el = e.currentTarget;
+                      el.style.display = 'none';
+                    }}
+                  />
+                </div>
+              </div>
 
-            <div className="mt-4 grid grid-cols-2 gap-3">
-              {HORSES.map((horse) => (
-                <button
-                  key={horse.id}
-                  onClick={() => handleChoice(horse.id)}
-                  disabled={!roundOpen || selectedChoice !== null || resultPhase !== null}
-                  className={cn(
-                    'rounded-xl py-4 text-center text-5xl font-black text-white transition-all duration-200 active:translate-y-0.5 active:shadow-none',
-                    horse.buttonClass,
-                    selectedChoice === horse.id
-                      ? 'ring-4 ring-white/55 scale-[1.02]'
-                      : !roundOpen || selectedChoice !== null || resultPhase !== null
-                        ? 'opacity-40 saturate-75'
-                        : 'hover:brightness-110 hover:scale-[1.02]',
-                  )}
-                >
-                  <div className="flex flex-col items-center">
-                    <span className="text-xl font-black">{horse.id}</span>
-                    <span className="text-[11px] font-semibold leading-tight">
-                      {kangarooNames[horse.id - 1] || `Kangaroo ${horse.id}`}
-                    </span>
-                  </div>
-                </button>
-              ))}
+              <div className="shrink-0 rounded-xl border border-[#00d8ff]/65 bg-[rgba(0,0,0,0.62)] px-4 py-3 text-center shadow-[0_0_12px_rgba(0,216,255,0.25)]">
+                <p className="text-base font-black text-white sm:text-lg">
+                  Race is about to Start !!
+                </p>
+              </div>
             </div>
+          ) : (
+            <div className="relative z-10 flex min-h-0 flex-1 flex-col px-5 pb-8 pt-8 sm:px-8">
+              <header className="shrink-0 text-center">
+                <h1 className="text-[clamp(1.65rem,6vw,2.2rem)] font-black uppercase leading-tight tracking-[0.06em] text-white drop-shadow-[0_2px_12px_rgba(0,0,0,0.45)]">
+                  Kangaroo Race !!
+                </h1>
+                <p className="mt-2 text-[1.05rem] font-extrabold leading-tight text-white sm:text-xl">
+                  Which Kangaroo will win
+                </p>
+                <p className="text-[1.05rem] font-extrabold leading-tight text-white sm:text-xl">
+                  Pick your Kangaroo
+                </p>
+              </header>
 
-            <div className="mt-5 rounded-xl border border-[#00d8ff]/65 bg-[rgba(0,0,0,0.62)] px-4 py-3 text-center shadow-[0_0_12px_rgba(0,216,255,0.25)]">
-              <p className="text-base font-black text-white">
-                {resultPhase
-                  ? 'Waiting for the host to start the next race...'
-                  : selectedChoice
-                    ? 'Pick locked! Watch the race on the venue screen !!'
-                    : roundOpen
-                      ? 'Tap a number to lock your kangaroo'
-                      : 'Waiting for host to start race...'}
-              </p>
+              <div className="mx-auto mt-4 flex h-[170px] w-[170px] items-center justify-center rounded-2xl">
+                <img
+                  src="/KangarooPic.png"
+                  alt="Kangaroo"
+                  className="h-full w-full object-contain"
+                  onError={(e) => {
+                    const el = e.currentTarget;
+                    el.style.display = 'none';
+                  }}
+                />
+              </div>
+
+              <div className="mt-4 grid grid-cols-2 gap-3">
+                {HORSES.map((horse) => (
+                  <button
+                    key={horse.id}
+                    onClick={() => handleChoice(horse.id)}
+                    disabled={!roundOpen || selectedChoice !== null || resultPhase !== null}
+                    className={cn(
+                      'rounded-xl py-4 text-center text-5xl font-black text-white transition-all duration-200 active:translate-y-0.5 active:shadow-none',
+                      horse.buttonClass,
+                      selectedChoice === horse.id
+                        ? 'ring-4 ring-white/55 scale-[1.02]'
+                        : !roundOpen || selectedChoice !== null || resultPhase !== null
+                          ? 'opacity-40 saturate-75'
+                          : 'hover:brightness-110 hover:scale-[1.02]',
+                    )}
+                  >
+                    <div className="flex flex-col items-center">
+                      <span className="text-xl font-black">{horse.id}</span>
+                      <span className="text-[11px] font-semibold leading-tight">
+                        {kangarooNames[horse.id - 1] || `Kangaroo ${horse.id}`}
+                      </span>
+                    </div>
+                  </button>
+                ))}
+              </div>
+
+              <div className="mt-5 rounded-xl border border-[#00d8ff]/65 bg-[rgba(0,0,0,0.62)] px-4 py-3 text-center shadow-[0_0_12px_rgba(0,216,255,0.25)]">
+                <p className="text-base font-black text-white">
+                  {resultPhase
+                    ? 'Waiting for the host to start the next race...'
+                    : selectedChoice
+                      ? 'Pick locked! Watch the race on the venue screen !!'
+                      : roundOpen
+                        ? 'Tap a number to lock your kangaroo'
+                        : 'Waiting for host to start race...'}
+                </p>
+              </div>
             </div>
-          </div>
-        )}
+          ))}
 
         {gameType === 'card_shuffle' && (
           <div className="relative z-10 flex min-h-0 flex-1 flex-col px-5 pb-8 pt-10 sm:px-8">

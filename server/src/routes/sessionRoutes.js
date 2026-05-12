@@ -94,6 +94,15 @@ const sessionRoutes = async (fastify) => {
       reply.status(404);
       return error('Session not found', 404);
     }
+    const pin = session.pin ? String(session.pin) : '';
+    const io = getSocketIo();
+    if (io && pin) {
+      io.to(`session:${pin}`).emit(SOCKET_EVENTS.SESSION_DELETED, {
+        pin,
+        reason: 'session_completed',
+      });
+      logger.info('Session completed broadcast', { pin, sessionId: session.id });
+    }
     return success(null, 'Session ended');
   });
 

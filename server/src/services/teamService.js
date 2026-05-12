@@ -79,6 +79,8 @@ const removeTeam = async (teamId) => {
 
   const pin = team.session?.pin ? String(team.session.pin) : null;
 
+  const removedSocketId = team.socketId || null;
+  const removedTeamName = team.teamName || null;
   await team.destroy();
 
   if (pin) {
@@ -93,9 +95,20 @@ const removeTeam = async (teamId) => {
         const activeTeamIds = (current.activeTeamIds || []).filter(
           (id) => Number(id) !== Number(teamId),
         );
+        const removedTeamIds = Array.from(
+          new Set([...(current.removedTeamIds || []).map(Number), Number(teamId)]),
+        ).filter((id) => Number.isFinite(id));
+        const removedTeamNames = Array.from(
+          new Set([
+            ...(current.removedTeamNames || []).map((name) => normalizeTeamName(name)),
+            ...(removedTeamName ? [normalizeTeamName(removedTeamName)] : []),
+          ]),
+        ).filter(Boolean);
         return {
           teams,
           activeTeamIds,
+          removedTeamIds,
+          removedTeamNames,
           totalTeams: Object.keys(teams).length,
         };
       });
@@ -104,6 +117,9 @@ const removeTeam = async (teamId) => {
     const io = getSocketIo();
     if (io) {
       io.to(`session:${pin}`).emit('team_removed', { teamId: Number(teamId) });
+      if (removedSocketId) {
+        io.to(removedSocketId).emit('team_removed', { teamId: Number(teamId), direct: true });
+      }
     }
   }
 

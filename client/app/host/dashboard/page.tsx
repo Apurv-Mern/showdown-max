@@ -647,8 +647,20 @@ function HostDashboardContent() {
       stopMp3();
       setMp4Playing(false);
       setTimerPaused((data.roundType || '').toUpperCase() === 'MUSIC');
+      const incomingQuestionIndex = Number.isFinite(Number(data.questionIndex))
+        ? Number(data.questionIndex)
+        : null;
       setGameState((prev) =>
-        prev ? { ...prev, state: 'QUESTION', questionState: 'ACTIVE' } : prev,
+        prev
+          ? {
+              ...prev,
+              state: 'QUESTION',
+              questionState: 'ACTIVE',
+              ...(incomingQuestionIndex !== null
+                ? { currentQuestionIndex: incomingQuestionIndex }
+                : {}),
+            }
+          : prev,
       );
     };
 
@@ -883,6 +895,14 @@ function HostDashboardContent() {
       });
     };
 
+    const onSessionDeleted = (data?: { pin?: string; reason?: string }) => {
+      const eventPin = data?.pin ? String(data.pin) : '';
+      if (eventPin && pin && eventPin !== String(pin)) return;
+      toast(data?.reason === 'session_completed' ? 'Session ended by admin.' : 'Session closed.');
+      logout();
+      router.replace('/host/login');
+    };
+
     const onTeamJoined = (team: Team) => {
       setGameState((prev) => {
         if (!prev) return prev;
@@ -1039,6 +1059,7 @@ function HostDashboardContent() {
     socket.on('break_start', onBreakStart);
     socket.on('break_end', onBreakEnd);
     socket.on('game_end', onGameEnd);
+    socket.on('session_deleted', onSessionDeleted);
     socket.on('team_joined', onTeamJoined);
     socket.on('error', onSocketError);
     socket.on('team_removed', onTeamRemoved);
@@ -1136,6 +1157,7 @@ function HostDashboardContent() {
       socket.off('break_start', onBreakStart);
       socket.off('break_end', onBreakEnd);
       socket.off('game_end', onGameEnd);
+      socket.off('session_deleted', onSessionDeleted);
       socket.off('team_joined', onTeamJoined);
       socket.off('error', onSocketError);
       socket.off('team_removed', onTeamRemoved);
@@ -1160,13 +1182,29 @@ function HostDashboardContent() {
     setStartGameRequested(true);
     emit('start_game');
   };
-  const handleNextQuestion = () => emit('next_question');
+  const handleNextQuestion = () => {
+    if (activeMiniGameLocal || miniGameLoading || cardShuffleFinishedHold) return;
+    emit('next_question');
+  };
   const handleCollectWagers = () => emit('collect_wagers');
   const handleStartNextRoundAfterCardShuffle = () => {
     setCardShuffleFinishedHold(false);
     setFinishedMiniGameType(null);
     setCardShuffleFinishedMessage('Game Over. Wait for the host to start the game.');
-    handleNextQuestion();
+    const gs = gameStateRef.current;
+    const round = gs?.rounds?.[gs?.currentRoundIndex ?? 0];
+    const isLastQuestion =
+      Array.isArray(round?.questions) &&
+      round.questions.length > 0 &&
+      (gs?.currentQuestionIndex ?? 0) === round.questions.length - 1;
+    if (
+      gs?.state === 'SCOREBOARD' ||
+      (gs?.state === 'QUESTION' && gs?.questionState === 'REVEALED' && isLastQuestion)
+    ) {
+      emit('advance_round');
+      return;
+    }
+    emit('next_question');
   };
   const handleRevealAnswer = () => emit('reveal_answer');
   const handleStartTimer = () => {
@@ -1218,6 +1256,7 @@ function HostDashboardContent() {
     emit('mini_game_command', {
       game: 'kangaroo_race',
       command: 'start_game',
+      kangarooNames: normalizedKangarooNames,
     });
   };
 
@@ -1446,6 +1485,7 @@ function HostDashboardContent() {
   };
 
   const handleSpaceKey = useCallback(() => {
+    if (activeMiniGameLocal || miniGameLoading || cardShuffleFinishedHold) return;
     const gs = gameStateRef.current;
     const s = gs?.state || 'LOBBY';
     const round = gs?.rounds?.[gs?.currentRoundIndex ?? 0];
@@ -1469,7 +1509,14 @@ function HostDashboardContent() {
       }
     }
     handleNextQuestion();
-  }, [handleAdvanceRound, handleCollectWagers, handleNextQuestion]);
+  }, [
+    activeMiniGameLocal,
+    miniGameLoading,
+    cardShuffleFinishedHold,
+    handleAdvanceRound,
+    handleCollectWagers,
+    handleNextQuestion,
+  ]);
 
   useKeyboardShortcuts({
     ' ': handleSpaceKey,
@@ -1583,6 +1630,13 @@ function HostDashboardContent() {
       (questionState === 'ACTIVE' && !musicRoundAwaitingHostTimerStart && timerRemaining <= 0));
   const hostVideoPlaybackActive = mp4Playing && !hostMediaReplayLocked;
   const totalRounds = gameState?.rounds?.length || 0;
+  // While any mini-game (Kangaroo Race or Card Shuffle) is on the venue —
+  // loaded → running → revealed, until the host taps Finish Race / Finish Game —
+  // every standard footer control should be disabled so the host can't advance
+  // rounds, end break, toggle the leaderboard, etc. mid-game. Cleared
+  // automatically once the mini-game finish action resets activeMiniGameLocal.
+  const miniGameLive =
+    activeMiniGameLocal === 'kangaroo_race' || activeMiniGameLocal === 'card_shuffle';
 
   useLayoutEffect(() => {
     if (!hostMediaReplayLocked) return;
@@ -1650,7 +1704,7 @@ function HostDashboardContent() {
             className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 whitespace-nowrap text-center text-base font-semibold uppercase tracking-[0.2em] lg:text-xl"
             data-node-id="232:4449"
           >
-            {currentRound ? (
+            {state === 'SCOREBOARD' ? null : currentRound ? (
               <>
                 <span className="text-white">
                   Round {(gameState?.currentRoundIndex ?? 0) + 1}-{' '}
@@ -2209,16 +2263,23 @@ function HostDashboardContent() {
                     </button>
 
                     <div className="grid grid-cols-1 gap-3">
-                      <div className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs text-white/70">
+                      {/* <div className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs text-white/70">
                         Venue status:{' '}
                         <span className={kangarooVenueReady ? 'text-green-300' : 'text-yellow-300'}>
                           {kangarooVenueReady ? 'Unity ready' : 'Waiting for Unity ready'}
                         </span>
-                      </div>
+                      </div> */}
                       <button
                         type="button"
                         onClick={handleKangarooRaceFinish}
-                        disabled={activeMiniGameLocal !== 'kangaroo_race'}
+                        // Disable while a race is mid-flight (started but not yet revealed)
+                        // so the host can't tear the mini-game down before the kangaroos
+                        // actually finish. Re-enabled once the venue has revealed the
+                        // finish order.
+                        disabled={
+                          activeMiniGameLocal !== 'kangaroo_race' ||
+                          (kangarooRaceStarted && !kangarooRaceRevealed)
+                        }
                         className="h-12 rounded-lg border border-red-500/40 bg-[linear-gradient(180deg,#dc2626_0%,#7f1d1d_100%)] px-4 text-sm font-extrabold uppercase tracking-wide text-white shadow-[0_0_16px_rgba(220,38,38,0.24)] transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40 disabled:grayscale"
                       >
                         Finish Race
@@ -2553,9 +2614,7 @@ function HostDashboardContent() {
                 <div className="flex w-full max-w-[720px] flex-col items-center justify-center gap-6 py-8 text-center animate-fadeIn">
                   <div className="inline-flex items-center gap-3 rounded-full border border-[#41d9ff]/45 bg-[linear-gradient(180deg,rgba(20,42,89,0.95)_0%,rgba(11,20,46,0.95)_100%)] px-8 py-3 shadow-[0_0_22px_rgba(0,217,255,0.2)]">
                     <span className="text-sm font-semibold uppercase tracking-[0.22em] text-[#8cdfff]">
-                      {isLastRound
-                        ? 'Quiz Complete'
-                        : `${formatRoundTypeLabel(currentRound?.type).toUpperCase()} COMPLETED!`}
+                      {isLastRound ? 'Quiz Complete' : 'Round Completed'}
                     </span>
                   </div>
                   <h2 className="text-4xl font-black leading-tight text-white drop-shadow-[0_0_14px_rgba(123,194,255,0.35)] sm:text-5xl">
@@ -2745,6 +2804,7 @@ function HostDashboardContent() {
                 </svg>
               }
               disabled={
+                miniGameLive ||
                 (state === 'LOBBY' && startGameRequested) ||
                 !(state === 'LOBBY' || state === 'ROUND_INTRO' || state === 'WAGER_COLLECTION') ||
                 isCurrentRoundEmpty
@@ -2777,7 +2837,12 @@ function HostDashboardContent() {
                 </svg>
               }
               disabled={
-                revealOnLastQuestionOfRound || !(showRevealAnswerAction || showNextQuestionAction)
+                miniGameLive ||
+                revealOnLastQuestionOfRound ||
+                activeMiniGameLocal != null ||
+                miniGameLoading ||
+                cardShuffleFinishedHold ||
+                !(showRevealAnswerAction || showNextQuestionAction)
               }
               onClick={showNextQuestionAction ? handleNextQuestion : handleRevealAnswer}
             >
@@ -2814,7 +2879,7 @@ function HostDashboardContent() {
                   <path d="M4 19h16v2H4v-2zm2-4h12v2H6v-2zm4-4h4v2h-4v-2zm2-10.5c.83 0 1.5.67 1.5 1.5s-.67 1.5-1.5 1.5S11 6.83 11 6s.67-1.5 1.5-1.5z" />
                 </svg>
               }
-              disabled={state === 'LOBBY' || state === 'FINAL_RESULTS'}
+              disabled={miniGameLive || state === 'LOBBY' || state === 'FINAL_RESULTS'}
               onClick={() => (state === 'BREAK' ? handleEndBreak() : handleStartBreak())}
             >
               {state === 'BREAK' ? 'End Break' : 'Start Break'}
@@ -2830,7 +2895,7 @@ function HostDashboardContent() {
               // route yet, so toggling it on the host has no visual effect anywhere else and
               // just creates confusion. Same goes for FINAL_RESULTS — the final podium is
               // already shown.
-              disabled={state === 'LOBBY' || state === 'FINAL_RESULTS'}
+              disabled={miniGameLive || state === 'LOBBY' || state === 'FINAL_RESULTS'}
               onClick={handleShowScoreboard}
             >
               {isScoreboardVisible ? 'Hide Leaderboard' : 'Show Leaderboard'}
@@ -2846,9 +2911,10 @@ function HostDashboardContent() {
                 </svg>
               }
               disabled={
-                !isCurrentRoundEmpty &&
-                state !== 'SCOREBOARD' &&
-                !(state === 'QUESTION' && questionState === 'REVEALED' && isLastQuestionOfRound)
+                miniGameLive ||
+                (!isCurrentRoundEmpty &&
+                  state !== 'SCOREBOARD' &&
+                  !(state === 'QUESTION' && questionState === 'REVEALED' && isLastQuestionOfRound))
               }
               onClick={handleAdvanceRound}
             >

@@ -22,7 +22,7 @@ Purpose: Replace third-party trivia software; host has full control over format,
 | Type | Device | Role |
 |------|--------|------|
 | **Players/Teams** | Smartphone | Join via QR, enter PIN + team name, answer questions. Team-based (solo = team of one). One device per team. |
-| **Host/Quiz Master** | Desktop/laptop | Control game flow, timers, reveal, scoreboard, manual team management. Uses Admin for prep. |
+| **Host/Quiz Master** | Desktop/laptop | Control game flow, timers, reveal, leaderboard, manual team management. Uses Admin for prep. |
 | **Venue Audience** | Passive | View projected screen only. All audio via venue sound system. |
 | **Admin** | Desktop | Create quizzes, question bank, upload MP3/MP4, configure sessions, generate PINs/QR codes. Same person as Host (Max). |
 
@@ -59,9 +59,9 @@ No C#, no Unity, no PostgreSQL, no Prisma.
 
 ## Host Control Panel (Web — Desktop/Laptop)
 
-**Game Session Dashboard:** Question X/Total, full question text, round name/type, connected teams count, response count for current question, live scoreboard (always visible before venue), points per question.
+**Game Session Dashboard:** Question X/Total, full question text, round name/type, connected teams count, response count for current question, live leaderboard (always visible before venue), points per question.
 
-**Game Controls:** Start Timer (T), Pause Timer (P), Reveal Answer (button), Next Question (Space), Show Scoreboard (S). Timer sound plays (muted during Music rounds).
+**Game Controls:** Start Timer (T), Pause Timer (P), Reveal Answer (button), Next Question (Space), Show Leaderboard (S). Timer sound plays (muted during Music rounds).
 
 **Music Round Controls:** Play/pause for MP3; audio via host laptop → venue sound. On Next: timer + MP3 + options appear simultaneously. No timer sound during Music. Video (MP4): play/pause on venue screen.
 
@@ -97,7 +97,7 @@ No C#, no Unity, no PostgreSQL, no Prisma.
 
 ## Venue Display Screen (Web — Projected/TV)
 
-16:9 layout. View-only, host-controlled. **Welcome Screen** (branded, animated logo). **Team Registration Grid** (numbered slots, green + tick when team joins). **Round Header.** **Round Intro Slide.** **Question Display** (text, options, optional video). **Countdown Timer.** **Live Response Counter.** **Answer Reveal** (correct highlighted). **Scoreboard Display.** **QR Code** (persistent on every slide). **Mini-Game Display.** **Break Timer** (e.g. 6 min). **Points Display.** **Auto-Reveal** when all teams answer.
+16:9 layout. View-only, host-controlled. **Welcome Screen** (branded, animated logo). **Team Registration Grid** (numbered slots, green + tick when team joins). **Round Header.** **Round Intro Slide.** **Question Display** (text, options, optional video). **Countdown Timer.** **Live Response Counter.** **Answer Reveal** (correct highlighted). **Leaderboard Display.** **QR Code** (persistent on every slide). **Mini-Game Display.** **Break Timer** (e.g. 6 min). **Points Display.** **Auto-Reveal** when all teams answer.
 
 ---
 
@@ -109,7 +109,7 @@ No C#, no Unity, no PostgreSQL, no Prisma.
 
 ## Game Flow Sequence
 
-Lobby → Round Intro → Question → Timer starts + options appear (+ MP3 if Music) → Answer Reveal → Score Update → Next Question → Round End → Scoreboard → Next Round → … → Final Wager → Final Results.
+Lobby → Round Intro → Question → Timer starts + options appear (+ MP3 if Music) → Answer Reveal → Score Update → Next Question → Round End → Leaderboard → Next Round → … → Final Wager → Final Results.
 
 Host controls all transitions. **Auto-reveal:** if all teams answer before timer, reveal immediately. No other auto-advance.
 
@@ -202,6 +202,6 @@ All teams wrong (Elimination) → no knockout. All teams answer before timer →
 - 2–6 answer options per question (dynamic)
 - First answer is final; no speed bonus
 - Persistent QR on every venue slide
-- Keyboard shortcuts: Space (Next), T (Reveal), P (Pause), S (Scoreboard)
-- No slide/question/scoreboard auto-advances without host action
+- Keyboard shortcuts: Space (Next), T (Reveal), P (Pause), S (Leaderboard)
+- No slide/question/leaderboard auto-advances without host action
 - Browser target: latest Chrome, Safari, Firefox, Edge

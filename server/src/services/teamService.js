@@ -85,16 +85,20 @@ const removeTeam = async (teamId) => {
     await redisStore.removeTeamFromLobby(pin, teamId);
     await redisStore.removeTeamData(pin, teamId);
 
-    const gameState = await redisStore.getGameState(pin);
-    if (gameState) {
-      delete gameState.teams?.[teamId];
-      if (Array.isArray(gameState.activeTeamIds)) {
-        gameState.activeTeamIds = gameState.activeTeamIds.filter(
+    const existing = await redisStore.getGameState(pin);
+    if (existing) {
+      await redisStore.updateGameState(pin, (current) => {
+        const teams = { ...(current.teams || {}) };
+        delete teams[teamId];
+        const activeTeamIds = (current.activeTeamIds || []).filter(
           (id) => Number(id) !== Number(teamId),
         );
-      }
-      gameState.totalTeams = Object.keys(gameState.teams || {}).length;
-      await redisStore.setGameState(pin, gameState);
+        return {
+          teams,
+          activeTeamIds,
+          totalTeams: Object.keys(teams).length,
+        };
+      });
     }
 
     const io = getSocketIo();

@@ -2,6 +2,9 @@ const logger = require('../../utils/logger');
 
 const activeTimers = new Map();
 
+/** Host payloads may send PIN as a number; players/join use a 6-char string — Map keys must match. */
+const normalizeTimerPin = (sessionPin) => String(sessionPin ?? '').trim();
+
 /**
  * Start a countdown timer for a session
  * @param {string} sessionPin
@@ -10,6 +13,7 @@ const activeTimers = new Map();
  * @param {Function} onExpire - Called when timer reaches 0
  */
 const startTimer = (sessionPin, duration, onTick, onExpire) => {
+  sessionPin = normalizeTimerPin(sessionPin);
   stopTimer(sessionPin);
 
   const state = {
@@ -40,6 +44,7 @@ const startTimer = (sessionPin, duration, onTick, onExpire) => {
  * @returns {number} Remaining seconds
  */
 const pauseTimer = (sessionPin) => {
+  sessionPin = normalizeTimerPin(sessionPin);
   const state = activeTimers.get(sessionPin);
   if (!state) return 0;
 
@@ -55,6 +60,7 @@ const pauseTimer = (sessionPin) => {
  * @param {Function} onExpire
  */
 const resumeTimer = (sessionPin, onTick, onExpire) => {
+  sessionPin = normalizeTimerPin(sessionPin);
   const state = activeTimers.get(sessionPin);
   if (!state || state.running) return;
 
@@ -82,6 +88,7 @@ const resumeTimer = (sessionPin, onTick, onExpire) => {
  * @param {string} sessionPin
  */
 const stopTimer = (sessionPin) => {
+  sessionPin = normalizeTimerPin(sessionPin);
   const state = activeTimers.get(sessionPin);
   if (state) {
     if (state.interval) clearInterval(state.interval);
@@ -96,9 +103,32 @@ const stopTimer = (sessionPin) => {
  * @returns {{ remaining: number, running: boolean }}
  */
 const getTimerState = (sessionPin) => {
+  sessionPin = normalizeTimerPin(sessionPin);
   const state = activeTimers.get(sessionPin);
   if (!state) return { remaining: 0, running: false };
   return { remaining: state.remaining, running: state.running };
+};
+
+/** True when this session has an in-memory countdown (running or paused mid-question). */
+const hasLiveTimer = (sessionPin) => activeTimers.has(normalizeTimerPin(sessionPin));
+
+/**
+ * Remaining seconds for reconnect payloads: prefer live timer over stale Redis copy.
+ * @param {string} pin
+ * @param {{ state?: string, questionState?: string, timerRemaining?: number } | null} gameState
+ */
+const getReconnectTimerRemaining = (pin, gameState) => {
+  const pinNorm = normalizeTimerPin(pin);
+  if (!gameState) return 0;
+  if (gameState.state !== 'QUESTION' || gameState.questionState !== 'ACTIVE') {
+    const tr = Number(gameState.timerRemaining);
+    return Number.isFinite(tr) ? Math.max(0, tr) : 0;
+  }
+  if (hasLiveTimer(pinNorm)) {
+    return Math.max(0, getTimerState(pinNorm).remaining);
+  }
+  const tr = Number(gameState.timerRemaining);
+  return Number.isFinite(tr) ? Math.max(0, tr) : 0;
 };
 
 /**
@@ -106,7 +136,7 @@ const getTimerState = (sessionPin) => {
  * @param {string} sessionPin
  */
 const forceExpire = (sessionPin) => {
-  stopTimer(sessionPin);
+  stopTimer(normalizeTimerPin(sessionPin));
 };
 
 module.exports = {
@@ -115,5 +145,7 @@ module.exports = {
   resumeTimer,
   stopTimer,
   getTimerState,
+  hasLiveTimer,
+  getReconnectTimerRemaining,
   forceExpire,
 };

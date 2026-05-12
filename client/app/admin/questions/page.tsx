@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useRef, useCallback } from 'react';
+import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import toast from 'react-hot-toast';
 import { api, apiUpload } from '@/lib/api';
 import { Button } from '@/components/shared/Button';
@@ -244,16 +244,25 @@ export default function QuestionsPage() {
     const selectedRound = rounds.find((r) => String(r.id) === formData.roundId);
     const roundType = selectedRound?.type;
 
-    // Check if user is trying to upload MP3/MP4 for non-MUSIC rounds
     const fileType = file.type.toLowerCase();
-    const isAudioOrVideo = fileType.includes('audio') || fileType.includes('video');
-    const isMP3orMP4 =
-      fileType.includes('audio/mpeg') ||
-      fileType.includes('audio/mp3') ||
-      fileType.includes('video/mp4');
+    const ext = file.name.split('.').pop()?.toLowerCase() ?? '';
+    const isMp3Mime =
+      fileType === 'audio/mpeg' || fileType === 'audio/mp3' || fileType === 'audio/x-mpeg-3';
+    const isMp4Mime = fileType === 'video/mp4' || fileType === 'audio/mp4';
+    const looksMp3 = isMp3Mime || ext === 'mp3';
+    const looksMp4 = isMp4Mime || ext === 'mp4';
+    const isAudioOrVideo = fileType.startsWith('audio/') || fileType.startsWith('video/');
 
-    if (isAudioOrVideo && isMP3orMP4 && roundType !== 'MUSIC') {
-      toast.error('MP3 and MP4 files can only be uploaded for MUSIC rounds');
+    if (roundType === 'MUSIC') {
+      if (!looksMp3 && !looksMp4) {
+        toast.error('Music rounds only allow MP3 or MP4 files');
+        if (fileInputRef.current) fileInputRef.current.value = '';
+        return;
+      }
+    } else if (isAudioOrVideo) {
+      toast.error(
+        'Audio and video files (including MP3 and MP4) are only allowed for Music rounds',
+      );
       if (fileInputRef.current) fileInputRef.current.value = '';
       return;
     }
@@ -288,21 +297,47 @@ export default function QuestionsPage() {
       return;
     }
 
-    const correctCount = validOptions.filter((o) => o.isCorrect).length;
-    if (correctCount < 1) {
-      toast.error('At least one option must be marked as correct');
-      return;
-    }
-
     if (!formData.roundId) {
       toast.error('Please select a round for this question');
       return;
     }
 
+    const selectedRoundForSave = rounds.find((r) => String(r.id) === formData.roundId);
+    const isMajorityRulesRound = selectedRoundForSave?.type === 'MAJORITY_RULES';
+
+    if (!isMajorityRulesRound) {
+      const correctCount = validOptions.filter((o) => o.isCorrect).length;
+      if (correctCount < 1) {
+        toast.error('At least one option must be marked as correct');
+        return;
+      }
+    }
+
+    if (
+      selectedRoundForSave?.type !== 'MUSIC' &&
+      (formData.mediaType === 'mp3' || formData.mediaType === 'mp4')
+    ) {
+      toast.error('MP3 and MP4 attachments are only allowed for Music rounds');
+      return;
+    }
+    if (
+      selectedRoundForSave?.type === 'MUSIC' &&
+      formData.mediaUrl &&
+      formData.mediaType !== 'mp3' &&
+      formData.mediaType !== 'mp4'
+    ) {
+      toast.error('Music rounds only allow MP3 or MP4 attachments');
+      return;
+    }
+
+    const optionsPayload = isMajorityRulesRound
+      ? validOptions.map((o, i) => ({ text: o.text.trim(), isCorrect: i === 0 }))
+      : validOptions.map((o) => ({ text: o.text.trim(), isCorrect: o.isCorrect }));
+
     const payload: any = {
       text: formData.text.trim(),
       category: formData.category.trim() || undefined,
-      options: validOptions.map((o) => ({ text: o.text.trim(), isCorrect: o.isCorrect })),
+      options: optionsPayload,
       roundId: Number(formData.roundId),
       mediaUrl: formData.mediaUrl || undefined,
       mediaType: formData.mediaType || undefined,
@@ -383,6 +418,12 @@ export default function QuestionsPage() {
       text: 'text-primary',
       border: 'border-primary/30',
     };
+
+  const modalRoundType = useMemo(
+    () => rounds.find((r) => String(r.id) === formData.roundId)?.type,
+    [rounds, formData.roundId],
+  );
+  const isMajorityRulesQuestionModal = modalRoundType === 'MAJORITY_RULES';
 
   return (
     <div className="flex flex-col gap-6 antialiased">
@@ -632,7 +673,30 @@ export default function QuestionsPage() {
             <label className="block text-sm font-medium text-foreground/70 mb-1">Round *</label>
             <select
               value={formData.roundId}
-              onChange={(e) => setFormData((p) => ({ ...p, roundId: e.target.value }))}
+              onChange={(e) => {
+                const newRoundId = e.target.value;
+                const newRound = rounds.find((r) => String(r.id) === newRoundId);
+                setFormData((p) => {
+                  const musicIncompatible =
+                    newRound?.type === 'MUSIC' &&
+                    p.mediaUrl &&
+                    p.mediaType !== 'mp3' &&
+                    p.mediaType !== 'mp4';
+                  const nonMusicAv =
+                    newRound &&
+                    newRound.type !== 'MUSIC' &&
+                    (p.mediaType === 'mp3' || p.mediaType === 'mp4');
+                  if (musicIncompatible || nonMusicAv) {
+                    toast(
+                      musicIncompatible
+                        ? 'Music rounds use MP3 or MP4 only — attachment removed.'
+                        : 'This round type does not allow MP3/MP4 — attachment removed.',
+                    );
+                    return { ...p, roundId: newRoundId, mediaUrl: '', mediaType: '' };
+                  }
+                  return { ...p, roundId: newRoundId };
+                });
+              }}
               className="w-full bg-surface-light border border-border rounded-lg px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
             >
               <option value="">Select a round...</option>
@@ -758,7 +822,7 @@ export default function QuestionsPage() {
                   accept={(() => {
                     const selectedRound = rounds.find((r) => String(r.id) === formData.roundId);
                     if (selectedRound?.type === 'MUSIC') {
-                      return 'audio/mpeg,audio/mp3,video/mp4,image/jpeg,image/png,image/gif,image/webp';
+                      return 'audio/mpeg,audio/mp3,.mp3,video/mp4,.mp4';
                     }
                     return 'image/jpeg,image/png,image/gif,image/webp';
                   })()}
@@ -774,9 +838,9 @@ export default function QuestionsPage() {
                   title={(() => {
                     const selectedRound = rounds.find((r) => String(r.id) === formData.roundId);
                     if (selectedRound?.type === 'MUSIC') {
-                      return '';
+                      return 'Music rounds: MP3 or MP4 only';
                     }
-                    return 'MP3 and MP4 files can only be uploaded for MUSIC rounds';
+                    return 'MP3 and MP4 files are only allowed for Music rounds';
                   })()}
                 >
                   {uploading ? 'Uploading...' : '📎 Upload File'}
@@ -785,7 +849,7 @@ export default function QuestionsPage() {
                   {(() => {
                     const selectedRound = rounds.find((r) => String(r.id) === formData.roundId);
                     if (selectedRound?.type === 'MUSIC') {
-                      return 'JPG, PNG, GIF, WebP, MP3, or MP4';
+                      return 'MP3 or MP4 only';
                     }
                     return 'JPG, PNG, GIF, or WebP only';
                   })()}
@@ -799,9 +863,11 @@ export default function QuestionsPage() {
             <div className="flex items-center justify-between mb-2">
               <label className="text-sm font-medium text-foreground/70">
                 Options
-                <span className="text-foreground/30 font-normal ml-1">
-                  (click radio to mark correct)
-                </span>
+                {!isMajorityRulesQuestionModal ? (
+                  <span className="text-foreground/30 font-normal ml-1">
+                    (click radio to mark correct)
+                  </span>
+                ) : null}
               </label>
               {formData.options.length < 6 && (
                 <Button type="button" variant="ghost" size="sm" onClick={addOption}>
@@ -812,17 +878,19 @@ export default function QuestionsPage() {
             <div className="space-y-2">
               {formData.options.map((opt, i) => (
                 <div key={i} className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setCorrectOption(i)}
-                    className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-colors shrink-0 ${
-                      opt.isCorrect
-                        ? 'border-success bg-success'
-                        : 'border-border hover:border-foreground/50'
-                    }`}
-                  >
-                    {opt.isCorrect && <span className="text-white text-xs">✓</span>}
-                  </button>
+                  {!isMajorityRulesQuestionModal ? (
+                    <button
+                      type="button"
+                      onClick={() => setCorrectOption(i)}
+                      className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-colors shrink-0 ${
+                        opt.isCorrect
+                          ? 'border-success bg-success'
+                          : 'border-border hover:border-foreground/50'
+                      }`}
+                    >
+                      {opt.isCorrect && <span className="text-white text-xs">✓</span>}
+                    </button>
+                  ) : null}
                   <span className="text-foreground/30 text-sm font-mono w-5 shrink-0">
                     {String.fromCharCode(65 + i)}
                   </span>

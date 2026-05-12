@@ -8,6 +8,7 @@ import { useAudio } from '@/hooks/useAudio';
 import { usePlayerSession } from '../playerSession';
 import { LoadingDots } from '../LoadingDots';
 import { clientLogger } from '@/lib/clientLogger';
+import { breakSecondsFromEndsAt, resolveBreakWallClock } from '@/lib/breakWallClock';
 import { cn } from '@/lib/utils';
 import { PUBLIC_API_URL } from '@/lib/env';
 
@@ -37,11 +38,16 @@ interface QuestionData {
   };
   timerDuration: number;
   timerRemaining?: number;
+  timerRunning?: boolean;
   timerEndsAt?: number | null;
   serverNow?: number;
   roundType: string;
   pointsForQuestion?: number;
   lockedWagerAmount?: number | null;
+  /** Present on reconnect when this team already submitted for the active question. */
+  mySubmittedOptionIndex?: number | null;
+  /** Teams knocked out this elimination round (still in session, must not answer). */
+  eliminatedTeamIds?: number[];
 }
 
 interface RevealData {
@@ -249,10 +255,11 @@ function QuestionImage({ mediaUrl }: { mediaUrl: string }) {
 
 function QuestionMediaVisual({
   question,
-  isPlayerMp3Playing,
+  musicBanner,
 }: {
   question: QuestionData;
-  isPlayerMp3Playing: boolean;
+  /** Music / MP3 questions: one line only — `playing` after host starts the venue timer. */
+  musicBanner: 'none' | 'waiting' | 'playing';
 }) {
   const q = question.question;
   const roundType = question.roundType;
@@ -280,20 +287,26 @@ function QuestionMediaVisual({
     );
   }
   if ((q.mediaType || '').toLowerCase() === 'mp3' || roundType === 'MUSIC') {
+    const caption =
+      musicBanner === 'playing'
+        ? 'Audio is playing on Venue Screen'
+        : musicBanner === 'waiting'
+          ? 'Waiting for host to start the timer'
+          : null;
     return (
       <div className="shrink-0">
         <div className="rounded-2xl overflow-hidden">
           <img
-            src="/musicbg.png"
-            alt="Music round placeholder"
+            src="/venuemusicbg.png"
+            alt={caption || 'Music round'}
             className="max-h-[min(42vh,220px)] w-full object-cover md:max-h-[min(38vh,280px)]"
           />
         </div>
-        <p className="mt-2 text-center text-sm font-semibold text-white sm:text-base">
-          {isPlayerMp3Playing
-            ? 'Audio is playing on Venue Screen'
-            : 'Waiting for host to play music'}
-        </p>
+        {caption ? (
+          <p className="mt-2 text-center text-sm font-semibold text-white sm:text-base">
+            {caption}
+          </p>
+        ) : null}
       </div>
     );
   }
@@ -396,12 +409,37 @@ const normalizeRoundIntroTitle = (name?: string, roundType?: string, roundIndex?
 
 const toTimerEndsAt = (value: unknown): number | null => {
   const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : null;
+  if (!Number.isFinite(parsed) || parsed <= 0) return null;
+  return parsed;
 };
 
 const getRemainingFromEndsAt = (timerEndsAt: number): number => {
   return Math.max(0, Math.ceil((timerEndsAt - Date.now()) / 1000));
 };
+
+/** Prefer wall clock when valid; if `timerEndsAt` is stale but the server still reports time left, trust the server. */
+function coercePlayerTimerFromServer(
+  serverRemaining: unknown,
+  endsAt: unknown,
+): { remaining: number; endsAt: number | null } {
+  const tr = Number(serverRemaining);
+  const safeTr = Number.isFinite(tr) ? Math.max(0, Math.floor(tr)) : 0;
+  const syncEndsAt = toTimerEndsAt(endsAt);
+  if (syncEndsAt === null) {
+    return { remaining: safeTr, endsAt: null };
+  }
+  const fromWall = getRemainingFromEndsAt(syncEndsAt);
+  if (safeTr <= 0 && fromWall <= 0) {
+    return { remaining: 0, endsAt: null };
+  }
+  if (safeTr > 0 && fromWall <= 0) {
+    return { remaining: safeTr, endsAt: null };
+  }
+  if (safeTr <= 0 && fromWall > 0) {
+    return { remaining: fromWall, endsAt: syncEndsAt };
+  }
+  return { remaining: fromWall, endsAt: syncEndsAt };
+}
 
 function HeaderCapsule({
   icon,
@@ -456,18 +494,17 @@ export default function GamePage() {
   const [isEliminated, setIsEliminated] = useState(false);
   const [breakDuration, setBreakDuration] = useState(300);
   const [breakRemaining, setBreakRemaining] = useState(300);
-  const [isPlayerMp3Playing, setIsPlayerMp3Playing] = useState(false);
+  const [breakEndsAtMs, setBreakEndsAtMs] = useState<number | null>(null);
+  const [breakSkewMs, setBreakSkewMs] = useState(0);
+  const [timerRunning, setTimerRunning] = useState(false);
   const [showBreakEndedNotice, setShowBreakEndedNotice] = useState(false);
-  const questionMediaUrlRef = useRef<string | undefined>(undefined);
+  /** Synced in socket handlers (same tick as session_state) so question_active cannot overwrite elimination. */
+  const isEliminatedRef = useRef(false);
   const phaseRef = useRef<GamePhase>('waiting');
   const previousPhaseBeforeScoreboardRef = useRef<GamePhase | null>(null);
   const questionRef = useRef<QuestionData | null>(null);
   const revealDataRef = useRef<RevealData | null>(null);
-  const {
-    play: playMp3,
-    stop: stopMp3,
-    setSource: setMp3Source,
-  } = useAudio({
+  const { stop: stopMp3, setSource: setMp3Source } = useAudio({
     loop: false,
     volume: 0.75,
   });
@@ -515,17 +552,38 @@ export default function GamePage() {
     if (savedQuestion) {
       try {
         const data = JSON.parse(savedQuestion);
+        const tid = session.teamId != null ? Number(session.teamId) : NaN;
+        const inEliminatedList =
+          Number.isFinite(tid) &&
+          Array.isArray(data.eliminatedTeamIds) &&
+          data.eliminatedTeamIds.map(Number).includes(tid);
+        const knockedOut = Boolean(data.isEliminated) || inEliminatedList;
         setQuestion(data);
-        setTimerDuration(data.timerDuration || 30);
-        const syncEndsAt = toTimerEndsAt(data.timerEndsAt);
-        if (syncEndsAt !== null) {
-          setTimerEndsAt(syncEndsAt);
-          setTimerRemaining(getRemainingFromEndsAt(syncEndsAt));
+        setTimerDuration(Number(data.timerDuration ?? 30) || 30);
+        const coerced = coercePlayerTimerFromServer(
+          data.timerRemaining ?? data.timerDuration,
+          data.timerEndsAt,
+        );
+        setTimerEndsAt(coerced.endsAt);
+        setTimerRemaining(coerced.remaining);
+        setTimerRunning(Boolean(data.timerRunning));
+        if (knockedOut) {
+          isEliminatedRef.current = true;
+          setIsEliminated(true);
+          setSelectedOption(null);
+          setPhase('eliminated');
         } else {
-          setTimerEndsAt(null);
-          setTimerRemaining(data.timerRemaining ?? data.timerDuration ?? 0);
+          const mine = data.mySubmittedOptionIndex;
+          const restored =
+            mine !== undefined && mine !== null && Number.isFinite(Number(mine)) ? Number(mine) : null;
+          if (restored !== null) {
+            setSelectedOption(restored);
+            setPhase('answered');
+          } else {
+            setSelectedOption(null);
+            setPhase('question');
+          }
         }
-        setPhase('question');
       } catch {
         /* ignore */
       }
@@ -534,7 +592,6 @@ export default function GamePage() {
   }, []);
 
   useEffect(() => {
-    questionMediaUrlRef.current = question?.question?.mediaUrl;
     if (!question?.question?.mediaUrl) return;
     const mediaType = (question.question.mediaType || '').toLowerCase();
     if (mediaType === 'mp3') {
@@ -544,12 +601,28 @@ export default function GamePage() {
 
   useEffect(() => {
     if (phase !== 'break') return;
-    setBreakRemaining((prev) => (prev > breakDuration ? breakDuration : prev));
-    const t = setInterval(() => {
-      setBreakRemaining((prev) => (prev > 0 ? prev - 1 : 0));
-    }, 1000);
-    return () => clearInterval(t);
-  }, [phase, breakDuration]);
+    const tick = () => {
+      if (breakEndsAtMs != null && Number.isFinite(breakEndsAtMs) && breakEndsAtMs > 0) {
+        const next = breakSecondsFromEndsAt(breakEndsAtMs, breakSkewMs);
+        setBreakRemaining(Math.min(breakDuration, Math.max(0, next)));
+      } else {
+        setBreakRemaining((prev) => {
+          const capped = prev > breakDuration ? breakDuration : prev;
+          return capped > 0 ? capped - 1 : 0;
+        });
+      }
+    };
+    tick();
+    const t = setInterval(tick, 250);
+    const onVis = () => {
+      if (document.visibilityState === 'visible') tick();
+    };
+    document.addEventListener('visibilitychange', onVis);
+    return () => {
+      clearInterval(t);
+      document.removeEventListener('visibilitychange', onVis);
+    };
+  }, [phase, breakDuration, breakEndsAtMs, breakSkewMs]);
 
   useEffect(() => {
     if (!timerEndsAt) return;
@@ -569,8 +642,18 @@ export default function GamePage() {
     const onSessionState = (data: any) => {
       if (data.gameState) {
         const gs = data.gameState;
-        const myTeam = session.teamId ? gs.teams?.[session.teamId] : null;
+        if (gs.state !== 'BREAK') {
+          setBreakEndsAtMs(null);
+          setBreakSkewMs(0);
+        }
+        const teamsMap = gs.teams as
+          | Record<number | string, { isEliminated?: boolean; score?: number }>
+          | undefined;
+        const stid = session.teamId;
+        const myTeam =
+          stid != null && teamsMap ? teamsMap[stid] ?? teamsMap[String(stid)] : null;
         const currentlyEliminated = Boolean(myTeam?.isEliminated);
+        isEliminatedRef.current = currentlyEliminated;
         if (myTeam?.score !== undefined) {
           setSession({ score: myTeam.score });
         }
@@ -591,6 +674,7 @@ export default function GamePage() {
             }));
           setScoreboard(sorted);
           setPhase('scoreboard');
+          setTimerRunning(false);
           return;
         }
 
@@ -609,9 +693,11 @@ export default function GamePage() {
               totalRounds: gs.rounds?.length ?? gs.totalRounds ?? 0,
             });
             setPhase('round_intro');
+            setTimerRunning(false);
           } else {
             if (phaseRef.current === 'break') setBreakRemaining(0);
             setPhase(currentlyEliminated ? 'eliminated' : 'waiting');
+            setTimerRunning(false);
           }
           return;
         }
@@ -620,6 +706,7 @@ export default function GamePage() {
           if (!gs.currentQuestion) {
             // After break, server can emit QUESTION before currentQuestion is attached — leave break UI.
             setBreakRemaining(0);
+            setTimerRunning(false);
             if (currentlyEliminated) {
               setPhase('eliminated');
             } else {
@@ -628,16 +715,14 @@ export default function GamePage() {
             return;
           }
           setQuestion(gs.currentQuestion);
-          setTimerDuration(gs.currentQuestion.timerDuration || 30);
-          const syncEndsAt = toTimerEndsAt(gs.timerEndsAt ?? gs.currentQuestion.timerEndsAt);
-          if (syncEndsAt !== null) {
-            setTimerEndsAt(syncEndsAt);
-            setTimerRemaining(getRemainingFromEndsAt(syncEndsAt));
-          } else {
-            setTimerEndsAt(null);
-            setTimerRemaining(gs.timerRemaining ?? gs.currentQuestion.timerDuration ?? 0);
-          }
-          setSelectedOption(null);
+          setTimerDuration(Number(gs.currentQuestion.timerDuration ?? 30) || 30);
+          const coerced = coercePlayerTimerFromServer(
+            gs.timerRemaining,
+            gs.timerEndsAt ?? gs.currentQuestion.timerEndsAt,
+          );
+          setTimerEndsAt(coerced.endsAt);
+          setTimerRemaining(coerced.remaining);
+          setTimerRunning(Boolean(gs.timerRunning));
           setRevealData(null);
           setPointsGained(null);
 
@@ -656,18 +741,32 @@ export default function GamePage() {
             setWagerAmount(0);
           }
 
+          const mineRaw = gs.mySubmittedOptionIndex;
+          const restoredIdx =
+            mineRaw !== undefined && mineRaw !== null && Number.isFinite(Number(mineRaw))
+              ? Number(mineRaw)
+              : null;
+
           if (currentlyEliminated) {
+            setSelectedOption(null);
             setPhase('eliminated');
           } else if (gs.questionState === 'ACTIVE') {
-            if (
-              gs.currentQuestion.roundType === 'WAGER' ||
-              gs.currentQuestion.roundType === 'FINAL_WAGER'
-            ) {
-              setPhase(hasLockedWager || wagerSubmitted ? 'question' : 'wager_input');
+            if (restoredIdx !== null) {
+              setSelectedOption(restoredIdx);
+              setPhase('answered');
             } else {
-              setPhase('question');
+              setSelectedOption(null);
+              if (
+                gs.currentQuestion.roundType === 'WAGER' ||
+                gs.currentQuestion.roundType === 'FINAL_WAGER'
+              ) {
+                setPhase(hasLockedWager || wagerSubmitted ? 'question' : 'wager_input');
+              } else {
+                setPhase('question');
+              }
             }
           } else {
+            setSelectedOption(null);
             setPhase('waiting');
           }
           return;
@@ -683,6 +782,7 @@ export default function GamePage() {
             }));
           setScoreboard(sorted);
           setPhase('scoreboard');
+          setTimerRunning(false);
           return;
         }
 
@@ -690,13 +790,38 @@ export default function GamePage() {
           setQuestion(null);
           setTimerEndsAt(null);
           setTimerRemaining(0);
+          setTimerRunning(false);
           setSelectedOption(null);
           setRevealData(null);
           setPointsGained(null);
-          setWagerSubmitted(false);
           const wagerRoundIdx = Number(gs.currentRoundIndex ?? 0);
-          const wagerRoundType = gs.rounds?.[wagerRoundIdx]?.type;
-          setWagerAmount(initialWagerAmountForRoundType(wagerRoundType));
+          const wagerRoundType = gs.currentRound?.type ?? gs.rounds?.[wagerRoundIdx]?.type;
+          const roundMeta = gs.currentRound ?? gs.rounds?.[wagerRoundIdx];
+          const roundId = roundMeta?.id;
+          const fromRoundWagers =
+            session.teamId != null &&
+            roundId != null &&
+            gs.roundWagers?.[String(roundId)]?.[String(session.teamId)];
+          const lockedRaw =
+            gs.lockedWagerAmount !== undefined && gs.lockedWagerAmount !== null
+              ? gs.lockedWagerAmount
+              : fromRoundWagers;
+          const hasLockedWager =
+            lockedRaw !== null && lockedRaw !== undefined && Number.isFinite(Number(lockedRaw));
+          if (hasLockedWager) {
+            setWagerAmount(Number(lockedRaw));
+            setWagerSubmitted(true);
+          } else {
+            setWagerSubmitted(false);
+            setWagerAmount(initialWagerAmountForRoundType(wagerRoundType));
+          }
+          if (gs.currentRound?.type) {
+            setRoundInfo({
+              round: gs.currentRound,
+              roundIndex: wagerRoundIdx,
+              totalRounds: Number(gs.totalRounds ?? 0),
+            });
+          }
 
           if (currentlyEliminated) {
             setPhase('eliminated');
@@ -707,17 +832,28 @@ export default function GamePage() {
         }
 
         if (gs.state === 'BREAK') {
-          const duration = Number(gs.breakRemaining ?? gs.breakDuration ?? 300);
-          setBreakDuration(duration > 0 ? duration : 300);
-          setBreakRemaining(duration > 0 ? duration : 300);
+          const w = resolveBreakWallClock({
+            breakEndsAt: gs.breakEndsAt,
+            breakRemaining: gs.breakRemaining,
+            breakDuration: gs.breakDuration,
+            serverNow: gs.serverNow,
+          });
+          setBreakDuration(w.duration);
+          setBreakSkewMs(w.skewMs);
+          setBreakEndsAtMs(w.endsAt);
+          setBreakRemaining(w.remaining);
+          setTimerRunning(false);
           setPhase('break');
         } else if (gs.state === 'FINAL_RESULTS') {
+          setTimerRunning(false);
           setPhase('game_end');
         } else if (gs.state === 'LOBBY') {
+          setTimerRunning(false);
           setPhase('waiting');
         } else if (phaseRef.current === 'break' && gs.state !== 'BREAK') {
           // Host ended break but no branch above matched — stop break countdown UI.
           setBreakRemaining(0);
+          setTimerRunning(false);
           setPhase(currentlyEliminated ? 'eliminated' : 'waiting');
         }
       }
@@ -726,6 +862,7 @@ export default function GamePage() {
     const onRoundIntro = (data: any) => {
       setRoundInfo(data);
       setPhase('round_intro');
+      isEliminatedRef.current = false;
       setIsEliminated(false);
       setQuestion(null);
       setTimerEndsAt(null);
@@ -734,7 +871,7 @@ export default function GamePage() {
       setRevealData(null);
       setWagerSubmitted(false);
       setWagerAmount(0);
-      setIsPlayerMp3Playing(false);
+      setTimerRunning(false);
       stopMp3();
     };
 
@@ -748,31 +885,52 @@ export default function GamePage() {
       setWagerSubmitted(false);
       setWagerAmount(initialWagerAmountForRoundType(data?.round?.type));
       setPhase('wager_input');
+      setTimerRunning(false);
     };
 
     const onQuestionActive = (data: QuestionData) => {
+      const teamId = session.teamId != null ? Number(session.teamId) : NaN;
+      const onEliminatedList =
+        Number.isFinite(teamId) &&
+        Array.isArray(data.eliminatedTeamIds) &&
+        data.eliminatedTeamIds.map(Number).includes(teamId);
+      if (onEliminatedList) {
+        isEliminatedRef.current = true;
+        setIsEliminated(true);
+      }
+      const dead = isEliminatedRef.current;
+
       setQuestion(data);
       setTimerDuration(data.timerDuration);
-      const syncEndsAt = toTimerEndsAt(data.timerEndsAt);
-      if (syncEndsAt !== null) {
-        setTimerEndsAt(syncEndsAt);
-        setTimerRemaining(getRemainingFromEndsAt(syncEndsAt));
-      } else {
-        setTimerEndsAt(null);
-        setTimerRemaining(data.timerRemaining ?? data.timerDuration);
-      }
-      setSelectedOption(null);
+      const coerced = coercePlayerTimerFromServer(
+        data.timerRemaining ?? data.timerDuration,
+        data.timerEndsAt,
+      );
+      setTimerEndsAt(coerced.endsAt);
+      setTimerRemaining(coerced.remaining);
+      setTimerRunning(Boolean(data.timerRunning));
+      const mine = data.mySubmittedOptionIndex;
+      const restored =
+        mine !== undefined && mine !== null && Number.isFinite(Number(mine)) ? Number(mine) : null;
+      setSelectedOption(dead ? null : restored);
       setRevealData(null);
       setPointsGained(null);
 
-      if (isEliminated) {
+      if (dead) {
         setPhase('eliminated');
-      } else if (data.roundType === 'WAGER' || data.roundType === 'FINAL_WAGER') {
+        stopMp3();
+        return;
+      }
+      if (data.roundType === 'WAGER' || data.roundType === 'FINAL_WAGER') {
         const hasLockedWager =
           data.lockedWagerAmount !== null && data.lockedWagerAmount !== undefined;
         if (hasLockedWager) {
           setWagerAmount(Number(data.lockedWagerAmount));
           setWagerSubmitted(true);
+        }
+        if (restored !== null) {
+          setPhase('answered');
+        } else if (hasLockedWager) {
           setPhase('question');
         } else if (wagerSubmitted) {
           setPhase('question');
@@ -782,31 +940,38 @@ export default function GamePage() {
       } else {
         setWagerSubmitted(false);
         setWagerAmount(0);
-        setPhase('question');
+        setPhase(restored !== null ? 'answered' : 'question');
       }
-      setIsPlayerMp3Playing(false);
       stopMp3();
     };
 
-    const onTimerUpdate = (data: { remaining: number; timerEndsAt?: number | null }) => {
-      const syncEndsAt = toTimerEndsAt(data.timerEndsAt);
-      if (syncEndsAt !== null) {
-        setTimerEndsAt(syncEndsAt);
-        setTimerRemaining(getRemainingFromEndsAt(syncEndsAt));
-        return;
+    const onTimerUpdate = (data: {
+      remaining: number;
+      timerEndsAt?: number | null;
+      timerRunning?: boolean;
+      paused?: boolean;
+    }) => {
+      if (typeof data.timerRunning === 'boolean') {
+        setTimerRunning(data.timerRunning);
+      } else if (data.paused === true) {
+        setTimerRunning(false);
+      } else if (data.paused === false) {
+        setTimerRunning(true);
       }
-      if (data.remaining <= 0) {
-        setTimerEndsAt(null);
-      }
-      setTimerRemaining(data.remaining);
+      const coerced = coercePlayerTimerFromServer(data.remaining, data.timerEndsAt);
+      setTimerEndsAt(coerced.endsAt);
+      setTimerRemaining(coerced.remaining);
+      if (coerced.remaining <= 0) setTimerRunning(false);
     };
     const onTimerExpired = () => {
       setTimerEndsAt(null);
       setTimerRemaining(0);
+      setTimerRunning(false);
     };
 
     const onAnswerReveal = (data: RevealData) => {
       setRevealData(data);
+      setTimerRunning(false);
       setPhase('reveal');
       const myResponse = data.responseDetails?.find((r) => r.teamId === session.teamId);
       if (myResponse && Number.isFinite(Number(myResponse.selectedOptionIndex))) {
@@ -820,6 +985,7 @@ export default function GamePage() {
       const myTeam = data.teams.find((t) => t.teamId === session.teamId);
       if (myTeam) setSession({ score: myTeam.score });
       if (data.eliminations.includes(session.teamId!)) {
+        isEliminatedRef.current = true;
         setIsEliminated(true);
         setPhase('eliminated');
       }
@@ -827,6 +993,7 @@ export default function GamePage() {
 
     const onPlayerEliminated = (data: { teamId: number }) => {
       if (data.teamId === session.teamId) {
+        isEliminatedRef.current = true;
         setIsEliminated(true);
         setPhase('eliminated');
       }
@@ -838,7 +1005,7 @@ export default function GamePage() {
       }
       setScoreboard(data.teams);
       setPhase('scoreboard');
-      setIsPlayerMp3Playing(false);
+      setTimerRunning(false);
       stopMp3();
     };
 
@@ -857,6 +1024,10 @@ export default function GamePage() {
     };
 
     const onScoreboardHidden = () => {
+      if (isEliminatedRef.current) {
+        setPhase('eliminated');
+        return;
+      }
       const previous = previousPhaseBeforeScoreboardRef.current;
       if (previous && previous !== 'scoreboard') {
         setPhase(previous);
@@ -874,14 +1045,28 @@ export default function GamePage() {
     };
 
     const onRoundEnd = () => {
-      setIsPlayerMp3Playing(false);
+      setTimerRunning(false);
       stopMp3();
     };
 
-    const onBreakStart = (data: { duration?: number }) => {
-      const duration = Number(data?.duration ?? 300);
-      setBreakDuration(duration > 0 ? duration : 300);
-      setBreakRemaining(duration > 0 ? duration : 300);
+    const onBreakStart = (data: {
+      duration?: number;
+      breakDuration?: number;
+      breakRemaining?: number;
+      breakEndsAt?: number;
+      serverNow?: number;
+    }) => {
+      const w = resolveBreakWallClock({
+        breakEndsAt: data?.breakEndsAt,
+        breakRemaining: data?.breakRemaining ?? data?.duration,
+        breakDuration: data?.breakDuration ?? data?.duration,
+        serverNow: data?.serverNow,
+      });
+      setBreakDuration(w.duration);
+      setBreakSkewMs(w.skewMs);
+      setBreakEndsAtMs(w.endsAt);
+      setBreakRemaining(w.remaining);
+      setTimerRunning(false);
       setPhase('break');
     };
 
@@ -898,29 +1083,18 @@ export default function GamePage() {
       router.push(`/play/mini-game?game=${data.game}`);
     };
 
-    const onMusicControl = (data: { action: 'play' | 'pause' | 'stop'; mediaUrl?: string }) => {
-      const action = data?.action;
-      if (!action) return;
-
-      if (action === 'play') {
-        const mediaUrl = data?.mediaUrl || questionMediaUrlRef.current;
-        if (mediaUrl) {
-          setMp3Source(resolveMediaUrl(mediaUrl));
-        }
-        playMp3();
-        setIsPlayerMp3Playing(true);
-        return;
+    /** Venue-only audio; players follow `timerRunning` / `timer_update` for copy, not this event. */
+    const onMusicControl = (data: { action?: string }) => {
+      if (data?.action === 'pause' || data?.action === 'stop') {
+        stopMp3();
       }
-
-      stopMp3();
-      setIsPlayerMp3Playing(false);
     };
 
     const onGameEnd = (data?: {
       teams?: { teamId: number; teamName: string; score: number }[];
     }) => {
       stopMp3();
-      setIsPlayerMp3Playing(false);
+      setTimerRunning(false);
       if (data?.teams) {
         setScoreboard(data.teams);
         const myTeam = data.teams.find((t) => t.teamId === session.teamId);
@@ -972,9 +1146,7 @@ export default function GamePage() {
     session.pin,
     session.teamName,
     session.teamId,
-    isEliminated,
     wagerSubmitted,
-    playMp3,
     setMp3Source,
     stopMp3,
     router,
@@ -987,7 +1159,7 @@ export default function GamePage() {
       if (
         selectedOption !== null ||
         !socket ||
-        isEliminated ||
+        isEliminatedRef.current ||
         timerRemaining <= 0 ||
         phaseRef.current !== 'question'
       )
@@ -999,7 +1171,7 @@ export default function GamePage() {
         wagerAmount: wagerSubmitted ? wagerAmount : undefined,
       });
     },
-    [selectedOption, socket, isEliminated, timerRemaining, wagerAmount, wagerSubmitted],
+    [selectedOption, socket, timerRemaining, wagerAmount, wagerSubmitted],
   );
 
   const handleSubmitWager = () => {
@@ -1052,11 +1224,23 @@ export default function GamePage() {
   const breakMinutes = Math.floor(breakRemaining / 60);
   const breakSeconds = breakRemaining % 60;
   const isAnswerSelectionLocked =
-    selectedOption !== null || isEliminated || timerRemaining <= 0 || phase !== 'question';
+    selectedOption !== null ||
+    isEliminatedRef.current ||
+    isEliminated ||
+    timerRemaining <= 0 ||
+    phase !== 'question';
   const showTimeExpiredState =
     timerRemaining <= 0 &&
     (phase === 'question' || phase === 'answered') &&
     selectedOption === null;
+
+  const questionMusicBanner: 'none' | 'waiting' | 'playing' = (() => {
+    if (!question || (question.roundType || '').toUpperCase() !== 'MUSIC') return 'none';
+    if (phase !== 'question' && phase !== 'answered') return 'none';
+    if (timerRunning) return 'playing';
+    if (timerRemaining > 0) return 'waiting';
+    return 'none';
+  })();
 
   return (
     <div className="flex-1 h-full min-h-0 w-full bg-[#050017]">
@@ -1331,10 +1515,7 @@ export default function GamePage() {
                 </div>
 
                 <div className="flex flex-col gap-3 sm:gap-4">
-                  <QuestionMediaVisual
-                    question={question}
-                    isPlayerMp3Playing={isPlayerMp3Playing}
-                  />
+                  <QuestionMediaVisual question={question} musicBanner={questionMusicBanner} />
 
                   {/* Options - Single column vertical list */}
                   <motion.div
@@ -1424,10 +1605,7 @@ export default function GamePage() {
                 </div>
 
                 <div className="flex flex-col gap-3 sm:gap-4">
-                  <QuestionMediaVisual
-                    question={question}
-                    isPlayerMp3Playing={isPlayerMp3Playing}
-                  />
+                  <QuestionMediaVisual question={question} musicBanner={questionMusicBanner} />
 
                   {/* Options - Single column vertical list */}
                   <motion.div
@@ -1448,8 +1626,23 @@ export default function GamePage() {
                         ? selectedOption !== null && !isSelectedOption
                         : !isCorrectOption && !isSelectedWrong;
 
-                      const showCorrectTick = isCorrectOption;
-                      const showWrongCross = isSelectedWrong;
+                      const userMajorityWin =
+                        isMajorityRulesRound &&
+                        isSelectedOption &&
+                        selectedOption !== null &&
+                        (pointsGained ?? 0) > 0;
+                      const userMajorityLose =
+                        isMajorityRulesRound &&
+                        isSelectedOption &&
+                        selectedOption !== null &&
+                        (pointsGained ?? 0) <= 0;
+
+                      const showCorrectTick = isMajorityRulesRound
+                        ? userMajorityWin
+                        : isCorrectOption;
+                      const showWrongCross = isMajorityRulesRound
+                        ? userMajorityLose
+                        : isSelectedWrong;
 
                       return (
                         <motion.div
@@ -1561,17 +1754,23 @@ export default function GamePage() {
               </motion.div>
             )}
 
-            {/* ── SCOREBOARD ── */}
+            {/* ── Leaderboard ── */}
             {phase === 'scoreboard' && (
               <motion.div
                 key="scoreboard"
                 {...pageTransition}
                 className="mt-2 flex flex-1 flex-col px-3 pb-4 pt-2 sm:mt-4 sm:px-4 md:px-6"
               >
-                <div className="mb-3 text-center sm:mb-4">
+                <div className="mb-3 text-center sm:mb-4 flex items-center justify-center gap-10">
+                  <img
+                    src="/LeaderboardIcon.png"
+                    alt="Leaderboard"
+                    className="w-15image.png h-15"
+                  />{' '}
                   <h2 className="text-[clamp(1.75rem,6vw,3.25rem)] font-extrabold leading-none tracking-wide text-white drop-shadow-[0_0_10px_rgba(255,255,255,0.2)]">
-                    🏅 LEADERBOARD 🏅
+                    Leaderboard
                   </h2>
+                  <img src="/LeaderboardIcon.png" alt="Leaderboard" className="w-15 h-15" />{' '}
                 </div>
                 <motion.div
                   variants={staggerContainer}

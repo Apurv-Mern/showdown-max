@@ -12,6 +12,9 @@ import { PUBLIC_API_URL } from '@/lib/env';
 
 const API_URL = PUBLIC_API_URL;
 
+/** Live Elimination rounds use a fixed 12-question ladder (10–120 pts). */
+const ELIMINATION_QUESTION_COUNT = 12;
+
 interface Option {
   text: string;
   isCorrect: boolean;
@@ -160,6 +163,23 @@ export default function QuizDetailPage() {
   }, [fetchQuiz]);
 
   useEffect(() => {
+    if (!quiz?.rounds?.length) return;
+    for (const round of quiz.rounds) {
+      if (round.type !== 'ELIMINATION') continue;
+      const n = round.questions.length;
+      const toastId = `elimination-need-12-${round.id}`;
+      if (n !== ELIMINATION_QUESTION_COUNT) {
+        toast.error(
+          `${getRoundDisplayName(round)} must have exactly ${ELIMINATION_QUESTION_COUNT} questions for an Elimination round (currently ${n}).`,
+          { id: toastId, duration: 10_000 },
+        );
+      } else {
+        toast.dismiss(toastId);
+      }
+    }
+  }, [quiz]);
+
+  useEffect(() => {
     if (!quiz?.rounds?.length) {
       setSelectedRoundId(null);
       return;
@@ -175,6 +195,13 @@ export default function QuizDetailPage() {
     () => (quiz ? [...quiz.rounds].sort((a, b) => a.order - b.order) : []),
     [quiz],
   );
+
+  const addingRound = useMemo(() => {
+    if (!quiz || addingToRound == null) return null;
+    return quiz.rounds.find((r) => r.id === addingToRound) ?? null;
+  }, [quiz, addingToRound]);
+
+  const isMajorityRulesQuestionModal = addingRound?.type === 'MAJORITY_RULES';
 
   const selectedRound = sortedRounds.find((r) => r.id === selectedRoundId) ?? null;
 
@@ -275,6 +302,30 @@ export default function QuizDetailPage() {
     const file = e.target.files?.[0];
     if (!file) return;
 
+    const roundType = addingRound?.type;
+    const fileType = file.type.toLowerCase();
+    const ext = file.name.split('.').pop()?.toLowerCase() ?? '';
+    const isMp3Mime =
+      fileType === 'audio/mpeg' || fileType === 'audio/mp3' || fileType === 'audio/x-mpeg-3';
+    const isMp4Mime = fileType === 'video/mp4' || fileType === 'audio/mp4';
+    const looksMp3 = isMp3Mime || ext === 'mp3';
+    const looksMp4 = isMp4Mime || ext === 'mp4';
+    const isAudioOrVideo = fileType.startsWith('audio/') || fileType.startsWith('video/');
+
+    if (roundType === 'MUSIC') {
+      if (!looksMp3 && !looksMp4) {
+        toast.error('Music rounds only allow MP3 or MP4 files');
+        if (fileInputRef.current) fileInputRef.current.value = '';
+        return;
+      }
+    } else if (isAudioOrVideo) {
+      toast.error(
+        'Audio and video files (including MP3 and MP4) are only allowed for Music rounds',
+      );
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      return;
+    }
+
     const fd = new FormData();
     fd.append('file', file);
 
@@ -305,16 +356,42 @@ export default function QuizDetailPage() {
       return;
     }
 
-    const correctCount = validOptions.filter((o) => o.isCorrect).length;
-    if (correctCount < 1) {
-      toast.error('At least one option must be marked as correct');
+    const targetRound = quiz?.rounds.find((r) => r.id === addingToRound);
+    const isMajorityRulesRound = targetRound?.type === 'MAJORITY_RULES';
+
+    if (!isMajorityRulesRound) {
+      const correctCount = validOptions.filter((o) => o.isCorrect).length;
+      if (correctCount < 1) {
+        toast.error('At least one option must be marked as correct');
+        return;
+      }
+    }
+
+    if (
+      targetRound?.type !== 'MUSIC' &&
+      (formData.mediaType === 'mp3' || formData.mediaType === 'mp4')
+    ) {
+      toast.error('MP3 and MP4 attachments are only allowed for Music rounds');
       return;
     }
+    if (
+      targetRound?.type === 'MUSIC' &&
+      formData.mediaUrl &&
+      formData.mediaType !== 'mp3' &&
+      formData.mediaType !== 'mp4'
+    ) {
+      toast.error('Music rounds only allow MP3 or MP4 attachments');
+      return;
+    }
+
+    const optionsPayload = isMajorityRulesRound
+      ? validOptions.map((o, i) => ({ text: o.text.trim(), isCorrect: i === 0 }))
+      : validOptions.map((o) => ({ text: o.text.trim(), isCorrect: o.isCorrect }));
 
     const payload: any = {
       text: formData.text.trim(),
       category: formData.category.trim() || undefined,
-      options: validOptions.map((o) => ({ text: o.text.trim(), isCorrect: o.isCorrect })),
+      options: optionsPayload,
       roundId: addingToRound,
       mediaUrl: formData.mediaUrl || undefined,
       mediaType: formData.mediaType || undefined,
@@ -566,6 +643,11 @@ export default function QuizDetailPage() {
               <label className="text-sm font-medium leading-5 text-[#99a1af]">
                 Timer (seconds)
               </label>
+              <p className="text-xs leading-snug text-[#99a1af]/80">
+                Default for every question in this round. A per-question timer in the question
+                editor overrides this; saving here clears those overrides so this value applies to
+                all questions.
+              </p>
               <div className="relative">
                 <svg
                   className="absolute left-3 top-1/2 size-5 -translate-y-1/2 text-[#00d9ff]/80"
@@ -585,12 +667,11 @@ export default function QuizDetailPage() {
                   key={selectedRound.id}
                   onBlur={(e) => {
                     const v = Number(e.target.value);
-                    if (
-                      Number.isFinite(v) &&
-                      v >= 5 &&
-                      v <= 300 &&
-                      v !== selectedRound.timerDuration
-                    ) {
+                    if (!Number.isFinite(v) || v < 5 || v > 300) return;
+                    const hasQuestionTimerOverrides = selectedRound.questions.some(
+                      (q) => q.timerDuration != null,
+                    );
+                    if (v !== selectedRound.timerDuration || hasQuestionTimerOverrides) {
                       patchRound(selectedRound.id, { timerDuration: v });
                     }
                   }}
@@ -674,9 +755,11 @@ export default function QuizDetailPage() {
                           <span
                             key={oi}
                             className={`rounded px-2 py-0.5 text-xs ${
-                              opt.isCorrect
-                                ? 'border border-success/30 bg-success/20 text-success'
-                                : 'border border-border bg-surface-light text-foreground/50'
+                              selectedRound.type === 'MAJORITY_RULES'
+                                ? 'border border-border bg-surface-light text-foreground/70'
+                                : opt.isCorrect
+                                  ? 'border border-success/30 bg-success/20 text-success'
+                                  : 'border border-border bg-surface-light text-foreground/50'
                             }`}
                           >
                             {opt.text}
@@ -818,7 +901,11 @@ export default function QuizDetailPage() {
                 <input
                   ref={fileInputRef}
                   type="file"
-                  accept="audio/mpeg,audio/mp3,video/mp4,image/jpeg,image/png,image/gif,image/webp"
+                  accept={
+                    addingRound?.type === 'MUSIC'
+                      ? 'audio/mpeg,audio/mp3,.mp3,video/mp4,.mp4'
+                      : 'image/jpeg,image/png,image/gif,image/webp'
+                  }
                   onChange={handleFileUpload}
                   className="hidden"
                 />
@@ -828,11 +915,18 @@ export default function QuizDetailPage() {
                   size="sm"
                   onClick={() => fileInputRef.current?.click()}
                   disabled={uploading}
+                  title={
+                    addingRound?.type === 'MUSIC'
+                      ? 'Music rounds: MP3 or MP4 only'
+                      : 'MP3 and MP4 files are only allowed for Music rounds'
+                  }
                 >
                   {uploading ? 'Uploading...' : '📎 Upload File'}
                 </Button>
                 <span className="text-xs text-foreground/30 self-center">
-                  JPG, PNG, GIF, WebP, MP3, or MP4
+                  {addingRound?.type === 'MUSIC'
+                    ? 'MP3 or MP4 only'
+                    : 'JPG, PNG, GIF, or WebP only'}
                 </span>
               </div>
             )}
@@ -843,9 +937,11 @@ export default function QuizDetailPage() {
             <div className="flex items-center justify-between mb-2">
               <label className="text-sm font-medium text-foreground/70">
                 Options
-                <span className="text-foreground/30 font-normal ml-1">
-                  (click radio to mark correct)
-                </span>
+                {!isMajorityRulesQuestionModal ? (
+                  <span className="text-foreground/30 font-normal ml-1">
+                    (click radio to mark correct)
+                  </span>
+                ) : null}
               </label>
               {formData.options.length < 6 && (
                 <Button type="button" variant="ghost" size="sm" onClick={addOption}>
@@ -856,17 +952,19 @@ export default function QuizDetailPage() {
             <div className="space-y-2">
               {formData.options.map((opt, i) => (
                 <div key={i} className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setCorrectOption(i)}
-                    className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-colors shrink-0 ${
-                      opt.isCorrect
-                        ? 'border-success bg-success'
-                        : 'border-border hover:border-foreground/50'
-                    }`}
-                  >
-                    {opt.isCorrect && <span className="text-white text-xs">✓</span>}
-                  </button>
+                  {!isMajorityRulesQuestionModal ? (
+                    <button
+                      type="button"
+                      onClick={() => setCorrectOption(i)}
+                      className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-colors shrink-0 ${
+                        opt.isCorrect
+                          ? 'border-success bg-success'
+                          : 'border-border hover:border-foreground/50'
+                      }`}
+                    >
+                      {opt.isCorrect && <span className="text-white text-xs">✓</span>}
+                    </button>
+                  ) : null}
                   <input
                     type="text"
                     value={opt.text}

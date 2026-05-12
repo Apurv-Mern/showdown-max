@@ -140,6 +140,12 @@ const roundRoutes = async (fastify) => {
         ...(timerDuration !== undefined ? { timerDuration } : {}),
       });
 
+      // Per-question timer overrides the round default in the game engine. Clearing them when
+      // the host edits the round timer keeps "Round configuration" as the single source of truth.
+      if (timerDuration !== undefined) {
+        await Question.update({ timerDuration: null }, { where: { roundId: round.id } });
+      }
+
       const updated = await Round.findByPk(round.id, {
         include: [
           {

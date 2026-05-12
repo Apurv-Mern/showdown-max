@@ -9,13 +9,21 @@ interface ReconnectOptions {
   teamId?: number;
   role?: 'player' | 'host' | 'venue';
   onStateRestored?: (gameState: any) => void;
+  onJoinError?: (data: { message?: string; code?: string }) => void;
 }
 
 /**
  * Ensures the socket is always joined to the correct session room.
  * Emits the appropriate event on first connect AND every subsequent reconnect.
  */
-export const useReconnect = ({ pin, teamName, teamId, role = 'player', onStateRestored }: ReconnectOptions) => {
+export const useReconnect = ({
+  pin,
+  teamName,
+  teamId,
+  role = 'player',
+  onStateRestored,
+  onJoinError,
+}: ReconnectOptions) => {
   const { socket, isConnected } = useSocket();
   const [isReconnecting, setIsReconnecting] = useState(false);
   const joinedRef = useRef(false);
@@ -50,8 +58,14 @@ export const useReconnect = ({ pin, teamName, teamId, role = 'player', onStateRe
       setIsReconnecting(false);
     };
 
+    const handleJoinError = (data: { message?: string; code?: string }) => {
+      onJoinError?.(data);
+      setIsReconnecting(false);
+    };
+
     socket.on('connect', handleConnect);
     socket.on('session_state', handleSessionState);
+    socket.on('join_error', handleJoinError);
 
     if (isConnected && !joinedRef.current) {
       joinedRef.current = true;
@@ -61,8 +75,9 @@ export const useReconnect = ({ pin, teamName, teamId, role = 'player', onStateRe
     return () => {
       socket.off('connect', handleConnect);
       socket.off('session_state', handleSessionState);
+      socket.off('join_error', handleJoinError);
     };
-  }, [socket, isConnected, pin, emitJoin, onStateRestored]);
+  }, [socket, isConnected, pin, emitJoin, onStateRestored, onJoinError]);
 
   return { isConnected, isReconnecting };
 };

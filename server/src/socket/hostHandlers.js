@@ -1,4 +1,7 @@
 const { SOCKET_EVENTS } = require('shared/constants/socketEvents');
+const { GAME_STATES } = require('shared/constants/gameStates');
+const { QUESTION_STATES } = require('shared/constants/questionStates');
+const { ROUND_TYPES } = require('shared/constants/roundTypes');
 const logger = require('../utils/logger');
 const gameController = require('../services/game-engine/gameController');
 const redisStore = require('../services/redisSessionStore');
@@ -10,16 +13,22 @@ const purgeTeamRecord = async (pin, teamId) => {
   await redisStore.removeTeamFromLobby(pin, teamId);
   await redisStore.removeTeamData(pin, teamId);
 
-  const gameState = await redisStore.getGameState(pin);
-  if (gameState) {
-    delete gameState.teams?.[teamId];
-    if (Array.isArray(gameState.activeTeamIds)) {
-      gameState.activeTeamIds = gameState.activeTeamIds.filter(
-        (id) => Number(id) !== Number(teamId),
-      );
+  if (pin) {
+    const existing = await redisStore.getGameState(pin);
+    if (existing) {
+      await redisStore.updateGameState(pin, (current) => {
+        const teams = { ...(current.teams || {}) };
+        delete teams[teamId];
+        const activeTeamIds = (current.activeTeamIds || []).filter(
+          (id) => Number(id) !== Number(teamId),
+        );
+        return {
+          teams,
+          activeTeamIds,
+          totalTeams: Object.keys(teams).length,
+        };
+      });
     }
-    gameState.totalTeams = Object.keys(gameState.teams || {}).length;
-    await redisStore.setGameState(pin, gameState);
   }
 };
 
@@ -184,6 +193,21 @@ const hostHandlers = (io, socket) => {
     try {
       const { pin, action, mediaUrl } = data || {};
       if (!pin || !action) return;
+      if (action === 'play') {
+        const gs = await redisStore.getGameState(pin);
+        if (gs?.state === GAME_STATES.QUESTION) {
+          if (gs.questionState === QUESTION_STATES.REVEALED) return;
+          if (gs.questionState === QUESTION_STATES.ACTIVE) {
+            const tr = Number(gs.timerRemaining ?? 0);
+            const round = gs.rounds?.[gs.currentRoundIndex ?? 0];
+            const isMusic = round?.type === ROUND_TYPES.MUSIC;
+            const musicAwaitingHostTimer =
+              isMusic && !gs.timerRunning && Number.isFinite(tr) && tr > 0;
+            const allowPlay = musicAwaitingHostTimer || tr > 0;
+            if (!allowPlay) return;
+          }
+        }
+      }
       io.to(`session:${pin}`).emit(SOCKET_EVENTS.MUSIC_CONTROL, {
         action,
         mediaUrl: mediaUrl || null,
@@ -253,12 +277,16 @@ const hostHandlers = (io, socket) => {
       await redisStore.updateTeamData(pin, team.id, teamData);
 
       if (gameState) {
-        gameState.teams[team.id] = teamData;
-        if (!gameState.activeTeamIds.includes(team.id)) {
-          gameState.activeTeamIds.push(team.id);
-        }
-        gameState.totalTeams = Object.keys(gameState.teams).length;
-        await redisStore.setGameState(pin, gameState);
+        await redisStore.updateGameState(pin, (current) => {
+          const mergedTeams = { ...(current.teams || {}), [team.id]: teamData };
+          const mergedActive = [...(current.activeTeamIds || [])];
+          if (!mergedActive.includes(team.id)) mergedActive.push(team.id);
+          return {
+            teams: mergedTeams,
+            activeTeamIds: mergedActive,
+            totalTeams: Object.keys(mergedTeams).length,
+          };
+        });
       }
 
       io.to(`session:${pin}`).emit(SOCKET_EVENTS.TEAM_JOINED, teamData);
@@ -300,14 +328,17 @@ const hostHandlers = (io, socket) => {
       await redisStore.addTeamToLobby(pin, teamData);
       await redisStore.updateTeamData(pin, teamId, teamData);
 
-      const gameState = await redisStore.getGameState(pin);
-      if (gameState && gameState.teams[teamId]) {
-        gameState.teams[teamId].score = updatedScore;
-        await redisStore.setGameState(pin, gameState);
-        await redisStore.updateTeamData(pin, teamId, gameState.teams[teamId]);
+      const patched = await redisStore.updateGameState(pin, (current) => {
+        const row = current.teams?.[teamId];
+        if (!row) return null;
+        const nextRow = { ...row, score: updatedScore };
+        return { teams: { ...(current.teams || {}), [teamId]: nextRow } };
+      });
+      if (patched?.teams?.[teamId]) {
+        await redisStore.updateTeamData(pin, teamId, patched.teams[teamId]);
       }
 
-      const latestGameState = (await redisStore.getGameState(pin)) || gameState || null;
+      const latestGameState = patched || (await redisStore.getGameState(pin));
 
       io.to(`session:${pin}`).emit(SOCKET_EVENTS.TEAM_UPDATED, {
         teamId,

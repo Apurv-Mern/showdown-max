@@ -101,7 +101,8 @@ const createSession = async (data) => {
 };
 
 /**
- * Get session by PIN (for players joining)
+ * Get session by PIN (pending/active) without requiring an assigned host.
+ * Used for existence checks and authenticated routes; mobile join uses `getPlayerJoinEligibleSessionByPin`.
  * @param {string} pin
  * @returns {Promise<object | null>}
  */
@@ -114,10 +115,10 @@ const getSessionByPin = async (pin) => {
 };
 
 /**
- * Session by PIN for venue activation only: must exist, be pending/active,
- * and have an active host account assigned (otherwise venue cannot be run).
+ * Live session by PIN for venue display or player join: must exist, be pending/active,
+ * and have an active host account assigned (same gate as venue PIN validation).
  */
-const getVenueEligibleSessionByPin = async (pin) => {
+const getHostReadyLiveSessionByPin = async (pin) => {
   return Session.findOne({
     where: { pin, status: { [Op.in]: ['pending', 'active'] } },
     include: [
@@ -132,6 +133,12 @@ const getVenueEligibleSessionByPin = async (pin) => {
     ],
   });
 };
+
+/** @alias — venue entry uses the host-ready gate */
+const getVenueEligibleSessionByPin = getHostReadyLiveSessionByPin;
+
+/** @alias — mobile join uses the same gate as venue */
+const getPlayerJoinEligibleSessionByPin = getHostReadyLiveSessionByPin;
 
 /**
  * End a session
@@ -224,6 +231,7 @@ module.exports = {
   createSession,
   getSessionByPin,
   getVenueEligibleSessionByPin,
+  getPlayerJoinEligibleSessionByPin,
   endSession,
   deleteSession,
   getSessionResults,

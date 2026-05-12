@@ -15,10 +15,13 @@ export function PlayerSessionDeletedBridge() {
     const pin = session.pin ? String(session.pin) : '';
     if (!pin) return;
     try {
-      const res = await fetch(`${PUBLIC_API_URL}/api/public/sessions/pin/${pin}`, {
-        method: 'GET',
-        cache: 'no-store',
-      });
+      const res = await fetch(
+        `${PUBLIC_API_URL}/api/public/sessions/pin/${pin}?for=exists`,
+        {
+          method: 'GET',
+          cache: 'no-store',
+        },
+      );
       if (res.status === 404) {
         clearSession();
         router.replace('/play/join');

@@ -2,6 +2,8 @@ const { Op } = require('sequelize');
 const { SOCKET_EVENTS } = require('shared/constants/socketEvents');
 const logger = require('../utils/logger');
 const redisStore = require('../services/redisSessionStore');
+const timerManager = require('../services/game-engine/timerManager');
+const { getBreakRemainingSeconds } = require('../utils/breakWallClock');
 const { buildRevealSnapshot } = require('../services/revealSnapshot');
 const { Session } = require('../models');
 
@@ -25,8 +27,8 @@ const venueHandlers = (_io, socket) => {
         if (!Number.isFinite(Number(gameState.maxTeams)) || Number(gameState.maxTeams) <= 0) {
           const session = await Session.findOne({ where: { pin } });
           if (session) {
-            gameState.maxTeams = session.maxTeams;
-            await redisStore.setGameState(pin, gameState);
+            const patched = await redisStore.updateGameState(pin, { maxTeams: session.maxTeams });
+            if (patched) gameState = patched;
           }
         }
         socket.emit(SOCKET_EVENTS.SESSION_STATE, await buildFullStatePayload(gameState, pin));
@@ -93,8 +95,8 @@ const venueHandlers = (_io, socket) => {
         if (!Number.isFinite(Number(gameState.maxTeams)) || Number(gameState.maxTeams) <= 0) {
           const session = await Session.findOne({ where: { pin } });
           if (session) {
-            gameState.maxTeams = session.maxTeams;
-            await redisStore.setGameState(pin, gameState);
+            const patched = await redisStore.updateGameState(pin, { maxTeams: session.maxTeams });
+            if (patched) gameState = patched;
           }
         }
         socket.emit(SOCKET_EVENTS.SESSION_STATE, await buildFullStatePayload(gameState, pin));
@@ -188,7 +190,7 @@ const buildFullStatePayload = async (gameState, pin) => {
     questionState: gameState.questionState,
     currentRoundIndex: gameState.currentRoundIndex,
     currentQuestionIndex: gameState.currentQuestionIndex,
-    timerRemaining: gameState.timerRemaining,
+    timerRemaining: timerManager.getReconnectTimerRemaining(pin, gameState),
     timerRunning: gameState.timerRunning,
     responseCount: gameState.responseCount,
     totalTeams,
@@ -198,8 +200,11 @@ const buildFullStatePayload = async (gameState, pin) => {
       Array.isArray(gameState.activeTeamIds) && gameState.activeTeamIds.length > 0
         ? gameState.activeTeamIds
         : Object.keys(teams).map(Number),
-    breakDuration: gameState.breakDuration,
-    breakRemaining: gameState.breakRemaining,
+    breakDuration: Number(gameState.breakDuration ?? 360),
+    breakRemaining:
+      gameState.state === 'BREAK'
+        ? getBreakRemainingSeconds(gameState)
+        : Number(gameState.breakRemaining ?? 0),
     activeMiniGame: gameState.activeMiniGame,
     miniGameState: gameState.miniGameState || null,
     scoreboardVisible: Boolean(gameState.scoreboardVisible),
@@ -215,12 +220,25 @@ const buildFullStatePayload = async (gameState, pin) => {
             mediaUrl: currentQuestion.mediaUrl,
             mediaType: currentQuestion.mediaType,
           },
-          timerDuration: currentRound?.timerDuration || gameState.timerDuration || 30,
+          timerDuration:
+            currentQuestion?.timerDuration ??
+            currentRound?.timerDuration ??
+            gameState.timerDuration ??
+            30,
           roundType: currentRound?.type || '',
         }
       : null,
     qrCodeData: gameState.qrCodeData,
     pin,
+    ...(gameState.state === 'BREAK'
+      ? {
+          breakEndsAt:
+            Number.isFinite(Number(gameState.breakEndsAt)) && Number(gameState.breakEndsAt) > 0
+              ? Number(gameState.breakEndsAt)
+              : undefined,
+          serverNow: Date.now(),
+        }
+      : {}),
   };
 };
 

@@ -90,13 +90,22 @@ const getGameState = async (pin) => {
   );
 };
 
+/**
+ * Merge patches into the latest game state (read-modify-write).
+ * Pass an object for shallow merge, or a function `(current) => partial` so callers can
+ * derive nested fields (e.g. `teams`) from a fresh snapshot without clobbering `timerRemaining`.
+ * @param {string} pin
+ * @param {Record<string, unknown> | ((current: Record<string, unknown>) => Record<string, unknown> | null | undefined)} updates
+ */
 const updateGameState = async (pin, updates) => {
   const current = await getGameState(pin);
   if (!current) {
     logger.warn('No game state found for PIN', { pin });
     return null;
   }
-  const updated = { ...current, ...updates };
+  const patch = typeof updates === 'function' ? updates(current) : updates;
+  if (patch == null) return null;
+  const updated = { ...current, ...patch };
   await setGameState(pin, updated);
   return updated;
 };

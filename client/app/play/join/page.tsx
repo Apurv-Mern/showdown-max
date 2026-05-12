@@ -6,8 +6,10 @@ import { motion } from 'framer-motion';
 import { useSocket } from '@/hooks/useSocket';
 import { usePlayerSession } from '../playerSession';
 import { Button } from '@/components/shared/Button';
+import { PUBLIC_API_URL } from '@/lib/env';
 
 const TEAM_NAME_MAX_LENGTH = 15;
+const PLAY_JOIN_FLASH_KEY = 'playJoinFlash';
 
 const sanitizeTeamName = (name: string) => name.trim().replace(/\s+/g, ' ');
 
@@ -29,6 +31,15 @@ function JoinContent() {
   }, []);
 
   useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const flash = sessionStorage.getItem(PLAY_JOIN_FLASH_KEY);
+    if (flash) {
+      setError(flash);
+      sessionStorage.removeItem(PLAY_JOIN_FLASH_KEY);
+    }
+  }, []);
+
+  useEffect(() => {
     if (!socket) return;
 
     const onSessionState = (data: any) => {
@@ -45,13 +56,31 @@ function JoinContent() {
           );
         }
         if (gs?.currentQuestion) {
+          const rawTeams = gs.teams as
+            | Record<string, { teamId?: number; isEliminated?: boolean }>
+            | undefined;
+          const eliminatedTeamIds = rawTeams
+            ? Object.values(rawTeams)
+                .filter((t) => t && t.isEliminated)
+                .map((t) => Number(t.teamId))
+                .filter((id) => Number.isFinite(id))
+            : [];
+          const tid = data.teamId != null ? Number(data.teamId) : NaN;
+          const row =
+            data.teamId != null && rawTeams ? rawTeams[String(data.teamId)] : undefined;
+          const myEliminated =
+            Boolean(row?.isEliminated) || (Number.isFinite(tid) && eliminatedTeamIds.includes(tid));
           sessionStorage.setItem(
             'questionActive',
             JSON.stringify({
               ...gs.currentQuestion,
               timerRemaining: gs.timerRemaining,
+              timerRunning: gs.timerRunning,
               timerEndsAt: gs.timerEndsAt,
               serverNow: gs.serverNow,
+              mySubmittedOptionIndex: gs.mySubmittedOptionIndex,
+              eliminatedTeamIds,
+              isEliminated: myEliminated,
             }),
           );
         }
@@ -85,7 +114,7 @@ function JoinContent() {
     };
   }, [socket, pin, router, setSession]);
 
-  const handleJoin = () => {
+  const handleJoin = async () => {
     setError('');
     const cleanTeamName = sanitizeTeamName(teamName);
 
@@ -107,6 +136,28 @@ function JoinContent() {
     }
 
     setJoining(true);
+    try {
+      const res = await fetch(`${PUBLIC_API_URL}/api/public/sessions/pin/${pin}`, {
+        cache: 'no-store',
+      });
+      const json = (await res.json().catch(() => ({}))) as {
+        success?: boolean;
+        error?: string;
+      };
+      if (!res.ok || !json?.success) {
+        setError(
+          json?.error ||
+            'Session not found, not active, or no host is assigned to this PIN yet.',
+        );
+        setJoining(false);
+        return;
+      }
+    } catch {
+      setError('Could not reach the server. Check your connection and try again.');
+      setJoining(false);
+      return;
+    }
+
     socket.emit('join_session', { pin, teamName: cleanTeamName });
   };
 

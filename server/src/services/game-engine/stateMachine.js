@@ -50,6 +50,7 @@ const createInitialState = (sessionId, quiz) => {
           options: q.options,
           mediaUrl: q.mediaUrl,
           mediaType: q.mediaType,
+          timerDuration: q.timerDuration ?? null,
         })),
     }));
 
@@ -158,6 +159,8 @@ const advanceQuestion = (gameState) => {
     return { hasNext: false, gameState };
   }
 
+  const nextQuestion = round.questions[nextIndex];
+  const nextDuration = Number(nextQuestion?.timerDuration ?? round.timerDuration ?? 30) || 30;
   return {
     hasNext: true,
     gameState: {
@@ -165,7 +168,7 @@ const advanceQuestion = (gameState) => {
       currentQuestionIndex: nextIndex,
       questionState: QUESTION_STATES.WAITING,
       responseCount: 0,
-      timerRemaining: round.timerDuration,
+      timerRemaining: nextDuration,
       timerRunning: false,
     },
   };
@@ -208,10 +211,12 @@ const advanceRound = (gameState) => {
  */
 const activateQuestion = (gameState) => {
   const round = getCurrentRound(gameState);
+  const question = getCurrentQuestion(gameState);
+  const duration = Number(question?.timerDuration ?? round?.timerDuration ?? 30) || 30;
   return {
     ...gameState,
     questionState: QUESTION_STATES.ACTIVE,
-    timerRemaining: round?.timerDuration || 30,
+    timerRemaining: duration,
     timerRunning: true,
     responseCount: 0,
   };

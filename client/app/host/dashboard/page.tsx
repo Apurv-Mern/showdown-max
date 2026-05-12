@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState, useCallback, Suspense } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, useCallback, Suspense } from 'react';
 import Link from 'next/link';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { Montserrat } from 'next/font/google';
@@ -11,6 +11,7 @@ import { useTimerSound } from '@/hooks/useTimerSound';
 import { useAudio } from '@/hooks/useAudio';
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner';
 import { clientLogger } from '@/lib/clientLogger';
+import { breakSecondsFromEndsAt, resolveBreakWallClock } from '@/lib/breakWallClock';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/lib/auth';
 import { PUBLIC_API_URL } from '@/lib/env';
@@ -69,7 +70,7 @@ function getRoundScoringLines(roundType?: string) {
   };
 }
 
-/** Shown on the scoreboard interstitial before advancing (player-facing tone). */
+/** Shown on the leaderboard interstitial before advancing (player-facing tone). */
 function getNextRoundIntroBlurb(nextType?: string): string {
   const t = (nextType || '').toUpperCase();
   switch (t) {
@@ -108,7 +109,7 @@ const CARD_SHUFFLE_SLOTS = [1, 2, 3] as const;
 const CARD_POSITION_LABELS: Record<number, string> = { 1: 'Left', 2: 'Middle', 3: 'Right' };
 const TEAM_NAME_MAX_LENGTH = 15;
 
-/** Figma row groups for Score Board modal list */
+/** Figma row groups for Leaderboard modal list */
 const SCOREBOARD_MODAL_ROW_IDS = [
   '232:2873',
   '232:2879',
@@ -142,6 +143,10 @@ interface GameState {
   totalTeams: number;
   breakDuration?: number;
   breakRemaining?: number;
+  /** Epoch ms when the break ends (server wall clock). */
+  breakEndsAt?: number;
+  /** Present on some payloads so clients can estimate server/client clock skew. */
+  serverNow?: number;
   rounds: { id: number; name: string; type: string; timerDuration: number; questions: unknown[] }[];
   teams: Record<string, Team>;
   activeTeamIds: number[];
@@ -367,9 +372,9 @@ function HostDashboardContent() {
   const [miniGameLoading, setMiniGameLoading] = useState(false);
   const [miniGameRevealing, setMiniGameRevealing] = useState(false);
   const [cardShuffleFinishedHold, setCardShuffleFinishedHold] = useState(false);
-  const [finishedMiniGameType, setFinishedMiniGameType] = useState<'card_shuffle' | 'kangaroo_race' | null>(
-    null,
-  );
+  const [finishedMiniGameType, setFinishedMiniGameType] = useState<
+    'card_shuffle' | 'kangaroo_race' | null
+  >(null);
   const [cardShuffleFinishedMessage, setCardShuffleFinishedMessage] = useState(
     'Game Over. Wait for the host to start the game.',
   );
@@ -379,9 +384,12 @@ function HostDashboardContent() {
   const [isScoreboardVisible, setIsScoreboardVisible] = useState(false);
   const [mp3Playing, setMp3Playing] = useState(false);
   const [mp4Playing, setMp4Playing] = useState(false);
-  /** Local break countdown (synced from break_start / session_state; ticks every second). */
+  const hostPreviewVideoRef = useRef<HTMLVideoElement | null>(null);
+  /** Local break countdown (synced from break_start / session_state; wall-clock driven). */
   const [hostBreakDuration, setHostBreakDuration] = useState(360);
   const [hostBreakRemaining, setHostBreakRemaining] = useState(0);
+  const hostBreakSkewMsRef = useRef(0);
+  const hostBreakEndsAtRef = useRef<number | null>(null);
   /** Prevents double submit and grays out Start Game until the server leaves lobby. */
   const [startGameRequested, setStartGameRequested] = useState(false);
 
@@ -393,16 +401,38 @@ function HostDashboardContent() {
     gameStateRef.current = gameState;
   }, [gameState]);
 
+  const timerRemainingRef = useRef(0);
+  const timerPausedRef = useRef(false);
+  useEffect(() => {
+    timerRemainingRef.current = timerRemaining;
+    timerPausedRef.current = timerPaused;
+  }, [timerRemaining, timerPaused]);
+
   useEffect(() => {
     if ((gameState?.state || 'LOBBY') !== 'LOBBY') setStartGameRequested(false);
   }, [gameState?.state]);
 
   useEffect(() => {
     if (gameState?.state !== 'BREAK') return;
-    const t = setInterval(() => {
-      setHostBreakRemaining((prev) => (prev > 0 ? prev - 1 : 0));
-    }, 1000);
-    return () => clearInterval(t);
+    const tick = () => {
+      const gs = gameStateRef.current;
+      const end = Number(gs?.breakEndsAt ?? hostBreakEndsAtRef.current ?? 0);
+      if (Number.isFinite(end) && end > 0) {
+        setHostBreakRemaining(breakSecondsFromEndsAt(end, hostBreakSkewMsRef.current));
+      } else {
+        setHostBreakRemaining((prev) => (prev > 0 ? prev - 1 : 0));
+      }
+    };
+    tick();
+    const t = setInterval(tick, 250);
+    const onVis = () => {
+      if (document.visibilityState === 'visible') tick();
+    };
+    document.addEventListener('visibilitychange', onVis);
+    return () => {
+      clearInterval(t);
+      document.removeEventListener('visibilitychange', onVis);
+    };
   }, [gameState?.state]);
 
   useEffect(() => {
@@ -459,7 +489,6 @@ function HostDashboardContent() {
     const joinHost = () => {
       socket.emit('host_connect', { pin });
     };
-    joinHost();
     socket.on('connect', joinHost);
 
     const normalizeHostMiniGameId = (game: unknown) =>
@@ -476,18 +505,26 @@ function HostDashboardContent() {
 
     const onSessionState = (data: GameState) => {
       if (data?.state) {
+        if (data.state !== 'BREAK') {
+          hostBreakSkewMsRef.current = 0;
+          hostBreakEndsAtRef.current = null;
+        }
         if (data.state !== 'QUESTION' && data.state !== 'ROUND_INTRO') {
           setCardShuffleFinishedHold(false);
           setFinishedMiniGameType(null);
         }
         setGameState(data);
         if (data.state === 'BREAK') {
-          const bd = Number(data.breakDuration ?? 360);
-          const br = Number(data.breakRemaining ?? data.breakDuration ?? 360);
-          const safeD = bd > 0 ? bd : 360;
-          const safeR = Number.isFinite(br) && br >= 0 ? Math.min(br, safeD) : safeD;
-          setHostBreakDuration(safeD);
-          setHostBreakRemaining(safeR);
+          const w = resolveBreakWallClock({
+            breakEndsAt: data.breakEndsAt,
+            breakRemaining: data.breakRemaining,
+            breakDuration: data.breakDuration,
+            serverNow: data.serverNow,
+          });
+          hostBreakSkewMsRef.current = w.skewMs;
+          hostBreakEndsAtRef.current = w.endsAt;
+          setHostBreakDuration(w.duration);
+          setHostBreakRemaining(w.remaining);
         }
         setIsScoreboardVisible(data.state === 'SCOREBOARD');
         setTimerRemaining(
@@ -496,6 +533,22 @@ function HostDashboardContent() {
             : Number(data.timerRemaining ?? 0),
         );
         setTimerPaused(data.timerRunning === false);
+        if (data.state === 'QUESTION') {
+          const qs = data.questionState || 'WAITING';
+          const trNum = qs === 'REVEALED' ? 0 : Number(data.timerRemaining ?? 0);
+          const round = data.rounds?.[data.currentRoundIndex ?? 0];
+          const isMusic = (round?.type || '') === 'MUSIC';
+          const musicAwaiting =
+            isMusic && qs === 'ACTIVE' && data.timerRunning === false && trNum > 0;
+          const replayLocked =
+            qs === 'REVEALED' || (qs === 'ACTIVE' && !musicAwaiting && trNum <= 0);
+          if (replayLocked) {
+            setMp4Playing(false);
+            stopMp3();
+            setMp3Playing(false);
+            socket.emit('music_control', { pin, action: 'pause' });
+          }
+        }
         setCurrentQuestion(data.state === 'QUESTION' ? (data.currentQuestion ?? null) : null);
         setLiveResponses((prev) => ({
           correct: data.state === 'QUESTION' && data.questionState === 'ACTIVE' ? prev.correct : 0,
@@ -592,6 +645,7 @@ function HostDashboardContent() {
       });
       setMp3Playing(false);
       stopMp3();
+      setMp4Playing(false);
       setTimerPaused((data.roundType || '').toUpperCase() === 'MUSIC');
       setGameState((prev) =>
         prev ? { ...prev, state: 'QUESTION', questionState: 'ACTIVE' } : prev,
@@ -603,10 +657,20 @@ function HostDashboardContent() {
       if (data.paused !== undefined) setTimerPaused(data.paused);
     };
 
-    const onTimerExpired = () => setTimerRemaining(0);
+    const onTimerExpired = () => {
+      setTimerRemaining(0);
+      setMp4Playing(false);
+      stopMp3();
+      setMp3Playing(false);
+      socket.emit('music_control', { pin, action: 'pause' });
+    };
 
     const onAnswerReveal = (data: RevealData) => {
       setRevealData(data);
+      setMp4Playing(false);
+      stopMp3();
+      setMp3Playing(false);
+      socket.emit('music_control', { pin, action: 'pause' });
       setGameState((prev) => {
         if (!prev) return prev;
         const nextTeams = { ...prev.teams };
@@ -742,18 +806,37 @@ function HostDashboardContent() {
       setGameState((prev) => (prev ? { ...prev, state: 'SCOREBOARD' } : prev));
     };
 
-    const onBreakStart = (payload?: { duration?: number; breakDuration?: number }) => {
+    const onBreakStart = (payload?: {
+      duration?: number;
+      breakDuration?: number;
+      breakRemaining?: number;
+      breakEndsAt?: number;
+      serverNow?: number;
+    }) => {
       setCardShuffleFinishedHold(false);
       setFinishedMiniGameType(null);
       setIsScoreboardVisible(false);
-      const d = Number(
-        payload?.duration ?? payload?.breakDuration ?? gameStateRef.current?.breakDuration ?? 360,
-      );
-      const safe = d > 0 ? d : 360;
-      setHostBreakDuration(safe);
-      setHostBreakRemaining(safe);
+      const w = resolveBreakWallClock({
+        breakEndsAt: payload?.breakEndsAt,
+        breakRemaining: payload?.breakRemaining ?? payload?.duration,
+        breakDuration:
+          payload?.breakDuration ?? payload?.duration ?? gameStateRef.current?.breakDuration,
+        serverNow: payload?.serverNow,
+      });
+      hostBreakSkewMsRef.current = w.skewMs;
+      hostBreakEndsAtRef.current = w.endsAt;
+      setHostBreakDuration(w.duration);
+      setHostBreakRemaining(w.remaining);
       setGameState((prev) =>
-        prev ? { ...prev, state: 'BREAK', breakDuration: safe, breakRemaining: safe } : prev,
+        prev
+          ? {
+              ...prev,
+              state: 'BREAK',
+              breakDuration: w.duration,
+              breakRemaining: w.remaining,
+              breakEndsAt: w.endsAt ?? undefined,
+            }
+          : prev,
       );
     };
 
@@ -995,6 +1078,20 @@ function HostDashboardContent() {
     const onMusicControl = (data: { action?: string; mediaUrl?: string | null }) => {
       const action = data?.action;
       if (action === 'play') {
+        const gs = gameStateRef.current;
+        if (gs?.state === 'QUESTION') {
+          const qs = gs.questionState || 'WAITING';
+          if (qs === 'REVEALED') return;
+          if (qs === 'ACTIVE') {
+            const tr = Number(timerRemainingRef.current ?? 0);
+            const round = gs.rounds?.[gs.currentRoundIndex ?? 0];
+            const isMusic = (round?.type || '') === 'MUSIC';
+            const musicAwaitingHostTimer =
+              isMusic && timerPausedRef.current && Number.isFinite(tr) && tr > 0;
+            const allowPlay = musicAwaitingHostTimer || tr > 0;
+            if (!allowPlay) return;
+          }
+        }
         const url = data?.mediaUrl;
         if (url) setMp3Source(resolveMediaUrl(url));
         playMp3();
@@ -1005,6 +1102,8 @@ function HostDashboardContent() {
       setMp3Playing(false);
     };
     socket.on('music_control', onMusicControl);
+
+    joinHost();
 
     return () => {
       socket.off('connect', joinHost);
@@ -1308,11 +1407,21 @@ function HostDashboardContent() {
     const rawMediaUrl = currentQuestion?.question?.mediaUrl;
     if (!rawMediaUrl || !hasPlayableAudio) return;
 
+    const s = gameState?.state || 'LOBBY';
+    const qs = gameState?.questionState || 'WAITING';
+    const isMusic = currentQuestion?.roundType === 'MUSIC';
+    const musicAwaiting =
+      Boolean(isMusic) && s === 'QUESTION' && qs === 'ACTIVE' && timerPaused && timerRemaining > 0;
+    const replayLocked =
+      s === 'QUESTION' &&
+      (qs === 'REVEALED' || (qs === 'ACTIVE' && !musicAwaiting && timerRemaining <= 0));
+
     if (mp3Playing) {
       stopMp3();
       setMp3Playing(false);
       emit('music_control', { action: 'pause' });
     } else {
+      if (replayLocked) return;
       setMp3Source(resolveMediaUrl(rawMediaUrl));
       playMp3();
       setMp3Playing(true);
@@ -1324,8 +1433,9 @@ function HostDashboardContent() {
   };
 
   const handleSpaceKey = useCallback(() => {
-    const s = gameStateRef.current?.state || 'LOBBY';
-    const round = gameStateRef.current?.rounds?.[gameStateRef.current?.currentRoundIndex];
+    const gs = gameStateRef.current;
+    const s = gs?.state || 'LOBBY';
+    const round = gs?.rounds?.[gs?.currentRoundIndex ?? 0];
     const isRoundEmpty = Array.isArray(round?.questions) && round.questions.length === 0;
     if (s === 'ROUND_INTRO' && isRoundEmpty) {
       handleAdvanceRound();
@@ -1333,9 +1443,19 @@ function HostDashboardContent() {
     }
     if (s === 'ROUND_INTRO' && (round?.type === 'WAGER' || round?.type === 'FINAL_WAGER')) {
       handleCollectWagers();
-    } else {
-      handleNextQuestion();
+      return;
     }
+    if (s === 'QUESTION') {
+      const qs = gs?.questionState || 'WAITING';
+      const idx = gs?.currentQuestionIndex ?? 0;
+      const qLen = round?.questions?.length ?? 0;
+      const isLast = qLen > 0 && idx === qLen - 1;
+      if (qs === 'REVEALED' && isLast) {
+        handleAdvanceRound();
+        return;
+      }
+    }
+    handleNextQuestion();
   }, [handleAdvanceRound, handleCollectWagers, handleNextQuestion]);
 
   useKeyboardShortcuts({
@@ -1417,7 +1537,16 @@ function HostDashboardContent() {
     gameState && gameState.totalTeams > 0
       ? Math.min(100, ((gameState.responseCount || 0) / gameState.totalTeams) * 100)
       : 0;
-  const showNextQuestionAction = state === 'QUESTION' && questionState === 'REVEALED';
+  const isLastQuestionOfRound =
+    state === 'QUESTION' &&
+    Boolean(currentRound) &&
+    Array.isArray(currentRound?.questions) &&
+    currentRound.questions.length > 0 &&
+    (gameState?.currentQuestionIndex ?? 0) === currentRound.questions.length - 1;
+  const revealOnLastQuestionOfRound =
+    state === 'QUESTION' && questionState === 'REVEALED' && isLastQuestionOfRound;
+  const showNextQuestionAction =
+    state === 'QUESTION' && questionState === 'REVEALED' && !isLastQuestionOfRound;
   const showRevealAnswerAction = state === 'QUESTION' && questionState === 'ACTIVE';
   const musicRoundAwaitingHostTimerStart =
     isMusicRound &&
@@ -1425,7 +1554,25 @@ function HostDashboardContent() {
     questionState === 'ACTIVE' &&
     timerPaused &&
     timerRemaining > 0;
+  const hostMediaReplayLocked =
+    state === 'QUESTION' &&
+    (questionState === 'REVEALED' ||
+      (questionState === 'ACTIVE' && !musicRoundAwaitingHostTimerStart && timerRemaining <= 0));
+  const hostVideoPlaybackActive = mp4Playing && !hostMediaReplayLocked;
   const totalRounds = gameState?.rounds?.length || 0;
+
+  useLayoutEffect(() => {
+    if (!hostMediaReplayLocked) return;
+    const v = hostPreviewVideoRef.current;
+    if (v) {
+      v.pause();
+      try {
+        v.currentTime = 0;
+      } catch {
+        /* ignore seek errors */
+      }
+    }
+  }, [hostMediaReplayLocked]);
   const isLastRound = totalRounds > 0 && gameState?.currentRoundIndex === totalRounds - 1;
 
   if (!pin) {
@@ -1626,7 +1773,10 @@ function HostDashboardContent() {
                   label="Play/Pause MP3"
                   active={mp3Playing}
                   disabled={
-                    !currentQuestion || !hasPlayableAudio || musicRoundAwaitingHostTimerStart
+                    !currentQuestion ||
+                    !hasPlayableAudio ||
+                    musicRoundAwaitingHostTimerStart ||
+                    hostMediaReplayLocked
                   }
                   icon={
                     <svg viewBox="0 0 24 24" fill="currentColor">
@@ -1637,17 +1787,21 @@ function HostDashboardContent() {
                 />
                 <HostSidebarTile
                   label="Play/Pause MP4"
-                  active={mp4Playing}
+                  active={hostVideoPlaybackActive}
                   disabled={
                     !currentQuestion?.question?.mediaUrl ||
-                    (currentQuestion?.question?.mediaType || '').toLowerCase() !== 'mp4'
+                    (currentQuestion?.question?.mediaType || '').toLowerCase() !== 'mp4' ||
+                    hostMediaReplayLocked
                   }
                   icon={
                     <svg viewBox="0 0 24 24" fill="currentColor">
                       <path d="M17 10.5V7c0-.55-.45-1-1-1H4c-.55 0-1 .45-1 1v10c0 .55.45 1 1 1h12c.55 0 1-.45 1-1v-3.5l4 4v-11l-4 4z" />
                     </svg>
                   }
-                  onClick={() => setMp4Playing((p) => !p)}
+                  onClick={() => {
+                    if (hostMediaReplayLocked && !mp4Playing) return;
+                    setMp4Playing((p) => !p);
+                  }}
                 />
               </div>
             </section>
@@ -1706,7 +1860,7 @@ function HostDashboardContent() {
                       <span className="rounded-full bg-green-500/20 border border-green-500/40 px-3 py-1 text-xs font-bold uppercase tracking-wider text-green-400">
                         Live on Venue
                       </span>
-                      <button
+                      {/* <button
                         type="button"
                         onClick={handleExitMiniGame}
                         className="flex items-center gap-2 rounded-lg border border-red-500/40 bg-[linear-gradient(180deg,#dc2626_0%,#7f1d1d_100%)] px-4 py-2 text-sm font-bold uppercase tracking-wide text-white shadow-[0_4px_16px_rgba(0,0,0,0.4)] transition hover:brightness-110"
@@ -1715,7 +1869,7 @@ function HostDashboardContent() {
                           <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" />
                         </svg>
                         Exit Game
-                      </button>
+                      </button> */}
                     </>
                   ) : null}
                 </div>
@@ -2077,10 +2231,11 @@ function HostDashboardContent() {
                     ) : currentQuestion.question.mediaUrl &&
                       (currentQuestion.question.mediaType || '').toLowerCase() === 'mp4' ? (
                       <video
+                        ref={hostPreviewVideoRef}
                         src={resolveMediaUrl(currentQuestion.question.mediaUrl)}
                         className="h-full w-full bg-black object-contain"
-                        controls={mp4Playing}
-                        autoPlay={mp4Playing}
+                        controls={hostVideoPlaybackActive}
+                        autoPlay={hostVideoPlaybackActive}
                       />
                     ) : (currentQuestion.roundType || '').toUpperCase() === 'MUSIC' ||
                       (currentQuestion.question.mediaType || '').toLowerCase() === 'mp3' ? (
@@ -2557,17 +2712,19 @@ function HostDashboardContent() {
               emphasis={showRevealAnswerAction || showNextQuestionAction}
               icon={
                 <svg viewBox="0 0 24 24" fill="currentColor" className="text-[#00d9ff]">
-                  {showNextQuestionAction ? (
+                  {showNextQuestionAction || revealOnLastQuestionOfRound ? (
                     <path d="M6 18l8.5-6L6 6v12zm8-12v12h2V6h-2z" />
                   ) : (
                     <path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z" />
                   )}
                 </svg>
               }
-              disabled={!(showRevealAnswerAction || showNextQuestionAction)}
+              disabled={
+                revealOnLastQuestionOfRound || !(showRevealAnswerAction || showNextQuestionAction)
+              }
               onClick={showNextQuestionAction ? handleNextQuestion : handleRevealAnswer}
             >
-              {showNextQuestionAction ? 'Next Question' : 'Reveal Answer'}
+              {showRevealAnswerAction ? 'Reveal Answer' : 'Next Question'}
             </HostFooterBtn>
             {musicRoundAwaitingHostTimerStart ? (
               <HostFooterBtn
@@ -2602,15 +2759,23 @@ function HostDashboardContent() {
               }
               onClick={handleShowScoreboard}
             >
-              {isScoreboardVisible ? 'Hide Scoreboard' : 'Show Scoreboard'}
+              {isScoreboardVisible ? 'Hide Leaderboard' : 'Show Leaderboard'}
             </HostFooterBtn>
             <HostFooterBtn
+              emphasis={
+                state === 'SCOREBOARD' ||
+                (state === 'QUESTION' && questionState === 'REVEALED' && isLastQuestionOfRound)
+              }
               icon={
                 <svg viewBox="0 0 24 24" fill="currentColor" className="text-[#00d9ff]">
                   <path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z" />
                 </svg>
               }
-              disabled={state !== 'SCOREBOARD' && !isCurrentRoundEmpty}
+              disabled={
+                !isCurrentRoundEmpty &&
+                state !== 'SCOREBOARD' &&
+                !(state === 'QUESTION' && questionState === 'REVEALED' && isLastQuestionOfRound)
+              }
               onClick={handleAdvanceRound}
             >
               {isCurrentRoundEmpty
@@ -2621,7 +2786,7 @@ function HostDashboardContent() {
             </HostFooterBtn>
           </div>
           <p className="mt-2 text-center text-[10px] text-white/30">
-            Space=Next · T=Timer · P=Pause · R=Reveal · S=Scoreboard — Music: use Start Timer or T
+            Space=Next · T=Timer · P=Pause · R=Reveal · S=Leaderboard — Music: use Start Timer or T
             to begin countdown and audio together
           </p>
         </footer>
@@ -2859,7 +3024,7 @@ function HostDashboardContent() {
       {showScoreboardModal ? (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-[rgba(0,0,0,0.5)] p-4 backdrop-blur-[5px]"
-          data-name="Host Control Score Board"
+          data-name="Host Control Leaderboard"
           data-node-id="232:2837"
           onClick={closeScoreboardModal}
           role="presentation"
@@ -2867,7 +3032,7 @@ function HostDashboardContent() {
           <div
             role="dialog"
             aria-modal="true"
-            aria-labelledby="scoreboard-modal-title"
+            aria-labelledby="leaderboard-modal-title"
             className="relative z-10 flex max-h-[min(92vh,520px)] w-full max-w-[1008px] flex-col rounded-2xl border-2 border-[rgba(0,217,255,0.55)] bg-[rgba(26,31,46,0.98)] shadow-[0_0_30px_rgba(0,217,255,0.18)]"
             data-node-id="232:2871"
             onClick={(e) => e.stopPropagation()}
@@ -2895,18 +3060,18 @@ function HostDashboardContent() {
 
             <div className="px-6 pb-4 pt-8 pr-14">
               <h2
-                id="scoreboard-modal-title"
+                id="leaderboard-modal-title"
                 className="text-xl font-semibold text-white"
                 data-node-id="232:2906"
               >
-                Score Board
+                Leaderboard
               </h2>
             </div>
 
             <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-6" data-node-id="232:2872">
               {sortedTeams.length === 0 ? (
                 <p className="py-10 text-center text-base text-white/40">
-                  No teams on the scoreboard yet
+                  No teams on the leaderboard yet
                 </p>
               ) : (
                 <ul className="flex flex-col gap-0 overflow-hidden rounded-lg border border-white/10">

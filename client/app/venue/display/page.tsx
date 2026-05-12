@@ -8,6 +8,7 @@ import { connectSocket } from '@/lib/socket';
 import { useTimerSound } from '@/hooks/useTimerSound';
 import { useAudio } from '@/hooks/useAudio';
 import { clientLogger } from '@/lib/clientLogger';
+import { breakSecondsFromEndsAt, resolveBreakWallClock } from '@/lib/breakWallClock';
 import { cn } from '@/lib/utils';
 import { QRCodeSVG } from 'qrcode.react';
 import DynamicUnityGame from '@/components/mini-games/DynamicUnityGame';
@@ -330,6 +331,9 @@ function VenueDisplayContent() {
   const [revealData, setRevealData] = useState<RevealData | null>(null);
   const [scoreboard, setScoreboard] = useState<Team[]>([]);
   const [breakDuration, setBreakDuration] = useState(360);
+  /** Wall-clock end of break (epoch ms); drives synced countdown across tabs/devices. */
+  const [venueBreakEndsAtMs, setVenueBreakEndsAtMs] = useState<number | null>(null);
+  const [venueBreakSkewMs, setVenueBreakSkewMs] = useState(0);
   const [miniGameType, setMiniGameType] = useState<VenueMiniGameType | null>(null);
   const [miniGameCommand, setMiniGameCommand] = useState<MiniGameCommand | null>(null);
   const [miniGameReveal, setMiniGameReveal] = useState<MiniGameReveal | null>(null);
@@ -497,10 +501,13 @@ function VenueDisplayContent() {
     const pinNorm = String(sessionPin);
     const check = async () => {
       try {
-        const res = await fetch(`${PUBLIC_API_URL}/api/public/sessions/pin/${pinNorm}`, {
-          method: 'GET',
-          cache: 'no-store',
-        });
+        const res = await fetch(
+          `${PUBLIC_API_URL}/api/public/sessions/pin/${pinNorm}?for=exists`,
+          {
+            method: 'GET',
+            cache: 'no-store',
+          },
+        );
         if (res.status === 404) {
           if (typeof window !== 'undefined') {
             window.localStorage.removeItem(VENUE_PIN_STORAGE_KEY);
@@ -822,7 +829,6 @@ function VenueDisplayContent() {
     const joinVenue = () => {
       socket.emit('venue_connect', { pin: sessionPin });
     };
-    joinVenue();
     socket.on('connect', joinVenue);
 
     const applyVenuePhaseFromSession = (next: VenuePhase) => {
@@ -851,6 +857,10 @@ function VenueDisplayContent() {
 
     const onSessionState = (data: any) => {
       didReceiveSessionState = true;
+      if (data.state !== 'BREAK') {
+        setVenueBreakEndsAtMs(null);
+        setVenueBreakSkewMs(0);
+      }
       if (data.qrCodeData) setQrCodeData(data.qrCodeData);
       if (Number.isFinite(Number(data.maxTeams)) && Number(data.maxTeams) > 0) {
         setMaxTeams(Number(data.maxTeams));
@@ -884,7 +894,9 @@ function VenueDisplayContent() {
       }
       if (data.currentQuestion) {
         setQuestion(data.currentQuestion);
-        setTimerDuration(data.currentQuestion.timerDuration || data.timerDuration || 30);
+        setTimerDuration(
+          Number(data.currentQuestion.timerDuration ?? data.timerDuration ?? 30) || 30,
+        );
         setTimerRemaining(data.timerRemaining ?? data.currentQuestion.timerDuration ?? 0);
         const total = Number(data.totalTeams ?? 0);
         setLiveResponses({ correct: 0, incorrect: 0, noAnswer: 0, total });
@@ -922,6 +934,17 @@ function VenueDisplayContent() {
         } else {
           applyVenuePhaseFromSession('question');
         }
+      } else if (data.state === 'BREAK') {
+        const w = resolveBreakWallClock({
+          breakEndsAt: data.breakEndsAt,
+          breakRemaining: data.breakRemaining,
+          breakDuration: data.breakDuration,
+          serverNow: data.serverNow,
+        });
+        setBreakDuration(w.duration);
+        setVenueBreakEndsAtMs(w.endsAt);
+        setVenueBreakSkewMs(w.skewMs);
+        applyVenuePhaseFromSession('break');
       } else if (data.state && stateToPhase[data.state]) {
         applyVenuePhaseFromSession(stateToPhase[data.state]);
       }
@@ -1052,8 +1075,22 @@ function VenueDisplayContent() {
       stopMp3();
     };
 
-    const onBreakStart = (data: { duration: number }) => {
-      setBreakDuration(data.duration);
+    const onBreakStart = (data: {
+      duration?: number;
+      breakDuration?: number;
+      breakRemaining?: number;
+      breakEndsAt?: number;
+      serverNow?: number;
+    }) => {
+      const w = resolveBreakWallClock({
+        breakEndsAt: data.breakEndsAt,
+        breakRemaining: data.breakRemaining ?? data.duration,
+        breakDuration: data.breakDuration ?? data.duration,
+        serverNow: data.serverNow,
+      });
+      setBreakDuration(w.duration);
+      setVenueBreakEndsAtMs(w.endsAt);
+      setVenueBreakSkewMs(w.skewMs);
       setPhase('break');
     };
 
@@ -1267,6 +1304,8 @@ function VenueDisplayContent() {
     socket.on('music_control', onMusicControl);
     socket.on('mini_game_end', onMiniGameEnd);
     socket.on('game_end', onGameEnd);
+
+    joinVenue();
 
     return () => {
       clearCardShuffleRevealFlushTimers();
@@ -2057,45 +2096,13 @@ function VenueDisplayContent() {
           </div>
         )}
 
-        {/* Scoreboard */}
+        {/* Leaderboard (venue) */}
         {phase === 'scoreboard' && (
           <div className="w-full h-full flex flex-col items-center justify-center p-3 sm:p-4 md:p-6 animate-fadeIn">
             <div className="w-full max-w-xl sm:max-w-3xl md:max-w-4xl lg:max-w-5xl rounded-lg sm:rounded-xl md:rounded-2xl lg:rounded-3xl border border-[#9fbeff]/70 bg-[linear-gradient(180deg,rgba(24,9,76,0.95)_0%,rgba(12,6,48,0.95)_100%)] shadow-[0_0_24px_rgba(0,216,255,0.25)] px-4 sm:px-6 md:px-8 py-3 sm:py-4 md:py-6 overflow-y-auto max-h-full">
               <h3 className="text-2xl sm:text-3xl md:text-4xl lg:text-5xl font-black text-white text-center mb-2 sm:mb-3 md:mb-4">
-                Scoreboard
+                Leaderboard
               </h3>
-
-              <div className="text-center mb-3 sm:mb-4 md:mb-5">
-                {(question?.roundType || '').toUpperCase() === 'MAJORITY_RULES' ? (
-                  <>
-                    <p className="text-lg sm:text-2xl md:text-3xl lg:text-4xl font-extrabold text-white leading-none">
-                      Majority Rules
-                    </p>
-                    <p className="text-xl sm:text-2xl md:text-3xl lg:text-4xl font-extrabold text-[#39ff4a] leading-none mt-1 sm:mt-2">
-                      +50 most popular vote, -50 minority vote
-                    </p>
-                  </>
-                ) : (
-                  <>
-                    <p className="text-lg sm:text-2xl md:text-3xl lg:text-4xl font-extrabold text-white leading-none">
-                      The Correct Answer is :
-                    </p>
-                    <p className="text-xl sm:text-2xl md:text-3xl lg:text-4xl font-extrabold text-[#39ff4a] leading-none mt-1 sm:mt-2">
-                      {(() => {
-                        if (!revealData) return '-';
-                        const idx = revealData.correctOptionIndex;
-                        const letter =
-                          idx >= 0 && idx < OPTION_LETTERS.length ? OPTION_LETTERS[idx] : null;
-                        const text = (revealData.correctText || '').trim();
-                        if (letter && text) return `${letter}. ${text}`;
-                        if (text) return text;
-                        if (letter) return `${letter}.`;
-                        return '-';
-                      })()}
-                    </p>
-                  </>
-                )}
-              </div>
 
               <div className="grid grid-cols-[64px_minmax(0,1fr)_82px] sm:grid-cols-[74px_minmax(0,1fr)_96px] md:grid-cols-[88px_minmax(0,1fr)_120px] items-center px-2 sm:px-4 md:px-5 mb-2 sm:mb-3 text-white text-xs sm:text-sm md:text-base lg:text-lg font-bold gap-2 sm:gap-3 md:gap-4">
                 <div className="text-center">Rank</div>
@@ -2147,7 +2154,14 @@ function VenueDisplayContent() {
 
         {/* ── BREAK ── */}
         {phase === 'break' && (
-          <BreakView duration={breakDuration} pin={sessionPin} qrCodeData={qrCodeData} />
+          <BreakView
+            key={`break-${breakDuration}-${venueBreakEndsAtMs ?? 'local'}`}
+            totalSeconds={breakDuration}
+            breakEndsAtMs={venueBreakEndsAtMs}
+            clockSkewMs={venueBreakSkewMs}
+            pin={sessionPin}
+            qrCodeData={qrCodeData}
+          />
         )}
 
         {/* ── MINI GAME ── */}
@@ -2367,29 +2381,49 @@ function VenueDisplayContent() {
 }
 
 function BreakView({
-  duration,
+  totalSeconds,
+  breakEndsAtMs,
+  clockSkewMs,
   pin,
   qrCodeData,
 }: {
-  duration: number;
+  totalSeconds: number;
+  breakEndsAtMs: number | null;
+  clockSkewMs: number;
   pin: string;
   qrCodeData: string;
 }) {
   void pin;
   void qrCodeData;
-  const [remaining, setRemaining] = useState(duration);
+  const [remaining, setRemaining] = useState(() =>
+    breakEndsAtMs != null && Number.isFinite(breakEndsAtMs) && breakEndsAtMs > 0
+      ? breakSecondsFromEndsAt(breakEndsAtMs, clockSkewMs)
+      : totalSeconds,
+  );
 
   useEffect(() => {
-    setRemaining(duration);
-    const interval = setInterval(() => {
-      setRemaining((prev) => (prev > 0 ? prev - 1 : 0));
-    }, 1000);
-    return () => clearInterval(interval);
-  }, [duration]);
+    const tick = () => {
+      if (breakEndsAtMs != null && Number.isFinite(breakEndsAtMs) && breakEndsAtMs > 0) {
+        setRemaining(breakSecondsFromEndsAt(breakEndsAtMs, clockSkewMs));
+      } else {
+        setRemaining((prev) => (prev > 0 ? prev - 1 : 0));
+      }
+    };
+    tick();
+    const interval = setInterval(tick, 250);
+    const onVis = () => {
+      if (document.visibilityState === 'visible') tick();
+    };
+    document.addEventListener('visibilitychange', onVis);
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', onVis);
+    };
+  }, [breakEndsAtMs, clockSkewMs, totalSeconds]);
 
   const minutes = Math.floor(remaining / 60);
   const seconds = remaining % 60;
-  const total = Math.max(1, duration);
+  const total = Math.max(1, totalSeconds);
   /** Elapsed wedge grows clockwise from 12 o'clock; remaining arc keeps the spectrum. */
   const elapsedDeg = Math.max(0, Math.min(360, ((total - remaining) / total) * 360));
   const span = Math.max(0, 360 - elapsedDeg);

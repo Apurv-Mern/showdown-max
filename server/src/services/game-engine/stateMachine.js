@@ -213,11 +213,13 @@ const activateQuestion = (gameState) => {
   const round = getCurrentRound(gameState);
   const question = getCurrentQuestion(gameState);
   const duration = Number(question?.timerDuration ?? round?.timerDuration ?? 30) || 30;
+  const isMusic = String(round?.type || '').toUpperCase() === ROUND_TYPES.MUSIC;
   return {
     ...gameState,
     questionState: QUESTION_STATES.ACTIVE,
     timerRemaining: duration,
-    timerRunning: true,
+    // Music rounds: countdown + audio start together when the host presses Start Timer only.
+    timerRunning: !isMusic,
     responseCount: 0,
   };
 };

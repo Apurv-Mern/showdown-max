@@ -896,7 +896,9 @@ export default function QuizDetailPage() {
                           const effective = q.timerDuration ?? selectedRound.timerDuration;
                           if (!effective) return null;
                           return (
-                            <span title={q.timerDuration ? 'Per-question timer' : 'Round default timer'}>
+                            <span
+                              title={q.timerDuration ? 'Per-question timer' : 'Round default timer'}
+                            >
                               ⏱ {effective}s{!q.timerDuration ? ' (default)' : ''}
                             </span>
                           );
@@ -955,7 +957,7 @@ export default function QuizDetailPage() {
 
           {/* Category + Timer Row */}
           <div className="grid grid-cols-2 gap-3">
-            <div>
+            {/* <div>
               <label className="block text-sm font-medium text-foreground/70 mb-1">Category</label>
               <input
                 type="text"
@@ -964,7 +966,7 @@ export default function QuizDetailPage() {
                 placeholder="e.g. Geography, Science..."
                 className="w-full bg-surface-light border border-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-foreground/40 focus:outline-none focus:ring-2 focus:ring-primary/50"
               />
-            </div>
+            </div> */}
             <div>
               <label className="block text-sm font-medium text-foreground/70 mb-1">
                 Timer (seconds)
@@ -1162,11 +1164,7 @@ export default function QuizDetailPage() {
             <Button variant="secondary" onClick={cancelDeleteQuestion} disabled={deletingQuestion}>
               Cancel
             </Button>
-            <Button
-              variant="danger"
-              onClick={confirmDeleteQuestion}
-              disabled={deletingQuestion}
-            >
+            <Button variant="danger" onClick={confirmDeleteQuestion} disabled={deletingQuestion}>
               {deletingQuestion ? 'Deleting...' : 'Delete Question'}
             </Button>
           </div>

@@ -214,7 +214,10 @@ function parseUnityShuffleComplete(value: unknown): { cp: number; cards: number[
   const n = Number(raw);
   if (!Number.isFinite(n)) return null;
   const t = Math.trunc(n);
-  const cp = t >= 1 && t <= 3 ? t : t >= 0 && t <= 2 ? t + 1 : NaN;
+  // Unity sends card slots as 0-based indexes: 0=Left, 1=Middle, 2=Right.
+  // Player picks are stored as 1-based slots: 1=Left, 2=Middle, 3=Right.
+  // Check 0..2 first so a Unity `2` becomes Right (3), not Middle (2).
+  const cp = t >= 0 && t <= 2 ? t + 1 : t === 3 ? t : NaN;
   if (!Number.isFinite(cp) || cp < 1 || cp > 3) return null;
 
   const arr = (inner.card_positions ?? inner.cardPositions ?? root.card_positions) as unknown;
@@ -359,6 +362,11 @@ function VenueDisplayContent() {
   const [miniGameType, setMiniGameType] = useState<VenueMiniGameType | null>(null);
   const [miniGameCommand, setMiniGameCommand] = useState<MiniGameCommand | null>(null);
   const [miniGameReveal, setMiniGameReveal] = useState<MiniGameReveal | null>(null);
+  // Card Shuffle's pre-game introduction overlay needs to know whether the
+  // host has actually pressed Start Game (vs just loading the mini-game). We
+  // track this on the venue separately because `miniGameCommand` is null on
+  // first mount/reconnect and would falsely show the intro mid-game.
+  const [cardShuffleVenueStarted, setCardShuffleVenueStarted] = useState(false);
   const [venueKangarooNames, setVenueKangarooNames] = useState<string[]>([
     ...DEFAULT_KANGAROO_NAMES,
   ]);
@@ -956,7 +964,15 @@ function VenueDisplayContent() {
       const normalizedActiveMiniGame = normalizeVenueMiniGameType(data.activeMiniGame);
       if (normalizedActiveMiniGame) {
         setMiniGameType(normalizedActiveMiniGame);
-        if (normalizedActiveMiniGame !== 'card_shuffle') setMiniGameCommand(null);
+        if (normalizedActiveMiniGame !== 'card_shuffle') {
+          setMiniGameCommand(null);
+          setCardShuffleVenueStarted(false);
+        } else {
+          // On reconnect / initial load, server tells us whether the host has
+          // already started the round; keep the intro overlay hidden in that
+          // case so the venue resumes the actual game view.
+          setCardShuffleVenueStarted(Boolean(data.miniGameState?.gameStarted));
+        }
         if (normalizedActiveMiniGame === 'Kangaroo_race') {
           const names = Array.isArray(data.miniGameState?.kangarooNames)
             ? data.miniGameState.kangarooNames
@@ -1068,7 +1084,9 @@ function VenueDisplayContent() {
       setTimerRunning(
         typeof data.timerRunning === 'boolean'
           ? data.timerRunning
-          : (data.roundType || '').toUpperCase() !== 'MUSIC',
+          : (data.roundType || '').toUpperCase() === 'MUSIC'
+            ? false
+            : true,
       );
       setLiveResponses({
         correct: 0,
@@ -1243,6 +1261,9 @@ function VenueDisplayContent() {
       setMiniGameCommand(null);
       setMiniGameReveal(null);
       setMiniGameResult(null);
+      // Reset the Card Shuffle pre-start overlay flag whenever a fresh
+      // mini-game is loaded so the introduction screen shows again.
+      setCardShuffleVenueStarted(false);
       setPhase('mini_game');
     };
 
@@ -1275,6 +1296,9 @@ function VenueDisplayContent() {
         lastCardShuffleUnityRef.current = null;
         clearCardShuffleRevealFlushTimers();
         setMiniGameReveal(null);
+        // Hide the introduction overlay as soon as the host actually kicks
+        // off the first/next round.
+        setCardShuffleVenueStarted(true);
       }
       if (data.command === 'reveal_cards') {
         lastCardShuffleUnityRef.current = null;
@@ -1380,6 +1404,7 @@ function VenueDisplayContent() {
         setMiniGameReveal(null);
         if (normalizedGame === 'card_shuffle') {
           setMiniGameCommand(null);
+          setCardShuffleVenueStarted(false);
           if (data.holdScreen) {
             setMiniGameResult({
               game: 'card_shuffle',

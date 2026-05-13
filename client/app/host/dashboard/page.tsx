@@ -8,7 +8,6 @@ import toast from 'react-hot-toast';
 import { useSocket } from '@/hooks/useSocket';
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
 import { useTimerSound } from '@/hooks/useTimerSound';
-import { useAudio } from '@/hooks/useAudio';
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner';
 import { clientLogger } from '@/lib/clientLogger';
 import { breakSecondsFromEndsAt, resolveBreakWallClock } from '@/lib/breakWallClock';
@@ -362,12 +361,17 @@ function HostDashboardContent() {
   const [kangarooBetCounts, setKangarooBetCounts] = useState([0, 0, 0, 0, 0, 0]);
   const [cardPickCounts, setCardPickCounts] = useState([0, 0, 0]);
   const [cardShuffleVenueReady, setCardShuffleVenueReady] = useState(false);
+  // Mirrors `kangarooVenueLoading` — true while we're waiting for the venue
+  // to confirm Unity is ready after the host taps "Load Card Game on Venue".
+  // Used to drive the load button's spinner / disabled state.
+  const [cardShuffleVenueLoading, setCardShuffleVenueLoading] = useState(false);
   const [cardShuffleGameStarted, setCardShuffleGameStarted] = useState(false);
   /** True after host sends Unity start once; blocks double-clicks before React re-renders. */
   const [cardShuffleUnityStartSent, setCardShuffleUnityStartSent] = useState(false);
   const cardShuffleStartLockRef = useRef(false);
   const [cardShuffleActiveRound, setCardShuffleActiveRound] = useState<1 | 2 | 3 | 4 | null>(null);
   const [cardShuffleRevealPosition, setCardShuffleRevealPosition] = useState<number | null>(null);
+  const [cardShuffleCardsRevealed, setCardShuffleCardsRevealed] = useState(false);
   const [activeMiniGameLocal, setActiveMiniGameLocal] = useState<string | null>(null);
   const [miniGameLoading, setMiniGameLoading] = useState(false);
   const [miniGameRevealing, setMiniGameRevealing] = useState(false);
@@ -380,6 +384,14 @@ function HostDashboardContent() {
   );
   const [showScoreboardModal, setShowScoreboardModal] = useState(false);
   const [showEndGameModal, setShowEndGameModal] = useState(false);
+  // When the host taps "Exit Game" on a mini-game, we open a confirmation
+  // modal that lets them choose between resuming the trivia game where they
+  // left off, or restarting the same mini-game from the start. We capture the
+  // mini-game type at click time so the modal copy / restart action is
+  // accurate even if `activeMiniGameLocal` is cleared mid-flow.
+  const [pendingMiniGameExit, setPendingMiniGameExit] = useState<
+    'card_shuffle' | 'kangaroo_race' | null
+  >(null);
   const [teamPendingRemoval, setTeamPendingRemoval] = useState<Team | null>(null);
   const [isScoreboardVisible, setIsScoreboardVisible] = useState(false);
   const [mp3Playing, setMp3Playing] = useState(false);
@@ -464,11 +476,6 @@ function HostDashboardContent() {
     enabled: true,
     muted: isMusicRound || activeMiniGameLocal != null,
   });
-  const {
-    play: playMp3,
-    stop: stopMp3,
-    setSource: setMp3Source,
-  } = useAudio({ loop: false, volume: 0.7 });
   const hasPlayableAudio = isAudioMedia(
     currentQuestion?.question?.mediaType,
     currentQuestion?.question?.mediaUrl,
@@ -482,13 +489,6 @@ function HostDashboardContent() {
     if (prevTimerRef.current > 0 && timerRemaining === 0) playBuzz();
     prevTimerRef.current = timerRemaining;
   }, [timerRemaining, timerPaused, playTick, playBuzz]);
-
-  useEffect(() => {
-    if (!currentQuestion?.question?.mediaUrl) return;
-    if (isAudioMedia(currentQuestion.question.mediaType, currentQuestion.question.mediaUrl)) {
-      setMp3Source(resolveMediaUrl(currentQuestion.question.mediaUrl));
-    }
-  }, [currentQuestion?.question?.mediaUrl, currentQuestion?.question?.mediaType, setMp3Source]);
 
   useEffect(() => {
     if (!socket || !pin) return;
@@ -551,7 +551,6 @@ function HostDashboardContent() {
             qs === 'REVEALED' || (qs === 'ACTIVE' && !musicAwaiting && trNum <= 0);
           if (replayLocked) {
             setMp4Playing(false);
-            stopMp3();
             setMp3Playing(false);
             socket.emit('music_control', { pin, action: 'pause' });
           }
@@ -574,6 +573,7 @@ function HostDashboardContent() {
         setMiniGameLoading(false);
         if (data.miniGameState?.game === 'card_shuffle') {
           setCardShuffleVenueReady(Boolean(data.miniGameState.ready));
+          setCardShuffleVenueLoading(!Boolean(data.miniGameState.ready));
           setCardShuffleGameStarted(Boolean(data.miniGameState.gameStarted));
           setCardShuffleActiveRound(
             (data.miniGameState.activeRound as 1 | 2 | 3 | 4 | null | undefined) ?? null,
@@ -583,6 +583,7 @@ function HostDashboardContent() {
               ? Number(data.miniGameState.correctPosition)
               : null,
           );
+          setCardShuffleCardsRevealed(Boolean(data.miniGameState.revealed));
           setCardPickCounts(
             [1, 2, 3].map((slot) => Number(data.miniGameState?.pickCounts?.[slot] || 0)),
           );
@@ -617,11 +618,13 @@ function HostDashboardContent() {
         setActiveMiniGameLocal(null);
         setMiniGameLoading(false);
         setCardShuffleVenueReady(false);
+        setCardShuffleVenueLoading(false);
         setCardShuffleGameStarted(false);
         setCardShuffleUnityStartSent(false);
         cardShuffleStartLockRef.current = false;
         setCardShuffleActiveRound(null);
         setCardShuffleRevealPosition(null);
+        setCardShuffleCardsRevealed(false);
         setCardPickCounts([0, 0, 0]);
         setKangarooRaceStarted(false);
         setKangarooRaceRevealed(false);
@@ -651,7 +654,6 @@ function HostDashboardContent() {
         total: Number(gameStateRef.current?.totalTeams || 0),
       });
       setMp3Playing(false);
-      stopMp3();
       setMp4Playing(false);
       setTimerPaused((data.roundType || '').toUpperCase() === 'MUSIC');
       const incomingQuestionIndex = Number.isFinite(Number(data.questionIndex))
@@ -679,7 +681,6 @@ function HostDashboardContent() {
     const onTimerExpired = () => {
       setTimerRemaining(0);
       setMp4Playing(false);
-      stopMp3();
       setMp3Playing(false);
       socket.emit('music_control', { pin, action: 'pause' });
     };
@@ -687,7 +688,6 @@ function HostDashboardContent() {
     const onAnswerReveal = (data: RevealData) => {
       setRevealData(data);
       setMp4Playing(false);
-      stopMp3();
       setMp3Playing(false);
       socket.emit('music_control', { pin, action: 'pause' });
       setGameState((prev) => {
@@ -751,7 +751,6 @@ function HostDashboardContent() {
         total: Number(gameStateRef.current?.totalTeams || 0),
       });
       setMp3Playing(false);
-      stopMp3();
       setGameState((prev) =>
         prev
           ? {
@@ -821,7 +820,6 @@ function HostDashboardContent() {
       setCurrentQuestion(null);
       setRevealData(null);
       setMp3Playing(false);
-      stopMp3();
       setGameState((prev) => (prev ? { ...prev, state: 'SCOREBOARD' } : prev));
     };
 
@@ -870,7 +868,6 @@ function HostDashboardContent() {
       setRevealData(null);
       setIsScoreboardVisible(false);
       setMp3Playing(false);
-      stopMp3();
       setGameState((prev) => {
         const nextTeams = data?.teams?.length
           ? Object.fromEntries(data.teams.map((team) => [team.teamId, team]))
@@ -948,6 +945,9 @@ function HostDashboardContent() {
       setActiveMiniGameLocal(data.game);
       setMiniGameLoading(false);
       setCardShuffleVenueReady(false);
+      if (normalizeHostMiniGameId(data?.game) === 'card_shuffle') {
+        setCardShuffleVenueLoading(true);
+      }
       if (normalizeHostMiniGameId(data?.game) === 'kangaroo_race') {
         setKangarooRaceStarted(false);
         setKangarooRaceRevealed(false);
@@ -962,6 +962,7 @@ function HostDashboardContent() {
       const gid = normalizeHostMiniGameId(data?.game);
       if (gid === 'card_shuffle') {
         setCardShuffleVenueReady(data.ready !== false);
+        setCardShuffleVenueLoading(data.ready === false);
       }
       if (gid === 'kangaroo_race') {
         setKangarooVenueReady(data.ready !== false);
@@ -991,6 +992,7 @@ function HostDashboardContent() {
       setMiniGameRevealing(false);
       const slot = normalizeHostRevealSlot(data.correctPosition ?? data.correct_position);
       setCardShuffleRevealPosition(slot);
+      setCardShuffleCardsRevealed(true);
       if (data.roundNumber) {
         setCardShuffleActiveRound(data.roundNumber);
       }
@@ -1006,11 +1008,13 @@ function HostDashboardContent() {
       setMiniGameLoading(false);
       if (data?.game === 'card_shuffle' || !data?.game) {
         setCardShuffleVenueReady(false);
+        setCardShuffleVenueLoading(false);
         setCardShuffleGameStarted(false);
         setCardShuffleUnityStartSent(false);
         cardShuffleStartLockRef.current = false;
         setCardShuffleActiveRound(null);
         setCardShuffleRevealPosition(null);
+        setCardShuffleCardsRevealed(false);
         setCardPickCounts([0, 0, 0]);
         if (data?.holdScreen) {
           setCardShuffleFinishedHold(true);
@@ -1105,11 +1109,8 @@ function HostDashboardContent() {
 
     const onMusicControl = (data: { action?: string; mediaUrl?: string | null }) => {
       const action = data?.action;
-      // Music_control is now also used to drive the venue MP4 element. The host echoes its own
-      // emit (Socket.io broadcasts to the whole session room), so for MP4 questions we mirror the
-      // play/pause state into the host's `mp4Playing` flag (so the sidebar tile label reflects
-      // reality) and bail BEFORE touching the MP3 audio element — otherwise we'd push an MP4 URL
-      // into <audio> and emit playback errors.
+      // Drives the venue MP4 element and mirrors state into host tiles. MP3 is venue-only — the
+      // host never plays audio locally; we only sync `mp3Playing` for the sidebar indicator.
       const currentMediaType = (
         gameStateRef.current?.currentQuestion?.question?.mediaType || ''
       ).toLowerCase();
@@ -1133,13 +1134,9 @@ function HostDashboardContent() {
             if (!allowPlay) return;
           }
         }
-        const url = data?.mediaUrl;
-        if (url) setMp3Source(resolveMediaUrl(url));
-        playMp3();
         setMp3Playing(true);
         return;
       }
-      stopMp3();
       setMp3Playing(false);
     };
     socket.on('music_control', onMusicControl);
@@ -1176,7 +1173,7 @@ function HostDashboardContent() {
       socket.off('mini_game_update', onMiniGameUpdate);
       socket.off('music_control', onMusicControl);
     };
-  }, [socket, pin, stopMp3, playMp3, setMp3Source, setMp3Playing]);
+  }, [socket, pin, setMp3Playing]);
 
   const emit = useCallback(
     (event: string, data?: Record<string, unknown>) => {
@@ -1280,11 +1277,13 @@ function HostDashboardContent() {
   const launchCardShuffleOnVenue = useCallback(() => {
     setCardPickCounts([0, 0, 0]);
     setCardShuffleVenueReady(false);
+    setCardShuffleVenueLoading(true);
     setCardShuffleGameStarted(false);
     setCardShuffleUnityStartSent(false);
     cardShuffleStartLockRef.current = false;
     setCardShuffleActiveRound(null);
     setCardShuffleRevealPosition(null);
+    setCardShuffleCardsRevealed(false);
     setMiniGameRevealing(false);
     setMiniGameLoading(true);
     emit('launch_mini_game', {
@@ -1319,11 +1318,15 @@ function HostDashboardContent() {
     }
   }, [activeMiniGameLocal]);
 
-  const handleOpenCardShuffleControls = () => {
-    if (activeMiniGameLocal !== 'card_shuffle' && !miniGameLoading) {
-      launchCardShuffleOnVenue();
+  const handleOpenCardShuffleControls = useCallback(() => {
+    // Mirror the Kangaroo Race flow — tapping the tile only selects the
+    // Card Shuffle controls panel locally on the host. The mini-game is
+    // pushed to the venue (and the introduction screen shown) only when
+    // the host explicitly taps "Load Card Game on Venue".
+    if (activeMiniGameLocal !== 'card_shuffle') {
+      setActiveMiniGameLocal('card_shuffle');
     }
-  };
+  }, [activeMiniGameLocal]);
 
   const handleCardShuffleCommand = (
     command: 'start_game' | 'next_round' | 'reveal_cards',
@@ -1331,10 +1334,7 @@ function HostDashboardContent() {
   ) => {
     if (!cardShuffleVenueReady) return;
     if (command === 'next_round' && !cardShuffleGameStarted) return;
-    if (
-      command === 'reveal_cards' &&
-      (!cardShuffleGameStarted || cardShuffleRevealPosition !== null)
-    ) {
+    if (command === 'reveal_cards' && (!cardShuffleGameStarted || cardShuffleCardsRevealed)) {
       return;
     }
     emit('mini_game_command', {
@@ -1345,6 +1345,7 @@ function HostDashboardContent() {
     if (command === 'next_round' && roundNumber) {
       setCardPickCounts([0, 0, 0]);
       setCardShuffleRevealPosition(null);
+      setCardShuffleCardsRevealed(false);
       setCardShuffleActiveRound(roundNumber);
       setMiniGameRevealing(false);
     }
@@ -1364,6 +1365,7 @@ function HostDashboardContent() {
     setCardShuffleActiveRound(1);
     setCardPickCounts([0, 0, 0]);
     setCardShuffleRevealPosition(null);
+    setCardShuffleCardsRevealed(false);
     setMiniGameRevealing(false);
     emit('mini_game_command', {
       game: 'card_shuffle',
@@ -1379,14 +1381,71 @@ function HostDashboardContent() {
   };
 
   const handleExitMiniGame = () => {
+    // Don't immediately tear the mini-game down — open a confirmation modal
+    // so the host can pick between resuming trivia and restarting the
+    // mini-game. Capture the active mini-game type for the modal copy.
+    const activeKind: 'card_shuffle' | 'kangaroo_race' | null =
+      activeMiniGameLocal === 'card_shuffle'
+        ? 'card_shuffle'
+        : activeMiniGameLocal === 'kangaroo_race'
+          ? 'kangaroo_race'
+          : null;
+    if (!activeKind) return;
+    setPendingMiniGameExit(activeKind);
+  };
+
+  /** Close the mini-game on the server; trivia state is preserved server-side
+   *  so the host resumes wherever they left off. */
+  const confirmExitResumeTrivia = useCallback(() => {
     setCardShuffleVenueReady(false);
+    setCardShuffleVenueLoading(false);
     setCardShuffleGameStarted(false);
     setCardShuffleUnityStartSent(false);
     cardShuffleStartLockRef.current = false;
     setCardShuffleActiveRound(null);
     setCardShuffleRevealPosition(null);
+    setCardShuffleCardsRevealed(false);
+    setKangarooRaceStarted(false);
+    setKangarooRaceRevealed(false);
+    setKangarooVenueReady(false);
+    setKangarooVenueLoading(false);
+    setKangarooFinishOrder([]);
+    setKangarooBetCounts([0, 0, 0, 0, 0, 0]);
+    setMiniGameRevealing(false);
     emit('end_mini_game');
-  };
+    setPendingMiniGameExit(null);
+  }, [emit]);
+
+  /** End the current mini-game and re-launch the same one from the start, so
+   *  the audience sees the introduction screen again. */
+  const confirmExitRestartMiniGame = useCallback(() => {
+    const kind = pendingMiniGameExit;
+    if (!kind) return;
+    emit('end_mini_game');
+    setPendingMiniGameExit(null);
+    // Tear down the live mini-game on the venue / players, but DO NOT auto
+    // re-launch on the venue. The host should explicitly tap
+    // "Load Race on Venue" / "Load Card Game on Venue" again so they get
+    // a clean, controlled start. We just leave the local controls panel
+    // open on the right mini-game so the host doesn't need to re-pick it.
+    setKangarooRaceStarted(false);
+    setKangarooRaceRevealed(false);
+    setKangarooVenueReady(false);
+    setKangarooVenueLoading(false);
+    setKangarooFinishOrder([]);
+    setKangarooBetCounts([0, 0, 0, 0, 0, 0]);
+    setCardShuffleVenueReady(false);
+    setCardShuffleVenueLoading(false);
+    setCardShuffleGameStarted(false);
+    setCardShuffleUnityStartSent(false);
+    cardShuffleStartLockRef.current = false;
+    setCardShuffleActiveRound(null);
+    setCardShuffleRevealPosition(null);
+    setCardShuffleCardsRevealed(false);
+    setCardPickCounts([0, 0, 0]);
+    setMiniGameRevealing(false);
+    setActiveMiniGameLocal(kind);
+  }, [emit, pendingMiniGameExit]);
 
   const handleFinishCardShuffle = () => {
     emit('end_mini_game', {
@@ -1476,13 +1535,10 @@ function HostDashboardContent() {
       (qs === 'REVEALED' || (qs === 'ACTIVE' && !musicAwaiting && timerRemaining <= 0));
 
     if (mp3Playing) {
-      stopMp3();
       setMp3Playing(false);
       emit('music_control', { action: 'pause' });
     } else {
       if (replayLocked) return;
-      setMp3Source(resolveMediaUrl(rawMediaUrl));
-      playMp3();
       setMp3Playing(true);
       emit('music_control', {
         action: 'play',
@@ -1612,6 +1668,11 @@ function HostDashboardContent() {
     (gameState?.currentQuestionIndex ?? 0) === currentRound.questions.length - 1;
   const revealOnLastQuestionOfRound =
     state === 'QUESTION' && questionState === 'REVEALED' && isLastQuestionOfRound;
+  const miniGameFinishShouldAdvanceRound =
+    state === 'SCOREBOARD' || revealOnLastQuestionOfRound;
+  const miniGameFinishActionLabel = miniGameFinishShouldAdvanceRound
+    ? 'Start Next Round'
+    : 'Next Question';
   const showNextQuestionAction =
     state === 'QUESTION' && questionState === 'REVEALED' && !isLastQuestionOfRound;
   const showRevealAnswerAction = state === 'QUESTION' && questionState === 'ACTIVE';
@@ -1859,7 +1920,14 @@ function HostDashboardContent() {
                   data-node-id="232:4583"
                   label="Kangaroo Race"
                   active={activeMiniGameLocal === 'kangaroo_race'}
-                  icon={<span className="text-4xl leading-none">🦘</span>}
+                  icon={
+                    <img
+                      src="/KangarooPic.png"
+                      alt=""
+                      aria-hidden="true"
+                      className="h-12 w-12 object-contain drop-shadow-[0_2px_4px_rgba(0,0,0,0.45)]"
+                    />
+                  }
                   onClick={handleOpenKangarooRaceControls}
                 />
                 <HostSidebarTile
@@ -1867,9 +1935,12 @@ function HostDashboardContent() {
                   label="Card Shuffle"
                   active={!!activeMiniGameLocal && activeMiniGameLocal === 'card_shuffle'}
                   icon={
-                    <svg viewBox="0 0 24 24" fill="currentColor">
-                      <path d="M4 4h16v4H4V4zm0 6h10v10H4V10zm12 0h4v4h-4v-4zm0 6h4v4h-4v-4z" />
-                    </svg>
+                    <img
+                      src="/games/card-shuffle/queencard.png"
+                      alt=""
+                      aria-hidden="true"
+                      className="h-12 w-12 object-contain drop-shadow-[0_2px_4px_rgba(0,0,0,0.45)]"
+                    />
                   }
                   onClick={handleOpenCardShuffleControls}
                 />
@@ -1880,7 +1951,7 @@ function HostDashboardContent() {
               <HostPanelTitle data-node-id="232:4480">Media Controls</HostPanelTitle>
               <div className="grid grid-cols-2 gap-3">
                 <HostSidebarTile
-                  label="Play/Pause MP3"
+                  label="Venue MP3"
                   active={mp3Playing}
                   disabled={
                     !currentQuestion ||
@@ -1958,7 +2029,7 @@ function HostDashboardContent() {
                   onClick={handleStartNextRoundAfterCardShuffle}
                   className="mt-10 rounded-xl border border-[#22c55e]/65 bg-[linear-gradient(180deg,#16a34a_0%,#14532d_100%)] px-8 py-4 text-base font-extrabold uppercase tracking-[0.14em] text-white shadow-[0_0_18px_rgba(34,197,94,0.28)] transition hover:brightness-110 sm:text-lg"
                 >
-                  Start Next Round
+                  {miniGameFinishActionLabel}
                 </button>
               </div>
             </div>
@@ -1982,7 +2053,7 @@ function HostDashboardContent() {
                       <span className="rounded-full bg-green-500/20 border border-green-500/40 px-3 py-1 text-xs font-bold uppercase tracking-wider text-green-400">
                         Live on Venue
                       </span>
-                      {/* <button
+                      <button
                         type="button"
                         onClick={handleExitMiniGame}
                         className="flex items-center gap-2 rounded-lg border border-red-500/40 bg-[linear-gradient(180deg,#dc2626_0%,#7f1d1d_100%)] px-4 py-2 text-sm font-bold uppercase tracking-wide text-white shadow-[0_4px_16px_rgba(0,0,0,0.4)] transition hover:brightness-110"
@@ -1991,7 +2062,7 @@ function HostDashboardContent() {
                           <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" />
                         </svg>
                         Exit Game
-                      </button> */}
+                      </button>
                     </>
                   ) : null}
                 </div>
@@ -2028,7 +2099,7 @@ function HostDashboardContent() {
                         <p className="mt-1 text-sm text-white/50">
                           {cardShuffleVenueReady
                             ? cardShuffleGameStarted
-                              ? cardShuffleRevealPosition
+                              ? cardShuffleCardsRevealed
                                 ? `Round ${cardShuffleActiveRound || 1} revealed on venue.`
                                 : miniGameRevealing
                                   ? `Revealing round ${cardShuffleActiveRound || 1}...`
@@ -2048,6 +2119,33 @@ function HostDashboardContent() {
                         {cardShuffleVenueReady ? 'Ready' : 'Waiting'}
                       </span>
                     </div>
+
+                    {/* Mirrors the Kangaroo Race "Load Race on Venue"
+                        button — host first pushes the mini-game to the
+                        venue display, then "Start Game" unlocks once
+                        Unity confirms ready. */}
+                    <button
+                      type="button"
+                      disabled={miniGameLoading || cardShuffleVenueLoading || cardShuffleVenueReady}
+                      onClick={launchCardShuffleOnVenue}
+                      className={cn(
+                        'mb-3 h-12 w-full rounded-xl border px-5 text-sm font-black uppercase tracking-wide transition',
+                        !miniGameLoading && !cardShuffleVenueLoading && !cardShuffleVenueReady
+                          ? 'border-violet-400/60 bg-[linear-gradient(180deg,#7c3aed_0%,#4c1d95_100%)] text-white shadow-[0_0_18px_rgba(124,58,237,0.3)] hover:brightness-110'
+                          : 'cursor-not-allowed border-white/10 bg-white/8 text-white/30 grayscale',
+                      )}
+                    >
+                      {cardShuffleVenueLoading ? (
+                        <span className="inline-flex items-center gap-2">
+                          <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/70 border-t-transparent" />
+                          Loading on venue...
+                        </span>
+                      ) : cardShuffleVenueReady ? (
+                        'Loaded on Venue'
+                      ) : (
+                        'Load Card Game on Venue'
+                      )}
+                    </button>
 
                     <button
                       type="button"
@@ -2072,29 +2170,52 @@ function HostDashboardContent() {
                     </button>
 
                     <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-                      {([1, 2, 3, 4] as const).map((roundNumber) => (
-                        <button
-                          key={roundNumber}
-                          type="button"
-                          disabled={!cardShuffleVenueReady || !cardShuffleGameStarted}
-                          onClick={() => handleCardShuffleCommand('next_round', roundNumber)}
-                          className={cn(
-                            'h-12 rounded-lg border px-3 text-sm font-extrabold uppercase tracking-wide transition',
-                            cardShuffleVenueReady &&
-                              cardShuffleGameStarted &&
-                              cardShuffleActiveRound === roundNumber
-                              ? 'border-green-400/80 bg-[linear-gradient(180deg,#0f8f4d_0%,#064422_100%)] text-white shadow-[0_0_18px_rgba(34,197,94,0.38)] hover:brightness-110'
-                              : cardShuffleVenueReady && cardShuffleGameStarted
-                                ? 'border-[#ffc400]/55 bg-[linear-gradient(180deg,#7a3cff_0%,#31116f_100%)] text-white shadow-[0_0_16px_rgba(122,60,255,0.24)] hover:brightness-110'
-                                : 'cursor-not-allowed border-white/10 bg-white/7 text-white/28 grayscale',
-                          )}
-                        >
-                          Start Round {roundNumber}
-                        </button>
-                      ))}
+                      {([1, 2, 3, 4] as const).map((roundNumber) => {
+                        // Card Shuffle rounds are strictly sequential. Only
+                        // ONE round button is interactive at a time:
+                        //   • Before any round starts → Round 1 is the next.
+                        //   • While a round is active (no reveal yet) → all
+                        //     buttons are locked.
+                        //   • Once the active round's card is revealed →
+                        //     Round (active+1) becomes the next, until 4.
+                        // Completed and not-yet-up rounds stay greyed out.
+                        const isCompleted =
+                          cardShuffleActiveRound != null && roundNumber < cardShuffleActiveRound;
+                        const isActive = cardShuffleActiveRound === roundNumber;
+                        const nextRoundNumber =
+                          cardShuffleActiveRound == null
+                            ? 1
+                            : cardShuffleCardsRevealed
+                              ? cardShuffleActiveRound + 1
+                              : null;
+                        const isNextUp = nextRoundNumber != null && roundNumber === nextRoundNumber;
+                        const enabled =
+                          cardShuffleVenueReady &&
+                          cardShuffleGameStarted &&
+                          isNextUp &&
+                          !miniGameRevealing;
+                        return (
+                          <button
+                            key={roundNumber}
+                            type="button"
+                            disabled={!enabled}
+                            onClick={() => handleCardShuffleCommand('next_round', roundNumber)}
+                            className={cn(
+                              'h-12 rounded-lg border px-3 text-sm font-extrabold uppercase tracking-wide transition',
+                              isActive && cardShuffleVenueReady && cardShuffleGameStarted
+                                ? 'border-green-400/80 bg-[linear-gradient(180deg,#0f8f4d_0%,#064422_100%)] text-white shadow-[0_0_18px_rgba(34,197,94,0.38)]'
+                                : enabled
+                                  ? 'border-[#ffc400]/55 bg-[linear-gradient(180deg,#7a3cff_0%,#31116f_100%)] text-white shadow-[0_0_16px_rgba(122,60,255,0.24)] hover:brightness-110'
+                                  : 'cursor-not-allowed border-white/10 bg-white/7 text-white/28 grayscale',
+                            )}
+                          >
+                            Start Round {roundNumber}
+                          </button>
+                        );
+                      })}
                     </div>
 
-                    {cardShuffleActiveRound === 4 && cardShuffleRevealPosition !== null ? (
+                    {cardShuffleActiveRound === 4 && cardShuffleCardsRevealed ? (
                       <button
                         type="button"
                         onClick={handleFinishCardShuffle}
@@ -2109,7 +2230,7 @@ function HostDashboardContent() {
                           !cardShuffleVenueReady ||
                           !cardShuffleGameStarted ||
                           miniGameRevealing ||
-                          cardShuffleRevealPosition !== null
+                          cardShuffleCardsRevealed
                         }
                         onClick={() =>
                           handleCardShuffleCommand(
@@ -2122,7 +2243,7 @@ function HostDashboardContent() {
                           cardShuffleVenueReady &&
                             cardShuffleGameStarted &&
                             !miniGameRevealing &&
-                            cardShuffleRevealPosition === null
+                            !cardShuffleCardsRevealed
                             ? 'border-[#ff68ff]/65 bg-[linear-gradient(180deg,#b100d5_0%,#6b0a90_100%)] text-white shadow-[0_0_18px_rgba(255,67,255,0.26)] hover:brightness-110'
                             : 'cursor-not-allowed border-white/10 bg-white/7 text-white/28 grayscale',
                         )}
@@ -2138,7 +2259,7 @@ function HostDashboardContent() {
                         key={n}
                         className={cn(
                           'flex flex-col items-center gap-2 rounded-xl border-2 px-6 py-4 transition-all',
-                          cardShuffleRevealPosition === n
+                          cardShuffleCardsRevealed && cardShuffleRevealPosition === n
                             ? 'border-green-500/60 bg-green-500/10'
                             : 'border-white/10 bg-white/5',
                         )}
@@ -2156,7 +2277,7 @@ function HostDashboardContent() {
                       </div>
                     ))}
                   </div>
-                  {cardShuffleRevealPosition ? (
+                  {cardShuffleCardsRevealed && cardShuffleRevealPosition ? (
                     <p className="text-xs text-white/50 mt-2">
                       Winning position:{' '}
                       <span className="text-green-400 font-semibold">
@@ -3448,6 +3569,40 @@ function HostDashboardContent() {
               className="flex-1 rounded-lg border border-red-500/40 bg-[linear-gradient(180deg,#dc2626_0%,#7f1d1d_100%)] py-2 text-sm font-bold text-white hover:brightness-110"
             >
               Remove
+            </button>
+          </div>
+        </ModalOverlay>
+      )}
+      {pendingMiniGameExit && (
+        <ModalOverlay onClose={() => setPendingMiniGameExit(null)} title="Exit Mini-Game?">
+          <p className="mb-5 text-sm leading-relaxed text-white/70">
+            Do you want to{' '}
+            <span className="font-semibold text-white">resume the trivia game</span> where you left
+            off, or <span className="font-semibold text-white">restart this mini-game</span> from
+            the beginning?
+          </p>
+          <div className="flex flex-col gap-2">
+            <button
+              type="button"
+              onClick={confirmExitResumeTrivia}
+              className="rounded-lg border border-[#00d9ff]/55 bg-[linear-gradient(180deg,#00a9df_0%,#075a89_100%)] py-2 text-sm font-bold uppercase tracking-wide text-white shadow-[0_0_18px_rgba(0,217,255,0.25)] hover:brightness-110"
+            >
+              Resume Trivia
+            </button>
+            <button
+              type="button"
+              onClick={confirmExitRestartMiniGame}
+              className="rounded-lg border border-violet-400/55 bg-[linear-gradient(180deg,#7c3aed_0%,#4c1d95_100%)] py-2 text-sm font-bold uppercase tracking-wide text-white shadow-[0_0_18px_rgba(124,58,237,0.25)] hover:brightness-110"
+            >
+              Restart{' '}
+              {pendingMiniGameExit === 'card_shuffle' ? 'Card Shuffle' : 'Kangaroo Race'}
+            </button>
+            <button
+              type="button"
+              onClick={() => setPendingMiniGameExit(null)}
+              className="rounded-lg border border-border py-2 text-sm font-medium text-white/80 hover:bg-surface-light"
+            >
+              Cancel
             </button>
           </div>
         </ModalOverlay>

@@ -288,46 +288,12 @@ const nextQuestion = async (io, pin) => {
     roundType: round.type,
   });
 
-  timerManager.startTimer(
-    pin,
-    effectiveTimer,
-    (remaining) => {
-      io.to(`session:${pin}`).emit(SOCKET_EVENTS.TIMER_UPDATE, {
-        remaining,
-        timerRunning: true,
-      });
-      persistTimerRemainingIfActiveQuestion(pin, remaining);
-    },
-    async () => {
-      io.to(`session:${pin}`).emit(SOCKET_EVENTS.TIMER_EXPIRED, {});
-      const gs = await redisStore.getGameState(pin);
-      if (gs) {
-        gs.timerRunning = false;
-        gs.timerRemaining = 0;
-        await redisStore.setGameState(pin, gs);
-        const expiredQuestion = stateMachine.getCurrentQuestion(gs);
-        if (expiredQuestion) {
-          const responsesRaw = await redisStore.getResponses(pin, expiredQuestion.id);
-          io.to(`session:${pin}`).emit(
-            SOCKET_EVENTS.LIVE_RESPONSE_UPDATE,
-            buildLiveResponseStats(gs, expiredQuestion, responsesRaw),
-          );
-        }
-      }
-      logger.info('Timer expired for question, waiting for host to reveal', {
-        pin,
-        roundIndex: gs?.currentRoundIndex,
-        questionIndex: gs?.currentQuestionIndex,
-      });
-      // await revealAnswer(io, pin);
-    },
-  );
+  const isMusicRound = String(round?.type || '').toUpperCase() === ROUND_TYPES.MUSIC;
 
-  const liveAfterStart = timerManager.getTimerState(pin);
-  persistTimerRemainingIfActiveQuestion(pin, liveAfterStart.remaining);
-
-  if (round.type === ROUND_TYPES.MUSIC) {
-    await pauseTimer(io, pin);
+  if (isMusicRound) {
+    timerManager.armPausedTimer(pin, effectiveTimer);
+    const liveMusic = timerManager.getTimerState(pin);
+    persistTimerRemainingIfActiveQuestion(pin, liveMusic.remaining);
     const gsMusic = await redisStore.getGameState(pin);
     if (gsMusic) {
       gsMusic.timerRemaining = effectiveTimer;
@@ -338,6 +304,54 @@ const nextQuestion = async (io, pin) => {
         clientPayloadFromGameState(gsMusic),
       );
     }
+    io.to(`session:${pin}`).emit(SOCKET_EVENTS.TIMER_UPDATE, {
+      remaining: liveMusic.remaining,
+      paused: true,
+      timerRunning: false,
+    });
+    try {
+      io.to(`session:${pin}`).emit(SOCKET_EVENTS.MUSIC_CONTROL, { action: 'pause' });
+    } catch (err) {
+      logger.warn('nextQuestion music_control pause failed', { error: err.message });
+    }
+  } else {
+    timerManager.startTimer(
+      pin,
+      effectiveTimer,
+      (remaining) => {
+        io.to(`session:${pin}`).emit(SOCKET_EVENTS.TIMER_UPDATE, {
+          remaining,
+          timerRunning: true,
+        });
+        persistTimerRemainingIfActiveQuestion(pin, remaining);
+      },
+      async () => {
+        io.to(`session:${pin}`).emit(SOCKET_EVENTS.TIMER_EXPIRED, {});
+        const gs = await redisStore.getGameState(pin);
+        if (gs) {
+          gs.timerRunning = false;
+          gs.timerRemaining = 0;
+          await redisStore.setGameState(pin, gs);
+          const expiredQuestion = stateMachine.getCurrentQuestion(gs);
+          if (expiredQuestion) {
+            const responsesRaw = await redisStore.getResponses(pin, expiredQuestion.id);
+            io.to(`session:${pin}`).emit(
+              SOCKET_EVENTS.LIVE_RESPONSE_UPDATE,
+              buildLiveResponseStats(gs, expiredQuestion, responsesRaw),
+            );
+          }
+        }
+        logger.info('Timer expired for question, waiting for host to reveal', {
+          pin,
+          roundIndex: gs?.currentRoundIndex,
+          questionIndex: gs?.currentQuestionIndex,
+        });
+        // await revealAnswer(io, pin);
+      },
+    );
+
+    const liveAfterStart = timerManager.getTimerState(pin);
+    persistTimerRemainingIfActiveQuestion(pin, liveAfterStart.remaining);
   }
 
   const gsForQuestionActive = await redisStore.getGameState(pin);
@@ -1146,6 +1160,7 @@ const endBreak = async (io, pin) => {
             },
             timerDuration: effectiveTimer,
             timerRemaining: timerRemainingForEmit,
+            timerRunning: Boolean(gameState.timerRunning),
             roundType: round.type,
             eliminatedTeamIds: eliminatedTeamIdsBreak,
             pointsForQuestion:
@@ -1170,7 +1185,7 @@ const endBreak = async (io, pin) => {
       Number(gameState.timerRemaining) > 0
     ) {
       const resumeRound = stateMachine.getCurrentRound(gameState);
-      if (resumeRound?.type === ROUND_TYPES.MUSIC) {
+      if (String(resumeRound?.type || '').toUpperCase() === ROUND_TYPES.MUSIC) {
         // Music rounds intentionally pair the countdown with audio/video playback — both must
         // begin together when the host hits "Start Timer". Auto-resuming on break end would
         // start the timer (and broadcast MUSIC_CONTROL play) without the host's input, so we
@@ -1329,7 +1344,7 @@ const pauseTimer = async (io, pin) => {
   try {
     const gameState = await redisStore.getGameState(pin);
     const round = gameState ? stateMachine.getCurrentRound(gameState) : null;
-    if (round?.type === ROUND_TYPES.MUSIC) {
+    if (String(round?.type || '').toUpperCase() === ROUND_TYPES.MUSIC) {
       io.to(`session:${pin}`).emit(SOCKET_EVENTS.MUSIC_CONTROL, { action: 'pause' });
     }
   } catch (err) {
@@ -1385,7 +1400,7 @@ const startTimer = async (io, pin) => {
 
   if (gameState) {
     const round = stateMachine.getCurrentRound(gameState);
-    if (round?.type === ROUND_TYPES.MUSIC) {
+    if (String(round?.type || '').toUpperCase() === ROUND_TYPES.MUSIC) {
       const q = stateMachine.getCurrentQuestion(gameState);
       const mediaUrl = q?.mediaUrl || null;
       if (mediaUrl) {

@@ -4,7 +4,6 @@ import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useSocket } from '@/hooks/useSocket';
-import { useAudio } from '@/hooks/useAudio';
 import { usePlayerSession } from '../playerSession';
 import { LoadingDots } from '../LoadingDots';
 import { clientLogger } from '@/lib/clientLogger';
@@ -534,11 +533,6 @@ export default function GamePage() {
   const previousPhaseBeforeScoreboardRef = useRef<GamePhase | null>(null);
   const questionRef = useRef<QuestionData | null>(null);
   const revealDataRef = useRef<RevealData | null>(null);
-  const { stop: stopMp3, setSource: setMp3Source } = useAudio({
-    loop: false,
-    volume: 0.75,
-  });
-
   useEffect(() => {
     phaseRef.current = phase;
   }, [phase]);
@@ -626,14 +620,6 @@ export default function GamePage() {
   }, []);
 
   useEffect(() => {
-    if (!question?.question?.mediaUrl) return;
-    const mediaType = (question.question.mediaType || '').toLowerCase();
-    if (mediaType === 'mp3') {
-      setMp3Source(resolveMediaUrl(question.question.mediaUrl));
-    }
-  }, [question?.question?.mediaUrl, question?.question?.mediaType, setMp3Source]);
-
-  useEffect(() => {
     if (phase !== 'break') return;
     const tick = () => {
       if (breakEndsAtMs != null && Number.isFinite(breakEndsAtMs) && breakEndsAtMs > 0) {
@@ -666,7 +652,7 @@ export default function GamePage() {
   }, [phase, breakDuration, breakEndsAtMs, breakSkewMs, socket, session.pin, session.teamName]);
 
   useEffect(() => {
-    if (!timerEndsAt) return;
+    if (!timerEndsAt || !timerRunning) return;
 
     const syncTimer = () => {
       setTimerRemaining(getRemainingFromEndsAt(timerEndsAt));
@@ -675,7 +661,7 @@ export default function GamePage() {
     syncTimer();
     const interval = window.setInterval(syncTimer, 250);
     return () => window.clearInterval(interval);
-  }, [timerEndsAt]);
+  }, [timerEndsAt, timerRunning]);
 
   useEffect(() => {
     if (!socket || !session.pin || !session.teamName) return;
@@ -920,7 +906,6 @@ export default function GamePage() {
       setWagerSubmitted(false);
       setWagerAmount(0);
       setTimerRunning(false);
-      stopMp3();
     };
 
     const onWagerCollectionStart = (data: any) => {
@@ -967,7 +952,6 @@ export default function GamePage() {
 
       if (dead) {
         setPhase('eliminated');
-        stopMp3();
         return;
       }
       if (data.roundType === 'WAGER' || data.roundType === 'FINAL_WAGER') {
@@ -991,7 +975,6 @@ export default function GamePage() {
         setWagerAmount(0);
         setPhase(restored !== null ? 'answered' : 'question');
       }
-      stopMp3();
     };
 
     const onTimerUpdate = (data: {
@@ -1072,7 +1055,6 @@ export default function GamePage() {
       setScoreboard(data.teams);
       setPhase('scoreboard');
       setTimerRunning(false);
-      stopMp3();
     };
 
     const onTeamUpdated = (data: { teamId: number; score: number }) => {
@@ -1112,7 +1094,6 @@ export default function GamePage() {
 
     const onRoundEnd = () => {
       setTimerRunning(false);
-      stopMp3();
     };
 
     const onBreakStart = (data: {
@@ -1156,17 +1137,9 @@ export default function GamePage() {
       router.push(`/play/mini-game?game=${data.game}`);
     };
 
-    /** Venue-only audio; players follow `timerRunning` / `timer_update` for copy, not this event. */
-    const onMusicControl = (data: { action?: string }) => {
-      if (data?.action === 'pause' || data?.action === 'stop') {
-        stopMp3();
-      }
-    };
-
     const onGameEnd = (data?: {
       teams?: { teamId: number; teamName: string; score: number }[];
     }) => {
-      stopMp3();
       setTimerRunning(false);
       if (data?.teams) {
         setScoreboard(data.teams);
@@ -1202,7 +1175,6 @@ export default function GamePage() {
     socket.on('break_start', onBreakStart);
     socket.on('break_end', onBreakEnd);
     socket.on('mini_game_start', onMiniGameStart);
-    socket.on('music_control', onMusicControl);
     socket.on('game_end', onGameEnd);
 
     return () => {
@@ -1222,7 +1194,6 @@ export default function GamePage() {
       socket.off('break_start', onBreakStart);
       socket.off('break_end', onBreakEnd);
       socket.off('mini_game_start', onMiniGameStart);
-      socket.off('music_control', onMusicControl);
       socket.off('game_end', onGameEnd);
     };
   }, [
@@ -1231,8 +1202,6 @@ export default function GamePage() {
     session.teamName,
     session.teamId,
     wagerSubmitted,
-    setMp3Source,
-    stopMp3,
     router,
     setSession,
     clearSession,

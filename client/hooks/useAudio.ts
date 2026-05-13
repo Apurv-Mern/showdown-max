@@ -10,8 +10,8 @@ interface UseAudioOptions {
 }
 
 /**
- * Web Audio API hook for MP3 playback on host/venue screens.
- * No audio plays on player devices.
+ * HTMLAudioElement hook for MP3 playback on the venue display only.
+ * Host and player UIs should not call play/setSource — they emit `music_control` for the projector.
  */
 export const useAudio = ({
   src,

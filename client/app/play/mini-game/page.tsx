@@ -52,8 +52,13 @@ const CARD_IMAGE_FACE_DOWN = '/games/card-shuffle/facedowncard.png';
 const CARD_IMAGE_JOKER = '/games/card-shuffle/jokercard.png';
 const CARD_IMAGE_QUEEN = '/games/card-shuffle/queencard.png';
 
-/** Unity may send 1–3 (Left/Middle/Right) or 0–2; player UI always uses 1–3. */
+/** Unity may send 1–3 (Left/Middle/Right) or 0–2; player UI always uses 1–3.
+ *  IMPORTANT: explicitly reject null/undefined/empty before Number(),
+ *  because `Number(null)` is 0 and would otherwise be treated as a valid
+ *  0-based "Left" pick — making a player who didn't pick at all look like
+ *  they picked Left and showing the wrong reveal copy. */
 function normalizeCardSlotToChoice(raw: unknown): number | null {
+  if (raw === null || raw === undefined || raw === '') return null;
   const n = Number(raw);
   if (!Number.isFinite(n)) return null;
   const t = Math.trunc(n);
@@ -684,6 +689,7 @@ export default function MiniGamePage() {
     }
 
     const isWinner = resultPhase === 'winner';
+    const didSubmitKangarooBet = gameType !== 'kangaroo_race' || selectedChoice != null;
     const resolvedWinningSlot =
       gameType === 'kangaroo_race'
         ? (winningValue ?? (finishOrder.length > 0 ? finishOrder[0] : null))
@@ -712,7 +718,7 @@ export default function MiniGamePage() {
               <h2 className="text-2xl font-black uppercase tracking-[0.06em] text-white drop-shadow-[0_2px_8px_rgba(0,0,0,0.45)] sm:text-3xl">
                 Kangaroo Race !!
               </h2>
-              {finishRank != null ? (
+              {finishRank != null && didSubmitKangarooBet ? (
                 <p className="mt-1 text-base font-extrabold text-white sm:text-lg">
                   Your Kangaroo Finished{' '}
                   <span className="text-[#39ff14]">{rankLabel}</span> !!
@@ -724,7 +730,13 @@ export default function MiniGamePage() {
               )}
             </div>
 
-            {pointsEarned != null ? (
+            {!didSubmitKangarooBet ? (
+              <div className="mb-3 rounded-xl border-2 border-[#ffb020] bg-[linear-gradient(180deg,rgba(70,35,5,0.95),rgba(24,12,4,0.98))] px-4 py-3 shadow-[0_0_18px_rgba(255,176,32,0.28)]">
+                <p className="text-xl font-black leading-snug text-[#ffd18a] sm:text-2xl">
+                  You have not submitted your bet
+                </p>
+              </div>
+            ) : pointsEarned != null ? (
               <div className="mb-3 rounded-xl border-2 border-[#00f5ff] bg-[linear-gradient(180deg,rgba(13,24,60,0.95),rgba(4,10,25,0.98))] px-4 py-3 shadow-[0_0_18px_rgba(0,245,255,0.25)]">
                 <p className="text-3xl font-black text-[#39ff14]">
                   Scored : +{pointsEarned} Points
@@ -849,105 +861,111 @@ export default function MiniGamePage() {
                           : `${kangarooPickSecondsLeft} seconds left to pick a kangaroo`
                       }
                     >
-                      {/* Stylised stopwatch icon — yellow face with black ticks
-                          and motion lines. Slightly overlaps the red counter
-                          pill (negative margin) to match the Figma reference. */}
+                      {/* Stylised stopwatch icon — yellow face with a top crown
+                          button and side antennas. Tick marks at 12/3/6/9 and
+                          black hour + minute hands. Slightly overlaps the red
+                          counter pill (negative margin) to match the Figma
+                          reference. */}
                       <svg
-                        viewBox="0 0 28 28"
-                        className="relative z-10 -mr-2 h-9 w-9 drop-shadow-[0_2px_4px_rgba(0,0,0,0.45)]"
+                        viewBox="0 0 32 32"
+                        className="relative z-10 -mr-2 h-10 w-10 drop-shadow-[0_2px_4px_rgba(0,0,0,0.45)]"
                         aria-hidden="true"
                       >
+                        {/* Top crown / button */}
+                        <rect
+                          x="14"
+                          y="2.5"
+                          width="4"
+                          height="3"
+                          rx="0.8"
+                          fill="#0b0b0b"
+                        />
+                        {/* Antenna lines on top corners */}
                         <line
                           x1="6"
-                          y1="3"
-                          x2="3"
-                          y2="0"
+                          y1="6"
+                          x2="9"
+                          y2="9"
                           stroke="#0b0b0b"
-                          strokeWidth="1.6"
+                          strokeWidth="1.8"
                           strokeLinecap="round"
                         />
                         <line
-                          x1="14"
-                          y1="2"
-                          x2="14"
-                          y2="-0.5"
+                          x1="26"
+                          y1="6"
+                          x2="23"
+                          y2="9"
                           stroke="#0b0b0b"
-                          strokeWidth="1.6"
+                          strokeWidth="1.8"
                           strokeLinecap="round"
                         />
-                        <line
-                          x1="22"
-                          y1="3"
-                          x2="25"
-                          y2="0"
-                          stroke="#0b0b0b"
-                          strokeWidth="1.6"
-                          strokeLinecap="round"
-                        />
+                        {/* Outer face */}
                         <circle
-                          cx="14"
-                          cy="16"
-                          r="10"
+                          cx="16"
+                          cy="18"
+                          r="11"
                           fill="#fde047"
                           stroke="#0b0b0b"
-                          strokeWidth="1.6"
+                          strokeWidth="1.8"
                         />
-                        <circle cx="14" cy="16" r="6.5" fill="#facc15" />
+                        {/* Tick marks 12 / 3 / 6 / 9 */}
                         <line
-                          x1="14"
-                          y1="9"
-                          x2="14"
-                          y2="10.5"
+                          x1="16"
+                          y1="9.5"
+                          x2="16"
+                          y2="11.5"
                           stroke="#0b0b0b"
-                          strokeWidth="1.2"
+                          strokeWidth="1.5"
                           strokeLinecap="round"
                         />
                         <line
-                          x1="21"
-                          y1="16"
-                          x2="19.5"
-                          y2="16"
+                          x1="24.5"
+                          y1="18"
+                          x2="22.5"
+                          y2="18"
                           stroke="#0b0b0b"
-                          strokeWidth="1.2"
+                          strokeWidth="1.5"
                           strokeLinecap="round"
                         />
                         <line
-                          x1="14"
-                          y1="23"
-                          x2="14"
-                          y2="21.5"
+                          x1="16"
+                          y1="26.5"
+                          x2="16"
+                          y2="24.5"
                           stroke="#0b0b0b"
-                          strokeWidth="1.2"
+                          strokeWidth="1.5"
                           strokeLinecap="round"
                         />
                         <line
-                          x1="7"
-                          y1="16"
-                          x2="8.5"
-                          y2="16"
+                          x1="7.5"
+                          y1="18"
+                          x2="9.5"
+                          y2="18"
                           stroke="#0b0b0b"
-                          strokeWidth="1.2"
+                          strokeWidth="1.5"
                           strokeLinecap="round"
                         />
+                        {/* Hour hand → 12 */}
                         <line
-                          x1="14"
-                          y1="16"
-                          x2="14"
-                          y2="11"
+                          x1="16"
+                          y1="18"
+                          x2="16"
+                          y2="13"
                           stroke="#0b0b0b"
-                          strokeWidth="1.7"
+                          strokeWidth="1.9"
                           strokeLinecap="round"
                         />
+                        {/* Minute hand → 3 */}
                         <line
-                          x1="14"
-                          y1="16"
-                          x2="17.5"
-                          y2="16"
+                          x1="16"
+                          y1="18"
+                          x2="20.5"
+                          y2="18"
                           stroke="#0b0b0b"
-                          strokeWidth="1.7"
+                          strokeWidth="1.9"
                           strokeLinecap="round"
                         />
-                        <circle cx="14" cy="16" r="1.2" fill="#0b0b0b" />
+                        <circle cx="16" cy="18" r="1.4" fill="#0b0b0b" />
                       </svg>
 
                       <div
@@ -1021,7 +1039,53 @@ export default function MiniGamePage() {
             })()
           ))}
 
-        {gameType === 'card_shuffle' && (
+        {gameType === 'card_shuffle' &&
+          activeCardRound == null &&
+          !roundOpen &&
+          resultPhase === null && (
+            // Pre-start screen — shown after the host loads Card Shuffle on the
+            // venue but before they click "Start Game". Mirrors the Kangaroo
+            // Race pre-race layout: big centered card art, round waiting copy
+            // below the card, and a "Card Game is about to begin !!" pill.
+            <div className="relative z-10 flex min-h-0 flex-1 flex-col px-5 pb-8 pt-10 sm:px-8">
+              <header className="shrink-0 text-center">
+                <h1 className="text-[clamp(1.75rem,6.4vw,2.35rem)] font-black uppercase leading-tight tracking-[0.06em] text-white drop-shadow-[0_2px_12px_rgba(0,0,0,0.45)]">
+                  Card Shuffle !!
+                </h1>
+                <p className="mt-2 text-[1.1rem] font-extrabold leading-tight text-white sm:text-xl">
+                  Which Card is the Queen of Hearts ❤️
+                </p>
+              </header>
+
+              <div className="flex flex-1 flex-col items-center justify-center py-4">
+                <div className="flex h-[clamp(220px,48vh,340px)] w-[clamp(160px,36vh,245px)] items-center justify-center">
+                  <img
+                    src={CARD_IMAGE_QUEEN}
+                    alt="Queen of Hearts"
+                    className="h-full w-full object-contain drop-shadow-[0_12px_24px_rgba(0,0,0,0.45)]"
+                    onError={(e) => {
+                      const el = e.currentTarget;
+                      el.style.display = 'none';
+                    }}
+                  />
+                </div>
+                <div className="mt-4 rounded-xl border border-[#00d8ff]/65 bg-[rgba(0,0,0,0.62)] px-4 py-2.5 text-center shadow-[0_0_12px_rgba(0,216,255,0.25)]">
+                  <p className="text-sm font-black text-white sm:text-base">
+                    Waiting for Round 1 to start
+                  </p>
+                </div>
+              </div>
+
+              <div className="shrink-0 rounded-xl border border-[#00d8ff]/65 bg-[rgba(0,0,0,0.62)] px-4 py-3 text-center shadow-[0_0_12px_rgba(0,216,255,0.25)]">
+                <p className="text-base font-black text-white sm:text-lg">
+                  Card Game is about to begin !!
+                </p>
+              </div>
+            </div>
+          )}
+
+        {gameType === 'card_shuffle' &&
+          !(activeCardRound == null && !roundOpen && resultPhase === null) && (
           <div className="relative z-10 flex min-h-0 flex-1 flex-col px-5 pb-8 pt-10 sm:px-8">
             {resultPhase !== 'finished' ? (
               <header className="shrink-0 text-center">
@@ -1067,7 +1131,9 @@ export default function MiniGamePage() {
                     ? `CORRECT ! You found the Queen +${activeRoundBonus}`
                     : resultPhase === 'loser'
                       ? selectedChoice == null
-                        ? 'Wrong ! You did not pick in time.'
+                        ? winningValue
+                          ? `No pick made — Queen was in ${CARD_LABEL_MAP[winningValue]}`
+                          : 'No pick made for this round'
                         : `Wrong ! Queen was in ${winningValue ? CARD_LABEL_MAP[winningValue] : 'another'}`
                       : 'Tap a Card to make your Selection !!'}
                 </p>

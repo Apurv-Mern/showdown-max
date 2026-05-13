@@ -39,6 +39,23 @@ const startTimer = (sessionPin, duration, onTick, onExpire) => {
 };
 
 /**
+ * Arm a full countdown in memory without starting the interval (Music rounds until host starts).
+ * @param {string} sessionPin
+ * @param {number} duration - Seconds
+ */
+const armPausedTimer = (sessionPin, duration) => {
+  sessionPin = normalizeTimerPin(sessionPin);
+  stopTimer(sessionPin);
+  const d = Math.max(0, Math.round(Number(duration)) || 0);
+  activeTimers.set(sessionPin, {
+    remaining: d,
+    running: false,
+    interval: null,
+  });
+  logger.debug('Timer armed paused', { sessionPin, duration: d });
+};
+
+/**
  * Pause the timer for a session
  * @param {string} sessionPin
  * @returns {number} Remaining seconds
@@ -141,6 +158,7 @@ const forceExpire = (sessionPin) => {
 
 module.exports = {
   startTimer,
+  armPausedTimer,
   pauseTimer,
   resumeTimer,
   stopTimer,

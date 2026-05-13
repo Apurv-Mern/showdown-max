@@ -39,7 +39,12 @@ export default function LobbyPage() {
     };
 
     const handleSessionState = (data: any) => {
-      if (data.gameState && data.gameState.state && data.gameState.state !== 'LOBBY') {
+      const gameState = data?.gameState ?? data;
+      if (gameState?.activeMiniGame) {
+        router.push(`/play/mini-game?game=${encodeURIComponent(String(gameState.activeMiniGame))}`);
+        return;
+      }
+      if (gameState?.state && gameState.state !== 'LOBBY') {
         router.push('/play/game');
       }
     };

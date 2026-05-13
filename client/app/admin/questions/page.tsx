@@ -155,6 +155,7 @@ export default function QuestionsPage() {
   const [rounds, setRounds] = useState<RoundInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
+  const [selectedQuizId, setSelectedQuizId] = useState<string>('');
   const [selectedRoundId, setSelectedRoundId] = useState<string>('');
   const [selectedRoundType, setSelectedRoundType] = useState<string>('');
   const [difficultyFilter, setDifficultyFilter] = useState<string>('');
@@ -164,6 +165,8 @@ export default function QuestionsPage() {
   const [modalOpen, setModalOpen] = useState(false);
   const [editingQuestion, setEditingQuestion] = useState<Question | null>(null);
   const [formData, setFormData] = useState<FormData>({ ...defaultFormData });
+  /** Narrows the modal's round list; empty = all quizzes (same as filter bar). */
+  const [formQuizId, setFormQuizId] = useState<string>('');
   const [uploading, setUploading] = useState(false);
   const [saving, setSaving] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -208,12 +211,39 @@ export default function QuestionsPage() {
     fetchQuestions();
   }, [fetchQuestions]);
 
-  const filteredRounds = selectedRoundType
-    ? rounds.filter((r) => r.type === selectedRoundType)
-    : rounds;
+  const quizOptions = useMemo(() => {
+    const map = new Map<number, string>();
+    for (const r of rounds) {
+      if (r.quiz?.id != null && r.quiz.title) map.set(r.quiz.id, r.quiz.title);
+    }
+    return [...map.entries()].sort((a, b) => a[1].localeCompare(b[1], undefined, { sensitivity: 'base' }));
+  }, [rounds]);
+
+  const roundsForBarPicker = useMemo(() => {
+    let list = rounds;
+    if (selectedQuizId) {
+      list = list.filter((r) => String(r.quiz?.id) === selectedQuizId);
+    }
+    if (selectedRoundType) {
+      list = list.filter((r) => r.type === selectedRoundType);
+    }
+    return list;
+  }, [rounds, selectedQuizId, selectedRoundType]);
+
+  const roundsForModalPicker = useMemo(() => {
+    if (!formQuizId) return rounds;
+    return rounds.filter((r) => String(r.quiz?.id) === formQuizId);
+  }, [rounds, formQuizId]);
 
   const openAddModal = (preselectedRoundId?: number) => {
     setEditingQuestion(null);
+    let initialQuiz = '';
+    if (preselectedRoundId) {
+      const r = rounds.find((x) => x.id === preselectedRoundId);
+      if (r?.quiz?.id != null) initialQuiz = String(r.quiz.id);
+    }
+    if (!initialQuiz && selectedQuizId) initialQuiz = selectedQuizId;
+    setFormQuizId(initialQuiz);
     setFormData({
       ...defaultFormData,
       category: 'GENERAL',
@@ -224,6 +254,9 @@ export default function QuestionsPage() {
 
   const openEditModal = (question: Question) => {
     setEditingQuestion(question);
+    const rid = question.round ? String(question.round.id) : '';
+    const r = rid ? rounds.find((x) => String(x.id) === rid) : undefined;
+    setFormQuizId(r?.quiz?.id != null ? String(r.quiz.id) : '');
     setFormData({
       text: question.text,
       category: difficultyFromCategory(question.category),
@@ -240,6 +273,7 @@ export default function QuestionsPage() {
     setModalOpen(false);
     setEditingQuestion(null);
     setFormData({ ...defaultFormData });
+    setFormQuizId('');
   };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -486,7 +520,7 @@ export default function QuestionsPage() {
           >
             <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
           </svg>
-          <select
+          {/* <select
             value={difficultyFilter}
             onChange={(e) => {
               setDifficultyFilter(e.target.value);
@@ -498,8 +532,8 @@ export default function QuestionsPage() {
             <option value="Easy">Easy</option>
             <option value="Medium">Medium</option>
             <option value="Hard">Hard</option>
-          </select>
-          <select
+          </select> */}
+          {/* <select
             value={selectedRoundType}
             onChange={(e) => {
               setSelectedRoundType(e.target.value);
@@ -514,6 +548,23 @@ export default function QuestionsPage() {
                 {ROUND_TYPE_LABELS[type]}
               </option>
             ))}
+          </select> */}
+          <select
+            value={selectedQuizId}
+            onChange={(e) => {
+              setSelectedQuizId(e.target.value);
+              setSelectedRoundId('');
+              setPage(1);
+            }}
+            className="h-[41px] min-w-[200px] max-w-[min(100%,22rem)] flex-1 rounded-[10px] border border-[rgba(0,217,255,0.3)] bg-[#252b45] px-3 text-sm font-medium text-white outline-none focus:border-[rgba(0,217,255,0.55)]"
+            aria-label="Filter by quiz"
+          >
+            <option value="">Quiz (optional)</option>
+            {quizOptions.map(([id, title]) => (
+              <option key={id} value={String(id)}>
+                {title}
+              </option>
+            ))}
           </select>
           <select
             value={selectedRoundId}
@@ -522,16 +573,20 @@ export default function QuestionsPage() {
               setPage(1);
             }}
             className="h-[41px] min-w-[200px] flex-1 rounded-[10px] border border-[rgba(0,217,255,0.3)] bg-[#252b45] px-3 text-sm font-medium text-white outline-none focus:border-[rgba(0,217,255,0.55)] sm:max-w-md"
+            aria-label="Filter by round"
           >
-            <option value="">Specific round (optional)</option>
-            {filteredRounds.map((r) => (
+            <option value="">
+              {selectedQuizId ? 'Round (optional)' : 'Specific round (optional)'}
+            </option>
+            {roundsForBarPicker.map((r) => (
               <option key={r.id} value={r.id}>
-                {r.quiz?.title ? `${r.quiz.title} → ` : ''}
-                {r.name} ({ROUND_TYPE_LABELS[r.type]})
+                {selectedQuizId
+                  ? `${r.name} (${ROUND_TYPE_LABELS[r.type]})`
+                  : `${r.quiz?.title ? `${r.quiz.title} → ` : ''}${r.name} (${ROUND_TYPE_LABELS[r.type]})`}
               </option>
             ))}
           </select>
-          <input
+          {/* <input
             type="search"
             placeholder="Search question text…"
             value={search}
@@ -540,7 +595,7 @@ export default function QuestionsPage() {
               setPage(1);
             }}
             className="h-[41px] min-w-[200px] flex-1 rounded-[10px] border border-[rgba(0,217,255,0.3)] bg-[#252b45] px-3 text-sm text-white placeholder:text-[#6a7282] outline-none focus:border-[rgba(0,217,255,0.55)] lg:max-w-xs"
-          />
+          /> */}
         </div>
       </section>
 
@@ -682,7 +737,36 @@ export default function QuestionsPage() {
         className="max-w-2xl"
       >
         <div className="space-y-4 max-h-[70vh] overflow-y-auto pr-1">
-          {/* Round Selection */}
+          {/* Quiz + round (same cascade as filter bar) */}
+          <div>
+            <label className="block text-sm font-medium text-foreground/70 mb-1">
+              Quiz <span className="text-foreground/40 font-normal">(optional)</span>
+            </label>
+            <select
+              value={formQuizId}
+              onChange={(e) => {
+                const nextQuiz = e.target.value;
+                setFormQuizId(nextQuiz);
+                setFormData((p) => {
+                  if (!p.roundId) return p;
+                  const ok = rounds.some(
+                    (r) =>
+                      String(r.id) === p.roundId &&
+                      (!nextQuiz || String(r.quiz?.id) === nextQuiz),
+                  );
+                  return ok ? p : { ...p, roundId: '' };
+                });
+              }}
+              className="w-full bg-surface-light border border-border rounded-lg px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
+            >
+              <option value="">All quizzes</option>
+              {quizOptions.map(([id, title]) => (
+                <option key={id} value={String(id)}>
+                  {title}
+                </option>
+              ))}
+            </select>
+          </div>
           <div>
             <label className="block text-sm font-medium text-foreground/70 mb-1">Round *</label>
             <select
@@ -710,14 +794,17 @@ export default function QuestionsPage() {
                   }
                   return { ...p, roundId: newRoundId };
                 });
+                if (newRound?.quiz?.id != null) setFormQuizId(String(newRound.quiz.id));
               }}
               className="w-full bg-surface-light border border-border rounded-lg px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
             >
               <option value="">Select a round...</option>
-              {rounds.map((r) => (
+              {roundsForModalPicker.map((r) => (
                 <option key={r.id} value={r.id}>
-                  {ROUND_TYPE_ICONS[r.type]} {r.quiz?.title ? `${r.quiz.title} → ` : ''}
-                  {r.name} ({ROUND_TYPE_LABELS[r.type]})
+                  {ROUND_TYPE_ICONS[r.type]}{' '}
+                  {formQuizId
+                    ? `${r.name} (${ROUND_TYPE_LABELS[r.type]})`
+                    : `${r.quiz?.title ? `${r.quiz.title} → ` : ''}${r.name} (${ROUND_TYPE_LABELS[r.type]})`}
                 </option>
               ))}
             </select>
@@ -755,7 +842,7 @@ export default function QuestionsPage() {
 
           {/* Category + Timer Row */}
           <div className="grid grid-cols-2 gap-3">
-            <div>
+            {/* <div>
               <label className="block text-sm font-medium text-foreground/70 mb-1">
                 Difficulty
               </label>
@@ -770,7 +857,7 @@ export default function QuestionsPage() {
                   </option>
                 ))}
               </select>
-            </div>
+            </div> */}
             <div>
               <label className="block text-sm font-medium text-foreground/70 mb-1">
                 Timer (seconds)

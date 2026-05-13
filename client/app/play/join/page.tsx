@@ -92,7 +92,9 @@ function JoinContent() {
           score: data.score || 0,
         });
         setJoining(false);
-        if (gs?.state && gs.state !== 'LOBBY') {
+        if (gs?.activeMiniGame) {
+          router.push(`/play/mini-game?game=${encodeURIComponent(String(gs.activeMiniGame))}`);
+        } else if (gs?.state && gs.state !== 'LOBBY') {
           router.push('/play/game');
         } else {
           router.push('/play/lobby');

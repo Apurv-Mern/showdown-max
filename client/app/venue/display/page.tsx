@@ -2385,9 +2385,9 @@ function VenueDisplayContent() {
 
         {/* ── MINI GAME ── */}
         {phase === 'mini_game' && miniGameType && (
-          <div className="flex flex-col animate-fadeIn">
-            <div className="px-6 py-3 flex items-center justify-between border-b border-border/30">
-              <h2 className="flex items-center gap-2 text-2xl font-black text-neon-cyan text-glow-cyan">
+          <div className="flex h-full min-h-0 w-full flex-col animate-fadeIn">
+            <div className="shrink-0 px-6">
+              {/* <h2 className="flex items-center gap-2 text-2xl font-black text-neon-cyan text-glow-cyan">
                 {miniGameType === 'Kangaroo_race' ? (
                   <>
                     <img
@@ -2403,8 +2403,8 @@ function VenueDisplayContent() {
                     <span>Card Shuffle</span>
                   </>
                 )}
-              </h2>
-              <p className="text-foreground/40 text-sm">Players pick on their devices</p>
+              </h2> */}
+              {/* <p className="text-foreground/40 text-sm">Players pick on their devices</p> */}
             </div>
             {/* {miniGameType === 'Kangaroo_race' ? (
               <div className="border-b border-border/20 bg-black/25 px-6 py-2">
@@ -2420,14 +2420,14 @@ function VenueDisplayContent() {
                 </div>
               </div>
             ) : null} */}
-            <div className="flex-1 p-4">
+            <div className="flex min-h-0 flex-1 flex-col px-3 py-3 sm:px-4 sm:py-4">
               <DynamicUnityGame
                 gameType={miniGameType as 'Kangaroo_race' | 'card_shuffle'}
                 onPlayerAction={handleUnityPlayerAction}
                 onGameComplete={handleUnityGameComplete}
                 onReady={handleUnityReady}
                 command={miniGameCommand}
-                className="rounded-2xl overflow-hidden"
+                className="min-h-0 flex-1 overflow-hidden rounded-2xl bg-black"
               />
             </div>
           </div>

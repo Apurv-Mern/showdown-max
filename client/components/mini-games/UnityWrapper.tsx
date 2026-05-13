@@ -277,7 +277,9 @@ export default function UnityWrapper({
   }
 
   return (
-    <div className={`relative w-full h-full ${className || ''}`}>
+    <div
+      className={`relative flex h-full w-full min-h-0 flex-1 flex-col overflow-hidden bg-black ${className || ''}`}
+    >
       {/* Loading overlay */}
       {!isLoaded && (
         <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-background/80">
@@ -297,7 +299,7 @@ export default function UnityWrapper({
           <p className="text-lg font-semibold mb-3">
             Loading {gameType === 'Kangaroo_race' ? 'Kangaroo Race' : 'Card Shuffle'}
           </p>
-          <div className="w-48 h-2 bg-surface-light rounded-full overflow-hidden">
+          <div className="w-48 h-2 bg-surface-light rounded-full ">
             <div
               className="h-full bg-primary rounded-full transition-all duration-300"
               style={{ width: `${loadingProgression * 100}%` }}
@@ -307,11 +309,15 @@ export default function UnityWrapper({
         </div>
       )}
 
-      <Unity
-        unityProvider={unityProvider}
-        className="w-full h-full"
-        style={{ width: '100%', height: '100%' }}
-      />
+      {/* Slot fills the black host; canvas is absolutely stretched so it matches the box bounds
+          (no inner letterboxing below the WebGL view). */}
+      <div className="relative min-h-0 w-full flex-1 basis-0">
+        <Unity
+          unityProvider={unityProvider}
+          className="absolute inset-0 h-full w-full max-h-full max-w-full"
+          style={{ width: '100%', height: '100%' }}
+        />
+      </div>
     </div>
   );
 }

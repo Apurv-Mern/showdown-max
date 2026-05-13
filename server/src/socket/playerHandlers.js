@@ -164,6 +164,7 @@ const playerHandlers = (io, socket) => {
 
       socket.join(`session:${pin}`);
       socket.data = { pin, teamId: team.id, teamName: team.teamName };
+      gameController.cancelScheduledDisconnectPurge(pin, team.id);
 
       let gameState = existingGameState;
       if (gameState) {
@@ -499,9 +500,8 @@ const playerHandlers = (io, socket) => {
       const { pin, teamId, teamName } = socket.data || {};
       if (!pin || !teamId) return;
 
-      // intentional: true → server removes the team mid-game too. A passive socket drop falls
-      // through to the disconnect path below and keeps the team in the leaderboard.
-      await gameController.handlePlayerSocketDisconnect(io, pin, teamId, { intentional: true });
+      // Explicit leave: purge immediately (no grace window — same as host remove).
+      await gameController.handlePlayerSocketDisconnect(io, pin, teamId, { immediate: true });
 
       socket.leave(`session:${pin}`);
       socket.data = {};

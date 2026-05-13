@@ -14,11 +14,30 @@ const knockoutEngine = require('./knockoutEngine');
 const timerManager = require('./timerManager');
 const redisStore = require('../redisSessionStore');
 const { buildRevealSnapshot } = require('../revealSnapshot');
+const { purgeTeamFromLiveSession } = require('../purgeTeamFromLiveSession');
 const { Team, Session } = require('../../models');
 const logger = require('../../utils/logger');
 const { getBreakRemainingSeconds } = require('../../utils/breakWallClock');
 
 const eliminationStates = new Map();
+
+/** Passive socket drops (e.g. refresh) schedule a delayed purge; `join_session` cancels it. */
+const disconnectPurgeTimers = new Map();
+const DISCONNECT_PURGE_DELAY_MS = Math.max(
+  2000,
+  Math.min(60000, Number(process.env.DISCONNECT_PURGE_DELAY_MS) || 5000),
+);
+
+const disconnectPurgeKey = (pin, teamId) => `${String(pin)}:${Number(teamId)}`;
+
+const cancelScheduledDisconnectPurge = (pin, teamId) => {
+  const key = disconnectPurgeKey(pin, teamId);
+  const t = disconnectPurgeTimers.get(key);
+  if (t) {
+    clearTimeout(t);
+    disconnectPurgeTimers.delete(key);
+  }
+};
 
 const clampAmount = (amount, min, max) => {
   const parsed = Number(amount);
@@ -429,7 +448,9 @@ const submitAnswer = async (io, pin, teamId, data) => {
   if (
     currentRound?.type === ROUND_TYPES.ELIMINATION &&
     (!gameState.activeTeamIds.map(Number).includes(Number(teamId)) ||
-      Boolean(gameState.teams?.[teamId]?.isEliminated))
+      Boolean(
+        gameState.teams?.[teamId]?.isEliminated ?? gameState.teams?.[String(teamId)]?.isEliminated,
+      ))
   ) {
     logger.info('Rejected answer from eliminated team', {
       pin,
@@ -624,8 +645,9 @@ const revealAnswer = async (io, pin) => {
     // engine correctly kept them in `activeTeamIds`.
     if (!result.allWrong) {
       for (const teamId of result.eliminations) {
-        if (gameState.teams[teamId]) {
-          gameState.teams[teamId].isEliminated = true;
+        const row = gameState.teams[teamId] ?? gameState.teams[String(teamId)];
+        if (row) {
+          row.isEliminated = true;
         }
         io.to(`session:${pin}`).emit(SOCKET_EVENTS.PLAYER_ELIMINATED, { teamId });
       }
@@ -635,12 +657,6 @@ const revealAnswer = async (io, pin) => {
       logger.info('Elimination round ending early — 0 or 1 team remaining', { pin });
     }
   }
-
-  await redisStore.setGameState(pin, gameState);
-
-  persistScoresToDB(gameState.teams).catch((err) =>
-    logger.error('Failed to persist scores to DB', { pin, error: err.message }),
-  );
 
   const correctIndex = question.options.findIndex((o) => o.isCorrect);
   const responseDetails = Object.entries(responses).map(([teamId, response]) => ({
@@ -673,6 +689,24 @@ const revealAnswer = async (io, pin) => {
         .map(([idx]) => Number(idx));
     }
   }
+
+  if (!gameState.revealSnapshotsByQuestionId) gameState.revealSnapshotsByQuestionId = {};
+  gameState.revealSnapshotsByQuestionId[String(question.id)] = {
+    correctOptionIndex: correctIndex,
+    correctText: question.options[correctIndex]?.text || '',
+    scores: { ...result.scores },
+    responseDetails,
+    majorityOptionIndexes,
+    voteCounts,
+    eliminations: result.eliminations,
+    allWrong: result.allWrong,
+  };
+
+  await redisStore.setGameState(pin, gameState);
+
+  persistScoresToDB(gameState.teams).catch((err) =>
+    logger.error('Failed to persist scores to DB', { pin, error: err.message }),
+  );
 
   io.to(`session:${pin}`).emit(SOCKET_EVENTS.ANSWER_REVEAL, {
     correctOptionIndex: correctIndex,
@@ -853,79 +887,30 @@ const advanceToNextRound = async (io, pin) => {
 };
 
 /**
- * Player socket gone (tab close, network loss, or leave_session). Team row and score stay in MySQL for rejoin;
- * removed from Redis lobby, live gameState, and host/venue UIs via team_removed.
+ * Removes the team after a disconnect (purge + broadcasts). Used after grace period or
+ * immediately when the player explicitly leaves.
  */
-const handlePlayerSocketDisconnect = async (io, pin, teamIdRaw, options = {}) => {
-  const teamId = Number(teamIdRaw);
-  if (!pin || !Number.isFinite(teamId)) return;
+const executePlayerDisconnectPurge = async (io, pin, teamId) => {
+  const teamRow = await Team.findByPk(teamId, { attributes: ['id', 'socketId'] });
+  if (teamRow?.socketId) {
+    const live = io.sockets.sockets.get(teamRow.socketId);
+    if (live && live.connected) {
+      logger.info('Skipping disconnect purge — team has an active socket', { pin, teamId });
+      return;
+    }
+  }
 
-  // Intentional leaves (player taps "Leave Game") should still purge — the team's score and
-  // tracking row aren't useful once they've explicitly opted out. Transient socket drops
-  // (default path) must NOT.
-  const intentional = Boolean(options.intentional);
-
-  await Team.update({ isConnected: false, socketId: null }, { where: { id: teamId } });
+  const { removedSocketId } = await purgeTeamFromLiveSession(pin, teamId);
 
   const gameState = await redisStore.getGameState(pin);
-
-  // Once the game is in flight, a transient socket drop (mobile sleep, Wi-Fi handoff, browser
-  // throttling) MUST NOT erase the team — otherwise their score vanishes from the leaderboard
-  // and they can't be auto-restored by socket reconnection. Only purge teams during LOBBY (where
-  // the count gates the start-game flow), after the game ends, or on intentional leave.
-  const isPreGameOrEnded =
-    !gameState ||
-    gameState.state === GAME_STATES.LOBBY ||
-    gameState.state === GAME_STATES.FINAL_RESULTS;
-
-  if (isPreGameOrEnded || intentional) {
-    await redisStore.removeTeamFromLobby(pin, teamId);
-
-    if (gameState) {
-      if (gameState.teams && gameState.teams[teamId]) {
-        delete gameState.teams[teamId];
-      }
-      gameState.activeTeamIds = (
-        Array.isArray(gameState.activeTeamIds) ? gameState.activeTeamIds : []
-      )
-        .map(Number)
-        .filter((id) => id !== teamId);
-      gameState.totalTeams = Object.keys(gameState.teams || {}).length;
-      await redisStore.setGameState(pin, gameState);
-    }
-
-    io.to(`session:${pin}`).emit(SOCKET_EVENTS.TEAM_REMOVED, { teamId });
-    logger.info('Player socket disconnected during lobby/final — team removed', { pin, teamId });
-    return;
-  }
-
-  // Mid-game disconnect: keep the team's score and slot. Socket.io reconnection (and our
-  // join_session reconnect handler) will mark them connected again. Host can still manually
-  // remove the team via the dashboard if they don't come back.
-  if (gameState.teams && gameState.teams[teamId]) {
-    gameState.teams[teamId] = {
-      ...gameState.teams[teamId],
-      isConnected: false,
-    };
-  }
-
-  // Drop the team from the *active* answer cohort for the current question only — without this
-  // a still-pending response from a disconnected team blocks auto-reveal — but keep them in the
-  // leaderboard. They re-join the active set on the next round / reconnect.
-  gameState.activeTeamIds = (
-    Array.isArray(gameState.activeTeamIds) ? gameState.activeTeamIds : []
-  )
-    .map(Number)
-    .filter((id) => id !== teamId);
 
   if (eliminationStates.has(pin)) {
     const es = eliminationStates.get(pin);
     es.activeTeamIds = (es.activeTeamIds || []).map(Number).filter((id) => id !== teamId);
   }
 
-  await redisStore.setGameState(pin, gameState);
-
   if (
+    gameState &&
     gameState.state === GAME_STATES.QUESTION &&
     gameState.questionState === QUESTION_STATES.ACTIVE
   ) {
@@ -965,15 +950,45 @@ const handlePlayerSocketDisconnect = async (io, pin, teamIdRaw, options = {}) =>
     }
   }
 
-  // Do NOT emit TEAM_REMOVED mid-game — that erases the team from the host's responses and
-  // leaderboard UIs. Emit team_updated instead so dashboards can dim/flag disconnected teams
-  // without dropping them.
-  io.to(`session:${pin}`).emit(SOCKET_EVENTS.TEAM_UPDATED, {
+  io.to(`session:${pin}`).emit(SOCKET_EVENTS.TEAM_REMOVED, { teamId });
+  if (removedSocketId) {
+    io.to(removedSocketId).emit(SOCKET_EVENTS.TEAM_REMOVED, { teamId, direct: true });
+  }
+  logger.info('Player disconnected — team purged from session', { pin, teamId });
+};
+
+/**
+ * Tab close / network loss: schedule purge after a grace window so a full-page refresh can
+ * `join_session` and cancel. Explicit `leave_session` uses `{ immediate: true }`.
+ */
+const handlePlayerSocketDisconnect = async (io, pin, teamIdRaw, options = {}) => {
+  const teamId = Number(teamIdRaw);
+  if (!pin || !Number.isFinite(teamId)) return;
+
+  if (options.immediate) {
+    cancelScheduledDisconnectPurge(pin, teamId);
+    await executePlayerDisconnectPurge(io, pin, teamId);
+    return;
+  }
+
+  cancelScheduledDisconnectPurge(pin, teamId);
+  const key = disconnectPurgeKey(pin, teamId);
+  const t = setTimeout(() => {
+    disconnectPurgeTimers.delete(key);
+    executePlayerDisconnectPurge(io, pin, teamId).catch((err) =>
+      logger.error('executePlayerDisconnectPurge failed', {
+        pin,
+        teamId,
+        error: err.message,
+      }),
+    );
+  }, DISCONNECT_PURGE_DELAY_MS);
+  disconnectPurgeTimers.set(key, t);
+  logger.info('Player socket disconnected — purge scheduled', {
+    pin,
     teamId,
-    isConnected: false,
-    score: gameState.teams?.[teamId]?.score ?? 0,
+    delayMs: DISCONNECT_PURGE_DELAY_MS,
   });
-  logger.info('Player socket disconnected mid-game — kept in scoreboard', { pin, teamId });
 };
 
 /**
@@ -1592,6 +1607,7 @@ module.exports = {
   endRound,
   advanceToNextRound,
   handlePlayerSocketDisconnect,
+  cancelScheduledDisconnectPurge,
   showScoreboard,
   hideScoreboard,
   startBreak,

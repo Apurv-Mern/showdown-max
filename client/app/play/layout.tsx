@@ -67,7 +67,10 @@ export default function PlayerLayout({ children }: { children: React.ReactNode }
     const stored = sessionStorage.getItem('playerSession');
     if (stored) {
       try {
-        setSessionState(JSON.parse(stored));
+        const parsed = JSON.parse(stored) as PlayerSession;
+        const n = Number(parsed.teamId);
+        parsed.teamId = Number.isFinite(n) ? n : null;
+        setSessionState(parsed);
       } catch {
         // corrupted storage, ignore
       }

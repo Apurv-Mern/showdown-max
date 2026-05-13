@@ -386,6 +386,8 @@ function VenueDisplayContent() {
   const [isVenueMp3Playing, setIsVenueMp3Playing] = useState(false);
   const [showBreakEndedNotice, setShowBreakEndedNotice] = useState(false);
   const questionMediaUrlRef = useRef<string | undefined>(undefined);
+  /** Resolved MP3 URL last passed to `setMp3Source` — avoids `load()` on resume after host pause. */
+  const venueMp3LoadedUrlRef = useRef<string>('');
   /** MP4 question playback ref — driven by `music_control` events (host Play/Pause MP4) and
    *  the question lifecycle. Stops on reveal / round end / scoreboard. */
   const venueMp4Ref = useRef<HTMLVideoElement | null>(null);
@@ -425,6 +427,7 @@ function VenueDisplayContent() {
   });
   const {
     play: playMp3,
+    pause: pauseMp3,
     stop: stopMp3,
     setSource: setMp3Source,
   } = useAudio({ loop: false, volume: 0.8 });
@@ -602,10 +605,13 @@ function VenueDisplayContent() {
     if (!question?.question?.mediaUrl) return;
     const mediaType = (question.question.mediaType || '').toLowerCase();
     if (mediaType === 'mp3') {
-      setMp3Source(resolveMediaUrl(question.question.mediaUrl));
+      const resolved = resolveMediaUrl(question.question.mediaUrl);
+      setMp3Source(resolved);
+      venueMp3LoadedUrlRef.current = resolved;
     }
     return () => {
       stopMp3();
+      venueMp3LoadedUrlRef.current = '';
       setIsVenueMp3Playing(false);
       // Tear down MP4 playback when leaving this question — prevents stale audio bleeding into
       // the next round and resets the element's currentTime ready for re-use.
@@ -1367,7 +1373,11 @@ function VenueDisplayContent() {
           return;
         }
         if (mediaUrl) {
-          setMp3Source(resolveMediaUrl(mediaUrl));
+          const resolved = resolveMediaUrl(mediaUrl);
+          if (venueMp3LoadedUrlRef.current !== resolved) {
+            setMp3Source(resolved);
+            venueMp3LoadedUrlRef.current = resolved;
+          }
         }
         playMp3();
         setIsVenueMp3Playing(true);
@@ -1387,7 +1397,12 @@ function VenueDisplayContent() {
         }
         return;
       }
-      stopMp3();
+      if (action === 'stop') {
+        stopMp3();
+        venueMp3LoadedUrlRef.current = '';
+      } else {
+        pauseMp3();
+      }
       setIsVenueMp3Playing(false);
     };
 
@@ -1495,7 +1510,7 @@ function VenueDisplayContent() {
       socket.off('mini_game_end', onMiniGameEnd);
       socket.off('game_end', onGameEnd);
     };
-  }, [socket, sessionPin, isPinReady, router, playMp3, setMp3Source, stopMp3]);
+  }, [socket, sessionPin, isPinReady, router, playMp3, pauseMp3, setMp3Source, stopMp3]);
 
   const QROverlay = () => {
     if (

@@ -45,7 +45,7 @@ function JoinContent() {
     const onSessionState = (data: any) => {
       if (data.joined) {
         const gs = data.gameState;
-        if (gs?.currentRound) {
+        if (gs?.currentRound && gs.state === 'ROUND_INTRO') {
           sessionStorage.setItem(
             'roundIntro',
             JSON.stringify({
@@ -87,7 +87,7 @@ function JoinContent() {
 
         setSession({
           pin,
-          teamId: data.teamId,
+          teamId: data.teamId != null ? Number(data.teamId) : null,
           teamName: data.teamName,
           score: data.score || 0,
         });

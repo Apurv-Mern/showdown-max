@@ -7,46 +7,9 @@ const gameController = require('../services/game-engine/gameController');
 const redisStore = require('../services/redisSessionStore');
 const { Session, Quiz, Round, Question, Team } = require('../models');
 const { normalizeTeamName, sanitizeTeamName } = require('../utils/teamName');
+const { purgeTeamFromLiveSession } = require('../services/purgeTeamFromLiveSession');
 
-const purgeTeamRecord = async (pin, teamId) => {
-  const team = await Team.findByPk(teamId, { attributes: ['id', 'teamName', 'socketId'] });
-  const removedSocketId = team?.socketId || null;
-  const removedTeamName = team?.teamName || null;
-  await Team.destroy({ where: { id: teamId } });
-  await redisStore.removeTeamFromLobby(pin, teamId);
-  await redisStore.removeTeamData(pin, teamId);
-
-  if (pin) {
-    const existing = await redisStore.getGameState(pin);
-    if (existing) {
-      await redisStore.updateGameState(pin, (current) => {
-        const teams = { ...(current.teams || {}) };
-        delete teams[teamId];
-        const activeTeamIds = (current.activeTeamIds || []).filter(
-          (id) => Number(id) !== Number(teamId),
-        );
-        const removedTeamIds = Array.from(
-          new Set([...(current.removedTeamIds || []).map(Number), Number(teamId)]),
-        ).filter((id) => Number.isFinite(id));
-        const removedTeamNames = Array.from(
-          new Set([
-            ...(current.removedTeamNames || []).map((name) => normalizeTeamName(name)),
-            ...(removedTeamName ? [normalizeTeamName(removedTeamName)] : []),
-          ]),
-        ).filter(Boolean);
-        return {
-          teams,
-          activeTeamIds,
-          removedTeamIds,
-          removedTeamNames,
-          totalTeams: Object.keys(teams).length,
-        };
-      });
-    }
-  }
-
-  return { removedSocketId };
-};
+const purgeTeamRecord = async (pin, teamId) => purgeTeamFromLiveSession(pin, teamId);
 
 /**
  * Registers host-specific socket event handlers

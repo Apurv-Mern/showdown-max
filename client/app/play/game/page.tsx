@@ -54,6 +54,9 @@ interface RevealData {
   correctText: string;
   scores: Record<string, number>;
   responseDetails?: { teamId: number; selectedOptionIndex: number; responseTime?: number | null }[];
+  /** Majority Rules: option index(es) that tied for the most votes (scoring winners). */
+  majorityOptionIndexes?: number[];
+  voteCounts?: Record<number, number>;
   eliminations: number[];
   allWrong: boolean;
   teams: { teamId: number; teamName: string; score: number; isEliminated?: boolean }[];
@@ -86,6 +89,13 @@ const FINAL_WAGER_PERCENT_OPTIONS = [0, 20, 40, 60, 80, 100] as const;
 
 function initialWagerAmountForRoundType(roundType?: string): number {
   return (roundType || '').toUpperCase() === 'FINAL_WAGER' ? FINAL_WAGER_PERCENT_OPTIONS[0] : 0;
+}
+
+/** Payloads / sessionStorage may mix numeric and string team ids — avoid `===` misses. */
+function sameTeamId(a: unknown, b: unknown): boolean {
+  const na = Number(a);
+  const nb = Number(b);
+  return Number.isFinite(na) && Number.isFinite(nb) && na === nb;
 }
 
 function RevealOptionStatusIcon({ variant }: { variant: 'correct' | 'wrong' }) {
@@ -259,7 +269,7 @@ function QuestionMediaVisual({
   musicBanner,
 }: {
   question: QuestionData;
-  /** Music / MP3 questions: one line only — `playing` after host starts the venue timer. */
+  /** Music / MP3 questions: venue copy — `waiting` until host starts timer; `playing` after. */
   musicBanner: 'none' | 'waiting' | 'playing';
 }) {
   const q = question.question;
@@ -283,7 +293,7 @@ function QuestionMediaVisual({
       musicBanner === 'playing'
         ? 'Video is playing on Venue Screen'
         : musicBanner === 'waiting'
-          ? 'Video is playing on Venue Screen'
+          ? 'Waiting for host to start the video'
           : 'Video is playing on Venue Screen';
     return (
       <div className="shrink-0">
@@ -303,7 +313,7 @@ function QuestionMediaVisual({
       musicBanner === 'playing'
         ? 'Audio is playing on Venue Screen'
         : musicBanner === 'waiting'
-          ? 'Audio is playing on Venue Screen'
+          ? 'Waiting for host to play music'
           : null;
     return (
       <div className="shrink-0">
@@ -521,6 +531,8 @@ export default function GamePage() {
   const [breakEndsAtMs, setBreakEndsAtMs] = useState<number | null>(null);
   const [breakSkewMs, setBreakSkewMs] = useState(0);
   const [timerRunning, setTimerRunning] = useState(false);
+  /** MUSIC round: host has started the venue timer at least once this question (incl. after pause). */
+  const [musicVenuePlaybackStarted, setMusicVenuePlaybackStarted] = useState(false);
   const [showBreakEndedNotice, setShowBreakEndedNotice] = useState(false);
   // Becomes true the first time we receive any state (session_state OR a sessionStorage replay
   // from the lobby/join page). Used to suppress the "Waiting for game to start" splash on a
@@ -592,7 +604,16 @@ export default function GamePage() {
         );
         setTimerEndsAt(coerced.endsAt);
         setTimerRemaining(coerced.remaining);
-        setTimerRunning(Boolean(data.timerRunning));
+        const running = Boolean(data.timerRunning);
+        setTimerRunning(running);
+        const td = Number(data.timerDuration ?? 30) || 30;
+        const tr = coerced.remaining;
+        const isMusicRound = (data.roundType || '').toUpperCase() === 'MUSIC';
+        if (isMusicRound) {
+          setMusicVenuePlaybackStarted(running || (tr > 0 && tr < td));
+        } else {
+          setMusicVenuePlaybackStarted(false);
+        }
         if (knockedOut) {
           isEliminatedRef.current = true;
           setIsEliminated(true);
@@ -755,7 +776,17 @@ export default function GamePage() {
           );
           setTimerEndsAt(coerced.endsAt);
           setTimerRemaining(coerced.remaining);
-          setTimerRunning(Boolean(gs.timerRunning));
+          const running = Boolean(gs.timerRunning);
+          setTimerRunning(running);
+          const td = Number(gs.currentQuestion.timerDuration ?? 30) || 30;
+          const tr = coerced.remaining;
+          const isMusicRound =
+            (gs.currentQuestion.roundType || '').toUpperCase() === 'MUSIC';
+          if (isMusicRound) {
+            setMusicVenuePlaybackStarted(running || (tr > 0 && tr < td));
+          } else {
+            setMusicVenuePlaybackStarted(false);
+          }
           setRevealData(null);
           setPointsGained(null);
 
@@ -824,6 +855,7 @@ export default function GamePage() {
           setTimerEndsAt(null);
           setTimerRemaining(0);
           setTimerRunning(false);
+          setMusicVenuePlaybackStarted(false);
           setSelectedOption(null);
           setRevealData(null);
           setPointsGained(null);
@@ -906,6 +938,7 @@ export default function GamePage() {
       setWagerSubmitted(false);
       setWagerAmount(0);
       setTimerRunning(false);
+      setMusicVenuePlaybackStarted(false);
     };
 
     const onWagerCollectionStart = (data: any) => {
@@ -919,6 +952,7 @@ export default function GamePage() {
       setWagerAmount(initialWagerAmountForRoundType(data?.round?.type));
       setPhase('wager_input');
       setTimerRunning(false);
+      setMusicVenuePlaybackStarted(false);
     };
 
     const onQuestionActive = (data: QuestionData) => {
@@ -942,7 +976,16 @@ export default function GamePage() {
       );
       setTimerEndsAt(coerced.endsAt);
       setTimerRemaining(coerced.remaining);
-      setTimerRunning(Boolean(data.timerRunning));
+      const running = Boolean(data.timerRunning);
+      setTimerRunning(running);
+      const td = Number(data.timerDuration ?? 30) || 30;
+      const tr = coerced.remaining;
+      const isMusicRound = (data.roundType || '').toUpperCase() === 'MUSIC';
+      if (isMusicRound) {
+        setMusicVenuePlaybackStarted(running || (tr > 0 && tr < td));
+      } else {
+        setMusicVenuePlaybackStarted(false);
+      }
       const mine = data.mySubmittedOptionIndex;
       const restored =
         mine !== undefined && mine !== null && Number.isFinite(Number(mine)) ? Number(mine) : null;
@@ -985,10 +1028,19 @@ export default function GamePage() {
     }) => {
       if (typeof data.timerRunning === 'boolean') {
         setTimerRunning(data.timerRunning);
+        if (
+          data.timerRunning &&
+          (questionRef.current?.roundType || '').toUpperCase() === 'MUSIC'
+        ) {
+          setMusicVenuePlaybackStarted(true);
+        }
       } else if (data.paused === true) {
         setTimerRunning(false);
       } else if (data.paused === false) {
         setTimerRunning(true);
+        if ((questionRef.current?.roundType || '').toUpperCase() === 'MUSIC') {
+          setMusicVenuePlaybackStarted(true);
+        }
       }
       const coerced = coercePlayerTimerFromServer(data.remaining, data.timerEndsAt);
       setTimerEndsAt(coerced.endsAt);
@@ -1010,18 +1062,19 @@ export default function GamePage() {
       // the "eliminated" UI instead of flashing the live reveal screen. The
       // `data.eliminations` array only carries this question's knockouts, so by itself it
       // can't tell us about prior rounds.
-      const myTeam = data.teams.find((t) => t.teamId === session.teamId);
+      const myTeam = data.teams.find((t) => sameTeamId(t.teamId, session.teamId));
       const persistEliminated = isEliminatedRef.current || Boolean(myTeam?.isEliminated);
       setPhase(persistEliminated ? 'eliminated' : 'reveal');
-      const myResponse = data.responseDetails?.find((r) => r.teamId === session.teamId);
+      const myResponse = data.responseDetails?.find((r) => sameTeamId(r.teamId, session.teamId));
       if (myResponse && Number.isFinite(Number(myResponse.selectedOptionIndex))) {
         const selectedIdx = Number(myResponse.selectedOptionIndex);
         setSelectedOption(selectedIdx >= 0 ? selectedIdx : null);
       } else {
         setSelectedOption(null);
       }
-      const teamIdStr = String(session.teamId);
-      setPointsGained(data.scores[teamIdStr] ?? 0);
+      const sid = session.teamId != null ? Number(session.teamId) : NaN;
+      const teamIdStr = Number.isFinite(sid) ? String(sid) : '';
+      setPointsGained(teamIdStr ? (data.scores[teamIdStr] ?? 0) : 0);
       if (myTeam) setSession({ score: myTeam.score });
       // Per the all-teams-wrong rule (`server/.../knockoutEngine.js`), nobody is knocked out
       // when every active team got the question wrong — the server already keeps them in
@@ -1029,7 +1082,10 @@ export default function GamePage() {
       // array on `answer_reveal` still carries the wrong-team list for telemetry. Honour
       // `allWrong` here so the last surviving player isn't bounced into the eliminated UI
       // when they answer alone and miss.
-      if (!data.allWrong && data.eliminations.includes(session.teamId!)) {
+      if (
+        !data.allWrong &&
+        data.eliminations?.some((id) => sameTeamId(id, session.teamId))
+      ) {
         isEliminatedRef.current = true;
         setIsEliminated(true);
         setPhase('eliminated');
@@ -1040,7 +1096,7 @@ export default function GamePage() {
     };
 
     const onPlayerEliminated = (data: { teamId: number }) => {
-      if (data.teamId === session.teamId) {
+      if (sameTeamId(data.teamId, session.teamId)) {
         isEliminatedRef.current = true;
         setIsEliminated(true);
         setPhase('eliminated');
@@ -1143,7 +1199,7 @@ export default function GamePage() {
       setTimerRunning(false);
       if (data?.teams) {
         setScoreboard(data.teams);
-        const myTeam = data.teams.find((t) => t.teamId === session.teamId);
+        const myTeam = data.teams.find((t) => sameTeamId(t.teamId, session.teamId));
         if (myTeam) setSession({ score: myTeam.score });
       }
       clearSession();
@@ -1206,6 +1262,13 @@ export default function GamePage() {
     setSession,
     clearSession,
   ]);
+
+  // Declared after the listener effect so `session_state` from this emit is never missed.
+  // Join → /play/game reuses an already-connected socket, so `connect` does not fire again.
+  useEffect(() => {
+    if (!socket || !session.pin || !session.teamName) return;
+    socket.emit('join_session', { pin: session.pin, teamName: session.teamName });
+  }, [socket, session.pin, session.teamName]);
 
   const handleSelectOption = useCallback(
     (index: number) => {
@@ -1300,6 +1363,7 @@ export default function GamePage() {
     // answer_reveal arrival and phase state update).
     if (revealData) return 'none';
     if (timerRunning) return 'playing';
+    if (musicVenuePlaybackStarted && timerRemaining > 0) return 'playing';
     if (timerRemaining > 0) return 'waiting';
     return 'none';
   })();
@@ -1697,13 +1761,17 @@ export default function GamePage() {
                     {question.question.options.map((opt, i) => {
                       const isMajorityRulesRound =
                         (question.roundType || '').toUpperCase() === 'MAJORITY_RULES';
+                      const majorityWinners = new Set(
+                        (revealData.majorityOptionIndexes || []).map(Number).filter(Number.isFinite),
+                      );
+                      const isVoteWinner = majorityWinners.has(i);
                       const isCorrectOption = i === revealData.correctOptionIndex;
                       const isSelectedOption = selectedOption === i;
                       const isSelectedWrong = isSelectedOption && !isCorrectOption;
-                      // Dim all incorrect options; keep full style on correct + user's wrong pick (red).
-                      // When the user never submitted, selectedOption is null — still dim wrong answers.
+
+                      // Majority Rules: "correct" is decided by votes, not the question's factual key.
                       const shouldDim = isMajorityRulesRound
-                        ? selectedOption !== null && !isSelectedOption
+                        ? !isVoteWinner && !isSelectedOption
                         : !isCorrectOption && !isSelectedWrong;
 
                       const userMajorityWin =
@@ -1717,11 +1785,9 @@ export default function GamePage() {
                         selectedOption !== null &&
                         (pointsGained ?? 0) <= 0;
 
-                      const showCorrectTick = isMajorityRulesRound
-                        ? userMajorityWin
-                        : isCorrectOption;
+                      const showCorrectTick = isMajorityRulesRound ? isVoteWinner : isCorrectOption;
                       const showWrongCross = isMajorityRulesRound
-                        ? userMajorityLose
+                        ? userMajorityLose && isSelectedOption
                         : isSelectedWrong;
 
                       return (

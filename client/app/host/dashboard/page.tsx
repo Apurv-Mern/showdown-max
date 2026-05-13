@@ -1668,8 +1668,7 @@ function HostDashboardContent() {
     (gameState?.currentQuestionIndex ?? 0) === currentRound.questions.length - 1;
   const revealOnLastQuestionOfRound =
     state === 'QUESTION' && questionState === 'REVEALED' && isLastQuestionOfRound;
-  const miniGameFinishShouldAdvanceRound =
-    state === 'SCOREBOARD' || revealOnLastQuestionOfRound;
+  const miniGameFinishShouldAdvanceRound = state === 'SCOREBOARD' || revealOnLastQuestionOfRound;
   const miniGameFinishActionLabel = miniGameFinishShouldAdvanceRound
     ? 'Start Next Round'
     : 'Next Question';
@@ -1947,7 +1946,7 @@ function HostDashboardContent() {
               </div>
             </section>
 
-            <section data-name="Media Controls" data-node-id="232:4478">
+            {/* <section data-name="Media Controls" data-node-id="232:4478">
               <HostPanelTitle data-node-id="232:4480">Media Controls</HostPanelTitle>
               <div className="grid grid-cols-2 gap-3">
                 <HostSidebarTile
@@ -1997,7 +1996,7 @@ function HostDashboardContent() {
                   }}
                 />
               </div>
-            </section>
+            </section> */}
           </div>
         </aside>
 
@@ -2894,13 +2893,13 @@ function HostDashboardContent() {
               </span>
 
               <div
-                className="overflow-hidden rounded-lg border border-white/20"
+                className="max-h-[min(45vh,22rem)] overflow-y-auto overscroll-y-contain rounded-lg border border-white/20 [scrollbar-color:rgba(255,255,255,0.25)_transparent]"
                 data-name="Leaderboard Container"
               >
                 {sortedTeams.length === 0 ? (
                   <p className="px-4 py-6 text-center text-sm text-white/40">No teams yet</p>
                 ) : (
-                  sortedTeams.slice(0, 5).map((team, idx) => (
+                  sortedTeams.map((team, idx) => (
                     <div
                       key={team.teamId}
                       className="flex items-center gap-3 border-b border-white/20 bg-[#1a1f2e] px-4 py-3 last:border-b-0"
@@ -3576,10 +3575,10 @@ function HostDashboardContent() {
       {pendingMiniGameExit && (
         <ModalOverlay onClose={() => setPendingMiniGameExit(null)} title="Exit Mini-Game?">
           <p className="mb-5 text-sm leading-relaxed text-white/70">
-            Do you want to{' '}
-            <span className="font-semibold text-white">resume the trivia game</span> where you left
-            off, or <span className="font-semibold text-white">restart this mini-game</span> from
-            the beginning?
+            Do you want to <span className="font-semibold text-white">resume the trivia game</span>{' '}
+            where you left off, or{' '}
+            <span className="font-semibold text-white">restart this mini-game</span> from the
+            beginning?
           </p>
           <div className="flex flex-col gap-2">
             <button
@@ -3594,8 +3593,7 @@ function HostDashboardContent() {
               onClick={confirmExitRestartMiniGame}
               className="rounded-lg border border-violet-400/55 bg-[linear-gradient(180deg,#7c3aed_0%,#4c1d95_100%)] py-2 text-sm font-bold uppercase tracking-wide text-white shadow-[0_0_18px_rgba(124,58,237,0.25)] hover:brightness-110"
             >
-              Restart{' '}
-              {pendingMiniGameExit === 'card_shuffle' ? 'Card Shuffle' : 'Kangaroo Race'}
+              Restart {pendingMiniGameExit === 'card_shuffle' ? 'Card Shuffle' : 'Kangaroo Race'}
             </button>
             <button
               type="button"

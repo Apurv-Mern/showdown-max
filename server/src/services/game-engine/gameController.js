@@ -1374,6 +1374,47 @@ const launchMiniGame = async (io, pin, gameType, config = {}) => {
 };
 
 /**
+ * Reset the current mini-game to a fresh intro state without clearing `activeMiniGame`
+ * or emitting the trivia `session_state` that `end_mini_game` sends. Used when the host
+ * chooses "Restart" so the venue stays on the mini-game surface instead of flashing the quiz.
+ */
+const restartMiniGame = async (io, pin) => {
+  const gameState = await redisStore.getGameState(pin);
+  if (!gameState?.activeMiniGame) {
+    logger.warn('restartMiniGame: no active mini-game', { pin });
+    return;
+  }
+
+  const gameType = gameState.activeMiniGame;
+  const normalizedConfig = { ...(gameState.miniGameConfig || {}) };
+
+  if (gameType === 'kangaroo_race') {
+    const namesSource = normalizedConfig.kangarooNames || gameState.miniGameState?.kangarooNames;
+    if (!hasValidKangarooNames(namesSource)) {
+      throw new Error('Kangaroo race requires exactly 6 non-empty kangaroo names');
+    }
+    normalizedConfig.kangarooNames = normalizeKangarooNames(namesSource);
+  }
+
+  gameState.miniGameConfig = normalizedConfig;
+  gameState.miniGameState =
+    gameType === 'card_shuffle'
+      ? createCardShuffleState()
+      : gameType === 'kangaroo_race'
+        ? createHorseRaceState(normalizedConfig.kangarooNames)
+        : { game: gameType };
+
+  await redisStore.setGameState(pin, gameState);
+
+  io.to(`session:${pin}`).emit(SOCKET_EVENTS.SESSION_STATE, sanitizeForClients(gameState));
+  io.to(`session:${pin}`).emit(SOCKET_EVENTS.MINI_GAME_START, {
+    game: gameType,
+    ...normalizedConfig,
+  });
+  logger.info('Mini game restarted in place', { pin, gameType });
+};
+
+/**
  * Clear mini-game after Unity reports completion or host manually ends it.
  * Sends the winning config so venue/players can show the result screen.
  */
@@ -1680,6 +1721,7 @@ module.exports = {
   startBreak,
   endBreak,
   launchMiniGame,
+  restartMiniGame,
   endMiniGame,
   pauseTimer,
   startTimer,

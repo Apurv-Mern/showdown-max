@@ -314,8 +314,8 @@ function HostFooterBtn({
         danger
           ? 'border-[#ff4d4d]/70 bg-[linear-gradient(180deg,#b91c1c_0%,#7f1d1d_100%)] shadow-[0_0_18px_rgba(239,68,68,0.22)]'
           : emphasis
-          ? 'border-[rgba(0,217,255,0.45)] bg-[linear-gradient(180deg,#3a4a68_0%,#1e2a42_100%)] shadow-[0_0_18px_rgba(0,217,255,0.18)]'
-          : 'border-white/15 bg-[linear-gradient(180deg,#2e354c_0%,#1a2030_100%)]',
+            ? 'border-[rgba(0,217,255,0.45)] bg-[linear-gradient(180deg,#3a4a68_0%,#1e2a42_100%)] shadow-[0_0_18px_rgba(0,217,255,0.18)]'
+            : 'border-white/15 bg-[linear-gradient(180deg,#2e354c_0%,#1a2030_100%)]',
       )}
     >
       <span className="flex size-5.5 shrink-0 items-center justify-center [&>svg]:h-full [&>svg]:w-full">
@@ -1431,26 +1431,24 @@ function HostDashboardContent() {
     setPendingMiniGameExit(null);
   }, [emit]);
 
-  /** End the current mini-game and re-launch the same one from the start, so
-   *  the audience sees the introduction screen again. */
+  /** Reset the current mini-game in Redis and re-broadcast intro state **without**
+   *  running `end_mini_game` (which flashes the quiz). Server handles via `restart_mini_game`. */
   const confirmExitRestartMiniGame = useCallback(() => {
     const kind = pendingMiniGameExit;
     if (!kind) return;
-    emit('end_mini_game');
+    if (kind === 'kangaroo_race' && !isKangarooNamesValid) {
+      toast.error('Please enter all 6 kangaroo names before restarting the race.');
+      return;
+    }
+
     setPendingMiniGameExit(null);
-    // Tear down the live mini-game on the venue / players, but DO NOT auto
-    // re-launch on the venue. The host should explicitly tap
-    // "Load Race on Venue" / "Load Card Game on Venue" again so they get
-    // a clean, controlled start. We just leave the local controls panel
-    // open on the right mini-game so the host doesn't need to re-pick it.
+
     setKangarooRaceStarted(false);
     setKangarooRaceRevealed(false);
     setKangarooVenueReady(false);
-    setKangarooVenueLoading(false);
     setKangarooFinishOrder([]);
     setKangarooBetCounts([0, 0, 0, 0, 0, 0]);
     setCardShuffleVenueReady(false);
-    setCardShuffleVenueLoading(false);
     setCardShuffleGameStarted(false);
     setCardShuffleUnityStartSent(false);
     cardShuffleStartLockRef.current = false;
@@ -1460,7 +1458,15 @@ function HostDashboardContent() {
     setCardPickCounts([0, 0, 0]);
     setMiniGameRevealing(false);
     setActiveMiniGameLocal(kind);
-  }, [emit, pendingMiniGameExit]);
+    setMiniGameLoading(true);
+    if (kind === 'card_shuffle') {
+      setCardShuffleVenueLoading(true);
+    } else {
+      setKangarooVenueLoading(true);
+    }
+
+    emit('restart_mini_game');
+  }, [emit, pendingMiniGameExit, isKangarooNamesValid]);
 
   const handleFinishCardShuffle = () => {
     emit('end_mini_game', {

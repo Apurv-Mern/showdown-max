@@ -152,6 +152,15 @@ const hostHandlers = (io, socket) => {
     }
   });
 
+  socket.on(SOCKET_EVENTS.RESTART_MINI_GAME, async (data) => {
+    try {
+      await gameController.restartMiniGame(io, data.pin);
+    } catch (err) {
+      logger.error('restart_mini_game error', { error: err.message });
+      socket.emit(SOCKET_EVENTS.ERROR, { message: err.message || 'Could not restart mini-game' });
+    }
+  });
+
   socket.on(SOCKET_EVENTS.END_MINI_GAME, async (data) => {
     try {
       await gameController.endMiniGame(io, data.pin, data.config || {});

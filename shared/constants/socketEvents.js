@@ -22,6 +22,8 @@ const SOCKET_EVENTS = Object.freeze({
   START_BREAK: 'start_break',
   END_BREAK: 'end_break',
   LAUNCH_MINI_GAME: 'launch_mini_game',
+  /** Host: reset the active mini-game to its intro state without leaving mini-game / trivia UI. */
+  RESTART_MINI_GAME: 'restart_mini_game',
   MINI_GAME_COMMAND: 'mini_game_command',
   END_MINI_GAME: 'end_mini_game',
   ADD_TEAM: 'add_team',

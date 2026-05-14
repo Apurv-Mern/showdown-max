@@ -83,9 +83,8 @@ const OPTION_BG: Record<number, string> = {
 const OPTION_LETTERS = ['A', 'B', 'C', 'D', 'E', 'F'];
 
 const WAGER_POINT_OPTIONS = [0, 10, 20, 30, 40, 50] as const;
-// Project scope: Final wager spans 0–100% of total score (max-showdown-trivia.mdc, Round Types).
-// Earlier we capped this at 60% which contradicted the rules and prevented a high-stakes finale.
-const FINAL_WAGER_PERCENT_OPTIONS = [0, 20, 40, 60, 80, 100] as const;
+// Final wager: fixed % steps on mobile; server clamps to SCORING.FINAL_WAGER (shared/constants/scoring.js).
+const FINAL_WAGER_PERCENT_OPTIONS = [0, 10, 20, 30, 40, 50] as const;
 
 function initialWagerAmountForRoundType(roundType?: string): number {
   return (roundType || '').toUpperCase() === 'FINAL_WAGER' ? FINAL_WAGER_PERCENT_OPTIONS[0] : 0;
@@ -1304,9 +1303,7 @@ export default function GamePage() {
 
   const isFinalWagerRound =
     (question?.roundType || roundInfo?.round?.type || '').toUpperCase() === 'FINAL_WAGER';
-  const lockedWagerLabel = isFinalWagerRound
-    ? `${wagerAmount}% (${Math.round((session.score * wagerAmount) / 100)} pts)`
-    : `${wagerAmount} pts`;
+  const lockedWagerLabel = isFinalWagerRound ? `${wagerAmount}%` : `${wagerAmount} pts`;
   const wagerChoiceValues = isFinalWagerRound ? FINAL_WAGER_PERCENT_OPTIONS : WAGER_POINT_OPTIONS;
 
   useEffect(() => {
@@ -1559,7 +1556,7 @@ export default function GamePage() {
                   </motion.div> */}
                   {isFinalWagerRound ? (
                     <p className="text-foreground/40 text-sm mb-6">
-                      Wager 0%–100% of your current score on the final question.
+                      Wager 0%–50% of your current score on the final question.
                     </p>
                   ) : (
                     <div className="mb-6 space-y-2 rounded-xl border border-white/10 bg-black/25 px-4 py-3 text-left text-sm leading-snug text-white/75 sm:text-center">
@@ -1602,9 +1599,7 @@ export default function GamePage() {
                       ))}
                     </div>
                     <p className="text-3xl font-mono font-bold text-neon-cyan text-glow-cyan mt-4 sm:text-4xl">
-                      {isFinalWagerRound
-                        ? `${wagerAmount}% (${Math.round((session.score * wagerAmount) / 100)} pts)`
-                        : `${wagerAmount} pts`}
+                      {isFinalWagerRound ? `${wagerAmount}%` : `${wagerAmount} pts`}
                     </p>
                   </motion.div>
                   <button
@@ -2117,9 +2112,9 @@ export default function GamePage() {
                     variants={staggerContainer}
                     initial="initial"
                     animate="animate"
-                    className="space-y-2 mb-6"
+                    className="space-y-2 mb-6 overflow-y-auto max-h-[40vh] pr-1"
                   >
-                    {scoreboard.slice(0, 5).map((team, idx) => (
+                    {scoreboard.map((team, idx) => (
                       <motion.div
                         key={team.teamId}
                         variants={staggerItem}

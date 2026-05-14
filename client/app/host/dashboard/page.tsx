@@ -1247,7 +1247,7 @@ function HostDashboardContent() {
     normalizedKangarooNames.every((name) => name.length > 0 && name.length <= 32);
 
   const updateKangarooName = (slotIndex: number, value: string) => {
-    const cleaned = value.replace(/\s+/g, ' ').slice(0, 32);
+    const cleaned = value.replace(/\s+/g, ' ').slice(0, 12);
     setKangarooNames((prev) => prev.map((name, idx) => (idx === slotIndex ? cleaned : name)));
   };
   const handleKangarooRaceStart = () => {
@@ -3346,7 +3346,7 @@ function HostDashboardContent() {
                 </p>
               ) : (
                 <ul className="flex flex-col gap-0 overflow-hidden rounded-lg border border-white/10">
-                  {sortedTeams.slice(0, 5).map((team, idx) => (
+                  {sortedTeams.map((team, idx) => (
                     <li
                       key={team.teamId}
                       className={cn(

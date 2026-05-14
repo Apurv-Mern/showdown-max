@@ -1415,35 +1415,32 @@ function VenueDisplayContent() {
       message?: string;
     }) => {
       const normalizedGame = normalizeVenueMiniGameType(data.game);
-      if (normalizedGame) {
-        setMiniGameReveal(null);
-        if (normalizedGame === 'card_shuffle') {
-          setMiniGameCommand(null);
-          setCardShuffleVenueStarted(false);
-          if (data.holdScreen) {
-            setMiniGameResult({
-              game: 'card_shuffle',
-              holdScreen: true,
-              status: data.status,
-              message: data.message,
-            });
-            setPhase('mini_game_result');
-          }
-        } else {
-          if (data.holdScreen) {
-            setMiniGameResult({
-              game: 'Kangaroo_race',
-              holdScreen: true,
-              status: data.status,
-              message: data.message,
-            });
-            setPhase('mini_game_result');
-            return;
-          }
-          setMiniGameResult({ ...data, game: normalizedGame });
-          setPhase('mini_game_result');
-        }
+      if (!normalizedGame) return;
+
+      setMiniGameReveal(null);
+      if (normalizedGame === 'card_shuffle') {
+        setMiniGameCommand(null);
+        setCardShuffleVenueStarted(false);
       }
+
+      if (data.holdScreen) {
+        // Show the "Game Finished" result screen until the host manually
+        // advances — used by Finish Race / Finish Card Shuffle buttons.
+        setMiniGameResult({
+          game: normalizedGame,
+          holdScreen: true,
+          status: data.status,
+          message: data.message,
+        });
+        setPhase('mini_game_result');
+        return;
+      }
+
+      // Resume Trivia — do NOT change phase or clear miniGameType here.
+      // The server emits session_state immediately after mini_game_end
+      // (same event batch), which will transition the venue to the correct
+      // trivia phase. Clearing miniGameType while phase is still 'mini_game'
+      // causes a blank screen.
     };
 
     const onGameEnd = (data?: { teams?: Team[] }) => {
@@ -1558,7 +1555,7 @@ function VenueDisplayContent() {
   const liveQuestionPoints = (() => {
     const roundType = (question?.roundType || '').toUpperCase();
     if (roundType === 'WAGER') return '0-50';
-    if (roundType === 'FINAL_WAGER') return '0-100%';
+    if (roundType === 'FINAL_WAGER') return '0-50%';
     if (roundType === 'MAJORITY_RULES') return '50';
     if (roundType === 'ELIMINATION') return String(question?.pointsForQuestion ?? 10);
     return String(question?.pointsForQuestion ?? 10);
@@ -2345,7 +2342,7 @@ function VenueDisplayContent() {
               </div>
 
               <div className="space-y-1 sm:space-y-2 md:space-y-3">
-                {scoreboard.slice(0, 8).map((team, idx) => {
+                {scoreboard.map((team, idx) => {
                   const response = revealData?.responseDetails?.find(
                     (r) => Number(r.teamId) === Number(team.teamId),
                   );

@@ -1,7 +1,7 @@
 const { SCORING } = require('shared/constants/scoring');
 
 /**
- * Final Wager: Wager 0–100% of current score.
+ * Final Wager: Wager 0–50% of current score (UI uses fixed steps; server clamps to SCORING).
  * Correct → +wager, Wrong → -wager. Can go negative.
  */
 const calculate = ({ question, responses, teams }) => {

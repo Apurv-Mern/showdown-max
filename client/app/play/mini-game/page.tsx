@@ -564,16 +564,78 @@ export default function MiniGamePage() {
       logSocketIn('session_state', data);
       const gameState = data?.gameState ?? data;
       if (!gameState || !gameState.state) return;
+
+      // ── Restore kangaroo race state on rejoin / refresh ──
       if (gameState?.miniGameState?.game === 'kangaroo_race') {
-        const names = Array.isArray(gameState.miniGameState.kangarooNames)
-          ? gameState.miniGameState.kangarooNames
+        const mgs = gameState.miniGameState;
+        const names = Array.isArray(mgs.kangarooNames)
+          ? mgs.kangarooNames
           : Array.isArray(gameState.miniGameConfig?.kangarooNames)
             ? gameState.miniGameConfig.kangarooNames
             : null;
         if (names?.length >= 6) {
           setKangarooNames(names.slice(0, 6).map((name: string) => String(name || '').trim()));
         }
+        // If the race has started but not yet revealed, restore the active race UI
+        if (mgs.gameStarted && !mgs.revealed) {
+          setGameType('kangaroo_race');
+          setRoundOpen(true);
+          // Restore the player's existing pick if any
+          const teamId = session.teamId;
+          if (teamId && mgs.selections) {
+            const existingPick = mgs.selections[String(teamId)];
+            if (existingPick != null && Number.isFinite(Number(existingPick))) {
+              const pick = Number(existingPick);
+              lockedPickRef.current = pick;
+              setSelectedChoice(pick);
+            }
+          }
+          // Restore the pick deadline timer from the server's absolute timestamp
+          if (mgs.pickDeadlineAt && Number.isFinite(Number(mgs.pickDeadlineAt))) {
+            const deadline = Number(mgs.pickDeadlineAt);
+            const remaining = deadline - Date.now();
+            if (remaining > 0) {
+              setKangarooPickDeadline(deadline);
+              setKangarooPickSecondsLeft(Math.ceil(remaining / 1000));
+            } else {
+              // Window expired — show 0 and disable buttons
+              setKangarooPickDeadline(deadline);
+              setKangarooPickSecondsLeft(0);
+            }
+          }
+        }
+        // If revealed, show results
+        if (mgs.revealed && Array.isArray(mgs.finishOrder) && mgs.finishOrder.length > 0) {
+          setRoundOpen(false);
+          setKangarooPickDeadline(null);
+          setKangarooPickSecondsLeft(null);
+          // The reveal/result events will handle the result phase
+        }
       }
+
+      // ── Restore card shuffle state on rejoin / refresh ──
+      if (gameState?.miniGameState?.game === 'card_shuffle') {
+        const mgs = gameState.miniGameState;
+        if (mgs.gameStarted && !mgs.revealed && mgs.activeRound != null) {
+          setGameType('card_shuffle');
+          setRoundOpen(true);
+          const rn = Number(mgs.activeRound);
+          if (Number.isFinite(rn) && rn >= 1 && rn <= 4) {
+            setActiveCardRound(rn as 1 | 2 | 3 | 4);
+          }
+          // Restore the player's existing pick if any
+          const teamId = session.teamId;
+          if (teamId && mgs.selections) {
+            const existingPick = mgs.selections[String(teamId)];
+            if (existingPick != null && Number.isFinite(Number(existingPick))) {
+              const pick = Number(existingPick);
+              lockedPickRef.current = pick;
+              setSelectedChoice(pick);
+            }
+          }
+        }
+      }
+
       if (!gameState.activeMiniGame && gameState.state !== 'LOBBY') {
         exitMiniGameToGame();
       }
@@ -847,140 +909,90 @@ export default function MiniGamePage() {
                   </header>
 
                   {kangarooPickSecondsLeft != null ? (
-                    <div
-                      className={cn(
-                        'mx-auto mt-3 flex items-center justify-center transition-opacity',
-                        pickWindowExpired ? 'opacity-65' : 'opacity-100',
-                        timerWarning ? 'animate-pulse' : '',
-                      )}
-                      role="timer"
-                      aria-live="polite"
-                      aria-label={
-                        pickWindowExpired
-                          ? "Time's up"
-                          : `${kangarooPickSecondsLeft} seconds left to pick a kangaroo`
-                      }
-                    >
-                      {/* Stylised stopwatch icon — yellow face with a top crown
-                          button and side antennas. Tick marks at 12/3/6/9 and
-                          black hour + minute hands. Slightly overlaps the red
-                          counter pill (negative margin) to match the Figma
-                          reference. */}
-                      <svg
-                        viewBox="0 0 32 32"
-                        className="relative z-10 -mr-2 h-10 w-10 drop-shadow-[0_2px_4px_rgba(0,0,0,0.45)]"
-                        aria-hidden="true"
-                      >
-                        {/* Top crown / button */}
-                        <rect
-                          x="14"
-                          y="2.5"
-                          width="4"
-                          height="3"
-                          rx="0.8"
-                          fill="#0b0b0b"
-                        />
-                        {/* Antenna lines on top corners */}
-                        <line
-                          x1="6"
-                          y1="6"
-                          x2="9"
-                          y2="9"
-                          stroke="#0b0b0b"
-                          strokeWidth="1.8"
-                          strokeLinecap="round"
-                        />
-                        <line
-                          x1="26"
-                          y1="6"
-                          x2="23"
-                          y2="9"
-                          stroke="#0b0b0b"
-                          strokeWidth="1.8"
-                          strokeLinecap="round"
-                        />
-                        {/* Outer face */}
-                        <circle
-                          cx="16"
-                          cy="18"
-                          r="11"
-                          fill="#fde047"
-                          stroke="#0b0b0b"
-                          strokeWidth="1.8"
-                        />
-                        {/* Tick marks 12 / 3 / 6 / 9 */}
-                        <line
-                          x1="16"
-                          y1="9.5"
-                          x2="16"
-                          y2="11.5"
-                          stroke="#0b0b0b"
-                          strokeWidth="1.5"
-                          strokeLinecap="round"
-                        />
-                        <line
-                          x1="24.5"
-                          y1="18"
-                          x2="22.5"
-                          y2="18"
-                          stroke="#0b0b0b"
-                          strokeWidth="1.5"
-                          strokeLinecap="round"
-                        />
-                        <line
-                          x1="16"
-                          y1="26.5"
-                          x2="16"
-                          y2="24.5"
-                          stroke="#0b0b0b"
-                          strokeWidth="1.5"
-                          strokeLinecap="round"
-                        />
-                        <line
-                          x1="7.5"
-                          y1="18"
-                          x2="9.5"
-                          y2="18"
-                          stroke="#0b0b0b"
-                          strokeWidth="1.5"
-                          strokeLinecap="round"
-                        />
-                        {/* Hour hand → 12 */}
-                        <line
-                          x1="16"
-                          y1="18"
-                          x2="16"
-                          y2="13"
-                          stroke="#0b0b0b"
-                          strokeWidth="1.9"
-                          strokeLinecap="round"
-                        />
-                        {/* Minute hand → 3 */}
-                        <line
-                          x1="16"
-                          y1="18"
-                          x2="20.5"
-                          y2="18"
-                          stroke="#0b0b0b"
-                          strokeWidth="1.9"
-                          strokeLinecap="round"
-                        />
-                        <circle cx="16" cy="18" r="1.4" fill="#0b0b0b" />
-                      </svg>
-
-                      <div
-                        className={cn(
-                          'flex min-w-13 items-center justify-center rounded-full border-2 px-4 py-0.5 text-2xl font-black tabular-nums text-white shadow-[0_4px_10px_rgba(0,0,0,0.4)]',
-                          pickWindowExpired
-                            ? 'border-white/30 bg-[#4b5563]'
-                            : timerWarning
-                              ? 'border-[#ffd1d8] bg-[linear-gradient(180deg,#ff3055_0%,#a8001b_100%)]'
-                              : 'border-[#ffd1d8] bg-[linear-gradient(180deg,#e0103a_0%,#7a0014_100%)]',
-                        )}
-                      >
-                        {pickWindowExpired ? '0' : kangarooPickSecondsLeft}
-                      </div>
-                    </div>
+                    (() => {
+                      const totalSeconds = KANGAROO_PICK_WINDOW_SECONDS;
+                      const current = pickWindowExpired ? 0 : (kangarooPickSecondsLeft as number);
+                      const progress = totalSeconds > 0 ? current / totalSeconds : 0;
+                      const radius = 28;
+                      const circumference = 2 * Math.PI * radius;
+                      const strokeDashoffset = circumference * (1 - progress);
+                      const ringColor = pickWindowExpired
+                        ? '#6b7280'
+                        : timerWarning
+                          ? '#ff3055'
+                          : '#00d8ff';
+                      const glowColor = pickWindowExpired
+                        ? 'transparent'
+                        : timerWarning
+                          ? 'rgba(255,48,85,0.5)'
+                          : 'rgba(0,216,255,0.4)';
+                      return (
+                        <div
+                          className={cn(
+                            'mx-auto mt-4 mb-1 flex items-center justify-center transition-opacity',
+                            pickWindowExpired ? 'opacity-70' : 'opacity-100',
+                          )}
+                          role="timer"
+                          aria-live="polite"
+                          aria-label={
+                            pickWindowExpired
+                              ? "Time's up"
+                              : `${kangarooPickSecondsLeft} seconds left to pick a kangaroo`
+                          }
+                        >
+                          <div
+                            className="relative flex items-center justify-center"
+                            style={{
+                              width: 76,
+                              height: 76,
+                              filter: `drop-shadow(0 0 10px ${glowColor})`,
+                            }}
+                          >
+                            <svg
+                              viewBox="0 0 72 72"
+                              className="absolute inset-0 h-full w-full"
+                              style={{ transform: 'rotate(-90deg)' }}
+                            >
+                              {/* Background track */}
+                              <circle
+                                cx="36"
+                                cy="36"
+                                r={radius}
+                                fill="none"
+                                stroke="rgba(255,255,255,0.1)"
+                                strokeWidth="5"
+                              />
+                              {/* Animated progress arc */}
+                              <circle
+                                cx="36"
+                                cy="36"
+                                r={radius}
+                                fill="none"
+                                stroke={ringColor}
+                                strokeWidth="5"
+                                strokeLinecap="round"
+                                strokeDasharray={circumference}
+                                strokeDashoffset={strokeDashoffset}
+                                style={{ transition: 'stroke-dashoffset 0.3s ease, stroke 0.3s ease' }}
+                              />
+                            </svg>
+                            <span
+                              className={cn(
+                                'relative z-10 text-2xl font-black tabular-nums',
+                                pickWindowExpired
+                                  ? 'text-gray-400'
+                                  : timerWarning
+                                    ? 'text-[#ff3055]'
+                                    : 'text-white',
+                                timerWarning && !pickWindowExpired ? 'animate-pulse' : '',
+                              )}
+                            >
+                              {pickWindowExpired ? '0' : kangarooPickSecondsLeft}
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })()
                   ) : null}
 
                   <div className="mx-auto mt-4 flex h-[170px] w-[170px] items-center justify-center rounded-2xl">

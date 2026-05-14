@@ -1334,9 +1334,13 @@ const endMiniGame = async (io, pin, overrideConfig = {}) => {
   logger.info('Mini game ended', { pin, game, holdScreen });
 
   if (!holdScreen) {
-    setTimeout(() => {
-      io.to(`session:${pin}`).emit(SOCKET_EVENTS.SESSION_STATE, sanitizeForClients(gameState));
-    }, 5000);
+    // Emit session_state immediately so venue/players can reconcile
+    // to the correct trivia phase. Socket.io preserves event ordering,
+    // so clients process mini_game_end first, then this session_state.
+    // Use clientPayloadFromGameState (not sanitizeForClients) so the
+    // payload includes currentQuestion — without it the venue can't
+    // render the question screen.
+    io.to(`session:${pin}`).emit(SOCKET_EVENTS.SESSION_STATE, clientPayloadFromGameState(gameState));
   }
 };
 

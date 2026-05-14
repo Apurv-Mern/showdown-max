@@ -714,6 +714,7 @@ const miniGameHandlers = (io, socket) => {
             resultsAwarded: false,
             selections: {},
             pickCounts: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0 },
+            pickDeadlineAt: Date.now() + 20 * 1000,
           }));
         }
 
@@ -1168,15 +1169,35 @@ const miniGameHandlers = (io, socket) => {
         const kangarooNames = normalizeKangarooNames(
           mgs.kangarooNames || gameState?.miniGameConfig?.kangarooNames,
         );
+        // Always send mini_game_start so the client sets gameType.
         socket.emit(SOCKET_EVENTS.MINI_GAME_START, {
           game: 'kangaroo_race',
           kangarooNames,
         });
+        // If the race is in progress (started but not revealed), send
+        // session_state instead of replaying start_game. The start_game
+        // command resets selections, timer deadline, and pick state —
+        // wiping the player's existing bet. session_state lets the
+        // client restore roundOpen, the locked pick, and the correct
+        // countdown from miniGameState.selections + pickDeadlineAt.
         if (mgs.gameStarted && !mgs.revealed) {
-          socket.emit(SOCKET_EVENTS.MINI_GAME_COMMAND, {
-            game: 'kangaroo_race',
-            command: 'start_game',
-            kangarooNames,
+          socket.emit(SOCKET_EVENTS.SESSION_STATE, {
+            ...gameState,
+            gameState,
+          });
+        }
+      }
+      if (mgs?.game === 'card_shuffle') {
+        // Always send mini_game_start so the client sets gameType.
+        socket.emit(SOCKET_EVENTS.MINI_GAME_START, { game: 'card_shuffle' });
+
+        // If a round is in progress (started but not revealed), send
+        // session_state so the client restores roundOpen, activeCardRound,
+        // and any existing pick from miniGameState.selections.
+        if (mgs.gameStarted && !mgs.revealed && mgs.activeRound != null) {
+          socket.emit(SOCKET_EVENTS.SESSION_STATE, {
+            ...gameState,
+            gameState,
           });
         }
       }

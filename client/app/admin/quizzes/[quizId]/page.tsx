@@ -81,7 +81,7 @@ const ROUND_POINTS_PREVIEW: Record<string, string> = {
   ELIMINATION: '10–120 pts ladder · Wrong answer = knockout',
   MAJORITY_RULES: 'Majority +50 pts · Minority −50 pts',
   FINAL_MULTIPLE_CHOICE: 'Correct answer: +10 pts · Incorrect: −2 pts',
-  FINAL_WAGER: 'Wager 0–100% of score · Win/lose wager',
+  FINAL_WAGER: 'Wager 0–50% of score · Win/lose wager',
 };
 
 const ROUND_TYPE_COLORS: Record<string, string> = {

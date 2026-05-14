@@ -170,7 +170,7 @@ export default function HostLoginPage() {
                       </svg>
                     ) : null}
                   </span>
-                  <span className="text-sm text-white">Remember Me</span>
+                  {/* <span className="text-sm text-white">Remember Me</span> */}
                 </label>
               </div>
 

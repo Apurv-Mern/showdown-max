@@ -1698,8 +1698,8 @@ function VenueDisplayContent() {
 
             {sessionPin ? (
               <div className="mx-auto mb-3 sm:mb-4 md:mb-5 shrink-0 rounded-xl border border-neon-cyan/45 bg-[#051230]/85 px-3 sm:px-4 py-2 sm:py-3 shadow-[0_0_20px_rgba(0,229,255,0.18)] flex items-center gap-2 sm:gap-3 max-w-full">
-                <div className="w-16 h-16 sm:w-20 h-20 md:w-24 h-24 rounded bg-white p-1 flex items-center justify-center shrink-0">
-                  <QRCodeSVG value={playerJoinUrl} size={60} />
+                <div className="w-16 h-16 sm:w-36 h-40 md:w-44 h-44 rounded bg-white p-1 flex items-center justify-center shrink-0">
+                  <QRCodeSVG value={playerJoinUrl} size={140} />
                 </div>
                 <div className="text-left min-w-0">
                   <p className="text-neon-cyan font-bold text-xs sm:text-sm">SCAN TO JOIN</p>
@@ -2293,14 +2293,19 @@ function VenueDisplayContent() {
                   {question.question.isOrdering && revealData && (
                     <div className="mb-3 sm:mb-4 md:mb-5 text-center">
                       <span className="inline-block px-5 py-2 rounded-full bg-green-500/20 border border-green-500/50 text-green-400 font-bold text-sm sm:text-base md:text-xl uppercase tracking-wider shadow-[0_0_15px_rgba(57,255,74,0.2)]">
-                        Correct Order: {(revealData.correctOrderArray || []).map((idx: number) => question.question.options[idx]?.text).join(' → ')}
+                        Correct Order:{' '}
+                        {(revealData.correctOrderArray || [])
+                          .map((idx: number) => question.question.options[idx]?.text)
+                          .join(' → ')}
                       </span>
                     </div>
                   )}
-                  <div className={cn(
-                    "grid",
-                    "grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-2 gap-1 sm:gap-2 md:gap-3"
-                  )}>
+                  <div
+                    className={cn(
+                      'grid',
+                      'grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-2 gap-1 sm:gap-2 md:gap-3',
+                    )}
+                  >
                     {(() => {
                       // Ordering questions during reveal phase will fall through to default rendering.
                       // The top banner already explicitly shows the correct order (e.g. A -> B -> C -> D),
@@ -2309,13 +2314,15 @@ function VenueDisplayContent() {
                       return question.question.options.map((opt, i) => {
                         const isMajorityRulesRound =
                           (question.roundType || '').toUpperCase() === 'MAJORITY_RULES';
-                        const majorityOptionIndexes = new Set(revealData?.majorityOptionIndexes || []);
-                        const isRevealedWinner = revealData ? (
-                          isMajorityRulesRound
+                        const majorityOptionIndexes = new Set(
+                          revealData?.majorityOptionIndexes || [],
+                        );
+                        const isRevealedWinner = revealData
+                          ? isMajorityRulesRound
                             ? majorityOptionIndexes.has(i)
                             : i === revealData.correctOptionIndex
-                        ) : false;
-                        
+                          : false;
+
                         return (
                           <div
                             key={i}
@@ -2326,7 +2333,7 @@ function VenueDisplayContent() {
                                 ? 'shadow-[0_0_8px_8px_rgba(57,255,74,0.9)] z-10 scale-[1.02]'
                                 : revealData && !isRevealedWinner
                                   ? 'opacity-30 brightness-50 contrast-75 scale-[0.98]'
-                                  : ''
+                                  : '',
                             )}
                           >
                             <span className="font-black mr-1 sm:mr-2 md:mr-3 shrink-0">
@@ -2335,7 +2342,9 @@ function VenueDisplayContent() {
                             <span className="truncate text-left flex-1">{opt.text}</span>
                             {isRevealedWinner && (
                               <div className="ml-auto w-6 h-6 sm:w-7 h-7 md:w-8 h-8 rounded-full bg-green-500 flex items-center justify-center border-2 border-white shadow-lg shrink-0">
-                                <span className="text-white text-sm sm:text-base md:text-lg">✓</span>
+                                <span className="text-white text-sm sm:text-base md:text-lg">
+                                  ✓
+                                </span>
                               </div>
                             )}
                           </div>

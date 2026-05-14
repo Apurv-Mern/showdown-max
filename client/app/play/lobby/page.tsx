@@ -119,13 +119,22 @@ export default function LobbyPage() {
               transition={{ delay: 0.38 }}
               className="mt-2 text-base font-medium leading-[1.2] text-white/70 sm:text-lg md:text-xl"
             >
-              You are in
+              {/* You are in
               <p className="mt-0.5 text-base font-medium leading-[1.2] text-white/70 sm:text-lg md:text-xl">
                 The host will start the game shortly
-              </p>
+              </p> */}
+              Waiting for the host to start the game...
             </motion.p>
 
             <LoadingDots className="mt-6 sm:mt-8" />
+
+            <img
+              src={'/logo.png'}
+              width={400}
+              height={100}
+              alt="Quiz Wizards Logo"
+              className="mt-40"
+            />
           </div>
         </div>
 

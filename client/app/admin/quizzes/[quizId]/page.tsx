@@ -1077,12 +1077,12 @@ export default function QuizDetailPage() {
                 className="w-full bg-surface-light border border-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-foreground/40 focus:outline-none focus:ring-2 focus:ring-primary/50"
               />
             </div> */}
-                <div>
-                  <label className="block text-sm font-medium text-foreground/70 mb-1">
-                    Timer (seconds)
-                    {/* <span className="text-foreground/30 font-normal ml-1">optional override</span> */}
-                  </label>
-                  <input
+                {/* <div> */}
+                {/* <label className="block text-sm font-medium text-foreground/70 mb-1"> */}
+                {/* Timer (seconds) */}
+                {/* <span className="text-foreground/30 font-normal ml-1">optional override</span> */}
+                {/* </label> */}
+                {/* <input
                     type="number"
                     value={formData.timerDuration}
                     onChange={(e) => setFormData((p) => ({ ...p, timerDuration: e.target.value }))}
@@ -1090,8 +1090,8 @@ export default function QuizDetailPage() {
                     min={5}
                     max={300}
                     className="w-full bg-surface-light border border-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-foreground/40 focus:outline-none focus:ring-2 focus:ring-primary/50"
-                  />
-                </div>
+                  /> */}
+                {/* </div> */}
               </div>
 
               {/* Media Section */}

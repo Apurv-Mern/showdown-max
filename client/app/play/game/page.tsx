@@ -864,6 +864,11 @@ export default function GamePage() {
               setSelectedOption(null);
               setPhase('question');
             }
+          } else if (gs.questionState === 'REVEALED') {
+            // Break end can restore directly into a revealed question. Do not fall back to
+            // waiting splash; keep users on gameplay context.
+            setSelectedOption(null);
+            setPhase(currentlyEliminated ? 'eliminated' : 'reveal');
           } else {
             setSelectedOption(null);
             setPhase('waiting');
@@ -1232,7 +1237,15 @@ export default function GamePage() {
       window.setTimeout(() => setShowBreakEndedNotice(false), 2000);
       if (phaseRef.current === 'break') {
         setTimerRunning(false);
-        setPhase(isEliminatedRef.current ? 'eliminated' : 'waiting');
+        if (isEliminatedRef.current) {
+          setPhase('eliminated');
+        } else if (revealDataRef.current && questionRef.current) {
+          setPhase('reveal');
+        } else if (questionRef.current) {
+          setPhase('question');
+        } else {
+          setPhase('waiting');
+        }
       }
     };
 

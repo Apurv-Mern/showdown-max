@@ -24,8 +24,8 @@ const eliminationStates = new Map();
 /** Passive socket drops (e.g. refresh) schedule a delayed purge; `join_session` cancels it. */
 const disconnectPurgeTimers = new Map();
 const DISCONNECT_PURGE_DELAY_MS = Math.max(
-  2000,
-  Math.min(60000, Number(process.env.DISCONNECT_PURGE_DELAY_MS) || 5000),
+  10000,
+  Math.min(3600000, Number(process.env.DISCONNECT_PURGE_DELAY_MS) || 1800000),
 );
 
 const disconnectPurgeKey = (pin, teamId) => `${String(pin)}:${Number(teamId)}`;

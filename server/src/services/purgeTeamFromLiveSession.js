@@ -21,7 +21,13 @@ const purgeTeamFromLiveSession = async (pin, teamId, isHostRemoval = false) => {
   const removedTeamName = team?.teamName || null;
 
   if (team) {
-    await Team.destroy({ where: { id: numericTeamId } });
+    if (isHostRemoval) {
+      await Team.destroy({ where: { id: numericTeamId } });
+    } else {
+      // Passive tab close / refresh: keep the DB row and stable team id so Redis answers
+      // (`game:${pin}:responses:${questionId}`) and round wagers stay keyed correctly on reconnect.
+      await Team.update({ isConnected: false, socketId: null }, { where: { id: numericTeamId } });
+    }
   }
 
   await redisStore.removeTeamFromLobby(pin, numericTeamId);
@@ -38,7 +44,9 @@ const purgeTeamFromLiveSession = async (pin, teamId, isHostRemoval = false) => {
         .filter((id) => id !== numericTeamId);
 
       let roundWagers = current.roundWagers;
-      if (roundWagers && typeof roundWagers === 'object') {
+      // Host removal: drop this team's wagers. Passive disconnect (tab refresh): keep
+      // `roundWagers` so a reconnecting socket still reads a locked wager from Redis/join.
+      if (isHostRemoval && roundWagers && typeof roundWagers === 'object') {
         roundWagers = { ...roundWagers };
         for (const rid of Object.keys(roundWagers)) {
           const slice = { ...(roundWagers[rid] || {}) };
@@ -53,7 +61,7 @@ const purgeTeamFromLiveSession = async (pin, teamId, isHostRemoval = false) => {
           ...(isHostRemoval ? [numericTeamId] : []),
         ]),
       ).filter((id) => Number.isFinite(id));
-      
+
       const removedTeamNames = Array.from(
         new Set([
           ...(current.removedTeamNames || []).map((name) => normalizeTeamName(name)),

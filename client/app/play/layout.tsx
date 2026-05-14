@@ -5,7 +5,6 @@ import { useRouter } from 'next/navigation';
 import { useReconnect } from '@/hooks/useReconnect';
 import { PlayerContext, defaultSession, type PlayerSession } from './playerSession';
 import { PlayerSessionDeletedBridge } from './PlayerSessionDeletedBridge';
-import { PUBLIC_API_URL } from '@/lib/env';
 
 const PLAY_JOIN_FLASH_KEY = 'playJoinFlash';
 
@@ -92,51 +91,6 @@ export default function PlayerLayout({ children }: { children: React.ReactNode }
     sessionStorage.removeItem('playerSession');
   }, []);
 
-  const sendLeaveIntentOnUnload = useCallback(() => {
-    const pin = session.pin ? String(session.pin) : '';
-    const teamId = Number(session.teamId);
-    if (!pin || !Number.isFinite(teamId)) return;
-
-    const url = `${PUBLIC_API_URL}/api/public/sessions/pin/${encodeURIComponent(pin)}/leave-intent`;
-    const payload = JSON.stringify({ teamId });
-
-    try {
-      if (typeof navigator !== 'undefined' && typeof navigator.sendBeacon === 'function') {
-        const blob = new Blob([payload], { type: 'application/json' });
-        navigator.sendBeacon(url, blob);
-        return;
-      }
-    } catch {
-      // Fall back to keepalive fetch below.
-    }
-
-    try {
-      void fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: payload,
-        keepalive: true,
-      });
-    } catch {
-      // Best effort only.
-    }
-  }, [session.pin, session.teamId]);
-
-  useEffect(() => {
-    if (!session.pin || !session.teamId) return;
-
-    const handlePageHide = () => sendLeaveIntentOnUnload();
-    const handleBeforeUnload = () => sendLeaveIntentOnUnload();
-
-    window.addEventListener('pagehide', handlePageHide);
-    window.addEventListener('beforeunload', handleBeforeUnload);
-
-    return () => {
-      window.removeEventListener('pagehide', handlePageHide);
-      window.removeEventListener('beforeunload', handleBeforeUnload);
-    };
-  }, [session.pin, session.teamId, sendLeaveIntentOnUnload]);
-
   if (!mounted) return null;
 
   return (
@@ -146,7 +100,11 @@ export default function PlayerLayout({ children }: { children: React.ReactNode }
         <div className="mx-auto flex h-full min-h-0 w-full max-w-full flex-1 flex-col overflow-hidden sm:max-w-lg md:max-w-xl lg:max-w-2xl xl:max-w-3xl">
           {children}
           {session.pin && session.teamId && (
-            <PlayerReconnector session={session} setSession={setSession} clearSession={clearSession} />
+            <PlayerReconnector
+              session={session}
+              setSession={setSession}
+              clearSession={clearSession}
+            />
           )}
         </div>
       </div>

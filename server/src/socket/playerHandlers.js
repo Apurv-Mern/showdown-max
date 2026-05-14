@@ -26,13 +26,14 @@ const getMySubmittedOptionIndex = async (pin, questionId, teamId) => {
     const entry = raw[String(teamId)];
     if (entry === undefined || entry === null || entry === '') return null;
     const asNum = Number(entry);
-    if (Number.isFinite(asNum)) return asNum;
+    if (Number.isFinite(asNum) && asNum >= 0) return asNum;
     const parsed = JSON.parse(String(entry));
     if (Array.isArray(parsed?.selectedOptionIndex)) {
-      return parsed.selectedOptionIndex;
+      return parsed.selectedOptionIndex.length > 0 ? parsed.selectedOptionIndex : null;
     }
     const idx = Number(parsed?.selectedOptionIndex);
-    return Number.isFinite(idx) ? idx : null;
+    if (Number.isFinite(idx) && idx >= 0) return idx;
+    return null;
   } catch {
     return null;
   }
@@ -45,9 +46,9 @@ const getMySubmittedOptionIndex = async (pin, questionId, teamId) => {
  */
 const playerHandlers = (io, socket) => {
   const getLockedWager = (gameState, round, teamId) => {
-    if (!gameState || !round || (round.type !== 'WAGER' && round.type !== 'FINAL_WAGER')) {
-      return null;
-    }
+    if (!gameState || !round) return null;
+    const t = String(round.type || '').toUpperCase();
+    if (t !== 'WAGER' && t !== 'FINAL_WAGER') return null;
     const value = gameState.roundWagers?.[String(round.id)]?.[String(teamId)];
     if (value === undefined || value === null) return null;
     const parsed = Number(value);
@@ -214,7 +215,7 @@ const playerHandlers = (io, socket) => {
       let mySubmittedOptionIndex = null;
       if (
         gameState?.state === 'QUESTION' &&
-        gameState?.questionState === 'ACTIVE' &&
+        (gameState?.questionState === 'ACTIVE' || gameState?.questionState === 'REVEALED') &&
         questionForSubmitted?.id &&
         team?.id != null
       ) {
@@ -297,11 +298,9 @@ const playerHandlers = (io, socket) => {
               teams: gameState.teams,
               // Per-joining-team: used when state is WAGER_COLLECTION (no currentQuestion in payload)
               // so mobile can restore a locked wager after refresh/reconnect.
-              lockedWagerAmount:
-                currentRound &&
-                (currentRound.type === 'WAGER' || currentRound.type === 'FINAL_WAGER')
-                  ? getLockedWager(gameState, currentRound, team.id)
-                  : null,
+              lockedWagerAmount: currentRound
+                ? getLockedWager(gameState, currentRound, team.id)
+                : null,
               ...(gameState.state === 'BREAK'
                 ? {
                     breakDuration: Math.max(0, Math.round(Number(gameState.breakDuration ?? 360))),
@@ -539,7 +538,7 @@ const playerHandlers = (io, socket) => {
     try {
       const { pin, teamId } = socket.data || {};
       if (!pin || !teamId) return;
-      await gameController.submitWager(pin, teamId, data?.amount);
+      await gameController.submitWager(io, pin, teamId, data?.amount);
       logger.debug('Player submitted wager', { teamId, amount: data?.amount });
     } catch (err) {
       logger.error('submit_wager error', { error: err.message });

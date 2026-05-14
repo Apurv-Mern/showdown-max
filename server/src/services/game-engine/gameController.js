@@ -60,7 +60,8 @@ const persistTimerRemainingIfActiveQuestion = (pin, remaining) => {
 };
 
 const clampWagerByRoundType = (roundType, amount) => {
-  if (roundType === ROUND_TYPES.FINAL_WAGER) {
+  const rt = String(roundType || '').toUpperCase();
+  if (rt === ROUND_TYPES.FINAL_WAGER) {
     return clampAmount(amount, SCORING.FINAL_WAGER.MIN_PERCENT, SCORING.FINAL_WAGER.MAX_PERCENT);
   }
 
@@ -71,8 +72,10 @@ const getRoundWagerForTeam = (gameState, roundId, teamId) => {
   return Number(gameState?.roundWagers?.[String(roundId)]?.[String(teamId)] ?? 0);
 };
 
-const isWagerLockRound = (round) =>
-  round?.type === ROUND_TYPES.WAGER || round?.type === ROUND_TYPES.FINAL_WAGER;
+const isWagerLockRound = (round) => {
+  const t = String(round?.type || '').toUpperCase();
+  return t === ROUND_TYPES.WAGER || t === ROUND_TYPES.FINAL_WAGER;
+};
 
 const parseSelectedOptionIndex = (rawResponse) => {
   if (!rawResponse) return -1;
@@ -503,7 +506,26 @@ const submitAnswer = async (io, pin, teamId, data) => {
   };
 
   if (isWagerLockRound(currentRound)) {
-    responseData.wagerAmount = getRoundWagerForTeam(gameState, currentRound.id, teamId);
+    const roundIdStr = String(currentRound.id);
+    const teamIdStr = String(teamId);
+    const rawLocked = gameState.roundWagers?.[roundIdStr]?.[teamIdStr];
+    const missingLock = rawLocked === undefined || rawLocked === null;
+    let resolvedWager = missingLock
+      ? clampWagerByRoundType(
+          currentRound.type,
+          data?.wagerAmount !== undefined && data?.wagerAmount !== null
+            ? Number(data.wagerAmount)
+            : 0,
+        )
+      : Number(rawLocked);
+
+    if (missingLock) {
+      if (!gameState.roundWagers) gameState.roundWagers = {};
+      if (!gameState.roundWagers[roundIdStr]) gameState.roundWagers[roundIdStr] = {};
+      gameState.roundWagers[roundIdStr][teamIdStr] = resolvedWager;
+      await redisStore.setGameState(pin, gameState);
+    }
+    responseData.wagerAmount = resolvedWager;
   }
   await redisStore.recordResponse(pin, question.id, teamId, JSON.stringify(responseData));
 
@@ -547,19 +569,21 @@ const submitAnswer = async (io, pin, teamId, data) => {
 
 /**
  * Handle a team's wager submission (locked once per wager-lock round).
+ * @param {import('socket.io').Server | null} io When set, broadcasts `session_state` so all
+ *   clients (and the locking device after refresh) immediately see Redis `roundWagers`.
  */
-const submitWager = async (pin, teamId, amount) => {
+const submitWager = async (io, pin, teamId, amount) => {
   const gameState = await redisStore.getGameState(pin);
-  if (!gameState) return;
+  if (!gameState) return { saved: false };
 
   const round = stateMachine.getCurrentRound(gameState);
-  if (!round || !isWagerLockRound(round)) return;
+  if (!round || !isWagerLockRound(round)) return { saved: false };
 
   const roundId = String(round.id);
   const teamIdKey = String(teamId);
   const locked = gameState.roundWagers?.[roundId]?.[teamIdKey];
   if (locked !== undefined && locked !== null) {
-    return;
+    return { saved: false, alreadyLocked: true };
   }
 
   const wager = clampWagerByRoundType(round.type, amount);
@@ -568,6 +592,15 @@ const submitWager = async (pin, teamId, amount) => {
   gameState.roundWagers[roundId][teamIdKey] = wager;
 
   await redisStore.setGameState(pin, gameState);
+
+  if (io) {
+    const fresh = await redisStore.getGameState(pin);
+    if (fresh) {
+      io.to(`session:${pin}`).emit(SOCKET_EVENTS.SESSION_STATE, sanitizeForClients(fresh));
+    }
+  }
+
+  return { saved: true, amount: wager };
 };
 
 /**

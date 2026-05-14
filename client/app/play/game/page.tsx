@@ -92,6 +92,171 @@ function initialWagerAmountForRoundType(roundType?: string): number {
   return (roundType || '').toUpperCase() === 'FINAL_WAGER' ? FINAL_WAGER_PERCENT_OPTIONS[0] : 0;
 }
 
+const WAGER_DRAFT_STORAGE_PREFIX = 'mst:wagerDraft:';
+
+function wagerDraftStorageKey(pin: string, teamId: number) {
+  return `${WAGER_DRAFT_STORAGE_PREFIX}${pin}:${teamId}`;
+}
+
+function readWagerDraft(
+  pin: string,
+  teamId: number,
+  roundId: number | string | undefined,
+): { amount: number | null; pendingLock: boolean } {
+  if (!pin || teamId == null || roundId == null) return { amount: null, pendingLock: false };
+  try {
+    const raw = sessionStorage.getItem(wagerDraftStorageKey(pin, teamId));
+    if (!raw) return { amount: null, pendingLock: false };
+    const o = JSON.parse(raw) as { roundId?: unknown; amount?: unknown; pendingLock?: unknown };
+    if (String(o.roundId ?? '') !== String(roundId)) return { amount: null, pendingLock: false };
+    const n = Number(o.amount);
+    const amount = Number.isFinite(n) ? n : null;
+    return { amount, pendingLock: Boolean(o.pendingLock) };
+  } catch {
+    return { amount: null, pendingLock: false };
+  }
+}
+
+function writeWagerDraft(
+  pin: string,
+  teamId: number,
+  roundId: number | string,
+  amount: number,
+  opts?: { pendingLock?: boolean },
+) {
+  try {
+    sessionStorage.setItem(
+      wagerDraftStorageKey(pin, teamId),
+      JSON.stringify({ roundId, amount, pendingLock: Boolean(opts?.pendingLock) }),
+    );
+  } catch {
+    /* quota / private mode */
+  }
+}
+
+function clearWagerDraft(pin: string, teamId: number) {
+  try {
+    sessionStorage.removeItem(wagerDraftStorageKey(pin, teamId));
+  } catch {
+    /* ignore */
+  }
+}
+
+function isValidWagerDraftAmount(roundType: string | undefined, amount: number): boolean {
+  const rt = (roundType || '').toUpperCase();
+  const inSharedGrid = (FINAL_WAGER_PERCENT_OPTIONS as readonly number[]).includes(amount);
+  if (rt === 'FINAL_WAGER') {
+    return FINAL_WAGER_PERCENT_OPTIONS.includes(
+      amount as (typeof FINAL_WAGER_PERCENT_OPTIONS)[number],
+    );
+  }
+  if (rt === 'WAGER') {
+    return WAGER_POINT_OPTIONS.includes(amount as (typeof WAGER_POINT_OPTIONS)[number]);
+  }
+  // Payload sometimes omits round `type` on reconnect; both wager UIs use the same 0–50 steps.
+  return inSharedGrid;
+}
+
+const ANSWER_DRAFT_PREFIX = 'mst:answerDraft:';
+
+type AnswerDraftPayload = {
+  selectedOptionIndex: number | number[];
+  wagerAmount?: number;
+};
+
+function answerDraftStorageKey(pin: string, teamId: number, questionId: string) {
+  return `${ANSWER_DRAFT_PREFIX}${pin}:${teamId}:${questionId}`;
+}
+
+function writeAnswerDraft(
+  pin: string,
+  teamId: number,
+  questionId: string | number,
+  payload: AnswerDraftPayload,
+) {
+  try {
+    sessionStorage.setItem(
+      answerDraftStorageKey(pin, teamId, String(questionId)),
+      JSON.stringify(payload),
+    );
+  } catch {
+    /* ignore */
+  }
+}
+
+function readAnswerDraft(
+  pin: string,
+  teamId: number,
+  questionId: string,
+): AnswerDraftPayload | null {
+  try {
+    const raw = sessionStorage.getItem(answerDraftStorageKey(pin, teamId, questionId));
+    if (!raw) return null;
+    const o = JSON.parse(raw) as AnswerDraftPayload;
+    if (Array.isArray(o?.selectedOptionIndex)) return o;
+    const n = Number(o?.selectedOptionIndex);
+    if (!Number.isFinite(n) || n < 0) return null;
+    return o;
+  } catch {
+    return null;
+  }
+}
+
+function clearAnswerDraft(pin: string, teamId: number, questionId: string) {
+  try {
+    sessionStorage.removeItem(answerDraftStorageKey(pin, teamId, questionId));
+  } catch {
+    /* ignore */
+  }
+}
+
+function clearAnswerDraftsForTeam(pin: string, teamId: number) {
+  try {
+    const prefix = `${ANSWER_DRAFT_PREFIX}${pin}:${teamId}:`;
+    for (let i = sessionStorage.length - 1; i >= 0; i--) {
+      const k = sessionStorage.key(i);
+      if (k?.startsWith(prefix)) sessionStorage.removeItem(k);
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
+/** Server `mySubmittedOptionIndex` or Redis-parsed value — never treat -1 as a selection. */
+function parseSubmittedIdxFromMineRaw(mineRaw: unknown): number | number[] | null {
+  if (mineRaw === undefined || mineRaw === null) return null;
+  if (Array.isArray(mineRaw)) return mineRaw.length > 0 ? mineRaw : null;
+  const n = Number(mineRaw);
+  if (Number.isFinite(n) && n >= 0) return n;
+  return null;
+}
+
+function hasSelectionIdx(idx: number | number[] | null | undefined): idx is number | number[] {
+  if (idx === null || idx === undefined) return false;
+  if (Array.isArray(idx)) return idx.length > 0;
+  return Number.isFinite(Number(idx)) && Number(idx) >= 0;
+}
+
+/** Standard MC / music / final MC — must match shared/constants/scoring.js */
+const REVEAL_FIXED_CORRECT_PTS = 10;
+const REVEAL_FIXED_WRONG_PTS = -2;
+
+function revealUsesServerPointsLabel(roundType: string | undefined): boolean {
+  const rt = (roundType || '').toUpperCase();
+  return rt === 'WAGER' || rt === 'FINAL_WAGER' || rt === 'ELIMINATION' || rt === 'MAJORITY_RULES';
+}
+
+/** +10 / −2 reveal copy (includes empty roundType when payload omits it). */
+function revealUsesFixedTenTwoLabel(
+  roundType: string | undefined,
+  isMajorityRulesRound: boolean,
+): boolean {
+  if (isMajorityRulesRound) return false;
+  if (revealUsesServerPointsLabel(roundType)) return false;
+  const rt = (roundType || '').toUpperCase();
+  return rt === 'MULTIPLE_CHOICE' || rt === 'MUSIC' || rt === 'FINAL_MULTIPLE_CHOICE' || rt === '';
+}
+
 /** Payloads / sessionStorage may mix numeric and string team ids — avoid `===` misses. */
 function sameTeamId(a: unknown, b: unknown): boolean {
   const na = Number(a);
@@ -547,6 +712,13 @@ export default function GamePage() {
   const previousPhaseBeforeScoreboardRef = useRef<GamePhase | null>(null);
   const questionRef = useRef<QuestionData | null>(null);
   const revealDataRef = useRef<RevealData | null>(null);
+  /** When `session_state` / `question_active` omits `mySubmittedOptionIndex` (room broadcasts), keep the last authoritative pick for this question id. */
+  const answerRestoreRef = useRef<{
+    qid: string | null;
+    idx: number | number[] | null;
+  }>({ qid: null, idx: null });
+  const answerDraftResubmitGuardRef = useRef<Set<string>>(new Set());
+  const wagerLockResubmitGuardRef = useRef<Set<string>>(new Set());
   useEffect(() => {
     phaseRef.current = phase;
   }, [phase]);
@@ -637,11 +809,17 @@ export default function GamePage() {
           setPhase('eliminated');
         } else {
           const mine = data.mySubmittedOptionIndex;
-          const restored = Array.isArray(mine)
-            ? mine
-            : mine !== undefined && mine !== null && Number.isFinite(Number(mine))
-              ? Number(mine)
+          let restored = parseSubmittedIdxFromMineRaw(mine);
+          const qidStr =
+            data.question?.id != null && session.pin && session.teamId != null
+              ? String(data.question.id)
               : null;
+          if (!hasSelectionIdx(restored) && qidStr && session.pin && session.teamId != null) {
+            const draft = readAnswerDraft(session.pin, Number(session.teamId), qidStr);
+            if (draft && hasSelectionIdx(draft.selectedOptionIndex)) {
+              restored = draft.selectedOptionIndex;
+            }
+          }
           const isWagerRound = data.roundType === 'WAGER' || data.roundType === 'FINAL_WAGER';
           const hasLockedWager =
             data.lockedWagerAmount !== null && data.lockedWagerAmount !== undefined;
@@ -658,7 +836,7 @@ export default function GamePage() {
           if (isWagerRound && !hasLockedWager) {
             setSelectedOption(null);
             setPhase('wager_input');
-          } else if (restored !== null) {
+          } else if (hasSelectionIdx(restored)) {
             setSelectedOption(restored);
             setPhase('answered');
           } else {
@@ -837,6 +1015,9 @@ export default function GamePage() {
             if (hasLockedWager) {
               setWagerAmount(Number(lockedWagerAmount));
               setWagerSubmitted(true);
+              if (session.pin && session.teamId != null) {
+                clearWagerDraft(session.pin, Number(session.teamId));
+              }
             } else {
               setWagerAmount(initialWagerAmountForRoundType(gs.currentQuestion.roundType));
               setWagerSubmitted(false);
@@ -846,12 +1027,57 @@ export default function GamePage() {
             setWagerAmount(0);
           }
 
-          const mineRaw = gs.mySubmittedOptionIndex;
-          const restoredIdx = Array.isArray(mineRaw)
-            ? mineRaw
-            : mineRaw !== undefined && mineRaw !== null && Number.isFinite(Number(mineRaw))
-              ? Number(mineRaw)
-              : null;
+          const qid = gs.currentQuestion?.question?.id;
+          const qidStr = qid != null ? String(qid) : null;
+          const hasMineKey =
+            gs != null &&
+            typeof gs === 'object' &&
+            Object.prototype.hasOwnProperty.call(gs, 'mySubmittedOptionIndex');
+
+          let restoredIdx: number | number[] | null = null;
+          if (hasMineKey) {
+            restoredIdx = parseSubmittedIdxFromMineRaw(gs.mySubmittedOptionIndex);
+            if (qidStr) {
+              answerRestoreRef.current = { qid: qidStr, idx: restoredIdx };
+            }
+            if (qidStr && session.pin && session.teamId != null && hasSelectionIdx(restoredIdx)) {
+              clearAnswerDraft(session.pin, Number(session.teamId), qidStr);
+              answerDraftResubmitGuardRef.current.delete(qidStr);
+            }
+          } else if (qidStr && answerRestoreRef.current.qid === qidStr) {
+            restoredIdx = answerRestoreRef.current.idx;
+          }
+
+          if (
+            !hasSelectionIdx(restoredIdx) &&
+            gs.questionState === 'ACTIVE' &&
+            qidStr &&
+            session.pin &&
+            session.teamId != null
+          ) {
+            const draft = readAnswerDraft(session.pin, Number(session.teamId), qidStr);
+            if (draft && hasSelectionIdx(draft.selectedOptionIndex)) {
+              const d = draft.selectedOptionIndex;
+              restoredIdx = d;
+              answerRestoreRef.current = { qid: qidStr, idx: restoredIdx };
+              const rt = (gs.currentQuestion.roundType || '').toUpperCase();
+              const wa =
+                rt === 'WAGER' || rt === 'FINAL_WAGER'
+                  ? hasLockedWager
+                    ? Number(lockedWagerAmount)
+                    : draft.wagerAmount
+                  : undefined;
+              if (!answerDraftResubmitGuardRef.current.has(qidStr)) {
+                answerDraftResubmitGuardRef.current.add(qidStr);
+                window.requestAnimationFrame(() => {
+                  socket.emit('submit_answer', {
+                    selectedOptionIndex: d,
+                    wagerAmount: wa,
+                  });
+                });
+              }
+            }
+          }
 
           if (currentlyEliminated) {
             setSelectedOption(null);
@@ -863,7 +1089,7 @@ export default function GamePage() {
             if (isWagerQuestion && !hasLockedWager) {
               setSelectedOption(null);
               setPhase('wager_input');
-            } else if (restoredIdx !== null) {
+            } else if (hasSelectionIdx(restoredIdx)) {
               setSelectedOption(restoredIdx);
               setPhase('answered');
             } else {
@@ -874,7 +1100,7 @@ export default function GamePage() {
             // Break end or page refresh can restore directly into a revealed question.
             // Restore the submitted selection if available; otherwise the reveal screen would
             // incorrectly fall back to the generic no-answer state after a refresh.
-            setSelectedOption(restoredIdx);
+            setSelectedOption(hasSelectionIdx(restoredIdx) ? restoredIdx : null);
             setPhase(currentlyEliminated ? 'eliminated' : 'reveal');
           } else {
             setSelectedOption(null);
@@ -904,11 +1130,16 @@ export default function GamePage() {
           setTimerRunning(false);
           setMusicVenuePlaybackStarted(false);
           setSelectedOption(null);
+          answerRestoreRef.current = { qid: null, idx: null };
           setRevealData(null);
           setPointsGained(null);
           const wagerRoundIdx = Number(gs.currentRoundIndex ?? 0);
-          const wagerRoundType = gs.currentRound?.type ?? gs.rounds?.[wagerRoundIdx]?.type;
-          const roundMeta = gs.currentRound ?? gs.rounds?.[wagerRoundIdx];
+          const roundMeta =
+            gs.currentRound ??
+            (Array.isArray(gs.rounds) && wagerRoundIdx >= 0 && wagerRoundIdx < gs.rounds.length
+              ? gs.rounds[wagerRoundIdx]
+              : null);
+          const wagerRoundType = roundMeta?.type ?? gs.rounds?.[wagerRoundIdx]?.type;
           const roundId = roundMeta?.id;
           const fromRoundWagers =
             session.teamId != null &&
@@ -923,15 +1154,49 @@ export default function GamePage() {
           if (hasLockedWager) {
             setWagerAmount(Number(lockedRaw));
             setWagerSubmitted(true);
+            if (session.pin && session.teamId != null) {
+              clearWagerDraft(session.pin, Number(session.teamId));
+            }
           } else {
             setWagerSubmitted(false);
-            setWagerAmount(initialWagerAmountForRoundType(wagerRoundType));
+            let nextAmount = initialWagerAmountForRoundType(wagerRoundType);
+            let wagerDraftMeta: { amount: number | null; pendingLock: boolean } = {
+              amount: null,
+              pendingLock: false,
+            };
+            if (session.pin && session.teamId != null && roundId != null) {
+              wagerDraftMeta = readWagerDraft(session.pin, Number(session.teamId), roundId);
+              const d = wagerDraftMeta.amount;
+              if (d != null && isValidWagerDraftAmount(wagerRoundType, d)) {
+                nextAmount = d;
+              }
+            }
+            setWagerAmount(nextAmount);
+            const dAmt = wagerDraftMeta.amount;
+            if (
+              wagerDraftMeta.pendingLock &&
+              dAmt != null &&
+              isValidWagerDraftAmount(wagerRoundType, dAmt) &&
+              socket &&
+              roundId != null
+            ) {
+              const rk = String(roundId);
+              if (!wagerLockResubmitGuardRef.current.has(rk)) {
+                wagerLockResubmitGuardRef.current.add(rk);
+                setWagerSubmitted(true);
+                window.requestAnimationFrame(() => {
+                  socket.emit('submit_wager', { amount: dAmt });
+                });
+              }
+            }
           }
-          if (gs.currentRound?.type) {
+          // Room `session_state` often omits top-level `currentRound` (only `rounds` + index).
+          // Without `roundInfo.round.id` the draft effect never runs, so a refresh loses the grid selection.
+          if (roundMeta?.type) {
             setRoundInfo({
-              round: gs.currentRound,
+              round: roundMeta,
               roundIndex: wagerRoundIdx,
-              totalRounds: Number(gs.totalRounds ?? 0),
+              totalRounds: Number(gs.totalRounds ?? gs.rounds?.length ?? 0),
             });
           }
 
@@ -986,6 +1251,13 @@ export default function GamePage() {
       setWagerAmount(0);
       setTimerRunning(false);
       setMusicVenuePlaybackStarted(false);
+      answerRestoreRef.current = { qid: null, idx: null };
+      answerDraftResubmitGuardRef.current.clear();
+      wagerLockResubmitGuardRef.current.clear();
+      if (session.pin && session.teamId != null) {
+        clearWagerDraft(session.pin, Number(session.teamId));
+        clearAnswerDraftsForTeam(session.pin, Number(session.teamId));
+      }
     };
 
     const onWagerCollectionStart = (data: any) => {
@@ -995,8 +1267,12 @@ export default function GamePage() {
       setTimerRemaining(0);
       setSelectedOption(null);
       setRevealData(null);
-      setWagerSubmitted(false);
-      setWagerAmount(initialWagerAmountForRoundType(data?.round?.type));
+      answerRestoreRef.current = { qid: null, idx: null };
+      answerDraftResubmitGuardRef.current.clear();
+      // Do not reset wagerAmount / wagerSubmitted here: `session_state` (emitted right after this on
+      // the server) carries Redis `roundWagers` + join replays `lockedWagerAmount`. Socket.io
+      // connection recovery can deliver this event *after* a refresh `session_state`, which
+      // would wipe a legitimately locked wager if we zeroed state here.
       setPhase('wager_input');
       setTimerRunning(false);
       setMusicVenuePlaybackStarted(false);
@@ -1014,6 +1290,16 @@ export default function GamePage() {
         setIsEliminated(true);
       }
       const dead = isEliminatedRef.current;
+
+      const prevQid = questionRef.current?.question?.id;
+      const nextQid = data.question?.id;
+      const sameQuestion =
+        prevQid != null && nextQid != null && Number(prevQid) === Number(nextQid);
+
+      if (!sameQuestion) {
+        setRevealData(null);
+        setPointsGained(null);
+      }
 
       setQuestion(data);
       setTimerDuration(data.timerDuration);
@@ -1033,21 +1319,30 @@ export default function GamePage() {
       } else {
         setMusicVenuePlaybackStarted(false);
       }
-      const mine = data.mySubmittedOptionIndex;
-      const restored = Array.isArray(mine)
-        ? mine
-        : mine !== undefined && mine !== null && Number.isFinite(Number(mine))
-          ? Number(mine)
-          : null;
+
+      const nextQidStr = nextQid != null ? String(nextQid) : null;
+      const hasMineKey =
+        data != null &&
+        typeof data === 'object' &&
+        Object.prototype.hasOwnProperty.call(data, 'mySubmittedOptionIndex');
+
+      let restored: number | number[] | null = null;
+      if (hasMineKey) {
+        restored = parseSubmittedIdxFromMineRaw(data.mySubmittedOptionIndex);
+        if (nextQidStr) {
+          answerRestoreRef.current = { qid: nextQidStr, idx: restored };
+        }
+      } else if (nextQidStr && answerRestoreRef.current.qid === nextQidStr) {
+        restored = answerRestoreRef.current.idx;
+      }
+
       setSelectedOption(dead ? null : restored);
-      setRevealData(null);
-      setPointsGained(null);
 
       if (dead) {
         setPhase('eliminated');
         return;
       }
-      setPhase(restored !== null ? 'answered' : 'question');
+      setPhase(hasSelectionIdx(restored) ? 'answered' : 'question');
     };
 
     const onTimerUpdate = (data: {
@@ -1093,13 +1388,23 @@ export default function GamePage() {
       const persistEliminated = isEliminatedRef.current || Boolean(myTeam?.isEliminated);
       setPhase(persistEliminated ? 'eliminated' : 'reveal');
       const myResponse = data.responseDetails?.find((r) => sameTeamId(r.teamId, session.teamId));
+      let finalSel: number | number[] | null = null;
       if (myResponse && Array.isArray(myResponse.selectedOptionIndex)) {
-        setSelectedOption(myResponse.selectedOptionIndex);
+        finalSel =
+          myResponse.selectedOptionIndex.length > 0 ? myResponse.selectedOptionIndex : null;
       } else if (myResponse && Number.isFinite(Number(myResponse.selectedOptionIndex))) {
         const selectedIdx = Number(myResponse.selectedOptionIndex);
-        setSelectedOption(selectedIdx >= 0 ? selectedIdx : null);
-      } else {
-        setSelectedOption(null);
+        finalSel = selectedIdx >= 0 ? selectedIdx : null;
+      }
+      setSelectedOption(finalSel);
+
+      const qidReveal = questionRef.current?.question?.id;
+      if (qidReveal != null && session.pin && session.teamId != null) {
+        const qs = String(qidReveal);
+        if (hasSelectionIdx(finalSel)) {
+          answerRestoreRef.current = { qid: qs, idx: finalSel };
+        }
+        clearAnswerDraft(session.pin, Number(session.teamId), qs);
       }
       const sid = session.teamId != null ? Number(session.teamId) : NaN;
       const teamIdStr = Number.isFinite(sid) ? String(sid) : '';
@@ -1240,6 +1545,11 @@ export default function GamePage() {
       teams?: { teamId: number; teamName: string; score: number }[];
     }) => {
       setTimerRunning(false);
+      if (session.pin && session.teamId != null) {
+        clearWagerDraft(session.pin, Number(session.teamId));
+        clearAnswerDraftsForTeam(session.pin, Number(session.teamId));
+      }
+      answerDraftResubmitGuardRef.current.clear();
       if (data?.teams) {
         setScoreboard(data.teams);
         const myTeam = data.teams.find((t) => sameTeamId(t.teamId, session.teamId));
@@ -1295,16 +1605,7 @@ export default function GamePage() {
       socket.off('mini_game_start', onMiniGameStart);
       socket.off('game_end', onGameEnd);
     };
-  }, [
-    socket,
-    session.pin,
-    session.teamName,
-    session.teamId,
-    wagerSubmitted,
-    router,
-    setSession,
-    clearSession,
-  ]);
+  }, [socket, session.pin, session.teamName, session.teamId, router, setSession, clearSession]);
 
   // Declared after the listener effect so `session_state` from this emit is never missed.
   // Join → /play/game reuses an already-connected socket, so `connect` does not fire again.
@@ -1319,12 +1620,34 @@ export default function GamePage() {
         return;
       setSelectedOption(index);
       setPhase('answered');
+      const rt = (question?.roundType || '').toUpperCase();
+      const isWagerQuestion = rt === 'WAGER' || rt === 'FINAL_WAGER';
+      if (session.pin && session.teamId != null && question?.question?.id != null) {
+        const qis = String(question.question.id);
+        writeAnswerDraft(session.pin, Number(session.teamId), qis, {
+          selectedOptionIndex: index,
+          wagerAmount: isWagerQuestion ? wagerAmount : undefined,
+        });
+        answerRestoreRef.current = { qid: qis, idx: index };
+      }
       socket.emit('submit_answer', {
         selectedOptionIndex: index,
-        wagerAmount: wagerSubmitted ? wagerAmount : undefined,
+        // Always send the amount the player sees for wager rounds so the server can persist it
+        // if submit_answer is processed before submit_wager finishes writing Redis (race → +0).
+        wagerAmount: isWagerQuestion ? wagerAmount : wagerSubmitted ? wagerAmount : undefined,
       });
     },
-    [selectedOption, socket, timerRemaining, wagerAmount, wagerSubmitted],
+    [
+      selectedOption,
+      socket,
+      timerRemaining,
+      wagerAmount,
+      wagerSubmitted,
+      question?.roundType,
+      question?.question?.id,
+      session.pin,
+      session.teamId,
+    ],
   );
 
   const handleLockOrdering = useCallback(() => {
@@ -1332,14 +1655,45 @@ export default function GamePage() {
       return;
     setSelectedOption(orderingSelection);
     setPhase('answered');
+    const rt = (question?.roundType || '').toUpperCase();
+    const isWagerQuestion = rt === 'WAGER' || rt === 'FINAL_WAGER';
+    if (session.pin && session.teamId != null && question?.question?.id != null) {
+      const qis = String(question.question.id);
+      writeAnswerDraft(session.pin, Number(session.teamId), qis, {
+        selectedOptionIndex: orderingSelection,
+        wagerAmount: isWagerQuestion ? wagerAmount : undefined,
+      });
+      answerRestoreRef.current = { qid: qis, idx: orderingSelection };
+    }
     socket.emit('submit_answer', {
       selectedOptionIndex: orderingSelection,
-      wagerAmount: wagerSubmitted ? wagerAmount : undefined,
+      wagerAmount: isWagerQuestion ? wagerAmount : wagerSubmitted ? wagerAmount : undefined,
     });
-  }, [selectedOption, socket, timerRemaining, wagerAmount, wagerSubmitted, orderingSelection]);
+  }, [
+    selectedOption,
+    socket,
+    timerRemaining,
+    wagerAmount,
+    wagerSubmitted,
+    orderingSelection,
+    question?.roundType,
+    question?.question?.id,
+    session.pin,
+    session.teamId,
+  ]);
 
   const handleSubmitWager = () => {
     if (!socket) return;
+    const pin = session.pin;
+    const tid = session.teamId;
+    const rid = roundInfo?.round?.id;
+    const rt = roundInfo?.round?.type;
+    // Keep a sessionStorage draft until `session_state` shows the server-side lock. Clearing
+    // here used to wipe the only copy of the chosen amount on refresh if `submit_wager` was
+    // slow, failed, or the tab reloaded before Redis was read back on rejoin.
+    if (pin && tid != null && rid != null && isValidWagerDraftAmount(rt, wagerAmount)) {
+      writeWagerDraft(pin, Number(tid), rid, wagerAmount, { pendingLock: true });
+    }
     socket.emit('submit_wager', { amount: wagerAmount });
     setWagerSubmitted(true);
     // Only advance to question phase if the question is already active.
@@ -1349,6 +1703,25 @@ export default function GamePage() {
       setPhase('question');
     }
   };
+
+  useEffect(() => {
+    if (phase !== 'wager_input' || wagerSubmitted) return;
+    const pin = session.pin;
+    const tid = session.teamId;
+    const rid = roundInfo?.round?.id;
+    const rt = roundInfo?.round?.type;
+    if (!pin || tid == null || rid == null) return;
+    if (!isValidWagerDraftAmount(rt, wagerAmount)) return;
+    writeWagerDraft(pin, Number(tid), rid, wagerAmount, { pendingLock: false });
+  }, [
+    phase,
+    wagerSubmitted,
+    session.pin,
+    session.teamId,
+    roundInfo?.round?.id,
+    roundInfo?.round?.type,
+    wagerAmount,
+  ]);
 
   const isFinalWagerRound =
     (question?.roundType || roundInfo?.round?.type || '').toUpperCase() === 'FINAL_WAGER';
@@ -1946,8 +2319,17 @@ export default function GamePage() {
                             .filter(Number.isFinite),
                         );
                         const isVoteWinner = majorityWinners.has(i);
-                        const isCorrectOption = i === revealData.correctOptionIndex;
-                        const isSelectedOption = selectedOption === i;
+                        const correctIdxNum = Number(revealData.correctOptionIndex);
+                        const isCorrectOption =
+                          Number.isFinite(correctIdxNum) &&
+                          correctIdxNum >= 0 &&
+                          i === correctIdxNum;
+                        const selNum = Number(selectedOption);
+                        const isSelectedOption =
+                          selectedOption !== null &&
+                          selectedOption !== undefined &&
+                          Number.isFinite(selNum) &&
+                          selNum === i;
                         const isSelectedWrong = isSelectedOption && !isCorrectOption;
 
                         // Majority Rules: "correct" is decided by votes, not the question's factual key.
@@ -2017,6 +2399,11 @@ export default function GamePage() {
                     const isMajorityRulesRound =
                       (question.roundType || '').toUpperCase() === 'MAJORITY_RULES';
                     const isOrdering = question.question.isOrdering;
+                    const usesServerPtsLabel = revealUsesServerPointsLabel(question.roundType);
+                    const usesFixedTenTwo = revealUsesFixedTenTwoLabel(
+                      question.roundType,
+                      isMajorityRulesRound,
+                    );
                     const myRevealResponse = revealData.responseDetails?.find((r) =>
                       sameTeamId(r.teamId, session.teamId),
                     );
@@ -2047,26 +2434,44 @@ export default function GamePage() {
                     const selectedFromUi = Number.isFinite(Number(selectedOption))
                       ? Number(selectedOption)
                       : null;
+                    // Authoritative submitted index lives on the server payload — local `selectedOption`
+                    // can be stale after refresh/resync while scores/responseDetails are correct.
                     const resolvedSelectedOption =
-                      selectedFromUi !== null ? selectedFromUi : selectedFromReveal;
-                    const isFixedScoringRound = [
-                      'MULTIPLE_CHOICE',
-                      'MUSIC',
-                      'FINAL_MULTIPLE_CHOICE',
-                    ].includes((question.roundType || '').toUpperCase());
+                      selectedFromReveal !== null && selectedFromReveal !== undefined
+                        ? selectedFromReveal
+                        : selectedFromUi;
+                    const correctIdxReveal = Number(revealData.correctOptionIndex);
                     const answeredCorrectly =
-                      resolvedSelectedOption !== null
-                        ? resolvedSelectedOption === Number(revealData.correctOptionIndex)
+                      resolvedSelectedOption !== null &&
+                      Number.isFinite(resolvedSelectedOption) &&
+                      Number.isFinite(correctIdxReveal) &&
+                      correctIdxReveal >= 0
+                        ? Number(resolvedSelectedOption) === correctIdxReveal
                         : Number(pointsGained ?? 0) > 0;
-                    const correctPointsDisplay = isFixedScoringRound
-                      ? Math.max(Number(pointsGained ?? 0), 10)
-                      : Math.max(Number(pointsGained ?? 0), 0);
-                    const incorrectPointsDisplay =
-                      isFixedScoringRound && Number(pointsGained ?? 0) === 0
-                        ? -2
+                    const correctPointsDisplay = usesServerPtsLabel
+                      ? Math.max(Number(pointsGained ?? 0), 0)
+                      : usesFixedTenTwo && answeredCorrectly
+                        ? REVEAL_FIXED_CORRECT_PTS
+                        : Math.max(Number(pointsGained ?? 0), 0);
+                    const incorrectPointsDisplay = usesServerPtsLabel
+                      ? Number(pointsGained ?? 0)
+                      : usesFixedTenTwo
+                        ? REVEAL_FIXED_WRONG_PTS
                         : Number(pointsGained ?? 0);
                     if (isOrdering) {
-                      const isCorrect = (pointsGained ?? 0) > 0;
+                      const ordSel = Array.isArray(selectedOption)
+                        ? selectedOption
+                        : Array.isArray(myRevealResponse?.selectedOptionIndex)
+                          ? myRevealResponse.selectedOptionIndex
+                          : null;
+                      const expected = revealData.correctOrderArray;
+                      const isCorrect =
+                        Array.isArray(expected) &&
+                        Array.isArray(ordSel) &&
+                        ordSel.length === expected.length &&
+                        ordSel.every((v, i) => Number(v) === Number(expected[i]))
+                          ? true
+                          : (pointsGained ?? 0) > 0;
                       return (
                         <p
                           className={cn(
@@ -2081,8 +2486,20 @@ export default function GamePage() {
                           {!didSubmitOnReveal
                             ? 'No Answer Submitted !! (0)'
                             : isCorrect
-                              ? `That's Correct !! (+${Math.max(pointsGained ?? 0, 0)})`
-                              : `Oops Wrong Answer !! (${pointsGained ?? 0})`}
+                              ? `That's Correct !! (+${
+                                  usesServerPtsLabel
+                                    ? Math.max(pointsGained ?? 0, 0)
+                                    : usesFixedTenTwo
+                                      ? REVEAL_FIXED_CORRECT_PTS
+                                      : Math.max(pointsGained ?? 0, 0)
+                                })`
+                              : `Oops Wrong Answer !! (${
+                                  usesServerPtsLabel
+                                    ? (pointsGained ?? 0)
+                                    : usesFixedTenTwo
+                                      ? REVEAL_FIXED_WRONG_PTS
+                                      : (pointsGained ?? 0)
+                                })`}
                         </p>
                       );
                     }

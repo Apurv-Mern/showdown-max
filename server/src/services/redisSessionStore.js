@@ -1,12 +1,16 @@
 const { getRedisClient, isRedisReady, getRedisMode } = require('../config/redis');
 const logger = require('../utils/logger');
 
+const { normalizeTeamName } = require('../utils/teamName');
+
 const KEYS = {
   session: (pin) => `session:${pin}`,
   gameState: (pin) => `game:${pin}:state`,
   teams: (pin) => `game:${pin}:teams`,
   responses: (pin, questionId) => `game:${pin}:responses:${questionId}`,
   lobby: (pin) => `game:${pin}:lobby`,
+  /** Normalized team names + ids removed by host; survives LOBBY when game state is not yet written */
+  hostRemovalBlocklist: (pin) => `game:${pin}:hostRemovalBlocklist`,
 };
 
 const TTL = 86400;
@@ -252,6 +256,110 @@ const getResponses = async (pin, questionId) => {
   );
 };
 
+const parseHostRemovalBlocklist = (raw) => {
+  if (!raw) return { teamNames: [], teamIds: [] };
+  try {
+    const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    const teamNames = Array.isArray(parsed.teamNames)
+      ? parsed.teamNames.map((n) => normalizeTeamName(n)).filter(Boolean)
+      : [];
+    const teamIds = Array.isArray(parsed.teamIds)
+      ? parsed.teamIds.map(Number).filter(Number.isFinite)
+      : [];
+    return { teamNames, teamIds };
+  } catch {
+    return { teamNames: [], teamIds: [] };
+  }
+};
+
+const getHostRemovalBlocklist = async (pin) => {
+  rememberPinMode(pin);
+  const key = KEYS.hostRemovalBlocklist(pin);
+  return withFallback(
+    async () => {
+      const redis = getRedisClient();
+      const raw = await redis.get(key);
+      return parseHostRemovalBlocklist(raw);
+    },
+    () => parseHostRemovalBlocklist(memoryStore.get(key)),
+  );
+};
+
+/**
+ * @param {string} pin
+ * @param {{ normalizedName?: string | null; teamId: number }} entry
+ */
+const appendHostRemovalBlocklist = async (pin, { normalizedName, teamId }) => {
+  rememberPinMode(pin);
+  const key = KEYS.hostRemovalBlocklist(pin);
+  return withFallback(
+    async () => {
+      const redis = getRedisClient();
+      const prev = parseHostRemovalBlocklist(await redis.get(key));
+      const teamNames = Array.from(
+        new Set(
+          [...prev.teamNames, normalizedName ? normalizeTeamName(normalizedName) : null].filter(
+            Boolean,
+          ),
+        ),
+      );
+      const teamIds = Array.from(
+        new Set([...prev.teamIds, Number(teamId)].filter(Number.isFinite)),
+      );
+      await redis.set(key, JSON.stringify({ teamNames, teamIds }), 'EX', TTL);
+    },
+    () => {
+      const prev = parseHostRemovalBlocklist(memoryStore.get(key));
+      const teamNames = Array.from(
+        new Set(
+          [...prev.teamNames, normalizedName ? normalizeTeamName(normalizedName) : null].filter(
+            Boolean,
+          ),
+        ),
+      );
+      const teamIds = Array.from(
+        new Set([...prev.teamIds, Number(teamId)].filter(Number.isFinite)),
+      );
+      memoryStore.set(key, { teamNames, teamIds });
+    },
+  );
+};
+
+/** Call when the host intentionally re-adds a team so that name can join again */
+const removeHostRemovalBlocklistNormalizedNames = async (pin, normalizedNames) => {
+  const drop = new Set(
+    (Array.isArray(normalizedNames) ? normalizedNames : [])
+      .map((n) => normalizeTeamName(n))
+      .filter(Boolean),
+  );
+  if (drop.size === 0) return;
+  rememberPinMode(pin);
+  const key = KEYS.hostRemovalBlocklist(pin);
+  return withFallback(
+    async () => {
+      const redis = getRedisClient();
+      const prev = parseHostRemovalBlocklist(await redis.get(key));
+      const teamNames = prev.teamNames.filter((n) => !drop.has(normalizeTeamName(n)));
+      const teamIds = prev.teamIds;
+      if (teamNames.length === 0) {
+        await redis.del(key);
+      } else {
+        await redis.set(key, JSON.stringify({ teamNames, teamIds }), 'EX', TTL);
+      }
+    },
+    () => {
+      const prev = parseHostRemovalBlocklist(memoryStore.get(key));
+      const teamNames = prev.teamNames.filter((n) => !drop.has(normalizeTeamName(n)));
+      const teamIds = prev.teamIds;
+      if (teamNames.length === 0) {
+        memoryStore.delete(key);
+      } else {
+        memoryStore.set(key, { teamNames, teamIds });
+      }
+    },
+  );
+};
+
 const cleanupSession = async (pin) => {
   loggedPinModes.delete(String(pin));
   return withFallback(
@@ -394,6 +502,9 @@ module.exports = {
   getLobbyTeams,
   updateTeamData,
   getAllTeamsData,
+  getHostRemovalBlocklist,
+  appendHostRemovalBlocklist,
+  removeHostRemovalBlocklistNormalizedNames,
   recordResponse,
   getResponseCount,
   getResponses,

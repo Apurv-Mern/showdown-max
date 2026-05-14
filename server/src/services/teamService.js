@@ -1,8 +1,8 @@
 const { Team, Session } = require('../models');
 const logger = require('../utils/logger');
 const { normalizeTeamName, sanitizeTeamName } = require('../utils/teamName');
-const redisStore = require('./redisSessionStore');
 const { getSocketIo } = require('../socket/ioRegistry');
+const { purgeTeamFromLiveSession } = require('./purgeTeamFromLiveSession');
 
 /**
  * Create a new team for a session (admin REST endpoint).
@@ -78,55 +78,26 @@ const removeTeam = async (teamId) => {
   if (!team) return false;
 
   const pin = team.session?.pin ? String(team.session.pin) : null;
-
   const removedSocketId = team.socketId || null;
-  const removedTeamName = team.teamName || null;
-  await team.destroy();
 
   if (pin) {
-    await redisStore.removeTeamFromLobby(pin, teamId);
-    await redisStore.removeTeamData(pin, teamId);
+    await purgeTeamFromLiveSession(pin, teamId, true);
+  } else {
+    await team.destroy();
+  }
 
-    const existing = await redisStore.getGameState(pin);
-    if (existing) {
-      await redisStore.updateGameState(pin, (current) => {
-        const teams = { ...(current.teams || {}) };
-        delete teams[teamId];
-        const activeTeamIds = (current.activeTeamIds || []).filter(
-          (id) => Number(id) !== Number(teamId),
-        );
-        const removedTeamIds = Array.from(
-          new Set([...(current.removedTeamIds || []).map(Number), Number(teamId)]),
-        ).filter((id) => Number.isFinite(id));
-        const removedTeamNames = Array.from(
-          new Set([
-            ...(current.removedTeamNames || []).map((name) => normalizeTeamName(name)),
-            ...(removedTeamName ? [normalizeTeamName(removedTeamName)] : []),
-          ]),
-        ).filter(Boolean);
-        return {
-          teams,
-          activeTeamIds,
-          removedTeamIds,
-          removedTeamNames,
-          totalTeams: Object.keys(teams).length,
-        };
-      });
-    }
-
-    const io = getSocketIo();
-    if (io) {
-      io.to(`session:${pin}`).emit('team_removed', {
+  const io = getSocketIo();
+  if (io && pin) {
+    io.to(`session:${pin}`).emit('team_removed', {
+      teamId: Number(teamId),
+      reason: 'host_removed',
+    });
+    if (removedSocketId) {
+      io.to(removedSocketId).emit('team_removed', {
         teamId: Number(teamId),
+        direct: true,
         reason: 'host_removed',
       });
-      if (removedSocketId) {
-        io.to(removedSocketId).emit('team_removed', {
-          teamId: Number(teamId),
-          direct: true,
-          reason: 'host_removed',
-        });
-      }
     }
   }
 

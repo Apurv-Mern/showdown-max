@@ -560,14 +560,25 @@ function HostDashboardContent() {
           }
         }
         setCurrentQuestion(data.state === 'QUESTION' ? (data.currentQuestion ?? null) : null);
-        setLiveResponses((prev) => ({
-          correct: data.state === 'QUESTION' && data.questionState === 'ACTIVE' ? prev.correct : 0,
-          incorrect:
-            data.state === 'QUESTION' && data.questionState === 'ACTIVE' ? prev.incorrect : 0,
-          noAnswer:
-            data.state === 'QUESTION' && data.questionState === 'ACTIVE' ? prev.noAnswer : 0,
-          total: Number(data.totalTeams || 0),
-        }));
+        setLiveResponses((prev) => {
+          const activeCount = Array.isArray(data.activeTeamIds) ? data.activeTeamIds.length : 0;
+          const teamMapCount = data.teams ? Object.keys(data.teams as object).length : 0;
+          const denom =
+            data.state === 'QUESTION' && data.questionState === 'ACTIVE'
+              ? activeCount > 0
+                ? activeCount
+                : teamMapCount || Number(data.totalTeams || 0)
+              : Number(data.totalTeams || 0);
+          return {
+            correct:
+              data.state === 'QUESTION' && data.questionState === 'ACTIVE' ? prev.correct : 0,
+            incorrect:
+              data.state === 'QUESTION' && data.questionState === 'ACTIVE' ? prev.incorrect : 0,
+            noAnswer:
+              data.state === 'QUESTION' && data.questionState === 'ACTIVE' ? prev.noAnswer : 0,
+            total: denom,
+          };
+        });
         if (data.questionState !== 'REVEALED') {
           setRevealData(null);
         }
@@ -655,7 +666,12 @@ function HostDashboardContent() {
         correct: 0,
         incorrect: 0,
         noAnswer: 0,
-        total: Number(gameStateRef.current?.totalTeams || 0),
+        total: (() => {
+          const g = gameStateRef.current;
+          const activeCount = Array.isArray(g?.activeTeamIds) ? g.activeTeamIds.length : 0;
+          const teamMapCount = g?.teams ? Object.keys(g.teams).length : 0;
+          return activeCount > 0 ? activeCount : teamMapCount || Number(g?.totalTeams || 0);
+        })(),
       });
       setMp3Playing(false);
       setMp4Playing(false);
@@ -752,7 +768,12 @@ function HostDashboardContent() {
         correct: 0,
         incorrect: 0,
         noAnswer: 0,
-        total: Number(gameStateRef.current?.totalTeams || 0),
+        total: (() => {
+          const g = gameStateRef.current;
+          const activeCount = Array.isArray(g?.activeTeamIds) ? g.activeTeamIds.length : 0;
+          const teamMapCount = g?.teams ? Object.keys(g.teams).length : 0;
+          return activeCount > 0 ? activeCount : teamMapCount || Number(g?.totalTeams || 0);
+        })(),
       });
       setMp3Playing(false);
       setGameState((prev) =>
@@ -914,10 +935,11 @@ function HostDashboardContent() {
     const onTeamJoined = (team: Team) => {
       setGameState((prev) => {
         if (!prev) return prev;
+        const teams = { ...prev.teams, [team.teamId]: team };
         return {
           ...prev,
-          teams: { ...prev.teams, [team.teamId]: team },
-          totalTeams: Object.keys(prev.teams).length + 1,
+          teams,
+          totalTeams: Object.keys(teams).length,
         };
       });
     };
@@ -1669,6 +1691,20 @@ function HostDashboardContent() {
   const questionState = gameState?.questionState || 'WAITING';
   const teamList = gameState?.teams ? Object.values(gameState.teams) : [];
   const sortedTeams = [...teamList].sort((a, b) => b.score - a.score);
+  /** Roster rows come from `teams`; never trust `totalTeams` alone (reconnect could inflate it). */
+  const rosterTeamCount = Math.max(0, teamList.length);
+  const activeTeamCountForLive =
+    Array.isArray(gameState?.activeTeamIds) && gameState.activeTeamIds.length > 0
+      ? gameState.activeTeamIds.length
+      : rosterTeamCount;
+  const liveResponseDenominator =
+    state === 'QUESTION' && (questionState === 'ACTIVE' || questionState === 'REVEALED')
+      ? Math.max(1, liveResponses.total || activeTeamCountForLive)
+      : Math.max(1, rosterTeamCount);
+  const respondedLineTotal =
+    state === 'QUESTION' && questionState === 'ACTIVE'
+      ? liveResponseDenominator
+      : Math.max(1, rosterTeamCount);
   const hostBreakProgress =
     hostBreakDuration > 0 ? Math.max(0, Math.min(1, hostBreakRemaining / hostBreakDuration)) : 0;
   const hostBreakRadius = 90;
@@ -1678,8 +1714,8 @@ function HostDashboardContent() {
   const hostBreakMinutes = Math.floor(hostBreakRemaining / 60);
   const hostBreakSeconds = hostBreakRemaining % 60;
   const responsePct =
-    gameState && gameState.totalTeams > 0
-      ? Math.min(100, ((gameState.responseCount || 0) / gameState.totalTeams) * 100)
+    gameState && liveResponseDenominator > 0
+      ? Math.min(100, ((gameState.responseCount || 0) / liveResponseDenominator) * 100)
       : 0;
   const isLastQuestionOfRound =
     state === 'QUESTION' &&
@@ -2845,9 +2881,7 @@ function HostDashboardContent() {
               >
                 <p className="mb-4 text-lg text-white" data-node-id="232:4555">
                   <span className="font-bold text-[#00d9ff]">{gameState?.responseCount ?? 0}</span>{' '}
-                  <span className="font-medium">
-                    of {gameState?.totalTeams ?? 0} Teams responded
-                  </span>
+                  <span className="font-medium">of {respondedLineTotal} Teams responded</span>
                 </p>
 
                 <div className="space-y-4">
@@ -2877,7 +2911,7 @@ function HostDashboardContent() {
                       iconBg: 'bg-blue-500',
                     },
                   ].map((item) => {
-                    const total = Math.max(1, gameState?.totalTeams || 1);
+                    const total = liveResponseDenominator;
                     const width = Math.max(
                       0,
                       Math.min(100, Math.round((item.value / total) * 100)),
@@ -2924,8 +2958,7 @@ function HostDashboardContent() {
                 Leaderboard{' '}
               </h2>
               <span className="text-sm font-semibold text-[#00d9ff]" data-node-id="232:4458">
-                {gameState?.totalTeams ?? 0} {gameState?.totalTeams === 1 ? 'Team' : 'Teams'}{' '}
-                Connected
+                {rosterTeamCount} {rosterTeamCount === 1 ? 'Team' : 'Teams'} Connected
               </span>
 
               <div

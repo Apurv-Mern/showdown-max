@@ -18,6 +18,7 @@ const { purgeTeamFromLiveSession } = require('../purgeTeamFromLiveSession');
 const { Team, Session } = require('../../models');
 const logger = require('../../utils/logger');
 const { getBreakRemainingSeconds } = require('../../utils/breakWallClock');
+const { normalizeTeamName } = require('../../utils/teamName');
 
 const eliminationStates = new Map();
 
@@ -261,6 +262,19 @@ const startGame = async (io, pin, quiz, sessionId) => {
   if (!result.valid) {
     logger.error('Failed to start game', { error: result.error });
     return;
+  }
+
+  const blocklist = await redisStore.getHostRemovalBlocklist(pin);
+  if (blocklist.teamNames.length || blocklist.teamIds.length) {
+    result.gameState.removedTeamNames = Array.from(
+      new Set([
+        ...(result.gameState.removedTeamNames || []).map((n) => normalizeTeamName(n)),
+        ...blocklist.teamNames,
+      ]),
+    ).filter(Boolean);
+    result.gameState.removedTeamIds = Array.from(
+      new Set([...(result.gameState.removedTeamIds || []).map(Number), ...blocklist.teamIds]),
+    ).filter(Number.isFinite);
   }
 
   await redisStore.setGameState(pin, result.gameState);
@@ -535,7 +549,9 @@ const submitAnswer = async (io, pin, teamId, data) => {
 
   io.to(`session:${pin}`).emit(SOCKET_EVENTS.RESPONSE_COUNT, {
     count,
-    total: gameState.totalTeams,
+    total: Array.isArray(gameState.activeTeamIds)
+      ? gameState.activeTeamIds.length
+      : gameState.totalTeams,
   });
   const responsesRaw = await redisStore.getResponses(pin, question.id);
   io.to(`session:${pin}`).emit(

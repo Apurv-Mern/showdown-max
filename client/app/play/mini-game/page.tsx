@@ -4,6 +4,15 @@ import { useEffect, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { connectSocket } from '@/lib/socket';
 import { usePlayerSession } from '../playerSession';
+import {
+  applyPlayerRestoreBundle,
+  fetchPlayerRestore,
+  readPlayerSnapshot,
+  setSnapshotFromRemoteBundle,
+  setSnapshotSessionPayload,
+  snapshotToRestoreBundle,
+  type PlayerRestoreBundle,
+} from '../playerSnapshotStorage';
 import { Button } from '@/components/shared/Button';
 import { cn } from '@/lib/utils';
 
@@ -143,6 +152,7 @@ export default function MiniGamePage() {
   sessionTeamIdRef.current = session.teamId;
   const sessionTeamNameRef = useRef(session.teamName);
   sessionTeamNameRef.current = session.teamName;
+  const miniRestoreGuardRef = useRef<{ pin: string; teamId: number } | null>(null);
   selectedChoiceRef.current = selectedChoice;
   const labelForKangaroo = (slot: number | null) => {
     if (!Number.isFinite(Number(slot))) return '';
@@ -166,7 +176,7 @@ export default function MiniGamePage() {
       setKangarooPickSecondsLeft(null);
       return;
     }
-    let intervalId: ReturnType<typeof setInterval> | null = null;
+    let intervalId: ReturnType<typeof window.setInterval> | null = null;
     const tick = () => {
       const remainingMs = kangarooPickDeadline - Date.now();
       const seconds = remainingMs > 0 ? Math.ceil(remainingMs / 1000) : 0;
@@ -585,6 +595,12 @@ export default function MiniGamePage() {
       const gameState = data?.gameState ?? data;
       if (!gameState || !gameState.state) return;
 
+      const p = sessionPinRef.current;
+      const t = sessionTeamIdRef.current != null ? Number(sessionTeamIdRef.current) : NaN;
+      if (p && Number.isFinite(t)) {
+        setSnapshotSessionPayload(p, t, data);
+      }
+
       // ── Restore kangaroo race state on rejoin / refresh ──
       if (gameState?.miniGameState?.game === 'kangaroo_race') {
         const mgs = gameState.miniGameState;
@@ -697,6 +713,44 @@ export default function MiniGamePage() {
       console.error('[play/mini-game][socket][connect_error]', error?.message || error);
     };
 
+    const pinRestore = sessionPinRef.current;
+    const tidRestore = sessionTeamIdRef.current != null ? Number(sessionTeamIdRef.current) : NaN;
+    const abortMiniRestore = new AbortController();
+    const applyRestoreBundleMini = (bundle: PlayerRestoreBundle | null | undefined) => {
+      if (!bundle?.sessionPayload || !pinRestore || !Number.isFinite(tidRestore)) return;
+      applyPlayerRestoreBundle(bundle, {
+        session_state: (d) => onSessionState(d as any),
+        mini_game_start: (d) => onMiniGameStart(d as any),
+        mini_game_reveal: (d) => onMiniGameReveal(d as any),
+        mini_game_player_result: (d) => onMiniGamePlayerResult(d as any),
+        round_intro: () => onRoundIntro(),
+        question_active: () => onQuestionActive(),
+        answer_reveal: () => onAnswerReveal(),
+        scoreboard: () => onScoreboard(),
+        game_end: () => onGameEnd(),
+        break_end: () => onBreakEnd(),
+      });
+    };
+
+    const gMini = miniRestoreGuardRef.current;
+    const sameMini =
+      gMini &&
+      gMini.pin === pinRestore &&
+      Number(gMini.teamId) === tidRestore &&
+      Number.isFinite(tidRestore);
+    if (!sameMini && Number.isFinite(tidRestore) && pinRestore) {
+      miniRestoreGuardRef.current = { pin: pinRestore, teamId: tidRestore };
+      void (async () => {
+        const local = snapshotToRestoreBundle(readPlayerSnapshot(pinRestore, tidRestore));
+        if (local) applyRestoreBundleMini(local);
+        const remote = await fetchPlayerRestore(pinRestore, tidRestore, abortMiniRestore.signal);
+        if (remote) {
+          setSnapshotFromRemoteBundle(pinRestore, tidRestore, remote);
+          applyRestoreBundleMini(remote);
+        }
+      })();
+    }
+
     socket.on('mini_game_start', onMiniGameStart);
     socket.on('mini_game_command', onMiniGameCommand);
     socket.on('mini_game_reveal', onMiniGameReveal);
@@ -715,6 +769,8 @@ export default function MiniGamePage() {
     socket.on('connect_error', onConnectError);
 
     return () => {
+      abortMiniRestore.abort();
+      miniRestoreGuardRef.current = null;
       socket.off('connect', rejoinSession);
       socket.off('mini_game_start', onMiniGameStart);
       socket.off('mini_game_command', onMiniGameCommand);

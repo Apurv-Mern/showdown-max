@@ -10,6 +10,16 @@ import { clientLogger } from '@/lib/clientLogger';
 import { breakSecondsFromEndsAt, resolveBreakWallClock } from '@/lib/breakWallClock';
 import { cn } from '@/lib/utils';
 import { PUBLIC_API_URL } from '@/lib/env';
+import {
+  appendSnapshotReplay,
+  applyPlayerRestoreBundle,
+  fetchPlayerRestore,
+  readPlayerSnapshot,
+  setSnapshotFromRemoteBundle,
+  setSnapshotSessionPayload,
+  snapshotToRestoreBundle,
+  type PlayerRestoreBundle,
+} from '../playerSnapshotStorage';
 
 const API_URL = PUBLIC_API_URL;
 
@@ -719,6 +729,8 @@ export default function GamePage() {
   }>({ qid: null, idx: null });
   const answerDraftResubmitGuardRef = useRef<Set<string>>(new Set());
   const wagerLockResubmitGuardRef = useRef<Set<string>>(new Set());
+  /** Same pin+team: run local + HTTP restore only once per mount cycle (socket effect may re-run). */
+  const playerRestoreGuardRef = useRef<{ pin: string; teamId: number } | null>(null);
   useEffect(() => {
     phaseRef.current = phase;
   }, [phase]);
@@ -896,7 +908,7 @@ export default function GamePage() {
   }, [timerEndsAt, timerRunning]);
 
   useEffect(() => {
-    if (!socket || !session.pin || !session.teamName) return;
+    if (!socket || !session.pin || !session.teamName || session.teamId == null) return;
 
     const onSessionState = (data: any) => {
       // Server emits SESSION_STATE in two shapes:
@@ -908,6 +920,9 @@ export default function GamePage() {
         const gs = data.gameState ?? data;
         if (!gs || typeof gs !== 'object' || !('state' in gs)) return;
         setHasInitialState(true);
+        if (session.pin && session.teamId != null) {
+          setSnapshotSessionPayload(session.pin, Number(session.teamId), data);
+        }
         if (gs.state !== 'BREAK') {
           setBreakEndsAtMs(null);
           setBreakSkewMs(0);
@@ -1433,6 +1448,9 @@ export default function GamePage() {
         isEliminatedRef.current = true;
         setIsEliminated(true);
       }
+      if (session.pin && session.teamId != null) {
+        appendSnapshotReplay(session.pin, Number(session.teamId), 'answer_reveal', data);
+      }
     };
 
     const onPlayerEliminated = (data: { teamId: number }) => {
@@ -1451,6 +1469,9 @@ export default function GamePage() {
       setScoreboard(data.teams);
       setPhase('scoreboard');
       setTimerRunning(false);
+      if (session.pin && session.teamId != null) {
+        appendSnapshotReplay(session.pin, Number(session.teamId), 'scoreboard', data);
+      }
     };
 
     const onTeamUpdated = (data: { teamId: number; score: number }) => {
@@ -1512,6 +1533,9 @@ export default function GamePage() {
       setBreakRemaining(w.remaining);
       setTimerRunning(false);
       setPhase('break');
+      if (session.pin && session.teamId != null) {
+        appendSnapshotReplay(session.pin, Number(session.teamId), 'break_start', data);
+      }
     };
 
     const onBreakEnd = () => {
@@ -1559,6 +1583,46 @@ export default function GamePage() {
       router.replace('/play/join');
     };
 
+    const pin = session.pin;
+    const tid = Number(session.teamId);
+    const applyRestoreBundle = (bundle: PlayerRestoreBundle | null | undefined) => {
+      if (!bundle?.sessionPayload || !pin || !Number.isFinite(tid)) return;
+      applyPlayerRestoreBundle(bundle, {
+        session_state: (d) => onSessionState(d),
+        round_intro: (d) => onRoundIntro(d as any),
+        wager_collection_start: (d) => onWagerCollectionStart(d as any),
+        question_active: (d) => onQuestionActive(d as QuestionData),
+        timer_update: (d) => onTimerUpdate(d as any),
+        timer_expired: () => onTimerExpired(),
+        answer_reveal: (d) => onAnswerReveal(d as RevealData),
+        player_eliminated: (d) => onPlayerEliminated(d as { teamId: number }),
+        scoreboard: (d) => onScoreboard(d as { teams: any[] }),
+        team_updated: (d) => onTeamUpdated(d as { teamId: number; score: number }),
+        scoreboard_hidden: () => onScoreboardHidden(),
+        round_end: () => onRoundEnd(),
+        break_start: (d) => onBreakStart(d as any),
+        break_end: () => onBreakEnd(),
+        mini_game_start: (d) => onMiniGameStart(d as { game: string }),
+        game_end: (d) => onGameEnd(d as any),
+      });
+    };
+
+    const abortRestore = new AbortController();
+    const g = playerRestoreGuardRef.current;
+    const sameKey = g && g.pin === pin && Number(g.teamId) === tid && Number.isFinite(tid);
+    if (!sameKey && Number.isFinite(tid) && pin) {
+      playerRestoreGuardRef.current = { pin, teamId: tid };
+      void (async () => {
+        const local = snapshotToRestoreBundle(readPlayerSnapshot(pin, tid));
+        if (local) applyRestoreBundle(local);
+        const remote = await fetchPlayerRestore(pin, tid, abortRestore.signal);
+        if (remote) {
+          setSnapshotFromRemoteBundle(pin, tid, remote);
+          applyRestoreBundle(remote);
+        }
+      })();
+    }
+
     // Re-emit join_session on socket (re)connect so server replays a fresh session_state — this
     // is the safety net for long disconnects (mobile screen lock, tab throttling) where transient
     // events like break_end / question_active were missed during the gap.
@@ -1587,6 +1651,8 @@ export default function GamePage() {
     socket.on('game_end', onGameEnd);
 
     return () => {
+      abortRestore.abort();
+      playerRestoreGuardRef.current = null;
       socket.off('connect', rejoinSession);
       socket.off('session_state', onSessionState);
       socket.off('round_intro', onRoundIntro);
@@ -1610,7 +1676,7 @@ export default function GamePage() {
   // Declared after the listener effect so `session_state` from this emit is never missed.
   // Join → /play/game reuses an already-connected socket, so `connect` does not fire again.
   useEffect(() => {
-    if (!socket || !session.pin || !session.teamName) return;
+    if (!socket || !session.pin || !session.teamName || session.teamId == null) return;
     socket.emit('join_session', { pin: session.pin, teamName: session.teamName });
   }, [socket, session.pin, session.teamName]);
 

@@ -277,6 +277,8 @@ const hostHandlers = (io, socket) => {
         });
       }
 
+      await redisStore.removeHostRemovalBlocklistNormalizedNames(pin, [normalized]);
+
       io.to(`session:${pin}`).emit(SOCKET_EVENTS.TEAM_JOINED, teamData);
       logger.info('Team added manually', { pin, teamName, score });
     } catch (err) {

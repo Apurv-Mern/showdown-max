@@ -5,8 +5,12 @@ const sessionService = require('../services/sessionService');
 const { Team } = require('../models');
 const gameController = require('../services/game-engine/gameController');
 const { getSocketIo } = require('../socket/ioRegistry');
+const { buildPlayerHttpRestore } = require('../services/playerRestorePayload');
 
 const pinParamSchema = z.object({ pin: z.string().length(6) });
+const playerRestoreQuerySchema = z.object({
+  teamId: z.coerce.number().int().positive(),
+});
 const leaveIntentBodySchema = z.object({
   teamId: z.coerce.number().int().positive(),
 });
@@ -17,55 +21,96 @@ const leaveIntentBodySchema = z.object({
  * @param {import('fastify').FastifyInstance} fastify
  */
 const publicSessionRoutes = async (fastify) => {
-  fastify.get('/pin/:pin', {
-    preHandler: [validateParams(pinParamSchema)],
-  }, async (request, reply) => {
-    const forParam = String(request.query.for || '');
-    const forExistsOnly = forParam === 'exists';
-    const pin = request.params.pin;
-    const session = forExistsOnly
-      ? await sessionService.getSessionByPin(pin)
-      : await sessionService.getPlayerJoinEligibleSessionByPin(pin);
-    if (!session) {
-      reply.status(404);
-      return error(
-        forExistsOnly
-          ? 'Session not found or expired'
-          : 'Session not found, not active, or no host is assigned to this PIN',
-        404,
+  fastify.get(
+    '/pin/:pin',
+    {
+      preHandler: [validateParams(pinParamSchema)],
+    },
+    async (request, reply) => {
+      const forParam = String(request.query.for || '');
+      const forExistsOnly = forParam === 'exists';
+      const pin = request.params.pin;
+      const session = forExistsOnly
+        ? await sessionService.getSessionByPin(pin)
+        : await sessionService.getPlayerJoinEligibleSessionByPin(pin);
+      if (!session) {
+        reply.status(404);
+        return error(
+          forExistsOnly
+            ? 'Session not found or expired'
+            : 'Session not found, not active, or no host is assigned to this PIN',
+          404,
+        );
+      }
+      return success(
+        {
+          id: session.id,
+          pin: session.pin,
+          status: session.status,
+          quizTitle: session.quiz?.title,
+        },
+        'Session found',
       );
-    }
-    return success({
-      id: session.id,
-      pin: session.pin,
-      status: session.status,
-      quizTitle: session.quiz?.title,
-    }, 'Session found');
-  });
+    },
+  );
 
-  fastify.post('/pin/:pin/leave-intent', {
-    preHandler: [validateParams(pinParamSchema), validateBody(leaveIntentBodySchema)],
-  }, async (request) => {
-    const pin = String(request.params.pin || '');
-    const teamId = Number(request.body.teamId);
-    const io = getSocketIo();
+  fastify.get(
+    '/pin/:pin/player-restore',
+    {
+      preHandler: [validateParams(pinParamSchema)],
+    },
+    async (request, reply) => {
+      const parsedQ = playerRestoreQuerySchema.safeParse(request.query);
+      if (!parsedQ.success) {
+        reply.status(400);
+        return error('teamId is required and must be a positive integer', 400);
+      }
+      const pin = request.params.pin;
+      const teamId = parsedQ.data.teamId;
+      const result = await buildPlayerHttpRestore(pin, teamId);
+      if (!result.ok) {
+        reply.status(result.status);
+        return {
+          success: false,
+          error: result.message,
+          ...(result.code ? { code: result.code } : {}),
+          statusCode: result.status,
+        };
+      }
+      return success(
+        { sessionPayload: result.sessionPayload, replays: result.replays },
+        'Player restore',
+      );
+    },
+  );
 
-    if (!io || !pin || !Number.isFinite(teamId)) {
-      return success({ accepted: false }, 'Leave intent ignored');
-    }
+  fastify.post(
+    '/pin/:pin/leave-intent',
+    {
+      preHandler: [validateParams(pinParamSchema), validateBody(leaveIntentBodySchema)],
+    },
+    async (request) => {
+      const pin = String(request.params.pin || '');
+      const teamId = Number(request.body.teamId);
+      const io = getSocketIo();
 
-    // Safety: only purge if this team currently belongs to the same PIN session.
-    const session = await sessionService.getSessionByPin(pin);
-    if (!session) return success({ accepted: false }, 'Leave intent ignored');
+      if (!io || !pin || !Number.isFinite(teamId)) {
+        return success({ accepted: false }, 'Leave intent ignored');
+      }
 
-    const team = await Team.findByPk(teamId, { attributes: ['id', 'sessionId'] });
-    if (!team || Number(team.sessionId) !== Number(session.id)) {
-      return success({ accepted: false }, 'Leave intent ignored');
-    }
+      // Safety: only purge if this team currently belongs to the same PIN session.
+      const session = await sessionService.getSessionByPin(pin);
+      if (!session) return success({ accepted: false }, 'Leave intent ignored');
 
-    await gameController.handlePlayerSocketDisconnect(io, pin, teamId);
-    return success({ accepted: true }, 'Leave intent processed');
-  });
+      const team = await Team.findByPk(teamId, { attributes: ['id', 'sessionId'] });
+      if (!team || Number(team.sessionId) !== Number(session.id)) {
+        return success({ accepted: false }, 'Leave intent ignored');
+      }
+
+      await gameController.handlePlayerSocketDisconnect(io, pin, teamId);
+      return success({ accepted: true }, 'Leave intent processed');
+    },
+  );
 };
 
 module.exports = publicSessionRoutes;

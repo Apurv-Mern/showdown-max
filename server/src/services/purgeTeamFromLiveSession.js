@@ -80,6 +80,14 @@ const purgeTeamFromLiveSession = async (pin, teamId, isHostRemoval = false) => {
     });
   }
 
+  // Block re-join with the same name even when no game state exists yet (pre-start LOBBY).
+  if (isHostRemoval && Number.isFinite(numericTeamId)) {
+    await redisStore.appendHostRemovalBlocklist(pin, {
+      normalizedName: removedTeamName ? normalizeTeamName(removedTeamName) : null,
+      teamId: numericTeamId,
+    });
+  }
+
   return { removedSocketId, removedTeamName };
 };
 

@@ -1,43 +1,17 @@
 const { SOCKET_EVENTS } = require('shared/constants/socketEvents');
 const logger = require('../utils/logger');
 const gameController = require('../services/game-engine/gameController');
-const timerManager = require('../services/game-engine/timerManager');
-const { getBreakRemainingSeconds } = require('../utils/breakWallClock');
 const redisStore = require('../services/redisSessionStore');
-
-/** `Number(null) === 0` would falsely mark the timer as expired — only positive epoch ms are valid. */
-const safeClientTimerEndsAt = (raw) => {
-  if (raw == null || raw === '') return null;
-  const n = Number(raw);
-  if (!Number.isFinite(n) || n <= 0) return null;
-  return n;
-};
-const { buildRevealSnapshot } = require('../services/revealSnapshot');
+const {
+  getMySubmittedOptionIndex,
+  buildSessionPayloadForPlayer,
+  buildJoinReplayEvents,
+  emitJoinReplaysToSocket,
+} = require('../services/playerRestorePayload');
 const { Session, Team } = require('../models');
 const sessionService = require('../services/sessionService');
 const { joinSessionSchema } = require('shared/schemas/session');
 const { normalizeTeamName, sanitizeTeamName } = require('../utils/teamName');
-
-/** Restore locked selection on mobile after refresh (Redis may store a number or JSON). */
-const getMySubmittedOptionIndex = async (pin, questionId, teamId) => {
-  if (!questionId || teamId == null) return null;
-  try {
-    const raw = await redisStore.getResponses(pin, questionId);
-    const entry = raw[String(teamId)];
-    if (entry === undefined || entry === null || entry === '') return null;
-    const asNum = Number(entry);
-    if (Number.isFinite(asNum) && asNum >= 0) return asNum;
-    const parsed = JSON.parse(String(entry));
-    if (Array.isArray(parsed?.selectedOptionIndex)) {
-      return parsed.selectedOptionIndex.length > 0 ? parsed.selectedOptionIndex : null;
-    }
-    const idx = Number(parsed?.selectedOptionIndex);
-    if (Number.isFinite(idx) && idx >= 0) return idx;
-    return null;
-  } catch {
-    return null;
-  }
-};
 
 /**
  * Registers player-specific socket event handlers
@@ -45,16 +19,6 @@ const getMySubmittedOptionIndex = async (pin, questionId, teamId) => {
  * @param {import('socket.io').Socket} socket
  */
 const playerHandlers = (io, socket) => {
-  const getLockedWager = (gameState, round, teamId) => {
-    if (!gameState || !round) return null;
-    const t = String(round.type || '').toUpperCase();
-    if (t !== 'WAGER' && t !== 'FINAL_WAGER') return null;
-    const value = gameState.roundWagers?.[String(round.id)]?.[String(teamId)];
-    if (value === undefined || value === null) return null;
-    const parsed = Number(value);
-    return Number.isFinite(parsed) ? parsed : null;
-  };
-
   socket.on(SOCKET_EVENTS.JOIN_SESSION, async (data) => {
     try {
       const parsed = joinSessionSchema.safeParse(data);
@@ -88,11 +52,18 @@ const playerHandlers = (io, socket) => {
         attributes: ['id', 'teamName', 'isConnected', 'socketId', 'score', 'isEliminated'],
       });
       const preJoinGameState = await redisStore.getGameState(pin);
-      const wasRemovedByHost =
-        Array.isArray(preJoinGameState?.removedTeamNames) &&
-        preJoinGameState.removedTeamNames
-          .map((name) => normalizeTeamName(name))
-          .includes(normalizedTeamName);
+      const hostRemovalBlocklist = await redisStore.getHostRemovalBlocklist(pin);
+      const existingTeam = sessionTeams.find(
+        (t) => normalizeTeamName(t.teamName) === normalizedTeamName,
+      );
+      const nameMarkedRemoved =
+        hostRemovalBlocklist.teamNames.includes(normalizedTeamName) ||
+        (Array.isArray(preJoinGameState?.removedTeamNames) &&
+          preJoinGameState.removedTeamNames
+            .map((name) => normalizeTeamName(name))
+            .includes(normalizedTeamName));
+      // If the host re-added this team (DB row exists), allow join/reconnect.
+      const wasRemovedByHost = !existingTeam && nameMarkedRemoved;
       if (wasRemovedByHost) {
         socket.emit(SOCKET_EVENTS.TEAM_REMOVED, {
           teamName: cleanTeamName,
@@ -104,9 +75,6 @@ const playerHandlers = (io, socket) => {
         });
         return;
       }
-      const existingTeam = sessionTeams.find(
-        (t) => normalizeTeamName(t.teamName) === normalizedTeamName,
-      );
 
       let team;
       if (existingTeam) {
@@ -233,281 +201,23 @@ const playerHandlers = (io, socket) => {
         if (refreshed) gameState = refreshed;
       }
 
-      const currentRound = gameState?.rounds?.[gameState.currentRoundIndex];
-      const currentQuestionRow = currentRound?.questions?.[gameState.currentQuestionIndex] || null;
-      const currentQuestion =
-        gameState?.state === 'QUESTION' && currentQuestionRow ? currentQuestionRow : null;
-
-      const redisTeamRow =
-        gameState?.teams?.[team.id] ?? gameState?.teams?.[String(team.id)] ?? null;
-      const redisScoreRaw = redisTeamRow?.score;
-      const resolvedJoinScore =
-        redisScoreRaw !== undefined &&
-        redisScoreRaw !== null &&
-        Number.isFinite(Number(redisScoreRaw))
-          ? Number(redisScoreRaw)
-          : Number(team.score) || 0;
-
-      const sessionPayload = {
-        joined: true,
-        teamId: team.id,
-        teamName: team.teamName,
-        score: resolvedJoinScore,
-        gameState: gameState
-          ? {
-              state: gameState.state,
-              questionState: gameState.questionState,
-              currentRoundIndex: gameState.currentRoundIndex,
-              currentQuestionIndex: gameState.currentQuestionIndex,
-              totalRounds: gameState.rounds?.length || 0,
-              currentRound: currentRound
-                ? {
-                    id: currentRound.id,
-                    name: currentRound.name,
-                    type: currentRound.type,
-                    timerDuration: currentRound.timerDuration,
-                  }
-                : null,
-              currentQuestion: currentQuestion
-                ? {
-                    questionIndex: gameState.currentQuestionIndex,
-                    totalQuestions: currentRound?.questions?.length || 0,
-                    question: {
-                      id: currentQuestion.id,
-                      text: currentQuestion.text,
-                      options: (currentQuestion.options || []).map((o) => ({ text: o.text })),
-                      mediaUrl: currentQuestion.mediaUrl,
-                      mediaType: currentQuestion.mediaType,
-                    },
-                    timerDuration:
-                      Number(currentQuestion.timerDuration ?? currentRound?.timerDuration ?? 30) ||
-                      30,
-                    roundType: currentRound?.type || '',
-                    lockedWagerAmount: getLockedWager(gameState, currentRound, team.id),
-                  }
-                : null,
-              timerRemaining: timerManager.getReconnectTimerRemaining(pin, gameState),
-              timerRunning: Boolean(gameState.timerRunning),
-              timerEndsAt: safeClientTimerEndsAt(gameState.timerEndsAt),
-              mySubmittedOptionIndex,
-              responseCount: gameState.responseCount,
-              totalTeams: gameState.totalTeams,
-              activeMiniGame: gameState.activeMiniGame,
-              miniGameState: gameState.miniGameState || null,
-              scoreboardVisible: Boolean(gameState.scoreboardVisible),
-              teams: gameState.teams,
-              // Per-joining-team: used when state is WAGER_COLLECTION (no currentQuestion in payload)
-              // so mobile can restore a locked wager after refresh/reconnect.
-              lockedWagerAmount: currentRound
-                ? getLockedWager(gameState, currentRound, team.id)
-                : null,
-              ...(gameState.state === 'BREAK'
-                ? {
-                    breakDuration: Math.max(0, Math.round(Number(gameState.breakDuration ?? 360))),
-                    breakRemaining: getBreakRemainingSeconds(gameState),
-                    breakEndsAt:
-                      Number.isFinite(Number(gameState.breakEndsAt)) &&
-                      Number(gameState.breakEndsAt) > 0
-                        ? Number(gameState.breakEndsAt)
-                        : undefined,
-                    serverNow: Date.now(),
-                  }
-                : {}),
-            }
-          : null,
-      };
+      const sessionPayload = buildSessionPayloadForPlayer({
+        pin,
+        gameState,
+        team,
+        mySubmittedOptionIndex,
+      });
 
       socket.emit(SOCKET_EVENTS.SESSION_STATE, sessionPayload);
 
-      const eliminatedTeamIdsForPayload = gameState
-        ? Object.values(gameState.teams || {})
-            .filter((t) => t && t.isEliminated)
-            .map((t) => Number(t.teamId))
-            .filter((id) => Number.isFinite(id))
-        : [];
-
       if (gameState && gameState.state !== 'LOBBY') {
-        const round = gameState.rounds?.[gameState.currentRoundIndex];
-        if (gameState.state === 'ROUND_INTRO' && round) {
-          socket.emit(SOCKET_EVENTS.ROUND_INTRO, {
-            round: { name: round.name, type: round.type },
-            roundIndex: gameState.currentRoundIndex,
-            totalRounds: gameState.rounds.length,
-          });
-        }
-        if (
-          gameState.state === 'QUESTION' &&
-          gameState.questionState === 'ACTIVE' &&
-          round &&
-          currentQuestion
-        ) {
-          socket.emit(SOCKET_EVENTS.QUESTION_ACTIVE, {
-            questionIndex: gameState.currentQuestionIndex,
-            totalQuestions: round.questions.length,
-            question: {
-              id: currentQuestion.id,
-              text: currentQuestion.text,
-              options: (currentQuestion.options || []).map((o) => ({ text: o.text })),
-              mediaUrl: currentQuestion.mediaUrl,
-              mediaType: currentQuestion.mediaType,
-            },
-            timerDuration: Number(currentQuestion.timerDuration ?? round.timerDuration ?? 30) || 30,
-            timerRemaining: timerManager.getReconnectTimerRemaining(pin, gameState),
-            timerRunning: Boolean(gameState.timerRunning),
-            timerEndsAt: safeClientTimerEndsAt(gameState.timerEndsAt),
-            serverNow: Date.now(),
-            roundType: round.type,
-            lockedWagerAmount: getLockedWager(gameState, round, team.id),
-            mySubmittedOptionIndex,
-            eliminatedTeamIds: eliminatedTeamIdsForPayload,
-          });
-          socket.emit(SOCKET_EVENTS.TIMER_UPDATE, {
-            remaining: timerManager.getReconnectTimerRemaining(pin, gameState),
-            timerRunning: Boolean(gameState.timerRunning),
-            timerEndsAt: safeClientTimerEndsAt(gameState.timerEndsAt),
-            serverNow: Date.now(),
-          });
-        }
-        if (gameState.state === 'QUESTION' && gameState.questionState === 'REVEALED') {
-          const revealPayload = await buildRevealSnapshot(pin, gameState);
-          if (revealPayload) {
-            socket.emit(SOCKET_EVENTS.ANSWER_REVEAL, revealPayload);
-            socket.emit(SOCKET_EVENTS.TIMER_UPDATE, { remaining: 0 });
-          }
-        }
-        if (gameState.state === 'SCOREBOARD') {
-          const revealSnapshot = await buildRevealSnapshot(pin, gameState);
-          socket.emit(SOCKET_EVENTS.SCOREBOARD, {
-            teams: Object.values(gameState.teams).sort((a, b) => b.score - a.score),
-            ...(revealSnapshot ? { revealSnapshot } : {}),
-          });
-        }
-        if (gameState.scoreboardVisible && gameState.state !== 'SCOREBOARD') {
-          const revealSnapshot = await buildRevealSnapshot(pin, gameState);
-          socket.emit(SOCKET_EVENTS.SCOREBOARD, {
-            teams: Object.values(gameState.teams).sort((a, b) => b.score - a.score),
-            source: 'manual',
-            ...(revealSnapshot ? { revealSnapshot } : {}),
-          });
-        }
-        if (gameState.state === 'BREAK') {
-          const bd = Math.max(0, Math.round(Number(gameState.breakDuration ?? 360)));
-          const br = getBreakRemainingSeconds(gameState);
-          const serverNow = Date.now();
-          socket.emit(SOCKET_EVENTS.BREAK_START, {
-            duration: br,
-            breakDuration: bd,
-            breakRemaining: br,
-            breakEndsAt:
-              Number.isFinite(Number(gameState.breakEndsAt)) && Number(gameState.breakEndsAt) > 0
-                ? Number(gameState.breakEndsAt)
-                : undefined,
-            serverNow,
-          });
-        }
-        if (gameState.activeMiniGame) {
-          const mgsJoin = gameState.miniGameState;
-          const pickDeadlineMs =
-            mgsJoin?.pickDeadlineAt != null ? Number(mgsJoin.pickDeadlineAt) : NaN;
-          const hasPickDeadline =
-            mgsJoin?.pickDeadlineAt != null &&
-            Number.isFinite(pickDeadlineMs) &&
-            pickDeadlineMs > 0;
-          // Must match mobile `mini_game_rejoin` / `session_state` pick-phase detection.
-          // If we emit a bare `mini_game_start` here while picks are open, `/play/mini-game`
-          // treats it like a fresh launch and clears `roundOpen` — often *after* `mini_game_rejoin`
-          // has already restored state (join_session races ahead of mini_game_rejoin on refresh).
-          const kangarooPickPhase =
-            mgsJoin?.game === 'kangaroo_race' &&
-            !mgsJoin?.revealed &&
-            (Boolean(mgsJoin?.gameStarted) || hasPickDeadline);
-          const cardPickPhase =
-            mgsJoin?.game === 'card_shuffle' &&
-            mgsJoin?.gameStarted &&
-            !mgsJoin?.revealed &&
-            mgsJoin?.activeRound != null;
-          socket.emit(SOCKET_EVENTS.MINI_GAME_START, {
-            game: gameState.activeMiniGame,
-            ...(gameState.miniGameConfig || {}),
-            ...(kangarooPickPhase || cardPickPhase ? { rejoinReplay: true } : {}),
-          });
-          if (
-            gameState.miniGameState?.game === 'card_shuffle' &&
-            gameState.miniGameState?.revealed
-          ) {
-            socket.emit(SOCKET_EVENTS.MINI_GAME_REVEAL, {
-              game: 'card_shuffle',
-              correctPosition: Number(gameState.miniGameState.correctPosition),
-              roundNumber: gameState.miniGameState.activeRound || undefined,
-              cardPositions: Array.isArray(gameState.miniGameState.cardPositions)
-                ? gameState.miniGameState.cardPositions
-                : [],
-            });
-            const selectedChoiceRaw = gameState.miniGameState.selections?.[String(team.id)];
-            const selectedChoice = Number.isFinite(Number(selectedChoiceRaw))
-              ? Number(selectedChoiceRaw)
-              : null;
-            const correctPosition = Number(gameState.miniGameState.correctPosition);
-            socket.emit(SOCKET_EVENTS.MINI_GAME_PLAYER_RESULT, {
-              game: 'card_shuffle',
-              result: selectedChoice === correctPosition ? 'winner' : 'loser',
-              correctPosition,
-              selectedChoice,
-              roundNumber: gameState.miniGameState.activeRound || undefined,
-            });
-          }
-          if (
-            gameState.miniGameState?.game === 'kangaroo_race' &&
-            gameState.miniGameState?.revealed &&
-            Array.isArray(gameState.miniGameState?.finishOrder) &&
-            gameState.miniGameState.finishOrder.length > 0
-          ) {
-            const finishOrder = gameState.miniGameState.finishOrder
-              .map((value) => Number(value))
-              .filter((value) => Number.isFinite(value));
-            const winningKangaroo = Number(finishOrder[0]);
-            const kangarooNames = Array.isArray(gameState.miniGameState.kangarooNames)
-              ? gameState.miniGameState.kangarooNames
-              : Array.isArray(gameState.miniGameConfig?.kangarooNames)
-                ? gameState.miniGameConfig.kangarooNames
-                : [];
-            socket.emit(SOCKET_EVENTS.MINI_GAME_REVEAL, {
-              game: 'kangaroo_race',
-              winningKangaroo,
-              finishOrder,
-              kangarooNames,
-              pointsByRank: [50, 40, 30, 20, 10, 0],
-            });
-            const selectedChoiceRaw = gameState.miniGameState.selections?.[String(team.id)];
-            const selectedChoice = Number.isFinite(Number(selectedChoiceRaw))
-              ? Number(selectedChoiceRaw)
-              : null;
-            const finishRank =
-              selectedChoice != null
-                ? finishOrder.findIndex((slot) => slot === selectedChoice) + 1
-                : 0;
-            const pointsByRank = [50, 40, 30, 20, 10, 0];
-            const pointsEarned =
-              finishRank >= 1 && finishRank <= pointsByRank.length
-                ? pointsByRank[finishRank - 1]
-                : 0;
-            socket.emit(SOCKET_EVENTS.MINI_GAME_PLAYER_RESULT, {
-              game: 'kangaroo_race',
-              result: pointsEarned === pointsByRank[0] ? 'winner' : 'loser',
-              winningKangaroo,
-              finishOrder,
-              selectedChoice,
-              finishRank: finishRank || null,
-              pointsEarned,
-              kangarooNames,
-            });
-          }
-        }
-        if (gameState.state === 'FINAL_RESULTS') {
-          socket.emit(SOCKET_EVENTS.GAME_END, {
-            teams: Object.values(gameState.teams).sort((a, b) => b.score - a.score),
-          });
-        }
+        const replays = await buildJoinReplayEvents({
+          pin,
+          gameState,
+          team,
+          mySubmittedOptionIndex,
+        });
+        emitJoinReplaysToSocket(socket, replays);
       }
 
       io.to(`session:${pin}`).emit(SOCKET_EVENTS.TEAM_JOINED, teamData);

@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useReconnect } from '@/hooks/useReconnect';
 import { PlayerContext, defaultSession, type PlayerSession } from './playerSession';
 import { PlayerSessionDeletedBridge } from './PlayerSessionDeletedBridge';
+import { clearPlayerSnapshot } from './playerSnapshotStorage';
 
 const PLAY_JOIN_FLASH_KEY = 'playJoinFlash';
 
@@ -87,7 +88,12 @@ export default function PlayerLayout({ children }: { children: React.ReactNode }
   }, []);
 
   const clearSession = useCallback(() => {
-    setSessionState(defaultSession);
+    setSessionState((prev) => {
+      if (prev.pin && prev.teamId != null) {
+        clearPlayerSnapshot(prev.pin, Number(prev.teamId));
+      }
+      return defaultSession;
+    });
     sessionStorage.removeItem('playerSession');
   }, []);
 

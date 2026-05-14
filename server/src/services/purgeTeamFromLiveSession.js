@@ -10,7 +10,7 @@ const { normalizeTeamName } = require('../utils/teamName');
  * @param {number} teamId
  * @returns {Promise<{ removedSocketId: string | null; removedTeamName: string | null }>}
  */
-const purgeTeamFromLiveSession = async (pin, teamId) => {
+const purgeTeamFromLiveSession = async (pin, teamId, isHostRemoval = false) => {
   const numericTeamId = Number(teamId);
   if (!pin || !Number.isFinite(numericTeamId)) {
     return { removedSocketId: null, removedTeamName: null };
@@ -48,12 +48,16 @@ const purgeTeamFromLiveSession = async (pin, teamId) => {
       }
 
       const removedTeamIds = Array.from(
-        new Set([...(current.removedTeamIds || []).map(Number), numericTeamId]),
+        new Set([
+          ...(current.removedTeamIds || []).map(Number),
+          ...(isHostRemoval ? [numericTeamId] : []),
+        ]),
       ).filter((id) => Number.isFinite(id));
+      
       const removedTeamNames = Array.from(
         new Set([
           ...(current.removedTeamNames || []).map((name) => normalizeTeamName(name)),
-          ...(removedTeamName ? [normalizeTeamName(removedTeamName)] : []),
+          ...(isHostRemoval && removedTeamName ? [normalizeTeamName(removedTeamName)] : []),
         ]),
       ).filter(Boolean);
 

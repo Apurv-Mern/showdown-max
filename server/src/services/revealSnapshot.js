@@ -6,11 +6,14 @@ const parseStoredResponse = (raw) => {
   if (!raw) return { selectedOptionIndex: -1, responseTime: null };
   try {
     const parsed = JSON.parse(raw);
-    const selectedOptionIndex = Number(parsed.selectedOptionIndex);
-    const responseTime = Number(parsed.responseTime);
+    const selectedOptionIndex = parsed.selectedOptionIndex;
     return {
-      selectedOptionIndex: Number.isFinite(selectedOptionIndex) ? selectedOptionIndex : -1,
-      responseTime: Number.isFinite(responseTime) ? responseTime : null,
+      selectedOptionIndex: Array.isArray(selectedOptionIndex)
+        ? selectedOptionIndex
+        : Number.isFinite(Number(selectedOptionIndex))
+          ? Number(selectedOptionIndex)
+          : -1,
+      responseTime: Number.isFinite(Number(parsed.responseTime)) ? Number(parsed.responseTime) : null,
     };
   } catch {
     const selectedOptionIndex = Number(raw);
@@ -73,7 +76,9 @@ const buildRevealSnapshot = async (pin, gameState) => {
     try {
       const parsed = JSON.parse(raw);
       responses[teamId] = {
-        selectedOptionIndex: Number(parsed.selectedOptionIndex),
+        selectedOptionIndex: Array.isArray(parsed.selectedOptionIndex)
+          ? parsed.selectedOptionIndex
+          : Number(parsed.selectedOptionIndex),
         wagerAmount: parsed.wagerAmount !== undefined ? Number(parsed.wagerAmount) : 0,
       };
     } catch {

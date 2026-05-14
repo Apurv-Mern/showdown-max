@@ -9,7 +9,7 @@ const { Session, Quiz, Round, Question, Team } = require('../models');
 const { normalizeTeamName, sanitizeTeamName } = require('../utils/teamName');
 const { purgeTeamFromLiveSession } = require('../services/purgeTeamFromLiveSession');
 
-const purgeTeamRecord = async (pin, teamId) => purgeTeamFromLiveSession(pin, teamId);
+const purgeTeamRecord = async (pin, teamId) => purgeTeamFromLiveSession(pin, teamId, true);
 
 /**
  * Registers host-specific socket event handlers

@@ -28,6 +28,9 @@ const getMySubmittedOptionIndex = async (pin, questionId, teamId) => {
     const asNum = Number(entry);
     if (Number.isFinite(asNum)) return asNum;
     const parsed = JSON.parse(String(entry));
+    if (Array.isArray(parsed?.selectedOptionIndex)) {
+      return parsed.selectedOptionIndex;
+    }
     const idx = Number(parsed?.selectedOptionIndex);
     return Number.isFinite(idx) ? idx : null;
   } catch {

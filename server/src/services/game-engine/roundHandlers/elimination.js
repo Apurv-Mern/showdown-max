@@ -8,7 +8,19 @@ const calculate = ({ question, responses, questionIndex, activeTeamIds }) => {
   const scores = {};
   const eliminations = [];
   const points = getEliminationPoints(questionIndex);
-  const correctIndex = question.options.findIndex((o) => o.isCorrect);
+  const isOrdering = question.options.some((o) => o.correctOrder !== undefined);
+  let correctOrderStr = null;
+  let correctIndex = -1;
+
+  if (isOrdering) {
+    const expectedOrder = [...question.options]
+      .map((o, idx) => ({ idx, order: o.correctOrder }))
+      .sort((a, b) => a.order - b.order)
+      .map((x) => x.idx);
+    correctOrderStr = JSON.stringify(expectedOrder);
+  } else {
+    correctIndex = question.options.findIndex((o) => o.isCorrect);
+  }
 
   const correctTeams = [];
   const wrongTeams = [];
@@ -21,7 +33,14 @@ const calculate = ({ question, responses, questionIndex, activeTeamIds }) => {
       continue;
     }
 
-    const isCorrect = response.selectedOptionIndex === correctIndex;
+    let isCorrect = false;
+    if (isOrdering) {
+      if (Array.isArray(response.selectedOptionIndex)) {
+        isCorrect = JSON.stringify(response.selectedOptionIndex) === correctOrderStr;
+      }
+    } else {
+      isCorrect = response.selectedOptionIndex === correctIndex;
+    }
     if (isCorrect) {
       correctTeams.push(teamIdStr);
       scores[teamIdStr] = points;

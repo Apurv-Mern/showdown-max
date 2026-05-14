@@ -931,9 +931,16 @@ const executePlayerDisconnectPurge = async (io, pin, teamId) => {
     }
   }
 
-  const { removedSocketId } = await purgeTeamFromLiveSession(pin, teamId);
-
   const gameState = await redisStore.getGameState(pin);
+
+  if (gameState && gameState.state !== GAME_STATES.LOBBY) {
+    // Game has started. Do not purge the team. Just mark them as disconnected.
+    await Team.update({ isConnected: false }, { where: { id: teamId } });
+    logger.info('Player disconnected during active game — marking as disconnected, not purging', { pin, teamId });
+    return;
+  }
+
+  const { removedSocketId } = await purgeTeamFromLiveSession(pin, teamId);
 
   if (eliminationStates.has(pin)) {
     const es = eliminationStates.get(pin);

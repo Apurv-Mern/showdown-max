@@ -1092,7 +1092,16 @@ export default function GamePage() {
       }
       const sid = session.teamId != null ? Number(session.teamId) : NaN;
       const teamIdStr = Number.isFinite(sid) ? String(sid) : '';
-      setPointsGained(teamIdStr ? (data.scores[teamIdStr] ?? 0) : 0);
+      
+      let myScore = 0;
+      if (teamIdStr && data.scores) {
+        if (data.scores[teamIdStr] !== undefined) {
+          myScore = data.scores[teamIdStr];
+        } else if (Number.isFinite(sid) && data.scores[sid] !== undefined) {
+          myScore = data.scores[sid];
+        }
+      }
+      setPointsGained(myScore);
       if (myTeam) setSession({ score: myTeam.score });
       // Per the all-teams-wrong rule (`server/.../knockoutEngine.js`), nobody is knocked out
       // when every active team got the question wrong — the server already keeps them in

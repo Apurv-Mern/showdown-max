@@ -108,6 +108,27 @@ const getRoundDisplayName = (round: Round) => {
   return `${base} - ${typeLabel}`;
 };
 
+const getRoundQuestionLimit = (round: Round) => {
+  switch (round.type) {
+    case 'MULTIPLE_CHOICE':
+      return 10;
+    case 'WAGER':
+      return 10;
+    case 'MUSIC':
+      return 20;
+    case 'ELIMINATION':
+      return 12;
+    case 'MAJORITY_RULES':
+      return 5;
+    case 'FINAL_MULTIPLE_CHOICE':
+      return 10;
+    case 'FINAL_WAGER':
+      return 1;
+    default:
+      return null;
+  }
+};
+
 interface NewQuestion {
   text: string;
   category: string;
@@ -185,6 +206,7 @@ export default function QuizDetailPage() {
     fetchQuiz(true);
   }, [fetchQuiz]);
 
+  /*
   useEffect(() => {
     if (!quiz?.rounds?.length) return;
     for (const round of quiz.rounds) {
@@ -215,6 +237,7 @@ export default function QuizDetailPage() {
       }
     }
   }, [quiz]);
+  */
 
   useEffect(() => {
     if (!quiz?.rounds?.length) {
@@ -478,11 +501,15 @@ export default function QuizDetailPage() {
       return;
     }
 
-    const optionsPayload = isOrdering 
-      ? validOptions.map((o) => ({ text: o.text.trim(), isCorrect: false, correctOrder: o.correctOrder }))
+    const optionsPayload = isOrdering
+      ? validOptions.map((o) => ({
+          text: o.text.trim(),
+          isCorrect: false,
+          correctOrder: o.correctOrder,
+        }))
       : isMajorityRulesRound
-      ? validOptions.map((o, i) => ({ text: o.text.trim(), isCorrect: i === 0 }))
-      : validOptions.map((o) => ({ text: o.text.trim(), isCorrect: o.isCorrect }));
+        ? validOptions.map((o, i) => ({ text: o.text.trim(), isCorrect: i === 0 }))
+        : validOptions.map((o) => ({ text: o.text.trim(), isCorrect: o.isCorrect }));
 
     const payload: any = {
       text: formData.text.trim(),
@@ -582,6 +609,14 @@ export default function QuizDetailPage() {
   const totalQuestions = quiz.rounds.reduce((sum, r) => sum + r.questions.length, 0);
 
   const roundIdx = selectedRound ? sortedRounds.findIndex((r) => r.id === selectedRound.id) : -1;
+  const selectedRoundQuestionLimit = selectedRound ? getRoundQuestionLimit(selectedRound) : null;
+  const selectedRoundQuestionCount = selectedRound?.questions.length ?? 0;
+  const selectedRoundQuestionsRemaining =
+    selectedRoundQuestionLimit !== null
+      ? Math.max(selectedRoundQuestionLimit - selectedRoundQuestionCount, 0)
+      : null;
+  const isAddQuestionDisabled =
+    selectedRoundQuestionLimit !== null && selectedRoundQuestionCount >= selectedRoundQuestionLimit;
 
   return (
     <div className="flex flex-col gap-8 antialiased">
@@ -872,12 +907,30 @@ export default function QuizDetailPage() {
                   {selectedRound.timerDuration}s default timer
                 </span>
                 <span className="text-xs text-foreground/30">
+                  · Current: {selectedRoundQuestionCount}
+                  {selectedRoundQuestionLimit !== null ? ` / ${selectedRoundQuestionLimit}` : ''}
+                </span>
+                {selectedRoundQuestionsRemaining !== null ? (
+                  <span className="text-xs text-foreground/30">
+                    · Remaining: {selectedRoundQuestionsRemaining}
+                  </span>
+                ) : null}
+                <span className="text-xs text-foreground/30">
                   · {selectedRound.questions.length} Q
                   {selectedRound.questions.length !== 1 ? 's' : ''}
                 </span>
               </div>
             </div>
-            <Button size="sm" onClick={() => openAddModal(selectedRound.id)}>
+            <Button
+              size="sm"
+              onClick={() => openAddModal(selectedRound.id)}
+              disabled={isAddQuestionDisabled}
+              title={
+                isAddQuestionDisabled
+                  ? `Maximum of ${selectedRoundQuestionLimit} questions reached for this round`
+                  : 'Add a question'
+              }
+            >
               + Add Question
             </Button>
           </div>
@@ -972,10 +1025,10 @@ export default function QuizDetailPage() {
 
       {/* Add / Edit Question Modal */}
       {(() => {
-        const questionNumber = addingRound ? 
-          (editingQuestion 
-            ? addingRound.questions.findIndex(q => q.id === editingQuestion.id) + 1 
-            : addingRound.questions.length + 1)
+        const questionNumber = addingRound
+          ? editingQuestion
+            ? addingRound.questions.findIndex((q) => q.id === editingQuestion.id) + 1
+            : addingRound.questions.length + 1
           : null;
 
         const isMultipleChoiceQuestionModal = (() => {
@@ -987,30 +1040,34 @@ export default function QuizDetailPage() {
         })();
 
         return (
-      <Modal
-        isOpen={addingToRound !== null}
-        onClose={closeModal}
-        title={editingQuestion ? `Edit Question${questionNumber ? ` ${questionNumber}` : ''}` : `Add Question${questionNumber ? ` ${questionNumber}` : ''}`}
-        className="max-w-2xl"
-      >
-        <div className="space-y-4 max-h-[70vh] overflow-y-auto pr-1">
-          {/* Question Text */}
-          <div>
-            <label className="block text-sm font-medium text-foreground/70 mb-1">
-              Question Text *
-            </label>
-            <textarea
-              value={formData.text}
-              onChange={(e) => setFormData((p) => ({ ...p, text: e.target.value }))}
-              placeholder="Enter your question..."
-              rows={2}
-              className="w-full bg-surface-light border border-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-foreground/40 focus:outline-none focus:ring-2 focus:ring-primary/50 resize-none"
-            />
-          </div>
+          <Modal
+            isOpen={addingToRound !== null}
+            onClose={closeModal}
+            title={
+              editingQuestion
+                ? `Edit Question${questionNumber ? ` ${questionNumber}` : ''}`
+                : `Add Question${questionNumber ? ` ${questionNumber}` : ''}`
+            }
+            className="max-w-2xl"
+          >
+            <div className="space-y-4 max-h-[70vh] overflow-y-auto pr-1">
+              {/* Question Text */}
+              <div>
+                <label className="block text-sm font-medium text-foreground/70 mb-1">
+                  Question Text *
+                </label>
+                <textarea
+                  value={formData.text}
+                  onChange={(e) => setFormData((p) => ({ ...p, text: e.target.value }))}
+                  placeholder="Enter your question..."
+                  rows={2}
+                  className="w-full bg-surface-light border border-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-foreground/40 focus:outline-none focus:ring-2 focus:ring-primary/50 resize-none"
+                />
+              </div>
 
-          {/* Category + Timer Row */}
-          <div className="grid grid-cols-2 gap-3">
-            {/* <div>
+              {/* Category + Timer Row */}
+              <div className="grid grid-cols-2 gap-3">
+                {/* <div>
               <label className="block text-sm font-medium text-foreground/70 mb-1">Category</label>
               <input
                 type="text"
@@ -1020,203 +1077,208 @@ export default function QuizDetailPage() {
                 className="w-full bg-surface-light border border-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-foreground/40 focus:outline-none focus:ring-2 focus:ring-primary/50"
               />
             </div> */}
-            <div>
-              <label className="block text-sm font-medium text-foreground/70 mb-1">
-                Timer (seconds)
-                {/* <span className="text-foreground/30 font-normal ml-1">optional override</span> */}
-              </label>
-              <input
-                type="number"
-                value={formData.timerDuration}
-                onChange={(e) => setFormData((p) => ({ ...p, timerDuration: e.target.value }))}
-                placeholder="Use round default"
-                min={5}
-                max={300}
-                className="w-full bg-surface-light border border-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-foreground/40 focus:outline-none focus:ring-2 focus:ring-primary/50"
-              />
-            </div>
-          </div>
-
-          {/* Media Section */}
-          <div>
-            <label className="block text-sm font-medium text-foreground/70 mb-1">
-              Media Attachment
-            </label>
-            {formData.mediaUrl ? (
-              <div className="bg-surface-light border border-border rounded-lg p-3 flex items-center justify-between">
-                <div className="flex items-center gap-3 min-w-0">
-                  <span className="text-lg shrink-0">
-                    {formData.mediaType === 'mp3'
-                      ? '🎵'
-                      : formData.mediaType === 'mp4'
-                        ? '🎬'
-                        : '🖼'}
-                  </span>
-                  <div className="min-w-0">
-                    <p className="text-sm font-medium truncate">
-                      {formData.mediaType?.toUpperCase()} attached
-                    </p>
-                    <p className="text-xs text-foreground/30 truncate">{formData.mediaUrl}</p>
-                  </div>
-                </div>
-                <div className="flex gap-2 shrink-0">
-                  {formData.mediaType === 'image' && (
-                    <img
-                      src={`${API_URL}${formData.mediaUrl}`}
-                      alt="preview"
-                      className="w-12 h-12 object-cover rounded"
-                    />
-                  )}
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={removeMedia}
-                    className="text-danger/60 hover:text-danger"
-                  >
-                    Remove
-                  </Button>
-                </div>
-              </div>
-            ) : (
-              <div className="flex gap-3">
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept={
-                    addingRound?.type === 'MUSIC'
-                      ? 'audio/mpeg,audio/mp3,.mp3,video/mp4,.mp4'
-                      : 'image/jpeg,image/png,image/gif,image/webp'
-                  }
-                  onChange={handleFileUpload}
-                  className="hidden"
-                />
-                <Button
-                  type="button"
-                  variant="secondary"
-                  size="sm"
-                  onClick={() => fileInputRef.current?.click()}
-                  disabled={uploading}
-                  title={
-                    addingRound?.type === 'MUSIC'
-                      ? 'Music rounds: MP3 or MP4 only'
-                      : 'MP3 and MP4 files are only allowed for Music rounds'
-                  }
-                >
-                  {uploading ? 'Uploading...' : '📎 Upload File'}
-                </Button>
-                <span className="text-xs text-foreground/30 self-center">
-                  {addingRound?.type === 'MUSIC'
-                    ? 'MP3 or MP4 only'
-                    : 'JPG, PNG, GIF, or WebP only'}
-                </span>
-              </div>
-            )}
-          </div>
-
-          {/* Options */}
-          <div>
-            {isMultipleChoiceQuestionModal && (
-              <div className="flex items-center gap-2 mb-4">
-                <input
-                  type="checkbox"
-                  id="isOrderingToggle"
-                  checked={formData.isOrdering}
-                  onChange={(e) => {
-                    const isOrdering = e.target.checked;
-                    setFormData((prev) => ({
-                      ...prev,
-                      isOrdering,
-                      options: prev.options.map((o, i) => ({
-                        ...o,
-                        correctOrder: isOrdering ? i + 1 : undefined,
-                      })),
-                    }));
-                  }}
-                  className="w-4 h-4 rounded border-border text-primary focus:ring-primary/50"
-                />
-                <label htmlFor="isOrderingToggle" className="text-sm font-medium text-foreground">
-                  Is Ordering Question?
-                </label>
-              </div>
-            )}
-            <div className="flex items-center justify-between mb-2">
-              <label className="text-sm font-medium text-foreground/70">
-                Options
-                {!isMajorityRulesQuestionModal && !formData.isOrdering ? (
-                  <span className="text-foreground/30 font-normal ml-1">
-                    (click radio to mark correct)
-                  </span>
-                ) : null}
-              </label>
-              {formData.options.length < 6 && (
-                <Button type="button" variant="ghost" size="sm" onClick={addOption}>
-                  + Add Option
-                </Button>
-              )}
-            </div>
-            <div className="space-y-2">
-              {formData.options.map((opt, i) => (
-                <div key={i} className="flex items-center gap-2">
-                  {!isMajorityRulesQuestionModal && !formData.isOrdering ? (
-                    <button
-                      type="button"
-                      onClick={() => setCorrectOption(i)}
-                      className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-colors shrink-0 ${
-                        opt.isCorrect
-                          ? 'border-success bg-success'
-                          : 'border-border hover:border-foreground/50'
-                      }`}
-                    >
-                      {opt.isCorrect && <span className="text-white text-xs">✓</span>}
-                    </button>
-                  ) : null}
-                  {formData.isOrdering && (
-                    <input
-                      type="number"
-                      min={1}
-                      max={6}
-                      value={opt.correctOrder ?? ''}
-                      onChange={(e) => updateOptionOrder(i, parseInt(e.target.value) || undefined)}
-                      placeholder="#"
-                      className="w-16 bg-surface-light border border-border rounded-lg px-2 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 text-center"
-                    />
-                  )}
+                <div>
+                  <label className="block text-sm font-medium text-foreground/70 mb-1">
+                    Timer (seconds)
+                    {/* <span className="text-foreground/30 font-normal ml-1">optional override</span> */}
+                  </label>
                   <input
-                    type="text"
-                    value={opt.text}
-                    onChange={(e) => updateOptionText(i, e.target.value)}
-                    placeholder={`Option ${String.fromCharCode(65 + i)}`}
-                    className="flex-1 bg-surface-light border border-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-foreground/40 focus:outline-none focus:ring-2 focus:ring-primary/50"
+                    type="number"
+                    value={formData.timerDuration}
+                    onChange={(e) => setFormData((p) => ({ ...p, timerDuration: e.target.value }))}
+                    placeholder="Use round default"
+                    min={5}
+                    max={300}
+                    className="w-full bg-surface-light border border-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-foreground/40 focus:outline-none focus:ring-2 focus:ring-primary/50"
                   />
-                  {formData.options.length > 2 && (
-                    <button
+                </div>
+              </div>
+
+              {/* Media Section */}
+              <div>
+                <label className="block text-sm font-medium text-foreground/70 mb-1">
+                  Media Attachment
+                </label>
+                {formData.mediaUrl ? (
+                  <div className="bg-surface-light border border-border rounded-lg p-3 flex items-center justify-between">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <span className="text-lg shrink-0">
+                        {formData.mediaType === 'mp3'
+                          ? '🎵'
+                          : formData.mediaType === 'mp4'
+                            ? '🎬'
+                            : '🖼'}
+                      </span>
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium truncate">
+                          {formData.mediaType?.toUpperCase()} attached
+                        </p>
+                        <p className="text-xs text-foreground/30 truncate">{formData.mediaUrl}</p>
+                      </div>
+                    </div>
+                    <div className="flex gap-2 shrink-0">
+                      {formData.mediaType === 'image' && (
+                        <img
+                          src={`${API_URL}${formData.mediaUrl}`}
+                          alt="preview"
+                          className="w-12 h-12 object-cover rounded"
+                        />
+                      )}
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={removeMedia}
+                        className="text-danger/60 hover:text-danger"
+                      >
+                        Remove
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex gap-3">
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept={
+                        addingRound?.type === 'MUSIC'
+                          ? 'audio/mpeg,audio/mp3,.mp3,video/mp4,.mp4'
+                          : 'image/jpeg,image/png,image/gif,image/webp'
+                      }
+                      onChange={handleFileUpload}
+                      className="hidden"
+                    />
+                    <Button
                       type="button"
-                      onClick={() => removeOption(i)}
-                      className="text-foreground/30 hover:text-danger transition-colors text-sm shrink-0"
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => fileInputRef.current?.click()}
+                      disabled={uploading}
+                      title={
+                        addingRound?.type === 'MUSIC'
+                          ? 'Music rounds: MP3 or MP4 only'
+                          : 'MP3 and MP4 files are only allowed for Music rounds'
+                      }
                     >
-                      ✕
-                    </button>
+                      {uploading ? 'Uploading...' : '📎 Upload File'}
+                    </Button>
+                    <span className="text-xs text-foreground/30 self-center">
+                      {addingRound?.type === 'MUSIC'
+                        ? 'MP3 or MP4 only'
+                        : 'JPG, PNG, GIF, or WebP only'}
+                    </span>
+                  </div>
+                )}
+              </div>
+
+              {/* Options */}
+              <div>
+                {isMultipleChoiceQuestionModal && (
+                  <div className="flex items-center gap-2 mb-4">
+                    <input
+                      type="checkbox"
+                      id="isOrderingToggle"
+                      checked={formData.isOrdering}
+                      onChange={(e) => {
+                        const isOrdering = e.target.checked;
+                        setFormData((prev) => ({
+                          ...prev,
+                          isOrdering,
+                          options: prev.options.map((o, i) => ({
+                            ...o,
+                            correctOrder: isOrdering ? i + 1 : undefined,
+                          })),
+                        }));
+                      }}
+                      className="w-4 h-4 rounded border-border text-primary focus:ring-primary/50"
+                    />
+                    <label
+                      htmlFor="isOrderingToggle"
+                      className="text-sm font-medium text-foreground"
+                    >
+                      Is Ordering Question?
+                    </label>
+                  </div>
+                )}
+                <div className="flex items-center justify-between mb-2">
+                  <label className="text-sm font-medium text-foreground/70">
+                    Options
+                    {!isMajorityRulesQuestionModal && !formData.isOrdering ? (
+                      <span className="text-foreground/30 font-normal ml-1">
+                        (click radio to mark correct)
+                      </span>
+                    ) : null}
+                  </label>
+                  {formData.options.length < 6 && (
+                    <Button type="button" variant="ghost" size="sm" onClick={addOption}>
+                      + Add Option
+                    </Button>
                   )}
                 </div>
-              ))}
-            </div>
-            <p className="text-xs text-foreground/30 mt-1.5">
-              {formData.options.length}/6 options &middot; min 2 required
-            </p>
-          </div>
+                <div className="space-y-2">
+                  {formData.options.map((opt, i) => (
+                    <div key={i} className="flex items-center gap-2">
+                      {!isMajorityRulesQuestionModal && !formData.isOrdering ? (
+                        <button
+                          type="button"
+                          onClick={() => setCorrectOption(i)}
+                          className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-colors shrink-0 ${
+                            opt.isCorrect
+                              ? 'border-success bg-success'
+                              : 'border-border hover:border-foreground/50'
+                          }`}
+                        >
+                          {opt.isCorrect && <span className="text-white text-xs">✓</span>}
+                        </button>
+                      ) : null}
+                      {formData.isOrdering && (
+                        <input
+                          type="number"
+                          min={1}
+                          max={6}
+                          value={opt.correctOrder ?? ''}
+                          onChange={(e) =>
+                            updateOptionOrder(i, parseInt(e.target.value) || undefined)
+                          }
+                          placeholder="#"
+                          className="w-16 bg-surface-light border border-border rounded-lg px-2 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 text-center"
+                        />
+                      )}
+                      <input
+                        type="text"
+                        value={opt.text}
+                        onChange={(e) => updateOptionText(i, e.target.value)}
+                        placeholder={`Option ${String.fromCharCode(65 + i)}`}
+                        className="flex-1 bg-surface-light border border-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-foreground/40 focus:outline-none focus:ring-2 focus:ring-primary/50"
+                      />
+                      {formData.options.length > 2 && (
+                        <button
+                          type="button"
+                          onClick={() => removeOption(i)}
+                          className="text-foreground/30 hover:text-danger transition-colors text-sm shrink-0"
+                        >
+                          ✕
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+                <p className="text-xs text-foreground/30 mt-1.5">
+                  {formData.options.length}/6 options &middot; min 2 required
+                </p>
+              </div>
 
-          {/* Actions */}
-          <div className="flex gap-3 pt-2 border-t border-border">
-            <Button onClick={handleSaveQuestion} disabled={saving || !formData.text.trim()}>
-              {saving ? 'Saving...' : editingQuestion ? 'Update Question' : 'Add Question'}
-            </Button>
-            <Button variant="secondary" onClick={closeModal}>
-              Cancel
-            </Button>
-          </div>
-        </div>
-      </Modal>
-      );
+              {/* Actions */}
+              <div className="flex gap-3 pt-2 border-t border-border">
+                <Button onClick={handleSaveQuestion} disabled={saving || !formData.text.trim()}>
+                  {saving ? 'Saving...' : editingQuestion ? 'Update Question' : 'Add Question'}
+                </Button>
+                <Button variant="secondary" onClick={closeModal}>
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          </Modal>
+        );
       })()}
 
       {/* Confirm Delete Question Modal — themed replacement for the native

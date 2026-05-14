@@ -3,6 +3,7 @@ const { z } = require('zod');
 const answerOptionSchema = z.object({
   text: z.string().min(1).max(500),
   isCorrect: z.boolean(),
+  correctOrder: z.number().int().min(1).max(6).optional(),
 });
 
 const baseQuestionSchema = z.object({
@@ -16,8 +17,12 @@ const baseQuestionSchema = z.object({
 });
 
 const createQuestionSchema = baseQuestionSchema.refine(
-  (data) => data.options.filter((o) => o.isCorrect).length >= 1,
-  { message: 'At least one option must be marked as correct' },
+  (data) => {
+    const isOrdering = data.options.some((o) => typeof o.correctOrder === 'number');
+    if (isOrdering) return true;
+    return data.options.filter((o) => o.isCorrect).length >= 1;
+  },
+  { message: 'At least one option must be marked as correct, unless it is an Ordering question' },
 );
 
 const updateQuestionSchema = baseQuestionSchema.partial();

@@ -34,6 +34,7 @@ interface QuestionData {
     options: { text: string }[];
     mediaUrl?: string;
     mediaType?: string;
+    isOrdering?: boolean;
   };
   timerDuration: number;
   timerRemaining?: number;
@@ -52,6 +53,7 @@ interface QuestionData {
 interface RevealData {
   correctOptionIndex: number;
   correctText: string;
+  correctOrderArray?: number[];
   scores: Record<string, number>;
   responseDetails?: { teamId: number; selectedOptionIndex: number; responseTime?: number | null }[];
   /** Majority Rules: option index(es) that tied for the most votes (scoring winners). */
@@ -516,7 +518,8 @@ export default function GamePage() {
   const [timerRemaining, setTimerRemaining] = useState(0);
   const [timerEndsAt, setTimerEndsAt] = useState<number | null>(null);
   const [timerDuration, setTimerDuration] = useState(30);
-  const [selectedOption, setSelectedOption] = useState<number | null>(null);
+  const [selectedOption, setSelectedOption] = useState<number | number[] | null>(null);
+  const [orderingSelection, setOrderingSelection] = useState<number[]>([]);
   const [wagerAmount, setWagerAmount] = useState(0);
   const [wagerSubmitted, setWagerSubmitted] = useState(false);
   const [revealData, setRevealData] = useState<RevealData | null>(null);
@@ -547,6 +550,20 @@ export default function GamePage() {
   useEffect(() => {
     phaseRef.current = phase;
   }, [phase]);
+
+  useEffect(() => {
+    if (question?.question?.options) {
+      if (question.question.isOrdering) {
+        setOrderingSelection((prev) => {
+          if (Array.isArray(selectedOption)) return selectedOption;
+          if (prev.length !== question.question.options.length) {
+            return question.question.options.map((_, i) => i);
+          }
+          return prev;
+        });
+      }
+    }
+  }, [question, selectedOption]);
 
   useEffect(() => {
     clientLogger.info('play', 'Mobile game phase changed', {
@@ -620,10 +637,10 @@ export default function GamePage() {
           setPhase('eliminated');
         } else {
           const mine = data.mySubmittedOptionIndex;
-          const restored =
-            mine !== undefined && mine !== null && Number.isFinite(Number(mine))
+          const restored = Array.isArray(mine) ? mine :
+            (mine !== undefined && mine !== null && Number.isFinite(Number(mine))
               ? Number(mine)
-              : null;
+              : null);
           if (restored !== null) {
             setSelectedOption(restored);
             setPhase('answered');
@@ -805,10 +822,10 @@ export default function GamePage() {
           }
 
           const mineRaw = gs.mySubmittedOptionIndex;
-          const restoredIdx =
-            mineRaw !== undefined && mineRaw !== null && Number.isFinite(Number(mineRaw))
+          const restoredIdx = Array.isArray(mineRaw) ? mineRaw :
+            (mineRaw !== undefined && mineRaw !== null && Number.isFinite(Number(mineRaw))
               ? Number(mineRaw)
-              : null;
+              : null);
 
           if (currentlyEliminated) {
             setSelectedOption(null);
@@ -986,8 +1003,8 @@ export default function GamePage() {
         setMusicVenuePlaybackStarted(false);
       }
       const mine = data.mySubmittedOptionIndex;
-      const restored =
-        mine !== undefined && mine !== null && Number.isFinite(Number(mine)) ? Number(mine) : null;
+      const restored = Array.isArray(mine) ? mine :
+        (mine !== undefined && mine !== null && Number.isFinite(Number(mine)) ? Number(mine) : null);
       setSelectedOption(dead ? null : restored);
       setRevealData(null);
       setPointsGained(null);
@@ -1065,7 +1082,9 @@ export default function GamePage() {
       const persistEliminated = isEliminatedRef.current || Boolean(myTeam?.isEliminated);
       setPhase(persistEliminated ? 'eliminated' : 'reveal');
       const myResponse = data.responseDetails?.find((r) => sameTeamId(r.teamId, session.teamId));
-      if (myResponse && Number.isFinite(Number(myResponse.selectedOptionIndex))) {
+      if (myResponse && Array.isArray(myResponse.selectedOptionIndex)) {
+        setSelectedOption(myResponse.selectedOptionIndex);
+      } else if (myResponse && Number.isFinite(Number(myResponse.selectedOptionIndex))) {
         const selectedIdx = Number(myResponse.selectedOptionIndex);
         setSelectedOption(selectedIdx >= 0 ? selectedIdx : null);
       } else {
@@ -1288,6 +1307,23 @@ export default function GamePage() {
     },
     [selectedOption, socket, timerRemaining, wagerAmount, wagerSubmitted],
   );
+
+  const handleLockOrdering = useCallback(() => {
+    if (
+      selectedOption !== null ||
+      !socket ||
+      isEliminatedRef.current ||
+      timerRemaining <= 0 ||
+      phaseRef.current !== 'question'
+    )
+      return;
+    setSelectedOption(orderingSelection);
+    setPhase('answered');
+    socket.emit('submit_answer', {
+      selectedOptionIndex: orderingSelection,
+      wagerAmount: wagerSubmitted ? wagerAmount : undefined,
+    });
+  }, [selectedOption, socket, timerRemaining, wagerAmount, wagerSubmitted, orderingSelection]);
 
   const handleSubmitWager = () => {
     if (!socket) return;
@@ -1663,33 +1699,99 @@ export default function GamePage() {
                     animate="animate"
                     className="mt-3 flex flex-col gap-3 sm:mt-4 sm:gap-4"
                   >
-                    {question.question.options.map((opt, i) => {
-                      const isSelected = selectedOption === i;
-                      const isLocked = isAnswerSelectionLocked;
+                    {(() => {
+                      if (question.question.isOrdering) {
+                        return (
+                          <div className="flex flex-col gap-3">
+                            <div className="flex items-center justify-center gap-2 mb-1 text-[#00e5ff] font-bold text-sm sm:text-base drop-shadow-[0_0_5px_rgba(0,229,255,0.5)]">
+                              <span>↕</span>
+                              <span>Drag tiles or use arrows to reorder</span>
+                            </div>
+                            {orderingSelection.map((optIdx, index) => {
+                              const opt = question.question.options[optIdx];
+                              if (!opt) return null;
+                              const isLocked = isAnswerSelectionLocked;
+                              return (
+                                <div key={optIdx} className={cn(
+                                  "flex min-h-14 w-full items-center justify-between rounded-xl px-4 py-3 text-white font-bold shadow-[0_4px_10px_rgba(0,0,0,0.5),inset_0_1px_1px_rgba(255,255,255,0.2)] sm:min-h-16 sm:px-6 sm:py-4 md:min-h-[4.75rem]",
+                                  OPTION_BG[optIdx] || 'bg-[#1565c0]',
+                                  isLocked && "opacity-60 grayscale-[0.3] cursor-not-allowed"
+                                )}>
+                                  <span className="text-left text-base font-black leading-tight drop-shadow-md sm:text-lg md:text-xl flex items-center gap-2">
+                                    <span className="w-7 h-7 flex items-center justify-center bg-black/40 rounded-full text-sm shrink-0 shadow-inner">{index + 1}</span>
+                                    {opt.text}
+                                  </span>
+                                  {!isLocked && (
+                                    <div className="flex flex-col gap-1">
+                                      <button 
+                                        className="bg-black/30 hover:bg-black/50 active:bg-white/20 rounded px-3 py-1.5 text-xs transition"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          if (index === 0) return;
+                                          const newArr = [...orderingSelection];
+                                          [newArr[index - 1], newArr[index]] = [newArr[index], newArr[index - 1]];
+                                          setOrderingSelection(newArr);
+                                        }}
+                                      >
+                                        ▲
+                                      </button>
+                                      <button 
+                                        className="bg-black/30 hover:bg-black/50 active:bg-white/20 rounded px-3 py-1.5 text-xs transition"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          if (index === orderingSelection.length - 1) return;
+                                          const newArr = [...orderingSelection];
+                                          [newArr[index + 1], newArr[index]] = [newArr[index], newArr[index + 1]];
+                                          setOrderingSelection(newArr);
+                                        }}
+                                      >
+                                        ▼
+                                      </button>
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
+                            {!isAnswerSelectionLocked && (
+                               <button 
+                                 onClick={handleLockOrdering}
+                                 className="mt-2 w-full py-3.5 rounded-xl bg-[#00e5ff]/20 text-[#00e5ff] border border-[#00e5ff]/50 font-bold text-lg hover:bg-[#00e5ff]/30 transition-colors"
+                               >
+                                 Lock Answer
+                               </button>
+                            )}
+                          </div>
+                        );
+                      }
 
-                      return (
-                        <motion.button
-                          key={i}
-                          variants={staggerItem}
-                          whileTap={!isLocked ? { scale: 0.98 } : undefined}
-                          onClick={() => handleSelectOption(i)}
-                          disabled={isLocked}
-                          className={cn(
-                            'flex min-h-14 w-full items-center justify-start rounded-xl px-4 py-3 text-white font-bold shadow-[0_4px_10px_rgba(0,0,0,0.5),inset_0_1px_1px_rgba(255,255,255,0.2)] sm:min-h-16 sm:px-6 sm:py-4 md:min-h-[4.75rem]',
-                            'touch-manipulation select-none transition-all',
-                            OPTION_BG[i] || 'bg-[#1565c0]',
-                            isSelected &&
-                              'ring-4 ring-white shadow-[0_0_25px_rgba(255,255,255,0.5)]',
-                            isLocked && !isSelected && 'opacity-60 grayscale-[0.3]',
-                            isLocked && 'cursor-not-allowed',
-                          )}
-                        >
-                          <span className="text-left text-base font-black leading-tight drop-shadow-md sm:text-lg md:text-xl">
-                            {OPTION_LETTERS[i]}. {opt.text}
-                          </span>
-                        </motion.button>
-                      );
-                    })}
+                      return question.question.options.map((opt, i) => {
+                        const isSelected = selectedOption === i;
+                        const isLocked = isAnswerSelectionLocked;
+
+                        return (
+                          <motion.button
+                            key={i}
+                            variants={staggerItem}
+                            whileTap={!isLocked ? { scale: 0.98 } : undefined}
+                            onClick={() => handleSelectOption(i)}
+                            disabled={isLocked}
+                            className={cn(
+                              'flex min-h-14 w-full items-center justify-start rounded-xl px-4 py-3 text-white font-bold shadow-[0_4px_10px_rgba(0,0,0,0.5),inset_0_1px_1px_rgba(255,255,255,0.2)] sm:min-h-16 sm:px-6 sm:py-4 md:min-h-[4.75rem]',
+                              'touch-manipulation select-none transition-all',
+                              OPTION_BG[i] || 'bg-[#1565c0]',
+                              isSelected &&
+                                'ring-4 ring-white shadow-[0_0_25px_rgba(255,255,255,0.5)]',
+                              isLocked && !isSelected && 'opacity-60 grayscale-[0.3]',
+                              isLocked && 'cursor-not-allowed',
+                            )}
+                          >
+                            <span className="text-left text-base font-black leading-tight drop-shadow-md sm:text-lg md:text-xl">
+                              {OPTION_LETTERS[i]}. {opt.text}
+                            </span>
+                          </motion.button>
+                        );
+                      });
+                    })()}
                   </motion.div>
                 </div>
 
@@ -1753,68 +1855,116 @@ export default function GamePage() {
                     animate="animate"
                     className="mt-3 flex flex-col gap-3 sm:mt-4 sm:gap-4"
                   >
-                    {question.question.options.map((opt, i) => {
-                      const isMajorityRulesRound =
-                        (question.roundType || '').toUpperCase() === 'MAJORITY_RULES';
-                      const majorityWinners = new Set(
-                        (revealData.majorityOptionIndexes || []).map(Number).filter(Number.isFinite),
-                      );
-                      const isVoteWinner = majorityWinners.has(i);
-                      const isCorrectOption = i === revealData.correctOptionIndex;
-                      const isSelectedOption = selectedOption === i;
-                      const isSelectedWrong = isSelectedOption && !isCorrectOption;
+                    {(() => {
+                      if (question.question.isOrdering) {
+                        return (
+                          <div className="flex flex-col gap-3">
+                            <div className="mb-2 text-center">
+                              <span className="inline-block px-4 py-2 rounded-lg bg-black/40 border border-green-500/50 text-green-400 font-bold text-sm sm:text-base md:text-lg uppercase tracking-wider shadow-inner">
+                                Correct Order: {(revealData.correctOrderArray || []).map((idx: number) => question.question.options[idx]?.text).join(' → ')}
+                              </span>
+                            </div>
+                            {(() => {
+                              const userArr = Array.isArray(selectedOption) && selectedOption.length === question.question.options.length 
+                                ? selectedOption 
+                                : question.question.options.map((_, i) => i);
+                              const correctArr = revealData.correctOrderArray || question.question.options.map((_, i) => i);
+                              
+                              return userArr.map((optIdx: number, userPos: number) => {
+                                const opt = question.question.options[optIdx];
+                                const expectedPos = correctArr.indexOf(optIdx);
+                                const isCorrectPos = userPos === expectedPos;
+                                return (
+                                  <motion.div
+                                    key={optIdx}
+                                    variants={staggerItem}
+                                    className={cn(
+                                      'flex min-h-14 w-full items-center justify-between gap-3 rounded-xl border border-white/20 px-4 py-3 text-white font-bold sm:min-h-16 sm:px-6 sm:py-4 md:min-h-[4.75rem]',
+                                      'touch-manipulation select-none transition-all',
+                                      OPTION_BG[optIdx] || 'bg-[#1565c0]'
+                                    )}
+                                  >
+                                    <span className="min-w-0 flex-1 text-left text-base font-black leading-tight drop-shadow-md flex items-center gap-2 sm:text-lg md:text-xl">
+                                      <span className="w-7 h-7 flex items-center justify-center bg-black/40 rounded-full text-sm shrink-0 shadow-inner">{userPos + 1}</span>
+                                      {opt.text}
+                                    </span>
+                                    <span className={cn(
+                                      "text-xs font-bold px-2 py-1.5 rounded-md bg-black/40 shadow-inner whitespace-nowrap",
+                                      isCorrectPos ? "text-[#39ff14]" : "text-[#ff2525]"
+                                    )}>
+                                      Correct Pos: {expectedPos >= 0 ? expectedPos + 1 : '-'}
+                                    </span>
+                                  </motion.div>
+                                );
+                              });
+                            })()}
+                          </div>
+                        );
+                      }
 
-                      // Majority Rules: "correct" is decided by votes, not the question's factual key.
-                      const shouldDim = isMajorityRulesRound
-                        ? !isVoteWinner && !isSelectedOption
-                        : !isCorrectOption && !isSelectedWrong;
+                      return question.question.options.map((opt, i) => {
+                        const isMajorityRulesRound =
+                          (question.roundType || '').toUpperCase() === 'MAJORITY_RULES';
+                        const majorityWinners = new Set(
+                          (revealData.majorityOptionIndexes || []).map(Number).filter(Number.isFinite),
+                        );
+                        const isVoteWinner = majorityWinners.has(i);
+                        const isCorrectOption = i === revealData.correctOptionIndex;
+                        const isSelectedOption = selectedOption === i;
+                        const isSelectedWrong = isSelectedOption && !isCorrectOption;
 
-                      const userMajorityWin =
-                        isMajorityRulesRound &&
-                        isSelectedOption &&
-                        selectedOption !== null &&
-                        (pointsGained ?? 0) > 0;
-                      const userMajorityLose =
-                        isMajorityRulesRound &&
-                        isSelectedOption &&
-                        selectedOption !== null &&
-                        (pointsGained ?? 0) <= 0;
+                        // Majority Rules: "correct" is decided by votes, not the question's factual key.
+                        const shouldDim = isMajorityRulesRound
+                          ? !isVoteWinner && !isSelectedOption
+                          : !isCorrectOption && !isSelectedWrong;
 
-                      const showCorrectTick = isMajorityRulesRound ? isVoteWinner : isCorrectOption;
-                      const showWrongCross = isMajorityRulesRound
-                        ? userMajorityLose && isSelectedOption
-                        : isSelectedWrong;
+                        const userMajorityWin =
+                          isMajorityRulesRound &&
+                          isSelectedOption &&
+                          selectedOption !== null &&
+                          (pointsGained ?? 0) > 0;
+                        const userMajorityLose =
+                          isMajorityRulesRound &&
+                          isSelectedOption &&
+                          selectedOption !== null &&
+                          (pointsGained ?? 0) <= 0;
 
-                      return (
-                        <motion.div
-                          key={i}
-                          variants={staggerItem}
-                          className={cn(
-                            'flex min-h-14 w-full items-center justify-between gap-3 rounded-xl border border-white/20 px-4 py-3 text-white font-bold sm:min-h-16 sm:px-6 sm:py-4 md:min-h-[4.75rem]',
-                            'touch-manipulation select-none transition-all',
-                            OPTION_BG[i] || 'bg-[#1565c0]',
-                            isMajorityRulesRound &&
-                              isSelectedOption &&
-                              'ring-2 ring-[#00e5ff] shadow-[0_0_8px_8px_rgba(0,229,255,0.65)]',
-                            // Reveal-phase highlight rings: bright green halo for the
-                            // correct option, bright red halo for the player's
-                            // wrong pick. Mirrors the Figma reveal screen so the
-                            // outcome is unmistakable on a phone.
-                            showCorrectTick &&
-                              'ring-2 ring-[#39ff14] shadow-[0_0_18px_4px_rgba(57,255,20,0.7)]',
-                            showWrongCross &&
-                              'ring-2 ring-[#ff2525] shadow-[0_0_18px_4px_rgba(255,37,37,0.7)]',
-                            shouldDim && 'opacity-30 brightness-50 contrast-75 scale-[0.98]',
-                          )}
-                        >
-                          <span className="min-w-0 flex-1 text-left text-base font-black leading-tight drop-shadow-md sm:text-lg md:text-xl">
-                            {OPTION_LETTERS[i]}. {opt.text}
-                          </span>
-                          {showCorrectTick && <RevealOptionStatusIcon variant="correct" />}
-                          {showWrongCross && <RevealOptionStatusIcon variant="wrong" />}
-                        </motion.div>
-                      );
-                    })}
+                        const showCorrectTick = isMajorityRulesRound ? isVoteWinner : isCorrectOption;
+                        const showWrongCross = isMajorityRulesRound
+                          ? userMajorityLose && isSelectedOption
+                          : isSelectedWrong;
+
+                        return (
+                          <motion.div
+                            key={i}
+                            variants={staggerItem}
+                            className={cn(
+                              'flex min-h-14 w-full items-center justify-between gap-3 rounded-xl border border-white/20 px-4 py-3 text-white font-bold sm:min-h-16 sm:px-6 sm:py-4 md:min-h-[4.75rem]',
+                              'touch-manipulation select-none transition-all',
+                              OPTION_BG[i] || 'bg-[#1565c0]',
+                              isMajorityRulesRound &&
+                                isSelectedOption &&
+                                'ring-2 ring-[#00e5ff] shadow-[0_0_8px_8px_rgba(0,229,255,0.65)]',
+                              // Reveal-phase highlight rings: bright green halo for the
+                              // correct option, bright red halo for the player's
+                              // wrong pick. Mirrors the Figma reveal screen so the
+                              // outcome is unmistakable on a phone.
+                              showCorrectTick &&
+                                'ring-2 ring-[#39ff14] shadow-[0_0_18px_4px_rgba(57,255,20,0.7)]',
+                              showWrongCross &&
+                                'ring-2 ring-[#ff2525] shadow-[0_0_18px_4px_rgba(255,37,37,0.7)]',
+                              shouldDim && 'opacity-30 brightness-50 contrast-75 scale-[0.98]',
+                            )}
+                          >
+                            <span className="min-w-0 flex-1 text-left text-base font-black leading-tight drop-shadow-md sm:text-lg md:text-xl">
+                              {OPTION_LETTERS[i]}. {opt.text}
+                            </span>
+                            {showCorrectTick && <RevealOptionStatusIcon variant="correct" />}
+                            {showWrongCross && <RevealOptionStatusIcon variant="wrong" />}
+                          </motion.div>
+                        );
+                      });
+                    })()}
                   </motion.div>
                 </div>
 
@@ -1827,6 +1977,29 @@ export default function GamePage() {
                   {(() => {
                     const isMajorityRulesRound =
                       (question.roundType || '').toUpperCase() === 'MAJORITY_RULES';
+                    const isOrdering = question.question.isOrdering;
+                    if (isOrdering) {
+                      const isCorrect = (pointsGained ?? 0) > 0;
+                      return (
+                        <p
+                          className={cn(
+                            'text-lg font-black leading-none sm:text-xl md:text-2xl',
+                            selectedOption === null
+                              ? 'text-[#00D9FF] drop-shadow-[0_0_15px_rgba(255,255,255,0.4)]'
+                              : isCorrect
+                                ? 'text-[#53ff57] drop-shadow-[0_0_15px_rgba(83,255,87,0.8)]'
+                                : 'text-[#ff2525] drop-shadow-[0_0_15px_rgba(255,37,37,0.8)]',
+                          )}
+                        >
+                          {selectedOption === null
+                            ? 'No Answer Submitted !! (0)'
+                            : isCorrect
+                              ? `That's Correct !! (+${Math.max(pointsGained ?? 0, 0)})`
+                              : `Oops Wrong Answer !! (${pointsGained ?? 0})`}
+                        </p>
+                      );
+                    }
+
                     if (!isMajorityRulesRound) {
                       return (
                         <p

@@ -78,6 +78,9 @@ const parseSelectedOptionIndex = (rawResponse) => {
   if (!rawResponse) return -1;
   try {
     const parsed = JSON.parse(rawResponse);
+    if (Array.isArray(parsed.selectedOptionIndex)) {
+      return parsed.selectedOptionIndex;
+    }
     const selected = Number(parsed.selectedOptionIndex);
     return Number.isFinite(selected) ? selected : -1;
   } catch {
@@ -93,7 +96,8 @@ const countValidAnswersAmongTeamIds = (responsesRaw, teamIds) => {
   for (const tid of teamIds) {
     const raw = responsesRaw[String(tid)];
     if (raw === undefined || raw === null || raw === '') continue;
-    if (parseSelectedOptionIndex(raw) >= 0) n += 1;
+    const parsed = parseSelectedOptionIndex(raw);
+    if (Array.isArray(parsed) ? parsed.length > 0 : parsed >= 0) n += 1;
   }
   return n;
 };
@@ -123,12 +127,28 @@ const buildLiveResponseStats = (gameState, question, responsesRaw = {}) => {
     }
 
     const selectedOptionIndex = parseSelectedOptionIndex(raw);
-    if (selectedOptionIndex >= 0) {
-      answeredSelections.push(selectedOptionIndex);
-      voteCounts[selectedOptionIndex] = (voteCounts[selectedOptionIndex] || 0) + 1;
+    if (Array.isArray(selectedOptionIndex) ? selectedOptionIndex.length > 0 : selectedOptionIndex >= 0) {
+      if (Array.isArray(selectedOptionIndex)) {
+        // Track ordering answers for stats (just to know they answered, the histogram may not mean much)
+        const isOrdering = question?.options?.some((o) => o.correctOrder !== undefined);
+        if (isOrdering) {
+          const expectedOrder = [...question.options]
+            .map((o, idx) => ({ idx, order: o.correctOrder }))
+            .sort((a, b) => a.order - b.order)
+            .map((x) => x.idx);
+          if (JSON.stringify(selectedOptionIndex) === JSON.stringify(expectedOrder)) {
+            correct += 1;
+          }
+          // We push dummy 0 to answeredSelections so `incorrect` math at the end still counts this
+          answeredSelections.push(0); 
+        }
+      } else {
+        answeredSelections.push(selectedOptionIndex);
+        voteCounts[selectedOptionIndex] = (voteCounts[selectedOptionIndex] || 0) + 1;
 
-      if (roundType !== ROUND_TYPES.MAJORITY_RULES && selectedOptionIndex === correctOptionIndex) {
-        correct += 1;
+        if (roundType !== ROUND_TYPES.MAJORITY_RULES && selectedOptionIndex === correctOptionIndex) {
+          correct += 1;
+        }
       }
     } else {
       noAnswer += 1;
@@ -388,6 +408,7 @@ const nextQuestion = async (io, pin) => {
       options: question.options.map((o) => ({ text: o.text })),
       mediaUrl: question.mediaUrl,
       mediaType: question.mediaType,
+      isOrdering: question.options.some((o) => o.correctOrder !== undefined),
     },
     timerDuration: effectiveTimer,
     timerRemaining: trForEmit,
@@ -586,7 +607,9 @@ const revealAnswer = async (io, pin) => {
     try {
       const parsed = JSON.parse(raw);
       responses[teamId] = {
-        selectedOptionIndex: Number(parsed.selectedOptionIndex),
+        selectedOptionIndex: Array.isArray(parsed.selectedOptionIndex)
+          ? parsed.selectedOptionIndex
+          : Number(parsed.selectedOptionIndex),
         wagerAmount: parsed.wagerAmount !== undefined ? Number(parsed.wagerAmount) : 0,
       };
     } catch {
@@ -662,9 +685,11 @@ const revealAnswer = async (io, pin) => {
   const responseDetails = Object.entries(responses).map(([teamId, response]) => ({
     teamId: Number(teamId),
     selectedOptionIndex:
-      response && Number.isFinite(Number(response.selectedOptionIndex))
-        ? Number(response.selectedOptionIndex)
-        : -1,
+      response && Array.isArray(response.selectedOptionIndex)
+        ? response.selectedOptionIndex
+        : response && Number.isFinite(Number(response.selectedOptionIndex))
+          ? Number(response.selectedOptionIndex)
+          : -1,
     responseTime:
       response && Number.isFinite(Number(response.responseTime))
         ? Number(response.responseTime)
@@ -711,6 +736,12 @@ const revealAnswer = async (io, pin) => {
   io.to(`session:${pin}`).emit(SOCKET_EVENTS.ANSWER_REVEAL, {
     correctOptionIndex: correctIndex,
     correctText: question.options[correctIndex]?.text,
+    correctOrderArray: question.options.some((o) => o.correctOrder !== undefined)
+      ? [...question.options]
+          .map((o, idx) => ({ idx, order: o.correctOrder }))
+          .sort((a, b) => a.order - b.order)
+          .map((x) => x.idx)
+      : undefined,
     scores: result.scores,
     responseDetails,
     majorityOptionIndexes,
@@ -1172,6 +1203,7 @@ const endBreak = async (io, pin) => {
               options: question.options.map((o) => ({ text: o.text })),
               mediaUrl: question.mediaUrl,
               mediaType: question.mediaType,
+              isOrdering: question.options.some((o) => o.correctOrder !== undefined),
             },
             timerDuration: effectiveTimer,
             timerRemaining: timerRemainingForEmit,

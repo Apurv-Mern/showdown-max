@@ -57,6 +57,7 @@ interface QuestionData {
     options: { text: string }[];
     mediaUrl?: string;
     mediaType?: string;
+    isOrdering?: boolean;
   };
   timerDuration: number;
   timerRemaining?: number;
@@ -68,6 +69,7 @@ interface QuestionData {
 interface RevealData {
   correctOptionIndex: number;
   correctText: string;
+  correctOrderArray?: number[];
   scores: Record<string, number>;
   responseDetails?: { teamId: number; selectedOptionIndex: number; responseTime?: number | null }[];
   majorityOptionIndexes?: number[];
@@ -2288,38 +2290,58 @@ function VenueDisplayContent() {
                       Q{(question.questionIndex || 0) + 1}. {question.question.text}
                     </p>
                   </div>
+                  {question.question.isOrdering && revealData && (
+                    <div className="mb-3 sm:mb-4 md:mb-5 text-center">
+                      <span className="inline-block px-5 py-2 rounded-full bg-green-500/20 border border-green-500/50 text-green-400 font-bold text-sm sm:text-base md:text-xl uppercase tracking-wider shadow-[0_0_15px_rgba(57,255,74,0.2)]">
+                        Correct Order: {(revealData.correctOrderArray || []).map((idx: number) => question.question.options[idx]?.text).join(' → ')}
+                      </span>
+                    </div>
+                  )}
+                  <div className={cn(
+                    "grid",
+                    "grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-2 gap-1 sm:gap-2 md:gap-3"
+                  )}>
+                    {(() => {
+                      // Ordering questions during reveal phase will fall through to default rendering.
+                      // The top banner already explicitly shows the correct order (e.g. A -> B -> C -> D),
+                      // so we can leave the original grid intact, dimming all options.
 
-                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-2 gap-1 sm:gap-2 md:gap-3">
-                    {question.question.options.map((opt, i) => {
-                      const isMajorityRulesRound =
-                        (question.roundType || '').toUpperCase() === 'MAJORITY_RULES';
-                      const majorityOptionIndexes = new Set(revealData.majorityOptionIndexes || []);
-                      const isRevealedWinner = isMajorityRulesRound
-                        ? majorityOptionIndexes.has(i)
-                        : i === revealData.correctOptionIndex;
-                      return (
-                        <div
-                          key={i}
-                          className={cn(
-                            'rounded-lg border px-2 sm:px-3 md:px-4 py-2 sm:py-3 md:py-4 text-white font-bold text-xs sm:text-sm md:text-base lg:text-lg xl:text-2xl flex items-center transition-all duration-500 shadow-[0_8px_18px_rgba(0,0,0,0.35)] min-h-12 sm:min-h-14 md:min-h-16',
-                            VENUE_OPTION_COLOR_CLASSES[i % VENUE_OPTION_COLOR_CLASSES.length],
-                            isRevealedWinner
-                              ? 'shadow-[0_0_8px_8px_rgba(57,255,74,0.9)] z-10 scale-[1.02]'
-                              : 'opacity-30 brightness-50 contrast-75 scale-[0.98]',
-                          )}
-                        >
-                          <span className="font-black mr-1 sm:mr-2 md:mr-3 shrink-0">
-                            {OPTION_LETTERS[i]}.
-                          </span>
-                          <span className="truncate text-left flex-1">{opt.text}</span>
-                          {isRevealedWinner && (
-                            <div className="ml-auto w-6 h-6 sm:w-7 h-7 md:w-8 h-8 rounded-full bg-green-500 flex items-center justify-center border-2 border-white shadow-lg shrink-0">
-                              <span className="text-white text-sm sm:text-base md:text-lg">✓</span>
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
+                      return question.question.options.map((opt, i) => {
+                        const isMajorityRulesRound =
+                          (question.roundType || '').toUpperCase() === 'MAJORITY_RULES';
+                        const majorityOptionIndexes = new Set(revealData?.majorityOptionIndexes || []);
+                        const isRevealedWinner = revealData ? (
+                          isMajorityRulesRound
+                            ? majorityOptionIndexes.has(i)
+                            : i === revealData.correctOptionIndex
+                        ) : false;
+                        
+                        return (
+                          <div
+                            key={i}
+                            className={cn(
+                              'rounded-lg border px-2 sm:px-3 md:px-4 py-2 sm:py-3 md:py-4 text-white font-bold text-xs sm:text-sm md:text-base lg:text-lg xl:text-2xl flex items-center transition-all duration-500 shadow-[0_8px_18px_rgba(0,0,0,0.35)] min-h-12 sm:min-h-14 md:min-h-16',
+                              VENUE_OPTION_COLOR_CLASSES[i % VENUE_OPTION_COLOR_CLASSES.length],
+                              revealData && isRevealedWinner
+                                ? 'shadow-[0_0_8px_8px_rgba(57,255,74,0.9)] z-10 scale-[1.02]'
+                                : revealData && !isRevealedWinner
+                                  ? 'opacity-30 brightness-50 contrast-75 scale-[0.98]'
+                                  : ''
+                            )}
+                          >
+                            <span className="font-black mr-1 sm:mr-2 md:mr-3 shrink-0">
+                              {OPTION_LETTERS[i]}.
+                            </span>
+                            <span className="truncate text-left flex-1">{opt.text}</span>
+                            {isRevealedWinner && (
+                              <div className="ml-auto w-6 h-6 sm:w-7 h-7 md:w-8 h-8 rounded-full bg-green-500 flex items-center justify-center border-2 border-white shadow-lg shrink-0">
+                                <span className="text-white text-sm sm:text-base md:text-lg">✓</span>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      });
+                    })()}
                   </div>
                 </div>
               </div>

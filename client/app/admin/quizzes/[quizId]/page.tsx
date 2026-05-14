@@ -24,6 +24,7 @@ const ELIMINATION_QUESTION_COUNT = 12;
 interface Option {
   text: string;
   isCorrect: boolean;
+  correctOrder?: number;
 }
 
 interface Question {
@@ -114,6 +115,7 @@ interface NewQuestion {
   mediaUrl: string;
   mediaType: string;
   timerDuration: string;
+  isOrdering?: boolean;
 }
 
 const defaultNewQuestion: NewQuestion = {
@@ -128,6 +130,7 @@ const defaultNewQuestion: NewQuestion = {
   mediaUrl: '',
   mediaType: '',
   timerDuration: '',
+  isOrdering: false,
 };
 
 export default function QuizDetailPage() {
@@ -185,14 +188,28 @@ export default function QuizDetailPage() {
   useEffect(() => {
     if (!quiz?.rounds?.length) return;
     for (const round of quiz.rounds) {
-      if (round.type !== 'ELIMINATION') continue;
       const n = round.questions.length;
-      const toastId = `elimination-need-12-${round.id}`;
-      if (n !== ELIMINATION_QUESTION_COUNT) {
-        toast.error(
-          `${getRoundDisplayName(round)} must have exactly ${ELIMINATION_QUESTION_COUNT} questions for an Elimination round (currently ${n}).`,
-          { id: toastId, duration: 10_000 },
-        );
+      const toastId = `round-validation-${round.id}`;
+      let errorMsg = null;
+
+      if (round.type === 'MULTIPLE_CHOICE' && (round.order === 1 || round.name.toLowerCase().includes('1'))) {
+        if (n !== 10) errorMsg = `${getRoundDisplayName(round)} should have exactly 10 questions (currently ${n}).`;
+      } else if (round.type === 'WAGER') {
+        if (n !== 10) errorMsg = `${getRoundDisplayName(round)} should have exactly 10 questions (currently ${n}).`;
+      } else if (round.type === 'MUSIC') {
+        if (n < 15 || n > 20) errorMsg = `${getRoundDisplayName(round)} should have 15-20 questions (currently ${n}).`;
+      } else if (round.type === 'MAJORITY_RULES') {
+        if (n !== 5) errorMsg = `${getRoundDisplayName(round)} should have exactly 5 questions (currently ${n}).`;
+      } else if (round.type === 'ELIMINATION') {
+        if (n !== ELIMINATION_QUESTION_COUNT) errorMsg = `${getRoundDisplayName(round)} must have exactly ${ELIMINATION_QUESTION_COUNT} questions (currently ${n}).`;
+      } else if (round.type === 'FINAL_MULTIPLE_CHOICE') {
+        if (n !== 10) errorMsg = `${getRoundDisplayName(round)} should have exactly 10 questions (currently ${n}).`;
+      } else if (round.type === 'FINAL_WAGER') {
+        if (n !== 1) errorMsg = `${getRoundDisplayName(round)} should have exactly 1 final wager question (currently ${n}).`;
+      }
+
+      if (errorMsg) {
+        toast.error(errorMsg, { id: toastId, duration: 10_000 });
       } else {
         toast.dismiss(toastId);
       }
@@ -343,6 +360,7 @@ export default function QuizDetailPage() {
       mediaUrl: question.mediaUrl || '',
       mediaType: question.mediaType || '',
       timerDuration: question.timerDuration ? String(question.timerDuration) : '',
+      isOrdering: question.options.some((o: any) => o.correctOrder !== undefined),
     });
     setAddingToRound(roundId);
   };
@@ -424,11 +442,21 @@ export default function QuizDetailPage() {
 
     const targetRound = quiz?.rounds.find((r) => r.id === addingToRound);
     const isMajorityRulesRound = targetRound?.type === 'MAJORITY_RULES';
+    const isOrdering = formData.isOrdering;
 
-    if (!isMajorityRulesRound) {
+    if (!isMajorityRulesRound && !isOrdering) {
       const correctCount = validOptions.filter((o) => o.isCorrect).length;
       if (correctCount < 1) {
         toast.error('At least one option must be marked as correct');
+        return;
+      }
+    }
+
+    if (isOrdering) {
+      const orders = validOptions.map((o) => o.correctOrder).filter((o) => o !== undefined);
+      const uniqueOrders = new Set(orders);
+      if (orders.length !== validOptions.length || uniqueOrders.size !== validOptions.length) {
+        toast.error('All options must have a unique correct order (e.g. 1, 2, 3...)');
         return;
       }
     }
@@ -450,7 +478,9 @@ export default function QuizDetailPage() {
       return;
     }
 
-    const optionsPayload = isMajorityRulesRound
+    const optionsPayload = isOrdering 
+      ? validOptions.map((o) => ({ text: o.text.trim(), isCorrect: false, correctOrder: o.correctOrder }))
+      : isMajorityRulesRound
       ? validOptions.map((o, i) => ({ text: o.text.trim(), isCorrect: i === 0 }))
       : validOptions.map((o) => ({ text: o.text.trim(), isCorrect: o.isCorrect }));
 
@@ -516,6 +546,13 @@ export default function QuizDetailPage() {
     setFormData((prev) => ({
       ...prev,
       options: prev.options.map((o, i) => (i === index ? { ...o, text } : o)),
+    }));
+  };
+
+  const updateOptionOrder = (index: number, correctOrder?: number) => {
+    setFormData((prev) => ({
+      ...prev,
+      options: prev.options.map((o, i) => (i === index ? { ...o, correctOrder } : o)),
     }));
   };
 
@@ -934,10 +971,26 @@ export default function QuizDetailPage() {
       )}
 
       {/* Add / Edit Question Modal */}
+      {(() => {
+        const questionNumber = addingRound ? 
+          (editingQuestion 
+            ? addingRound.questions.findIndex(q => q.id === editingQuestion.id) + 1 
+            : addingRound.questions.length + 1)
+          : null;
+
+        const isMultipleChoiceQuestionModal = (() => {
+          if (!addingRound || addingRound.type !== 'MULTIPLE_CHOICE') return false;
+          const isRound1 = addingRound.order === 1 || addingRound.name.toLowerCase().includes('1');
+          if (!isRound1) return formData.isOrdering;
+          const is10th = questionNumber === 10;
+          return is10th || formData.isOrdering;
+        })();
+
+        return (
       <Modal
         isOpen={addingToRound !== null}
         onClose={closeModal}
-        title={editingQuestion ? 'Edit Question' : 'Add Question'}
+        title={editingQuestion ? `Edit Question${questionNumber ? ` ${questionNumber}` : ''}` : `Add Question${questionNumber ? ` ${questionNumber}` : ''}`}
         className="max-w-2xl"
       >
         <div className="space-y-4 max-h-[70vh] overflow-y-auto pr-1">
@@ -1062,10 +1115,34 @@ export default function QuizDetailPage() {
 
           {/* Options */}
           <div>
+            {isMultipleChoiceQuestionModal && (
+              <div className="flex items-center gap-2 mb-4">
+                <input
+                  type="checkbox"
+                  id="isOrderingToggle"
+                  checked={formData.isOrdering}
+                  onChange={(e) => {
+                    const isOrdering = e.target.checked;
+                    setFormData((prev) => ({
+                      ...prev,
+                      isOrdering,
+                      options: prev.options.map((o, i) => ({
+                        ...o,
+                        correctOrder: isOrdering ? i + 1 : undefined,
+                      })),
+                    }));
+                  }}
+                  className="w-4 h-4 rounded border-border text-primary focus:ring-primary/50"
+                />
+                <label htmlFor="isOrderingToggle" className="text-sm font-medium text-foreground">
+                  Is Ordering Question?
+                </label>
+              </div>
+            )}
             <div className="flex items-center justify-between mb-2">
               <label className="text-sm font-medium text-foreground/70">
                 Options
-                {!isMajorityRulesQuestionModal ? (
+                {!isMajorityRulesQuestionModal && !formData.isOrdering ? (
                   <span className="text-foreground/30 font-normal ml-1">
                     (click radio to mark correct)
                   </span>
@@ -1080,7 +1157,7 @@ export default function QuizDetailPage() {
             <div className="space-y-2">
               {formData.options.map((opt, i) => (
                 <div key={i} className="flex items-center gap-2">
-                  {!isMajorityRulesQuestionModal ? (
+                  {!isMajorityRulesQuestionModal && !formData.isOrdering ? (
                     <button
                       type="button"
                       onClick={() => setCorrectOption(i)}
@@ -1093,6 +1170,17 @@ export default function QuizDetailPage() {
                       {opt.isCorrect && <span className="text-white text-xs">✓</span>}
                     </button>
                   ) : null}
+                  {formData.isOrdering && (
+                    <input
+                      type="number"
+                      min={1}
+                      max={6}
+                      value={opt.correctOrder ?? ''}
+                      onChange={(e) => updateOptionOrder(i, parseInt(e.target.value) || undefined)}
+                      placeholder="#"
+                      className="w-16 bg-surface-light border border-border rounded-lg px-2 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 text-center"
+                    />
+                  )}
                   <input
                     type="text"
                     value={opt.text}
@@ -1128,6 +1216,8 @@ export default function QuizDetailPage() {
           </div>
         </div>
       </Modal>
+      );
+      })()}
 
       {/* Confirm Delete Question Modal — themed replacement for the native
           browser confirm() so the dialog matches the rest of the admin UI and

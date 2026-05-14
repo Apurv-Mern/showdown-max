@@ -19,6 +19,7 @@ const API_URL = PUBLIC_API_URL;
 interface Option {
   text: string;
   isCorrect: boolean;
+  correctOrder?: number;
 }
 
 interface Question {
@@ -133,6 +134,7 @@ interface FormData {
   mediaType: string;
   timerDuration: string;
   roundId: string;
+  isOrdering: boolean;
 }
 
 const defaultFormData: FormData = {
@@ -148,6 +150,7 @@ const defaultFormData: FormData = {
   mediaType: '',
   timerDuration: '',
   roundId: '',
+  isOrdering: false,
 };
 
 export default function QuestionsPage() {
@@ -170,6 +173,30 @@ export default function QuestionsPage() {
   const [uploading, setUploading] = useState(false);
   const [saving, setSaving] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const [questionNumber, setQuestionNumber] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (!modalOpen || !formData.roundId) {
+      setQuestionNumber(null);
+      return;
+    }
+    const fetchRoundQuestions = async () => {
+      try {
+        const res = await api.get<{ questions: Question[]; total: number }>(`/api/questions?roundId=${formData.roundId}&limit=100`);
+        const qs = res.data.questions || [];
+        if (editingQuestion) {
+          const idx = qs.findIndex((q) => q.id === editingQuestion.id);
+          setQuestionNumber(idx !== -1 ? idx + 1 : qs.length);
+        } else {
+          setQuestionNumber(res.data.total + 1);
+        }
+      } catch (err) {
+        console.error('Failed to fetch round question count:', err);
+      }
+    };
+    fetchRoundQuestions();
+  }, [modalOpen, formData.roundId, editingQuestion]);
 
   const fetchRounds = useCallback(async () => {
     try {
@@ -265,6 +292,7 @@ export default function QuestionsPage() {
       mediaType: question.mediaType || '',
       timerDuration: question.timerDuration ? String(question.timerDuration) : '',
       roundId: question.round ? String(question.round.id) : '',
+      isOrdering: question.options.some((o: any) => o.correctOrder !== undefined),
     });
     setModalOpen(true);
   };
@@ -353,10 +381,19 @@ export default function QuestionsPage() {
     const selectedRoundForSave = rounds.find((r) => String(r.id) === formData.roundId);
     const isMajorityRulesRound = selectedRoundForSave?.type === 'MAJORITY_RULES';
 
-    if (!isMajorityRulesRound) {
+    if (!isMajorityRulesRound && !formData.isOrdering) {
       const correctCount = validOptions.filter((o) => o.isCorrect).length;
       if (correctCount < 1) {
         toast.error('At least one option must be marked as correct');
+        return;
+      }
+    }
+
+    if (formData.isOrdering) {
+      const orders = validOptions.map((o) => o.correctOrder).filter((o) => o !== undefined);
+      const uniqueOrders = new Set(orders);
+      if (orders.length !== validOptions.length || uniqueOrders.size !== validOptions.length) {
+        toast.error('All options must have a unique correct order (e.g. 1, 2, 3...)');
         return;
       }
     }
@@ -378,9 +415,11 @@ export default function QuestionsPage() {
       return;
     }
 
-    const optionsPayload = isMajorityRulesRound
-      ? validOptions.map((o, i) => ({ text: o.text.trim(), isCorrect: i === 0 }))
-      : validOptions.map((o) => ({ text: o.text.trim(), isCorrect: o.isCorrect }));
+    const optionsPayload = formData.isOrdering
+      ? validOptions.map((o) => ({ text: o.text.trim(), isCorrect: false, correctOrder: o.correctOrder }))
+      : isMajorityRulesRound
+        ? validOptions.map((o, i) => ({ text: o.text.trim(), isCorrect: i === 0 }))
+        : validOptions.map((o) => ({ text: o.text.trim(), isCorrect: o.isCorrect }));
 
     const payload: any = {
       text: formData.text.trim(),
@@ -438,6 +477,14 @@ export default function QuestionsPage() {
     }));
   };
 
+  const updateOptionOrder = (index: number, correctOrderStr: string) => {
+    const correctOrder = correctOrderStr ? parseInt(correctOrderStr, 10) : undefined;
+    setFormData((prev) => ({
+      ...prev,
+      options: prev.options.map((o, i) => (i === index ? { ...o, correctOrder } : o)),
+    }));
+  };
+
   const addOption = () => {
     if (formData.options.length >= 6) return;
     setFormData((prev) => ({
@@ -472,6 +519,7 @@ export default function QuestionsPage() {
     [rounds, formData.roundId],
   );
   const isMajorityRulesQuestionModal = modalRoundType === 'MAJORITY_RULES';
+  const isMultipleChoiceQuestionModal = modalRoundType === 'MULTIPLE_CHOICE';
 
   return (
     <div className="flex flex-col gap-6 antialiased">
@@ -730,10 +778,25 @@ export default function QuestionsPage() {
       )}
 
       {/* Add / Edit Question Modal */}
-      <Modal
+      {(() => {
+        const isMultipleChoiceQuestionModal = (() => {
+          const r = rounds.find((x) => String(x.id) === formData.roundId);
+          if (!r || r.type !== 'MULTIPLE_CHOICE') return false;
+          const isRound1 = r.order === 1 || r.name.toLowerCase().includes('1');
+          if (!isRound1) return formData.isOrdering;
+          const is10th = questionNumber === 10;
+          return is10th || formData.isOrdering;
+        })();
+        
+        return (
+          <Modal
         isOpen={modalOpen}
         onClose={closeModal}
-        title={editingQuestion ? 'Edit Question' : 'Add Question'}
+        title={
+          editingQuestion
+            ? `Edit Question${questionNumber ? ` ${questionNumber}` : ''}`
+            : `Add Question${questionNumber ? ` ${questionNumber}` : ''}`
+        }
         className="max-w-2xl"
       >
         <div className="space-y-4 max-h-[70vh] overflow-y-auto pr-1">
@@ -961,12 +1024,40 @@ export default function QuestionsPage() {
 
           {/* Options */}
           <div>
+            {isMultipleChoiceQuestionModal && (
+              <div className="flex items-center gap-2 mb-4">
+                <input
+                  type="checkbox"
+                  id="isOrderingToggle"
+                  checked={formData.isOrdering}
+                  onChange={(e) => {
+                    const isOrdering = e.target.checked;
+                    setFormData((prev) => ({
+                      ...prev,
+                      isOrdering,
+                      options: prev.options.map((o, i) => ({
+                        ...o,
+                        correctOrder: isOrdering ? i + 1 : undefined,
+                      })),
+                    }));
+                  }}
+                  className="w-4 h-4 rounded border-border text-primary focus:ring-primary/50"
+                />
+                <label htmlFor="isOrderingToggle" className="text-sm font-medium text-foreground">
+                  Is Ordering Question?
+                </label>
+              </div>
+            )}
             <div className="flex items-center justify-between mb-2">
               <label className="text-sm font-medium text-foreground/70">
                 Options
-                {!isMajorityRulesQuestionModal ? (
+                {!isMajorityRulesQuestionModal && !formData.isOrdering ? (
                   <span className="text-foreground/30 font-normal ml-1">
                     (click radio to mark correct)
+                  </span>
+                ) : formData.isOrdering ? (
+                  <span className="text-foreground/30 font-normal ml-1">
+                    (set correct order 1, 2, 3...)
                   </span>
                 ) : null}
               </label>
@@ -979,7 +1070,7 @@ export default function QuestionsPage() {
             <div className="space-y-2">
               {formData.options.map((opt, i) => (
                 <div key={i} className="flex items-center gap-2">
-                  {!isMajorityRulesQuestionModal ? (
+                  {!isMajorityRulesQuestionModal && !formData.isOrdering ? (
                     <button
                       type="button"
                       onClick={() => setCorrectOption(i)}
@@ -991,8 +1082,18 @@ export default function QuestionsPage() {
                     >
                       {opt.isCorrect && <span className="text-white text-xs">✓</span>}
                     </button>
+                  ) : formData.isOrdering ? (
+                    <input
+                      type="number"
+                      min={1}
+                      max={formData.options.length}
+                      value={opt.correctOrder || ''}
+                      onChange={(e) => updateOptionOrder(i, e.target.value)}
+                      className="w-12 h-9 text-center bg-surface-light border border-border rounded-lg text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 shrink-0"
+                      placeholder="#"
+                    />
                   ) : null}
-                  <span className="text-foreground/30 text-sm font-mono w-5 shrink-0">
+                  <span className="text-foreground/30 text-sm font-mono w-5 shrink-0 text-center">
                     {String.fromCharCode(65 + i)}
                   </span>
                   <input
@@ -1033,6 +1134,8 @@ export default function QuestionsPage() {
           </div>
         </div>
       </Modal>
+      );
+      })()}
     </div>
   );
 }

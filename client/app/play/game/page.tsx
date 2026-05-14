@@ -872,9 +872,9 @@ export default function GamePage() {
             }
           } else if (gs.questionState === 'REVEALED') {
             // Break end or page refresh can restore directly into a revealed question.
-            // Do NOT clear selectedOption here — the follow-up `answer_reveal` event will
-            // set it from responseDetails.  Keeping the existing value avoids a UI flash
-            // where the correct/wrong answer feedback momentarily disappears.
+            // Restore the submitted selection if available; otherwise the reveal screen would
+            // incorrectly fall back to the generic no-answer state after a refresh.
+            setSelectedOption(restoredIdx);
             setPhase(currentlyEliminated ? 'eliminated' : 'reveal');
           } else {
             setSelectedOption(null);

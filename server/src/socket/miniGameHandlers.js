@@ -29,7 +29,10 @@ const createCardShuffleRoundState = (roundNumber = null, gameStarted = true) => 
   pickCounts: { 1: 0, 2: 0, 3: 0 },
 });
 
-const createHorseRaceRoundState = (gameStarted = false, kangarooNames = DEFAULT_KANGAROO_NAMES) => ({
+const createHorseRaceRoundState = (
+  gameStarted = false,
+  kangarooNames = DEFAULT_KANGAROO_NAMES,
+) => ({
   game: 'kangaroo_race',
   ready: false,
   gameStarted,
@@ -68,7 +71,9 @@ const normalizeKangarooNames = (input) => {
     const fallback = DEFAULT_KANGAROO_NAMES[i] || `Kangaroo #${i + 1}`;
     const raw = source[i];
     const cleaned =
-      typeof raw === 'string' ? raw.trim().replace(/\s+/g, ' ').slice(0, KANGAROO_NAME_MAX_LENGTH) : '';
+      typeof raw === 'string'
+        ? raw.trim().replace(/\s+/g, ' ').slice(0, KANGAROO_NAME_MAX_LENGTH)
+        : '';
     names.push(cleaned || fallback);
   }
   return names;
@@ -103,7 +108,9 @@ const normalizeFinishOrderSlots = (finishOrderRaw, kangarooNames = DEFAULT_KANGA
     let slot = NaN;
     if (typeof item === 'number' || typeof item === 'string') {
       const raw = Number(item);
-      slot = treatAsZeroBased ? normalizeRevealSlotOneToSix(raw + 1) : normalizeRevealSlotOneToSix(raw);
+      slot = treatAsZeroBased
+        ? normalizeRevealSlotOneToSix(raw + 1)
+        : normalizeRevealSlotOneToSix(raw);
       if (!Number.isFinite(slot) && typeof item === 'string') {
         slot = Number(nameToSlot.get(item.trim().toLowerCase()) || NaN);
       }
@@ -386,7 +393,8 @@ const applyCardShuffleBonusOnReveal = async (io, pin, miniGameState) => {
     const numericTeamId = Number(teamId);
     if (!Number.isFinite(numericTeamId) || !gameState.teams[numericTeamId]) continue;
 
-    gameState.teams[numericTeamId].score = Number(gameState.teams[numericTeamId].score || 0) + bonus;
+    gameState.teams[numericTeamId].score =
+      Number(gameState.teams[numericTeamId].score || 0) + bonus;
     winners.push(numericTeamId);
   }
 
@@ -407,7 +415,9 @@ const applyCardShuffleBonusOnReveal = async (io, pin, miniGameState) => {
   }
 
   await Promise.all(
-    winners.map((teamId) => Team.update({ score: gameState.teams[teamId].score }, { where: { id: teamId } })),
+    winners.map((teamId) =>
+      Team.update({ score: gameState.teams[teamId].score }, { where: { id: teamId } }),
+    ),
   );
 
   if (Number.isFinite(roundNumber)) {
@@ -437,7 +447,9 @@ const applyCardShuffleBonusOnReveal = async (io, pin, miniGameState) => {
 
   if (gameState.scoreboardVisible) {
     io.to(room).emit(SOCKET_EVENTS.SCOREBOARD, {
-      teams: Object.values(gameState.teams).sort((a, b) => Number(b.score || 0) - Number(a.score || 0)),
+      teams: Object.values(gameState.teams).sort(
+        (a, b) => Number(b.score || 0) - Number(a.score || 0),
+      ),
       source: 'manual',
     });
   }
@@ -520,7 +532,8 @@ const applyKangarooRacePointsOnResult = async (io, pin, miniGameState) => {
         : 0;
     const numericTeamId = Number(teamId);
     if (!Number.isFinite(numericTeamId) || !gameState.teams[numericTeamId]) continue;
-    gameState.teams[numericTeamId].score = Number(gameState.teams[numericTeamId].score || 0) + points;
+    gameState.teams[numericTeamId].score =
+      Number(gameState.teams[numericTeamId].score || 0) + points;
     updatedTeamIds.push(numericTeamId);
   }
 
@@ -539,7 +552,9 @@ const applyKangarooRacePointsOnResult = async (io, pin, miniGameState) => {
     await redisStore.updateTeamData(pin, teamId, gameState.teams[teamId]);
   }
   await Promise.all(
-    updatedTeamIds.map((teamId) => Team.update({ score: gameState.teams[teamId].score }, { where: { id: teamId } })),
+    updatedTeamIds.map((teamId) =>
+      Team.update({ score: gameState.teams[teamId].score }, { where: { id: teamId } }),
+    ),
   );
 
   const room = `session:${pin}`;
@@ -558,7 +573,9 @@ const applyKangarooRacePointsOnResult = async (io, pin, miniGameState) => {
 
   if (gameState.scoreboardVisible) {
     io.to(room).emit(SOCKET_EVENTS.SCOREBOARD, {
-      teams: Object.values(gameState.teams).sort((a, b) => Number(b.score || 0) - Number(a.score || 0)),
+      teams: Object.values(gameState.teams).sort(
+        (a, b) => Number(b.score || 0) - Number(a.score || 0),
+      ),
       source: 'manual',
     });
   }
@@ -704,7 +721,7 @@ const miniGameHandlers = (io, socket) => {
         );
 
         if (payload.command === 'start_game') {
-          await hydrateHorseRaceState(pin, (state) => ({
+          const updated = await hydrateHorseRaceState(pin, (state) => ({
             ...state,
             gameStarted: true,
             revealed: false,
@@ -716,6 +733,19 @@ const miniGameHandlers = (io, socket) => {
             pickCounts: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0 },
             pickDeadlineAt: Date.now() + 20 * 1000,
           }));
+          if (!updated) {
+            logger.error(
+              'kangaroo_race start_game: hydrateHorseRaceState failed (no Redis game state); not broadcasting mini_game_command',
+              { pin },
+            );
+            return;
+          }
+          // Authoritative snapshot so refresh/rejoin always matches the live pick window
+          // (avoids UI from command alone when Redis was never updated).
+          io.to(`session:${pin}`).emit(SOCKET_EVENTS.SESSION_STATE, {
+            ...updated,
+            gameState: updated,
+          });
         }
 
         const horseCommandOut = {
@@ -1152,18 +1182,116 @@ const miniGameHandlers = (io, socket) => {
 
       // Replay the current mini-game state so the player sees winner/loser
       // even if mini_game_reveal fired before the rejoin completed.
-      const gameState = await redisStore.getGameState(pin);
+      let gameState = await redisStore.getGameState(pin);
       const numericTeamId = Number(teamId);
-      const teamExistsInLiveState = Boolean(
-        gameState?.teams?.[numericTeamId] || gameState?.teams?.[String(numericTeamId)],
-      );
       const wasRemovedByHost =
         Array.isArray(gameState?.removedTeamIds) &&
         gameState.removedTeamIds.map(Number).includes(numericTeamId);
-      if (!teamExistsInLiveState || wasRemovedByHost) {
-        socket.emit(SOCKET_EVENTS.TEAM_REMOVED, { teamId: numericTeamId, direct: true });
+      if (wasRemovedByHost) {
+        socket.emit(SOCKET_EVENTS.TEAM_REMOVED, {
+          teamId: numericTeamId,
+          direct: true,
+          reason: 'host_removed',
+        });
         return;
       }
+
+      let teamExistsInLiveState = Boolean(
+        gameState?.teams?.[numericTeamId] || gameState?.teams?.[String(numericTeamId)],
+      );
+
+      // Passive disconnect purge strips this team from `gameState.teams` (same as join_session
+      // path). Re-merge from MySQL so refresh on /play/mini-game does not get TEAM_REMOVED.
+      if (!teamExistsInLiveState) {
+        const sessionData = await redisStore.getSession(pin);
+        if (!sessionData?.sessionId) {
+          socket.emit(SOCKET_EVENTS.TEAM_REMOVED, { teamId: numericTeamId, direct: true });
+          return;
+        }
+        const teamRow = await Team.findByPk(numericTeamId, {
+          attributes: ['id', 'teamName', 'score', 'isEliminated', 'sessionId'],
+        });
+        if (!teamRow || teamRow.sessionId !== sessionData.sessionId) {
+          socket.emit(SOCKET_EVENTS.TEAM_REMOVED, { teamId: numericTeamId, direct: true });
+          return;
+        }
+
+        const existingStateTeamPre =
+          gameState?.teams?.[teamRow.id] ?? gameState?.teams?.[String(teamRow.id)] ?? null;
+        const liveScoreRaw = existingStateTeamPre?.score;
+        const liveScoreIsValid =
+          liveScoreRaw !== undefined &&
+          liveScoreRaw !== null &&
+          Number.isFinite(Number(liveScoreRaw));
+        const preservedScore = liveScoreIsValid ? Number(liveScoreRaw) : Number(teamRow.score) || 0;
+        const preservedIsEliminated =
+          existingStateTeamPre?.isEliminated !== undefined
+            ? Boolean(existingStateTeamPre.isEliminated)
+            : Boolean(teamRow.isEliminated);
+
+        const teamData = {
+          teamId: teamRow.id,
+          teamName: teamRow.teamName,
+          score: preservedScore,
+          isEliminated: preservedIsEliminated,
+        };
+
+        await redisStore.addTeamToLobby(pin, teamData);
+        await redisStore.updateTeamData(pin, teamRow.id, teamData);
+        await teamRow.update({ isConnected: true, socketId: socket.id });
+        gameController.cancelScheduledDisconnectPurge(pin, teamRow.id);
+
+        const merged = await redisStore.updateGameState(pin, (current) => {
+          const currentRound = current.rounds?.[current.currentRoundIndex];
+          const isEliminationRound = currentRound?.type === 'ELIMINATION';
+          const existingStateTeam = current.teams?.[teamRow.id];
+          const resolvedIsEliminated =
+            existingStateTeam?.isEliminated ?? teamData.isEliminated ?? false;
+
+          const mergedTeams = {
+            ...(current.teams || {}),
+            [teamRow.id]: {
+              ...(existingStateTeam || {}),
+              ...teamData,
+              isEliminated: resolvedIsEliminated,
+            },
+          };
+
+          let mergedActiveTeamIds = [...(current.activeTeamIds || [])];
+          if (
+            !(isEliminationRound && resolvedIsEliminated) &&
+            !mergedActiveTeamIds.includes(teamRow.id)
+          ) {
+            mergedActiveTeamIds.push(teamRow.id);
+          }
+
+          return {
+            teams: mergedTeams,
+            activeTeamIds: mergedActiveTeamIds,
+            totalTeams: Object.keys(mergedTeams).length,
+          };
+        });
+        if (merged) gameState = merged;
+
+        const refreshed = await redisStore.getGameState(pin);
+        if (refreshed) gameState = refreshed;
+
+        teamExistsInLiveState = Boolean(
+          gameState?.teams?.[numericTeamId] || gameState?.teams?.[String(numericTeamId)],
+        );
+        if (!teamExistsInLiveState) {
+          socket.emit(SOCKET_EVENTS.TEAM_REMOVED, { teamId: numericTeamId, direct: true });
+          return;
+        }
+
+        socket.data = {
+          ...socket.data,
+          pin,
+          teamId: teamRow.id,
+          teamName: teamRow.teamName,
+        };
+      }
+
       const mgs = gameState?.miniGameState;
       if (mgs?.game === 'kangaroo_race') {
         const kangarooNames = normalizeKangarooNames(
@@ -1173,6 +1301,7 @@ const miniGameHandlers = (io, socket) => {
         socket.emit(SOCKET_EVENTS.MINI_GAME_START, {
           game: 'kangaroo_race',
           kangarooNames,
+          rejoinReplay: true,
         });
         // If the race is in progress (started but not revealed), send
         // session_state instead of replaying start_game. The start_game
@@ -1180,7 +1309,11 @@ const miniGameHandlers = (io, socket) => {
         // wiping the player's existing bet. session_state lets the
         // client restore roundOpen, the locked pick, and the correct
         // countdown from miniGameState.selections + pickDeadlineAt.
-        if (mgs.gameStarted && !mgs.revealed) {
+        const pickDeadlineMs = Number(mgs.pickDeadlineAt);
+        const hasPickDeadline =
+          mgs.pickDeadlineAt != null && Number.isFinite(pickDeadlineMs) && pickDeadlineMs > 0;
+        const kangarooPickPhase = !mgs.revealed && (Boolean(mgs.gameStarted) || hasPickDeadline);
+        if (kangarooPickPhase) {
           socket.emit(SOCKET_EVENTS.SESSION_STATE, {
             ...gameState,
             gameState,
@@ -1189,7 +1322,7 @@ const miniGameHandlers = (io, socket) => {
       }
       if (mgs?.game === 'card_shuffle') {
         // Always send mini_game_start so the client sets gameType.
-        socket.emit(SOCKET_EVENTS.MINI_GAME_START, { game: 'card_shuffle' });
+        socket.emit(SOCKET_EVENTS.MINI_GAME_START, { game: 'card_shuffle', rejoinReplay: true });
 
         // If a round is in progress (started but not revealed), send
         // session_state so the client restores roundOpen, activeCardRound,

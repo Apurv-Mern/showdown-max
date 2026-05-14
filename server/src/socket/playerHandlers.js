@@ -406,9 +406,30 @@ const playerHandlers = (io, socket) => {
           });
         }
         if (gameState.activeMiniGame) {
+          const mgsJoin = gameState.miniGameState;
+          const pickDeadlineMs =
+            mgsJoin?.pickDeadlineAt != null ? Number(mgsJoin.pickDeadlineAt) : NaN;
+          const hasPickDeadline =
+            mgsJoin?.pickDeadlineAt != null &&
+            Number.isFinite(pickDeadlineMs) &&
+            pickDeadlineMs > 0;
+          // Must match mobile `mini_game_rejoin` / `session_state` pick-phase detection.
+          // If we emit a bare `mini_game_start` here while picks are open, `/play/mini-game`
+          // treats it like a fresh launch and clears `roundOpen` — often *after* `mini_game_rejoin`
+          // has already restored state (join_session races ahead of mini_game_rejoin on refresh).
+          const kangarooPickPhase =
+            mgsJoin?.game === 'kangaroo_race' &&
+            !mgsJoin?.revealed &&
+            (Boolean(mgsJoin?.gameStarted) || hasPickDeadline);
+          const cardPickPhase =
+            mgsJoin?.game === 'card_shuffle' &&
+            mgsJoin?.gameStarted &&
+            !mgsJoin?.revealed &&
+            mgsJoin?.activeRound != null;
           socket.emit(SOCKET_EVENTS.MINI_GAME_START, {
             game: gameState.activeMiniGame,
             ...(gameState.miniGameConfig || {}),
+            ...(kangarooPickPhase || cardPickPhase ? { rejoinReplay: true } : {}),
           });
           if (
             gameState.miniGameState?.game === 'card_shuffle' &&

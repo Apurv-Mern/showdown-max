@@ -20,13 +20,10 @@ export function PlayerSessionDeletedBridge() {
     const pin = session.pin ? String(session.pin) : '';
     if (!pin) return;
     try {
-      const res = await fetch(
-        `${PUBLIC_API_URL}/api/public/sessions/pin/${pin}?for=exists`,
-        {
-          method: 'GET',
-          cache: 'no-store',
-        },
-      );
+      const res = await fetch(`${PUBLIC_API_URL}/api/public/sessions/pin/${pin}?for=exists`, {
+        method: 'GET',
+        cache: 'no-store',
+      });
       if (res.status === 404) {
         clearSession();
         router.replace('/play/join');
@@ -58,8 +55,12 @@ export function PlayerSessionDeletedBridge() {
       const myId = session.teamId != null ? Number(session.teamId) : NaN;
       if (!Number.isFinite(removedId) || !Number.isFinite(myId)) return;
       if (removedId !== myId) return;
-      const hostRemoved =
-        data?.reason === 'host_removed' || data?.reason === 'removed_by_host';
+      // Passive tab refresh / network blip: server purges the old socket and broadcasts
+      // `team_removed` with `reason: 'disconnected'`. That must NOT clear `playerSession` or
+      // the next paint sends the player to /play/join even though they are still in the game.
+      if (data?.reason === 'disconnected') return;
+
+      const hostRemoved = data?.reason === 'host_removed' || data?.reason === 'removed_by_host';
       if (hostRemoved) {
         try {
           sessionStorage.setItem(

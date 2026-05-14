@@ -139,6 +139,10 @@ export default function MiniGamePage() {
   const [kangarooPickSecondsLeft, setKangarooPickSecondsLeft] = useState<number | null>(null);
   const sessionPinRef = useRef(session.pin);
   sessionPinRef.current = session.pin;
+  const sessionTeamIdRef = useRef(session.teamId);
+  sessionTeamIdRef.current = session.teamId;
+  const sessionTeamNameRef = useRef(session.teamName);
+  sessionTeamNameRef.current = session.teamName;
   selectedChoiceRef.current = selectedChoice;
   const labelForKangaroo = (slot: number | null) => {
     if (!Number.isFinite(Number(slot))) return '';
@@ -162,17 +166,20 @@ export default function MiniGamePage() {
       setKangarooPickSecondsLeft(null);
       return;
     }
+    let intervalId: ReturnType<typeof setInterval> | null = null;
     const tick = () => {
       const remainingMs = kangarooPickDeadline - Date.now();
       const seconds = remainingMs > 0 ? Math.ceil(remainingMs / 1000) : 0;
       setKangarooPickSecondsLeft(seconds);
-      if (remainingMs <= 0) {
+      if (remainingMs <= 0 && intervalId != null) {
         window.clearInterval(intervalId);
       }
     };
+    intervalId = window.setInterval(tick, 250);
     tick();
-    const intervalId = window.setInterval(tick, 250);
-    return () => window.clearInterval(intervalId);
+    return () => {
+      if (intervalId != null) window.clearInterval(intervalId);
+    };
   }, [kangarooPickDeadline]);
 
   useEffect(() => {
@@ -188,13 +195,14 @@ export default function MiniGamePage() {
      *  briefly alive — mini_game_rejoin bypasses that and also replays the reveal state. */
     const rejoinSession = () => {
       const pin = sessionPinRef.current;
-      const teamId = session.teamId;
+      const teamId = sessionTeamIdRef.current;
+      const teamName = sessionTeamNameRef.current;
       if (!pin || !teamId) return;
       console.log('[play/mini-game] reconnected — emitting mini_game_rejoin', { pin, teamId });
       socket.emit('mini_game_rejoin', {
         pin,
         teamId,
-        teamName: session.teamName,
+        teamName,
       });
     };
     socket.on('connect', rejoinSession);
@@ -231,6 +239,10 @@ export default function MiniGamePage() {
         setActiveCardRound(rn as 1 | 2 | 3 | 4);
       }
       const pick = lockedPickRef.current ?? selectedChoiceRef.current;
+      if (pick !== null) {
+        lockedPickRef.current = pick;
+        setSelectedChoice(pick);
+      }
       if (winning !== null && pick !== null) {
         setResultPhase(pick === winning ? 'winner' : 'loser');
       } else {
@@ -238,11 +250,19 @@ export default function MiniGamePage() {
       }
     };
 
-    const onMiniGameStart = (data: { game: string; kangarooNames?: string[] }) => {
+    const onMiniGameStart = (data: {
+      game: string;
+      kangarooNames?: string[];
+      /** Server mini_game_rejoin replay — do not reset roundOpen / picks; `session_state` follows. */
+      rejoinReplay?: boolean;
+    }) => {
       logSocketIn('mini_game_start', data);
       setGameType(data.game as MiniGameType);
       if (Array.isArray(data.kangarooNames) && data.kangarooNames.length >= 6) {
         setKangarooNames(data.kangarooNames.slice(0, 6).map((name) => String(name || '').trim()));
+      }
+      if (data.rejoinReplay) {
+        return;
       }
       lockedPickRef.current = null;
       setSelectedChoice(null);
@@ -576,12 +596,18 @@ export default function MiniGamePage() {
         if (names?.length >= 6) {
           setKangarooNames(names.slice(0, 6).map((name: string) => String(name || '').trim()));
         }
-        // If the race has started but not yet revealed, restore the active race UI
-        if (mgs.gameStarted && !mgs.revealed) {
+        // Pick window: prefer gameStarted, but also accept pickDeadlineAt so a refresh
+        // still restores if Redis ever desynced the flag (command already opened the UI).
+        const pickDeadlineMs = Number(mgs.pickDeadlineAt);
+        const hasPickDeadline =
+          mgs.pickDeadlineAt != null && Number.isFinite(pickDeadlineMs) && pickDeadlineMs > 0;
+        const racePickPhaseActive = !mgs.revealed && (Boolean(mgs.gameStarted) || hasPickDeadline);
+
+        if (racePickPhaseActive) {
           setGameType('kangaroo_race');
           setRoundOpen(true);
           // Restore the player's existing pick if any
-          const teamId = session.teamId;
+          const teamId = sessionTeamIdRef.current;
           if (teamId && mgs.selections) {
             const existingPick = mgs.selections[String(teamId)];
             if (existingPick != null && Number.isFinite(Number(existingPick))) {
@@ -624,7 +650,7 @@ export default function MiniGamePage() {
             setActiveCardRound(rn as 1 | 2 | 3 | 4);
           }
           // Restore the player's existing pick if any
-          const teamId = session.teamId;
+          const teamId = sessionTeamIdRef.current;
           if (teamId && mgs.selections) {
             const existingPick = mgs.selections[String(teamId)];
             if (existingPick != null && Number.isFinite(Number(existingPick))) {
@@ -636,7 +662,15 @@ export default function MiniGamePage() {
         }
       }
 
-      if (!gameState.activeMiniGame && gameState.state !== 'LOBBY') {
+      const miniGameKey = gameState?.miniGameState?.game;
+      const hasPersistedMiniGameSession =
+        miniGameKey === 'kangaroo_race' || miniGameKey === 'card_shuffle';
+
+      if (
+        !gameState.activeMiniGame &&
+        gameState.state !== 'LOBBY' &&
+        !hasPersistedMiniGameSession
+      ) {
         exitMiniGameToGame();
       }
     };
@@ -699,7 +733,7 @@ export default function MiniGamePage() {
       socket.off('disconnect', onDisconnect);
       socket.off('connect_error', onConnectError);
     };
-  }, [router, clearSession]);
+  }, [router, clearSession, session.pin, session.teamId, session.teamName]);
 
   const handleChoice = (choiceId: number) => {
     const socket = connectSocket();
@@ -782,8 +816,7 @@ export default function MiniGamePage() {
               </h2>
               {finishRank != null && didSubmitKangarooBet ? (
                 <p className="mt-1 text-base font-extrabold text-white sm:text-lg">
-                  Your Kangaroo Finished{' '}
-                  <span className="text-[#39ff14]">{rankLabel}</span> !!
+                  Your Kangaroo Finished <span className="text-[#39ff14]">{rankLabel}</span> !!
                 </p>
               ) : (
                 <p className="mt-1 text-base font-extrabold text-white/85 sm:text-lg">
@@ -908,92 +941,94 @@ export default function MiniGamePage() {
                     </p>
                   </header>
 
-                  {kangarooPickSecondsLeft != null ? (
-                    (() => {
-                      const totalSeconds = KANGAROO_PICK_WINDOW_SECONDS;
-                      const current = pickWindowExpired ? 0 : (kangarooPickSecondsLeft as number);
-                      const progress = totalSeconds > 0 ? current / totalSeconds : 0;
-                      const radius = 28;
-                      const circumference = 2 * Math.PI * radius;
-                      const strokeDashoffset = circumference * (1 - progress);
-                      const ringColor = pickWindowExpired
-                        ? '#6b7280'
-                        : timerWarning
-                          ? '#ff3055'
-                          : '#00d8ff';
-                      const glowColor = pickWindowExpired
-                        ? 'transparent'
-                        : timerWarning
-                          ? 'rgba(255,48,85,0.5)'
-                          : 'rgba(0,216,255,0.4)';
-                      return (
-                        <div
-                          className={cn(
-                            'mx-auto mt-4 mb-1 flex items-center justify-center transition-opacity',
-                            pickWindowExpired ? 'opacity-70' : 'opacity-100',
-                          )}
-                          role="timer"
-                          aria-live="polite"
-                          aria-label={
-                            pickWindowExpired
-                              ? "Time's up"
-                              : `${kangarooPickSecondsLeft} seconds left to pick a kangaroo`
-                          }
-                        >
+                  {kangarooPickSecondsLeft != null
+                    ? (() => {
+                        const totalSeconds = KANGAROO_PICK_WINDOW_SECONDS;
+                        const current = pickWindowExpired ? 0 : (kangarooPickSecondsLeft as number);
+                        const progress = totalSeconds > 0 ? current / totalSeconds : 0;
+                        const radius = 28;
+                        const circumference = 2 * Math.PI * radius;
+                        const strokeDashoffset = circumference * (1 - progress);
+                        const ringColor = pickWindowExpired
+                          ? '#6b7280'
+                          : timerWarning
+                            ? '#ff3055'
+                            : '#00d8ff';
+                        const glowColor = pickWindowExpired
+                          ? 'transparent'
+                          : timerWarning
+                            ? 'rgba(255,48,85,0.5)'
+                            : 'rgba(0,216,255,0.4)';
+                        return (
                           <div
-                            className="relative flex items-center justify-center"
-                            style={{
-                              width: 76,
-                              height: 76,
-                              filter: `drop-shadow(0 0 10px ${glowColor})`,
-                            }}
+                            className={cn(
+                              'mx-auto mt-4 mb-1 flex items-center justify-center transition-opacity',
+                              pickWindowExpired ? 'opacity-70' : 'opacity-100',
+                            )}
+                            role="timer"
+                            aria-live="polite"
+                            aria-label={
+                              pickWindowExpired
+                                ? "Time's up"
+                                : `${kangarooPickSecondsLeft} seconds left to pick a kangaroo`
+                            }
                           >
-                            <svg
-                              viewBox="0 0 72 72"
-                              className="absolute inset-0 h-full w-full"
-                              style={{ transform: 'rotate(-90deg)' }}
+                            <div
+                              className="relative flex items-center justify-center"
+                              style={{
+                                width: 76,
+                                height: 76,
+                                filter: `drop-shadow(0 0 10px ${glowColor})`,
+                              }}
                             >
-                              {/* Background track */}
-                              <circle
-                                cx="36"
-                                cy="36"
-                                r={radius}
-                                fill="none"
-                                stroke="rgba(255,255,255,0.1)"
-                                strokeWidth="5"
-                              />
-                              {/* Animated progress arc */}
-                              <circle
-                                cx="36"
-                                cy="36"
-                                r={radius}
-                                fill="none"
-                                stroke={ringColor}
-                                strokeWidth="5"
-                                strokeLinecap="round"
-                                strokeDasharray={circumference}
-                                strokeDashoffset={strokeDashoffset}
-                                style={{ transition: 'stroke-dashoffset 0.3s ease, stroke 0.3s ease' }}
-                              />
-                            </svg>
-                            <span
-                              className={cn(
-                                'relative z-10 text-2xl font-black tabular-nums',
-                                pickWindowExpired
-                                  ? 'text-gray-400'
-                                  : timerWarning
-                                    ? 'text-[#ff3055]'
-                                    : 'text-white',
-                                timerWarning && !pickWindowExpired ? 'animate-pulse' : '',
-                              )}
-                            >
-                              {pickWindowExpired ? '0' : kangarooPickSecondsLeft}
-                            </span>
+                              <svg
+                                viewBox="0 0 72 72"
+                                className="absolute inset-0 h-full w-full"
+                                style={{ transform: 'rotate(-90deg)' }}
+                              >
+                                {/* Background track */}
+                                <circle
+                                  cx="36"
+                                  cy="36"
+                                  r={radius}
+                                  fill="none"
+                                  stroke="rgba(255,255,255,0.1)"
+                                  strokeWidth="5"
+                                />
+                                {/* Animated progress arc */}
+                                <circle
+                                  cx="36"
+                                  cy="36"
+                                  r={radius}
+                                  fill="none"
+                                  stroke={ringColor}
+                                  strokeWidth="5"
+                                  strokeLinecap="round"
+                                  strokeDasharray={circumference}
+                                  strokeDashoffset={strokeDashoffset}
+                                  style={{
+                                    transition: 'stroke-dashoffset 0.3s ease, stroke 0.3s ease',
+                                  }}
+                                />
+                              </svg>
+                              <span
+                                className={cn(
+                                  'relative z-10 text-2xl font-black tabular-nums',
+                                  pickWindowExpired
+                                    ? 'text-gray-400'
+                                    : timerWarning
+                                      ? 'text-[#ff3055]'
+                                      : 'text-white',
+                                  timerWarning && !pickWindowExpired ? 'animate-pulse' : '',
+                                )}
+                              >
+                                {pickWindowExpired ? '0' : kangarooPickSecondsLeft}
+                              </span>
+                            </div>
                           </div>
-                        </div>
-                      );
-                    })()
-                  ) : null}
+                        );
+                      })()
+                    : null}
 
                   <div className="mx-auto mt-4 flex h-[170px] w-[170px] items-center justify-center rounded-2xl">
                     <img
@@ -1098,180 +1133,205 @@ export default function MiniGamePage() {
 
         {gameType === 'card_shuffle' &&
           !(activeCardRound == null && !roundOpen && resultPhase === null) && (
-          <div className="relative z-10 flex min-h-0 flex-1 flex-col px-5 pb-8 pt-10 sm:px-8">
-            {resultPhase !== 'finished' ? (
-              <header className="shrink-0 text-center">
-                <h1 className="text-[clamp(1.75rem,6vw,2.35rem)] font-black uppercase leading-tight tracking-[0.06em] text-white drop-shadow-[0_2px_12px_rgba(0,0,0,0.45)]">
-                  Card shuffle !!
-                </h1>
-                <p className="mt-3 text-base font-bold leading-snug text-white sm:text-lg">
-                  Which Card is the Queen of Hearts{' '}
-                  <span className="inline-block" aria-hidden>
-                    ❤️
-                  </span>
-                </p>
-                <p className="mt-2 text-xs font-extrabold uppercase tracking-[0.14em] text-cyan-200/95 sm:text-sm">
-                  {activeCardRound != null
-                    ? `Round ${activeCardRound} running • Correct pick = +${activeRoundBonus}`
-                    : 'Waiting for Round 1 to start'}
-                </p>
-              </header>
-            ) : null}
+            <div className="relative z-10 flex min-h-0 flex-1 flex-col px-5 pb-8 pt-10 sm:px-8">
+              {resultPhase !== 'finished' ? (
+                <header className="shrink-0 text-center">
+                  <h1 className="text-[clamp(1.75rem,6vw,2.35rem)] font-black uppercase leading-tight tracking-[0.06em] text-white drop-shadow-[0_2px_12px_rgba(0,0,0,0.45)]">
+                    Card shuffle !!
+                  </h1>
+                  <p className="mt-3 text-base font-bold leading-snug text-white sm:text-lg">
+                    Which Card is the Queen of Hearts{' '}
+                    <span className="inline-block" aria-hidden>
+                      ❤️
+                    </span>
+                  </p>
+                  <p className="mt-2 text-xs font-extrabold uppercase tracking-[0.14em] text-cyan-200/95 sm:text-sm">
+                    {activeCardRound != null
+                      ? `Round ${activeCardRound} running • Correct pick = +${activeRoundBonus}`
+                      : 'Waiting for Round 1 to start'}
+                  </p>
+                </header>
+              ) : null}
 
-            {resultPhase !== 'finished' ? (
-              <div
-                className={cn(
-                  'mx-auto mt-6 w-full max-w-md shrink-0 rounded-xl border-2 bg-[rgba(7,15,35,0.92)] px-4 py-3 text-center shadow-[0_0_0_1px_rgba(34,211,238,0.15)]',
-                  resultPhase === 'winner'
-                    ? 'border-[#25d366] shadow-[0_0_18px_rgba(37,211,102,0.28)]'
-                    : resultPhase === 'loser'
-                      ? 'border-[#f87171] shadow-[0_0_16px_rgba(248,113,113,0.22)]'
-                      : 'border-[#00d6ff]/80 shadow-[0_0_16px_rgba(0,214,255,0.24)]',
-                )}
-              >
-                <p
+              {resultPhase !== 'finished' ? (
+                <div
                   className={cn(
-                    'text-[0.95rem] font-black leading-snug sm:text-[1.05rem]',
+                    'mx-auto mt-6 w-full max-w-md shrink-0 rounded-xl border-2 bg-[rgba(7,15,35,0.92)] px-4 py-3 text-center shadow-[0_0_0_1px_rgba(34,211,238,0.15)]',
                     resultPhase === 'winner'
-                      ? 'text-[#39ff14]'
+                      ? 'border-[#25d366] shadow-[0_0_18px_rgba(37,211,102,0.28)]'
                       : resultPhase === 'loser'
-                        ? 'text-[#ffb4b4]'
-                        : 'text-white',
+                        ? 'border-[#f87171] shadow-[0_0_16px_rgba(248,113,113,0.22)]'
+                        : 'border-[#00d6ff]/80 shadow-[0_0_16px_rgba(0,214,255,0.24)]',
                   )}
                 >
-                  {resultPhase === 'winner'
-                    ? `CORRECT ! You found the Queen +${activeRoundBonus}`
-                    : resultPhase === 'loser'
-                      ? selectedChoice == null
-                        ? winningValue
-                          ? `No pick made — Queen was in ${CARD_LABEL_MAP[winningValue]}`
-                          : 'No pick made for this round'
-                        : `Wrong ! Queen was in ${winningValue ? CARD_LABEL_MAP[winningValue] : 'another'}`
-                      : 'Tap a Card to make your Selection !!'}
-                </p>
-              </div>
-            ) : null}
-
-            <div className="flex min-h-0 flex-1 flex-col items-center justify-center py-6">
-              {resultPhase === 'finished' ? (
-                <div className="mx-auto w-full max-w-md text-center">
-                  <h2 className="text-[clamp(3.2rem,18vw,5.6rem)] font-black uppercase leading-[0.9] tracking-[0.05em] text-[#59d8ff] [text-shadow:0_0_0_rgb(0,0,0),0_2px_0_#0d4d89,0_0_18px_rgba(89,216,255,0.8)]">
-                    GAME
-                    <br />
-                    OVER
-                  </h2>
-                  <p className="mt-8 text-[1.05rem] font-extrabold leading-snug text-white drop-shadow-[0_2px_8px_rgba(0,0,0,0.55)]">
-                    {CARD_FINISHED_MESSAGE}
+                  <p
+                    className={cn(
+                      'text-[0.95rem] font-black leading-snug sm:text-[1.05rem]',
+                      resultPhase === 'winner'
+                        ? 'text-[#39ff14]'
+                        : resultPhase === 'loser'
+                          ? 'text-[#ffb4b4]'
+                          : 'text-white',
+                    )}
+                  >
+                    {resultPhase === 'winner'
+                      ? `CORRECT ! You found the Queen +${activeRoundBonus}`
+                      : resultPhase === 'loser'
+                        ? selectedChoice == null
+                          ? winningValue
+                            ? `No pick made — Queen was in ${CARD_LABEL_MAP[winningValue]}`
+                            : 'No pick made for this round'
+                          : winningValue && selectedChoice
+                            ? `Wrong ! You picked ${CARD_LABEL_MAP[selectedChoice]} — Queen was in ${CARD_LABEL_MAP[winningValue]}`
+                            : `Wrong ! Queen was in ${winningValue ? CARD_LABEL_MAP[winningValue] : 'another'}`
+                        : 'Tap a Card to make your Selection !!'}
                   </p>
                 </div>
-              ) : (
-                <>
-                  <div className="mt-2 flex w-full max-w-md items-stretch justify-center gap-4 sm:gap-5">
-                    {CARD_POSITIONS.map((pos) => {
-                      const revealed = resultPhase != null;
-                      const lockedPick = selectedChoice !== null;
-                      const isSelected = selectedChoice === pos.id;
-                      const isWinningPos = winningValue != null && Number(winningValue) === pos.id;
-                      const showRevealedFaces = resultPhase === 'winner' || resultPhase === 'loser';
-                      const cardSrc = showRevealedFaces
-                        ? isWinningPos
-                          ? CARD_IMAGE_QUEEN
-                          : CARD_IMAGE_JOKER
-                        : CARD_IMAGE_FACE_DOWN;
+              ) : null}
 
-                      let cardFrameClass =
-                        'border-white/90 shadow-[0_6px_18px_rgba(0,0,0,0.4)] opacity-95';
-                      let labelClass = 'text-white';
-
-                      if (!revealed) {
-                        if (roundOpen && lockedPick && isSelected) {
-                          cardFrameClass =
-                            'border-[#33d9ff] shadow-[0_0_18px_rgba(51,217,255,0.95),0_0_35px_rgba(51,217,255,0.4)]';
-                          labelClass = 'text-[#00d6ff]';
-                        } else if (roundOpen && !lockedPick) {
-                          cardFrameClass =
-                            'border-white/95 shadow-[0_6px_18px_rgba(0,0,0,0.35)] hover:scale-[1.02] hover:brightness-110';
-                        }
-                      } else if (isWinningPos) {
-                        cardFrameClass =
-                          'border-[#35ff5a] shadow-[0_0_20px_rgba(53,255,90,0.9),0_0_38px_rgba(53,255,90,0.35)]';
-                        labelClass = 'text-[#39ff14]';
-                      } else {
-                        cardFrameClass = 'border-white/95 shadow-[0_6px_16px_rgba(0,0,0,0.35)]';
-                      }
-
-                      return (
-                        <div
-                          key={pos.id}
-                          className={cn(
-                            'flex min-w-0 flex-1 max-w-[108px] flex-col items-center transition-transform duration-400',
-                            revealed && isWinningPos
-                              ? 'scale-[1.1] sm:scale-[1.1] animate-pulse z-10'
-                              : '',
-                          )}
-                        >
-                          <button
-                            type="button"
-                            onClick={() => handleChoice(pos.id)}
-                            disabled={!roundOpen || lockedPick || revealed}
-                            className={cn(
-                              'group relative mx-auto w-[86px] overflow-hidden rounded-[10px] border-2 transition-all duration-250 sm:w-[94px]',
-                              'h-[132px] sm:h-[144px]',
-                              !roundOpen || lockedPick || revealed
-                                ? 'cursor-default'
-                                : 'active:translate-y-0.5',
-                              cardFrameClass,
-                            )}
-                            style={{ perspective: '900px' }}
-                          >
-                            <div
-                              className="relative h-full w-full transition-transform duration-1500"
-                              style={{
-                                transformStyle: 'preserve-3d',
-                                transform: showRevealedFaces ? 'rotateY(180deg)' : 'rotateY(0deg)',
-                              }}
-                            >
-                              <img
-                                src={CARD_IMAGE_FACE_DOWN}
-                                alt={`${pos.label} card back`}
-                                className="absolute inset-0 h-full w-full object-contain align-top"
-                                style={{ backfaceVisibility: 'hidden' }}
-                                draggable={false}
-                              />
-                              <img
-                                src={cardSrc}
-                                alt={`${pos.label} card`}
-                                className="absolute inset-0 h-full w-full object-contain align-top transition-transform duration-300"
-                                style={{
-                                  backfaceVisibility: 'hidden',
-                                  transform: 'rotateY(180deg)',
-                                }}
-                                draggable={false}
-                              />
-                            </div>
-                          </button>
-                          <span
-                            className={cn(
-                              'mt-3 text-[1.05rem] font-black tracking-wide',
-                              labelClass,
-                            )}
-                          >
-                            {pos.label}
-                          </span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                  {resultPhase != null ? (
-                    <p className="mt-4 max-w-md px-2 text-center text-xs font-medium text-white/45">
-                      Waiting for the host to start the next round...
+              <div className="flex min-h-0 flex-1 flex-col items-center justify-center py-6">
+                {resultPhase === 'finished' ? (
+                  <div className="mx-auto w-full max-w-md text-center">
+                    <h2 className="text-[clamp(3.2rem,18vw,5.6rem)] font-black uppercase leading-[0.9] tracking-[0.05em] text-[#59d8ff] [text-shadow:0_0_0_rgb(0,0,0),0_2px_0_#0d4d89,0_0_18px_rgba(89,216,255,0.8)]">
+                      GAME
+                      <br />
+                      OVER
+                    </h2>
+                    <p className="mt-8 text-[1.05rem] font-extrabold leading-snug text-white drop-shadow-[0_2px_8px_rgba(0,0,0,0.55)]">
+                      {CARD_FINISHED_MESSAGE}
                     </p>
-                  ) : null}
-                </>
-              )}
+                  </div>
+                ) : (
+                  <>
+                    <div className="mt-2 flex w-full max-w-md items-stretch justify-center gap-4 sm:gap-5">
+                      {CARD_POSITIONS.map((pos) => {
+                        const revealed = resultPhase != null;
+                        const lockedPick = selectedChoice !== null;
+                        const isSelected = selectedChoice === pos.id;
+                        const isWinningPos =
+                          winningValue != null && Number(winningValue) === pos.id;
+                        const showRevealedFaces =
+                          resultPhase === 'winner' || resultPhase === 'loser';
+                        const cardSrc = showRevealedFaces
+                          ? isWinningPos
+                            ? CARD_IMAGE_QUEEN
+                            : CARD_IMAGE_JOKER
+                          : CARD_IMAGE_FACE_DOWN;
+
+                        let cardFrameClass =
+                          'border-white/90 shadow-[0_6px_18px_rgba(0,0,0,0.4)] opacity-95';
+                        let labelClass = 'text-white';
+
+                        if (!revealed) {
+                          if (roundOpen && lockedPick && isSelected) {
+                            cardFrameClass =
+                              'border-[#33d9ff] shadow-[0_0_18px_rgba(51,217,255,0.95),0_0_35px_rgba(51,217,255,0.4)]';
+                            labelClass = 'text-[#00d6ff]';
+                          } else if (roundOpen && !lockedPick) {
+                            cardFrameClass =
+                              'border-white/95 shadow-[0_6px_18px_rgba(0,0,0,0.35)] hover:scale-[1.02] hover:brightness-110';
+                          }
+                        } else if (isWinningPos) {
+                          cardFrameClass =
+                            'border-[#35ff5a] shadow-[0_0_20px_rgba(53,255,90,0.9),0_0_38px_rgba(53,255,90,0.35)]';
+                          labelClass = 'text-[#39ff14]';
+                        } else if (lockedPick && isSelected) {
+                          // Revealed: show the player's wrong choice distinctly from the queen slot.
+                          cardFrameClass =
+                            'border-[#ff4d6d] shadow-[0_0_18px_rgba(255,77,109,0.65),0_0_32px_rgba(255,77,109,0.25)]';
+                          labelClass = 'text-[#ffb4c8]';
+                        } else {
+                          cardFrameClass = 'border-white/95 shadow-[0_6px_16px_rgba(0,0,0,0.35)]';
+                        }
+
+                        return (
+                          <div
+                            key={pos.id}
+                            className={cn(
+                              'flex min-w-0 flex-1 max-w-[108px] flex-col items-center transition-transform duration-400',
+                              revealed && isWinningPos
+                                ? 'z-10 scale-[1.1] animate-pulse sm:scale-[1.1]'
+                                : revealed && lockedPick && isSelected && !isWinningPos
+                                  ? 'z-9 scale-[1.04] sm:scale-[1.05]'
+                                  : '',
+                            )}
+                          >
+                            <button
+                              type="button"
+                              onClick={() => handleChoice(pos.id)}
+                              disabled={!roundOpen || lockedPick || revealed}
+                              className={cn(
+                                'group relative mx-auto w-[86px] overflow-hidden rounded-[10px] border-2 transition-all duration-250 sm:w-[94px]',
+                                'h-[132px] sm:h-[144px]',
+                                !roundOpen || lockedPick || revealed
+                                  ? 'cursor-default'
+                                  : 'active:translate-y-0.5',
+                                cardFrameClass,
+                              )}
+                              style={{ perspective: '900px' }}
+                            >
+                              <div
+                                className="relative h-full w-full transition-transform duration-1500"
+                                style={{
+                                  transformStyle: 'preserve-3d',
+                                  transform: showRevealedFaces
+                                    ? 'rotateY(180deg)'
+                                    : 'rotateY(0deg)',
+                                }}
+                              >
+                                <img
+                                  src={CARD_IMAGE_FACE_DOWN}
+                                  alt={`${pos.label} card back`}
+                                  className="absolute inset-0 h-full w-full object-contain align-top"
+                                  style={{ backfaceVisibility: 'hidden' }}
+                                  draggable={false}
+                                />
+                                <img
+                                  src={cardSrc}
+                                  alt={`${pos.label} card`}
+                                  className="absolute inset-0 h-full w-full object-contain align-top transition-transform duration-300"
+                                  style={{
+                                    backfaceVisibility: 'hidden',
+                                    transform: 'rotateY(180deg)',
+                                  }}
+                                  draggable={false}
+                                />
+                              </div>
+                            </button>
+                            <span
+                              className={cn(
+                                'mt-3 text-[1.05rem] font-black tracking-wide',
+                                labelClass,
+                              )}
+                            >
+                              {pos.label}
+                            </span>
+                            {revealed && lockedPick && isSelected ? (
+                              <span
+                                className={cn(
+                                  'mt-1 rounded-full px-2 py-0.5 text-[0.65rem] font-extrabold uppercase tracking-wide',
+                                  isWinningPos
+                                    ? 'bg-emerald-500/25 text-emerald-200 ring-1 ring-emerald-400/50'
+                                    : 'bg-rose-500/30 text-rose-100 ring-1 ring-rose-400/55',
+                                )}
+                              >
+                                Your pick
+                              </span>
+                            ) : null}
+                          </div>
+                        );
+                      })}
+                    </div>
+                    {resultPhase != null ? (
+                      <p className="mt-4 max-w-md px-2 text-center text-xs font-medium text-white/45">
+                        Waiting for the host to start the next round...
+                      </p>
+                    ) : null}
+                  </>
+                )}
+              </div>
             </div>
-          </div>
-        )}
+          )}
 
         {!gameType && (
           <div className="text-center">

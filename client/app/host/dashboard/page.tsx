@@ -295,12 +295,14 @@ function HostFooterBtn({
   onClick,
   disabled,
   emphasis,
+  danger,
 }: {
   icon: React.ReactNode;
   children: React.ReactNode;
   onClick: () => void;
   disabled?: boolean;
   emphasis?: boolean;
+  danger?: boolean;
 }) {
   return (
     <button
@@ -309,7 +311,9 @@ function HostFooterBtn({
       disabled={disabled}
       className={cn(
         'inline-flex h-12.5 min-w-30 flex-1 max-w-52.5 items-center justify-center gap-2 rounded-lg border px-2 text-[10px] font-bold uppercase tracking-wide text-white shadow-[0_4px_12px_rgba(0,0,0,0.35)] transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-30 disabled:grayscale sm:min-w-35 sm:px-3 sm:text-xs',
-        emphasis
+        danger
+          ? 'border-[#ff4d4d]/70 bg-[linear-gradient(180deg,#b91c1c_0%,#7f1d1d_100%)] shadow-[0_0_18px_rgba(239,68,68,0.22)]'
+          : emphasis
           ? 'border-[rgba(0,217,255,0.45)] bg-[linear-gradient(180deg,#3a4a68_0%,#1e2a42_100%)] shadow-[0_0_18px_rgba(0,217,255,0.18)]'
           : 'border-white/15 bg-[linear-gradient(180deg,#2e354c_0%,#1a2030_100%)]',
       )}
@@ -1740,6 +1744,10 @@ function HostDashboardContent() {
     }
   }, [hostVideoPlaybackActive]);
   const isLastRound = totalRounds > 0 && gameState?.currentRoundIndex === totalRounds - 1;
+  const isFinalRoundCompletionState =
+    isLastRound &&
+    (state === 'SCOREBOARD' ||
+      (state === 'QUESTION' && questionState === 'REVEALED' && isLastQuestionOfRound));
 
   if (!pin) {
     return (
@@ -2771,10 +2779,15 @@ function HostDashboardContent() {
                   <button
                     type="button"
                     onClick={handleAdvanceRound}
-                    className="mt-2 min-w-[260px] rounded-xl border border-[rgba(0,217,255,0.55)] bg-[linear-gradient(180deg,#3a4a68_0%,#1e2a42_100%)] px-10 py-4 text-base font-black uppercase tracking-[0.14em] text-white shadow-[0_0_24px_rgba(0,217,255,0.22)] transition hover:brightness-110"
+                    className={cn(
+                      'mt-2 min-w-[260px] rounded-xl border px-10 py-4 text-base font-black uppercase tracking-[0.14em] text-white transition hover:brightness-110',
+                      isLastRound
+                        ? 'border-[#ff4d4d]/70 bg-[linear-gradient(180deg,#b91c1c_0%,#7f1d1d_100%)] shadow-[0_0_24px_rgba(239,68,68,0.26)]'
+                        : 'border-[rgba(0,217,255,0.55)] bg-[linear-gradient(180deg,#3a4a68_0%,#1e2a42_100%)] shadow-[0_0_24px_rgba(0,217,255,0.22)]',
+                    )}
                   >
                     {isLastRound
-                      ? 'View Final Results'
+                      ? 'Finish Game'
                       : nextRound
                         ? `START ${formatRoundTypeLabel(nextRound.type).toUpperCase()} ROUND`
                         : 'Start next round'}
@@ -3036,6 +3049,7 @@ function HostDashboardContent() {
                 state === 'SCOREBOARD' ||
                 (state === 'QUESTION' && questionState === 'REVEALED' && isLastQuestionOfRound)
               }
+              danger={isFinalRoundCompletionState}
               icon={
                 <svg viewBox="0 0 24 24" fill="currentColor" className="text-[#00d9ff]">
                   <path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z" />
@@ -3051,8 +3065,8 @@ function HostDashboardContent() {
             >
               {isCurrentRoundEmpty
                 ? 'Skip Empty Round'
-                : isLastRound && state === 'SCOREBOARD'
-                  ? 'View Final Results'
+                : isFinalRoundCompletionState
+                  ? 'Finish Game'
                   : 'Next Round'}
             </HostFooterBtn>
           </div>

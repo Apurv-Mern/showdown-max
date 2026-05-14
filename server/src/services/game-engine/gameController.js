@@ -56,7 +56,7 @@ const persistTimerRemainingIfActiveQuestion = (pin, remaining) => {
         timerRemaining: Math.max(0, Number(remaining) || 0),
       });
     })
-    .catch(() => {});
+    .catch(() => { });
 };
 
 const clampWagerByRoundType = (roundType, amount) => {
@@ -140,7 +140,7 @@ const buildLiveResponseStats = (gameState, question, responsesRaw = {}) => {
             correct += 1;
           }
           // We push dummy 0 to answeredSelections so `incorrect` math at the end still counts this
-          answeredSelections.push(0); 
+          answeredSelections.push(0);
         }
       } else {
         answeredSelections.push(selectedOptionIndex);
@@ -738,9 +738,9 @@ const revealAnswer = async (io, pin) => {
     correctText: question.options[correctIndex]?.text,
     correctOrderArray: question.options.some((o) => o.correctOrder !== undefined)
       ? [...question.options]
-          .map((o, idx) => ({ idx, order: o.correctOrder }))
-          .sort((a, b) => a.order - b.order)
-          .map((x) => x.idx)
+        .map((o, idx) => ({ idx, order: o.correctOrder }))
+        .sort((a, b) => a.order - b.order)
+        .map((x) => x.idx)
       : undefined,
     scores: result.scores,
     responseDetails,
@@ -995,15 +995,38 @@ const executePlayerDisconnectPurge = async (io, pin, teamId) => {
 };
 
 /**
- * Tab close / network loss / explicit leave.
+ * Tab close / network loss: schedule purge after a grace window so transient transport
+ * drops (common on idle browsers) do not instantly remove the team.
+ * Explicit leave uses `{ immediate: true }`.
  */
-const handlePlayerSocketDisconnect = async (io, pin, teamIdRaw) => {
+const handlePlayerSocketDisconnect = async (io, pin, teamIdRaw, options = {}) => {
   const teamId = Number(teamIdRaw);
   if (!pin || !Number.isFinite(teamId)) return;
 
+  if (options.immediate) {
+    cancelScheduledDisconnectPurge(pin, teamId);
+    await executePlayerDisconnectPurge(io, pin, teamId);
+    return;
+  }
+
   cancelScheduledDisconnectPurge(pin, teamId);
-  await executePlayerDisconnectPurge(io, pin, teamId);
-  logger.info('Player socket disconnected — team removed immediately', { pin, teamId });
+  const key = disconnectPurgeKey(pin, teamId);
+  const t = setTimeout(() => {
+    disconnectPurgeTimers.delete(key);
+    executePlayerDisconnectPurge(io, pin, teamId).catch((err) =>
+      logger.error('executePlayerDisconnectPurge failed', {
+        pin,
+        teamId,
+        error: err.message,
+      }),
+    );
+  }, DISCONNECT_PURGE_DELAY_MS);
+  disconnectPurgeTimers.set(key, t);
+  logger.info('Player socket disconnected — purge scheduled', {
+    pin,
+    teamId,
+    delayMs: DISCONNECT_PURGE_DELAY_MS,
+  });
 };
 
 /**

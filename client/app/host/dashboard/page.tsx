@@ -1220,6 +1220,10 @@ function HostDashboardContent() {
   };
   const handlePauseTimer = () => emit('pause_timer');
   const handleShowScoreboard = () => {
+    const canToggleScoreboard =
+      state === 'SCOREBOARD' || (state === 'QUESTION' && questionState === 'REVEALED');
+    if (!canToggleScoreboard) return;
+
     if (isScoreboardVisible) {
       emit('hide_scoreboard');
       setShowScoreboardModal(false);
@@ -1229,7 +1233,14 @@ function HostDashboardContent() {
     }
   };
   const handleAdvanceRound = () => emit('advance_round');
-  const handleStartBreak = () => emit('start_break');
+  const handleStartBreak = () => {
+    const canToggleBreak =
+      state === 'BREAK' ||
+      state === 'SCOREBOARD' ||
+      (state === 'QUESTION' && questionState === 'REVEALED');
+    if (!canToggleBreak) return;
+    emit('start_break');
+  };
   const handleEndBreak = () => emit('end_break');
   const handleEndGame = () => setShowEndGameModal(true);
   const confirmEndGame = () => {
@@ -1748,6 +1759,12 @@ function HostDashboardContent() {
     isLastRound &&
     (state === 'SCOREBOARD' ||
       (state === 'QUESTION' && questionState === 'REVEALED' && isLastQuestionOfRound));
+  const canOpenScoreboard =
+    state === 'SCOREBOARD' || (state === 'QUESTION' && questionState === 'REVEALED');
+  const canToggleBreak =
+    state === 'BREAK' ||
+    state === 'SCOREBOARD' ||
+    (state === 'QUESTION' && questionState === 'REVEALED');
 
   if (!pin) {
     return (
@@ -3023,7 +3040,7 @@ function HostDashboardContent() {
                   <path d="M4 19h16v2H4v-2zm2-4h12v2H6v-2zm4-4h4v2h-4v-2zm2-10.5c.83 0 1.5.67 1.5 1.5s-.67 1.5-1.5 1.5S11 6.83 11 6s.67-1.5 1.5-1.5z" />
                 </svg>
               }
-              disabled={miniGameLive || state === 'LOBBY' || state === 'FINAL_RESULTS'}
+              disabled={miniGameLive || state === 'FINAL_RESULTS' || !canToggleBreak}
               onClick={() => (state === 'BREAK' ? handleEndBreak() : handleStartBreak())}
             >
               {state === 'BREAK' ? 'End Break' : 'Start Break'}
@@ -3035,11 +3052,9 @@ function HostDashboardContent() {
                   <path d="M5 3h4v2H5V3zm0 6h4v2H5V9zm0 6h4v2H5v-2zm6-12h10v2H11V3zm0 6h10v2H11V9zm0 6h10v2H11v-2z" />
                 </svg>
               }
-              // Pre-game (LOBBY) the player and venue screens haven't mounted the leaderboard
-              // route yet, so toggling it on the host has no visual effect anywhere else and
-              // just creates confusion. Same goes for FINAL_RESULTS — the final podium is
-              // already shown.
-              disabled={miniGameLive || state === 'LOBBY' || state === 'FINAL_RESULTS'}
+              // Only allow leaderboard after answer reveal (or while it's already showing).
+              // Keeps host from opening it in the middle of active/waiting questions.
+              disabled={miniGameLive || state === 'FINAL_RESULTS' || !canOpenScoreboard}
               onClick={handleShowScoreboard}
             >
               {isScoreboardVisible ? 'Hide Leaderboard' : 'Show Leaderboard'}

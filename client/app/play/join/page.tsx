@@ -89,7 +89,10 @@ function JoinContent() {
           pin,
           teamId: data.teamId != null ? Number(data.teamId) : null,
           teamName: data.teamName,
-          score: data.score || 0,
+          score:
+            data.score !== undefined && data.score !== null
+              ? Number(data.score) || 0
+              : session.score,
         });
         setJoining(false);
         if (gs?.activeMiniGame) {
@@ -114,7 +117,7 @@ function JoinContent() {
       socket.off('session_state', onSessionState);
       socket.off('join_error', onJoinError);
     };
-  }, [socket, pin, router, setSession]);
+  }, [socket, pin, router, setSession, session.score]);
 
   const handleJoin = async () => {
     setError('');

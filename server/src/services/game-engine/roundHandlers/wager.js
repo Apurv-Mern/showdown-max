@@ -16,7 +16,7 @@ const calculate = ({ question, responses }) => {
       Math.max(response.wagerAmount || 0, SCORING.WAGER.MIN),
       SCORING.WAGER.MAX,
     );
-    const isCorrect = response.selectedOptionIndex === correctIndex;
+    const isCorrect = Number(response.selectedOptionIndex) === correctIndex;
     scores[teamId] = isCorrect ? wager : -wager;
   }
 

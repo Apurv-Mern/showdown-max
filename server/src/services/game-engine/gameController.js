@@ -56,7 +56,7 @@ const persistTimerRemainingIfActiveQuestion = (pin, remaining) => {
         timerRemaining: Math.max(0, Number(remaining) || 0),
       });
     })
-    .catch(() => { });
+    .catch(() => {});
 };
 
 const clampWagerByRoundType = (roundType, amount) => {
@@ -127,7 +127,9 @@ const buildLiveResponseStats = (gameState, question, responsesRaw = {}) => {
     }
 
     const selectedOptionIndex = parseSelectedOptionIndex(raw);
-    if (Array.isArray(selectedOptionIndex) ? selectedOptionIndex.length > 0 : selectedOptionIndex >= 0) {
+    if (
+      Array.isArray(selectedOptionIndex) ? selectedOptionIndex.length > 0 : selectedOptionIndex >= 0
+    ) {
       if (Array.isArray(selectedOptionIndex)) {
         // Track ordering answers for stats (just to know they answered, the histogram may not mean much)
         const isOrdering = question?.options?.some((o) => o.correctOrder !== undefined);
@@ -146,7 +148,10 @@ const buildLiveResponseStats = (gameState, question, responsesRaw = {}) => {
         answeredSelections.push(selectedOptionIndex);
         voteCounts[selectedOptionIndex] = (voteCounts[selectedOptionIndex] || 0) + 1;
 
-        if (roundType !== ROUND_TYPES.MAJORITY_RULES && selectedOptionIndex === correctOptionIndex) {
+        if (
+          roundType !== ROUND_TYPES.MAJORITY_RULES &&
+          selectedOptionIndex === correctOptionIndex
+        ) {
           correct += 1;
         }
       }
@@ -200,7 +205,9 @@ const normalizeKangarooNames = (input) => {
     const fallback = DEFAULT_KANGAROO_NAMES[i] || `Kangaroo #${i + 1}`;
     const raw = rawNames[i];
     const normalized =
-      typeof raw === 'string' ? raw.trim().replace(/\s+/g, ' ').slice(0, KANGAROO_NAME_MAX_LENGTH) : '';
+      typeof raw === 'string'
+        ? raw.trim().replace(/\s+/g, ' ').slice(0, KANGAROO_NAME_MAX_LENGTH)
+        : '';
     names.push(normalized || fallback);
   }
   return names;
@@ -490,7 +497,7 @@ const submitAnswer = async (io, pin, teamId, data) => {
     wagerAmount: data.wagerAmount,
     responseTime:
       Number.isFinite(Number(gameState.timerRemaining)) &&
-        Number.isFinite(Number(question.timerDuration))
+      Number.isFinite(Number(question.timerDuration))
         ? Math.max(0, Number(question.timerDuration) - Number(gameState.timerRemaining))
         : null,
   };
@@ -738,9 +745,9 @@ const revealAnswer = async (io, pin) => {
     correctText: question.options[correctIndex]?.text,
     correctOrderArray: question.options.some((o) => o.correctOrder !== undefined)
       ? [...question.options]
-        .map((o, idx) => ({ idx, order: o.correctOrder }))
-        .sort((a, b) => a.order - b.order)
-        .map((x) => x.idx)
+          .map((o, idx) => ({ idx, order: o.correctOrder }))
+          .sort((a, b) => a.order - b.order)
+          .map((x) => x.idx)
       : undefined,
     scores: result.scores,
     responseDetails,
@@ -828,8 +835,7 @@ const advanceToNextRound = async (io, pin) => {
     const round = stateMachine.getCurrentRound(gameState);
     const qLen = round?.questions?.length ?? 0;
     const lastIdx = qLen > 0 ? qLen - 1 : -1;
-    const onLastQuestion =
-      lastIdx >= 0 && Number(gameState.currentQuestionIndex) === lastIdx;
+    const onLastQuestion = lastIdx >= 0 && Number(gameState.currentQuestionIndex) === lastIdx;
     if (onLastQuestion) {
       await endRound(io, pin, gameState);
       gameState = await redisStore.getGameState(pin);
@@ -914,17 +920,21 @@ const advanceToNextRound = async (io, pin) => {
     roundIndex: roundIntroState.currentRoundIndex,
     totalRounds: roundIntroState.rounds.length,
   });
-  io.to(`session:${pin}`).emit(SOCKET_EVENTS.SESSION_STATE, clientPayloadFromGameState(roundIntroState));
+  io.to(`session:${pin}`).emit(
+    SOCKET_EVENTS.SESSION_STATE,
+    clientPayloadFromGameState(roundIntroState),
+  );
 };
 
 /**
  * Removes the team after a disconnect (purge + broadcasts).
  */
-const executePlayerDisconnectPurge = async (io, pin, teamId) => {
+const executePlayerDisconnectPurge = async (io, pin, teamId, options = {}) => {
+  const disconnectingSocketId = options.disconnectingSocketId || null;
   const teamRow = await Team.findByPk(teamId, { attributes: ['id', 'socketId'] });
   if (teamRow?.socketId) {
     const live = io.sockets.sockets.get(teamRow.socketId);
-    if (live && live.connected) {
+    if (live && live.connected && teamRow.socketId !== disconnectingSocketId) {
       logger.info('Skipping disconnect purge — team has an active socket', { pin, teamId });
       return;
     }
@@ -995,38 +1005,16 @@ const executePlayerDisconnectPurge = async (io, pin, teamId) => {
 };
 
 /**
- * Tab close / network loss: schedule purge after a grace window so transient transport
- * drops (common on idle browsers) do not instantly remove the team.
- * Explicit leave uses `{ immediate: true }`.
+ * Tab close / network loss: purge immediately so the team is removed from the live
+ * session and leaderboard as soon as the socket disconnects.
+ * Explicit leave also uses the same immediate path.
  */
 const handlePlayerSocketDisconnect = async (io, pin, teamIdRaw, options = {}) => {
   const teamId = Number(teamIdRaw);
   if (!pin || !Number.isFinite(teamId)) return;
 
-  if (options.immediate) {
-    cancelScheduledDisconnectPurge(pin, teamId);
-    await executePlayerDisconnectPurge(io, pin, teamId);
-    return;
-  }
-
   cancelScheduledDisconnectPurge(pin, teamId);
-  const key = disconnectPurgeKey(pin, teamId);
-  const t = setTimeout(() => {
-    disconnectPurgeTimers.delete(key);
-    executePlayerDisconnectPurge(io, pin, teamId).catch((err) =>
-      logger.error('executePlayerDisconnectPurge failed', {
-        pin,
-        teamId,
-        error: err.message,
-      }),
-    );
-  }, DISCONNECT_PURGE_DELAY_MS);
-  disconnectPurgeTimers.set(key, t);
-  logger.info('Player socket disconnected — purge scheduled', {
-    pin,
-    teamId,
-    delayMs: DISCONNECT_PURGE_DELAY_MS,
-  });
+  await executePlayerDisconnectPurge(io, pin, teamId, options);
 };
 
 /**
@@ -1106,10 +1094,7 @@ const startBreak = async (io, pin) => {
     0,
     Math.round(Number(result.gameState.breakRemaining ?? result.gameState.breakDuration ?? 360)),
   );
-  const bd = Math.max(
-    0,
-    Math.round(Number(result.gameState.breakDuration ?? br)),
-  );
+  const bd = Math.max(0, Math.round(Number(result.gameState.breakDuration ?? br)));
   result.gameState.breakDuration = bd;
   result.gameState.breakRemaining = br;
   result.gameState.breakEndsAt = Date.now() + br * 1000;
@@ -1220,8 +1205,8 @@ const endBreak = async (io, pin) => {
             pointsForQuestion:
               round.type === ROUND_TYPES.ELIMINATION
                 ? require('shared/constants/scoring').getEliminationPoints(
-                  gameState.currentQuestionIndex,
-                )
+                    gameState.currentQuestionIndex,
+                  )
                 : null,
           });
           const responsesRaw = await redisStore.getResponses(pin, question.id);
@@ -1348,7 +1333,10 @@ const launchMiniGame = async (io, pin, gameType, config = {}) => {
   await redisStore.setGameState(pin, gameState);
 
   io.to(`session:${pin}`).emit(SOCKET_EVENTS.SESSION_STATE, sanitizeForClients(gameState));
-  io.to(`session:${pin}`).emit(SOCKET_EVENTS.MINI_GAME_START, { game: gameType, ...normalizedConfig });
+  io.to(`session:${pin}`).emit(SOCKET_EVENTS.MINI_GAME_START, {
+    game: gameType,
+    ...normalizedConfig,
+  });
   logger.info('Mini game launched', { pin, gameType });
 };
 
@@ -1379,7 +1367,10 @@ const endMiniGame = async (io, pin, overrideConfig = {}) => {
     // Use clientPayloadFromGameState (not sanitizeForClients) so the
     // payload includes currentQuestion — without it the venue can't
     // render the question screen.
-    io.to(`session:${pin}`).emit(SOCKET_EVENTS.SESSION_STATE, clientPayloadFromGameState(gameState));
+    io.to(`session:${pin}`).emit(
+      SOCKET_EVENTS.SESSION_STATE,
+      clientPayloadFromGameState(gameState),
+    );
   }
 };
 

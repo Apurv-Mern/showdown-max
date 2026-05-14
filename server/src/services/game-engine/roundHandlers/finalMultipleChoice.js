@@ -12,7 +12,7 @@ const calculate = ({ question, responses }) => {
       scores[teamId] = 0;
       continue;
     }
-    const isCorrect = response.selectedOptionIndex === correctIndex;
+    const isCorrect = Number(response.selectedOptionIndex) === correctIndex;
     scores[teamId] = isCorrect
       ? SCORING.FINAL_MULTIPLE_CHOICE.CORRECT
       : SCORING.FINAL_MULTIPLE_CHOICE.INCORRECT;

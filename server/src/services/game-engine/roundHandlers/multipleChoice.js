@@ -31,14 +31,18 @@ const calculate = ({ question, responses }) => {
         continue;
       }
       const isCorrect = JSON.stringify(response.selectedOptionIndex) === correctOrderStr;
-      scores[teamId] = isCorrect ? SCORING.MULTIPLE_CHOICE.CORRECT : SCORING.MULTIPLE_CHOICE.INCORRECT;
+      scores[teamId] = isCorrect
+        ? SCORING.MULTIPLE_CHOICE.CORRECT
+        : SCORING.MULTIPLE_CHOICE.INCORRECT;
     } else {
       if (Number(response.selectedOptionIndex) < 0) {
         scores[teamId] = 0;
         continue;
       }
-      const isCorrect = response.selectedOptionIndex === correctIndex;
-      scores[teamId] = isCorrect ? SCORING.MULTIPLE_CHOICE.CORRECT : SCORING.MULTIPLE_CHOICE.INCORRECT;
+      const isCorrect = Number(response.selectedOptionIndex) === correctIndex;
+      scores[teamId] = isCorrect
+        ? SCORING.MULTIPLE_CHOICE.CORRECT
+        : SCORING.MULTIPLE_CHOICE.INCORRECT;
     }
   }
 

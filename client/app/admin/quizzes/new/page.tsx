@@ -140,11 +140,12 @@ export default function NewQuizPage() {
                   <input
                     type="text"
                     value={round.name}
+                    readOnly
                     onChange={(e) => updateRound(index, 'name', e.target.value)}
                     placeholder="Round name"
-                    className="bg-surface-light border border-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-foreground/40 focus:outline-none focus:ring-2 focus:ring-primary/50"
+                    className="bg-surface-light border border-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-foreground/40 focus:outline-none focus:ring-2 focus:ring-primary/50 "
                   />
-                  <select
+                  {/* <select
                     value={round.type}
                     onChange={(e) => updateRound(index, 'type', e.target.value)}
                     className="bg-surface-light border border-border rounded-lg px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
@@ -154,7 +155,14 @@ export default function NewQuizPage() {
                         {rt.label}
                       </option>
                     ))}
-                  </select>
+                  </select> */}
+                  <input
+                    type="text"
+                    value={ROUND_TYPES.find((rt) => rt.value === round.type)?.label ?? round.type}
+                    readOnly
+                    className="bg-surface-light border border-border rounded-lg px-3 py-2 text-sm text-foreground cursor-default select-none"
+                  />
+
                   <div className="flex items-center gap-2">
                     <input
                       type="number"
@@ -167,7 +175,7 @@ export default function NewQuizPage() {
                     <span className="text-xs text-foreground/40">sec</span>
                   </div>
                 </div>
-                <div className="flex gap-1 mt-1">
+                {/* <div className="flex gap-1 mt-1">
                   <Button
                     type="button"
                     variant="ghost"
@@ -188,7 +196,7 @@ export default function NewQuizPage() {
                   >
                     ↓
                   </Button>
-                </div>
+                </div> */}
               </div>
             ))}
           </div>

@@ -39,7 +39,7 @@ const calculate = ({ question, responses, questionIndex, activeTeamIds }) => {
         isCorrect = JSON.stringify(response.selectedOptionIndex) === correctOrderStr;
       }
     } else {
-      isCorrect = response.selectedOptionIndex === correctIndex;
+      isCorrect = Number(response.selectedOptionIndex) === correctIndex;
     }
     if (isCorrect) {
       correctTeams.push(teamIdStr);

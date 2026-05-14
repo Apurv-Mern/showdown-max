@@ -22,7 +22,7 @@ const calculate = ({ question, responses, teams }) => {
     );
     const wager = Math.round((currentScore * percentage) / 100);
 
-    const isCorrect = response.selectedOptionIndex === correctIndex;
+    const isCorrect = Number(response.selectedOptionIndex) === correctIndex;
     scores[teamId] = isCorrect ? wager : -wager;
   }
 

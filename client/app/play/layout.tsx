@@ -5,7 +5,6 @@ import { useRouter } from 'next/navigation';
 import { useReconnect } from '@/hooks/useReconnect';
 import { PlayerContext, defaultSession, type PlayerSession } from './playerSession';
 import { PlayerSessionDeletedBridge } from './PlayerSessionDeletedBridge';
-import { connectSocket } from '@/lib/socket';
 import { PUBLIC_API_URL } from '@/lib/env';
 
 const PLAY_JOIN_FLASH_KEY = 'playJoinFlash';
@@ -97,13 +96,6 @@ export default function PlayerLayout({ children }: { children: React.ReactNode }
     const pin = session.pin ? String(session.pin) : '';
     const teamId = Number(session.teamId);
     if (!pin || !Number.isFinite(teamId)) return;
-
-    try {
-      const s = connectSocket();
-      if (s.connected) s.emit('leave_session');
-    } catch {
-      // Ignore socket errors on teardown.
-    }
 
     const url = `${PUBLIC_API_URL}/api/public/sessions/pin/${encodeURIComponent(pin)}/leave-intent`;
     const payload = JSON.stringify({ teamId });

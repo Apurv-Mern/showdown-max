@@ -12,7 +12,7 @@ const calculate = ({ question, responses }) => {
       scores[teamId] = 0;
       continue;
     }
-    const isCorrect = response.selectedOptionIndex === correctIndex;
+    const isCorrect = Number(response.selectedOptionIndex) === correctIndex;
     scores[teamId] = isCorrect ? SCORING.MUSIC.CORRECT : SCORING.MUSIC.INCORRECT;
   }
 

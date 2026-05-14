@@ -89,7 +89,9 @@ const playerHandlers = (io, socket) => {
       const preJoinGameState = await redisStore.getGameState(pin);
       const wasRemovedByHost =
         Array.isArray(preJoinGameState?.removedTeamNames) &&
-        preJoinGameState.removedTeamNames.map((name) => normalizeTeamName(name)).includes(normalizedTeamName);
+        preJoinGameState.removedTeamNames
+          .map((name) => normalizeTeamName(name))
+          .includes(normalizedTeamName);
       if (wasRemovedByHost) {
         socket.emit(SOCKET_EVENTS.TEAM_REMOVED, {
           teamName: cleanTeamName,
@@ -188,7 +190,10 @@ const playerHandlers = (io, socket) => {
           };
 
           let mergedActiveTeamIds = [...(current.activeTeamIds || [])];
-          if (!(isEliminationRound && resolvedIsEliminated) && !mergedActiveTeamIds.includes(team.id)) {
+          if (
+            !(isEliminationRound && resolvedIsEliminated) &&
+            !mergedActiveTeamIds.includes(team.id)
+          ) {
             mergedActiveTeamIds.push(team.id);
           }
 
@@ -299,10 +304,7 @@ const playerHandlers = (io, socket) => {
                   : null,
               ...(gameState.state === 'BREAK'
                 ? {
-                    breakDuration: Math.max(
-                      0,
-                      Math.round(Number(gameState.breakDuration ?? 360)),
-                    ),
+                    breakDuration: Math.max(0, Math.round(Number(gameState.breakDuration ?? 360))),
                     breakRemaining: getBreakRemainingSeconds(gameState),
                     breakEndsAt:
                       Number.isFinite(Number(gameState.breakEndsAt)) &&
@@ -350,8 +352,7 @@ const playerHandlers = (io, socket) => {
               mediaUrl: currentQuestion.mediaUrl,
               mediaType: currentQuestion.mediaType,
             },
-            timerDuration:
-              Number(currentQuestion.timerDuration ?? round.timerDuration ?? 30) || 30,
+            timerDuration: Number(currentQuestion.timerDuration ?? round.timerDuration ?? 30) || 30,
             timerRemaining: timerManager.getReconnectTimerRemaining(pin, gameState),
             timerRunning: Boolean(gameState.timerRunning),
             timerEndsAt: safeClientTimerEndsAt(gameState.timerEndsAt),
@@ -462,10 +463,14 @@ const playerHandlers = (io, socket) => {
               ? Number(selectedChoiceRaw)
               : null;
             const finishRank =
-              selectedChoice != null ? finishOrder.findIndex((slot) => slot === selectedChoice) + 1 : 0;
+              selectedChoice != null
+                ? finishOrder.findIndex((slot) => slot === selectedChoice) + 1
+                : 0;
             const pointsByRank = [50, 40, 30, 20, 10, 0];
             const pointsEarned =
-              finishRank >= 1 && finishRank <= pointsByRank.length ? pointsByRank[finishRank - 1] : 0;
+              finishRank >= 1 && finishRank <= pointsByRank.length
+                ? pointsByRank[finishRank - 1]
+                : 0;
             socket.emit(SOCKET_EVENTS.MINI_GAME_PLAYER_RESULT, {
               game: 'kangaroo_race',
               result: pointsEarned === pointsByRank[0] ? 'winner' : 'loser',
@@ -546,7 +551,9 @@ const playerHandlers = (io, socket) => {
       const { pin, teamId } = socket.data || {};
       if (!pin || !teamId) return;
 
-      await gameController.handlePlayerSocketDisconnect(io, pin, teamId);
+      await gameController.handlePlayerSocketDisconnect(io, pin, teamId, {
+        disconnectingSocketId: socket.id,
+      });
 
       logger.info('Player disconnected', { pin, teamId });
     } catch (err) {
@@ -556,4 +563,3 @@ const playerHandlers = (io, socket) => {
 };
 
 module.exports = playerHandlers;
-

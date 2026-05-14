@@ -637,12 +637,12 @@ export default function GamePage() {
           setPhase('eliminated');
         } else {
           const mine = data.mySubmittedOptionIndex;
-          const restored = Array.isArray(mine) ? mine :
-            (mine !== undefined && mine !== null && Number.isFinite(Number(mine))
+          const restored = Array.isArray(mine)
+            ? mine
+            : mine !== undefined && mine !== null && Number.isFinite(Number(mine))
               ? Number(mine)
-              : null);
-          const isWagerRound =
-            data.roundType === 'WAGER' || data.roundType === 'FINAL_WAGER';
+              : null;
+          const isWagerRound = data.roundType === 'WAGER' || data.roundType === 'FINAL_WAGER';
           const hasLockedWager =
             data.lockedWagerAmount !== null && data.lockedWagerAmount !== undefined;
           if (isWagerRound) {
@@ -813,15 +813,20 @@ export default function GamePage() {
           setTimerRunning(running);
           const td = Number(gs.currentQuestion.timerDuration ?? 30) || 30;
           const tr = coerced.remaining;
-          const isMusicRound =
-            (gs.currentQuestion.roundType || '').toUpperCase() === 'MUSIC';
+          const isMusicRound = (gs.currentQuestion.roundType || '').toUpperCase() === 'MUSIC';
           if (isMusicRound) {
             setMusicVenuePlaybackStarted(running || (tr > 0 && tr < td));
           } else {
             setMusicVenuePlaybackStarted(false);
           }
-          setRevealData(null);
-          setPointsGained(null);
+          // Only clear reveal state when the question is still ACTIVE (new question).
+          // When REVEALED, the server follows up with `answer_reveal` carrying the full
+          // reveal payload — preserve existing revealData/pointsGained so the correct/wrong
+          // answer message stays visible across page refreshes without a flash.
+          if (gs.questionState !== 'REVEALED') {
+            setRevealData(null);
+            setPointsGained(null);
+          }
 
           const lockedWagerAmount = gs.currentQuestion.lockedWagerAmount;
           const hasLockedWager = lockedWagerAmount !== null && lockedWagerAmount !== undefined;
@@ -842,10 +847,11 @@ export default function GamePage() {
           }
 
           const mineRaw = gs.mySubmittedOptionIndex;
-          const restoredIdx = Array.isArray(mineRaw) ? mineRaw :
-            (mineRaw !== undefined && mineRaw !== null && Number.isFinite(Number(mineRaw))
+          const restoredIdx = Array.isArray(mineRaw)
+            ? mineRaw
+            : mineRaw !== undefined && mineRaw !== null && Number.isFinite(Number(mineRaw))
               ? Number(mineRaw)
-              : null);
+              : null;
 
           if (currentlyEliminated) {
             setSelectedOption(null);
@@ -865,9 +871,10 @@ export default function GamePage() {
               setPhase('question');
             }
           } else if (gs.questionState === 'REVEALED') {
-            // Break end can restore directly into a revealed question. Do not fall back to
-            // waiting splash; keep users on gameplay context.
-            setSelectedOption(null);
+            // Break end or page refresh can restore directly into a revealed question.
+            // Do NOT clear selectedOption here — the follow-up `answer_reveal` event will
+            // set it from responseDetails.  Keeping the existing value avoids a UI flash
+            // where the correct/wrong answer feedback momentarily disappears.
             setPhase(currentlyEliminated ? 'eliminated' : 'reveal');
           } else {
             setSelectedOption(null);
@@ -1027,8 +1034,11 @@ export default function GamePage() {
         setMusicVenuePlaybackStarted(false);
       }
       const mine = data.mySubmittedOptionIndex;
-      const restored = Array.isArray(mine) ? mine :
-        (mine !== undefined && mine !== null && Number.isFinite(Number(mine)) ? Number(mine) : null);
+      const restored = Array.isArray(mine)
+        ? mine
+        : mine !== undefined && mine !== null && Number.isFinite(Number(mine))
+          ? Number(mine)
+          : null;
       setSelectedOption(dead ? null : restored);
       setRevealData(null);
       setPointsGained(null);
@@ -1037,28 +1047,7 @@ export default function GamePage() {
         setPhase('eliminated');
         return;
       }
-      if (data.roundType === 'WAGER' || data.roundType === 'FINAL_WAGER') {
-        const hasLockedWager =
-          data.lockedWagerAmount !== null && data.lockedWagerAmount !== undefined;
-        if (hasLockedWager) {
-          setWagerAmount(Number(data.lockedWagerAmount));
-          setWagerSubmitted(true);
-        } else {
-          setWagerAmount(initialWagerAmountForRoundType(data.roundType));
-          setWagerSubmitted(false);
-        }
-        if (!hasLockedWager) {
-          setPhase('wager_input');
-        } else if (restored !== null) {
-          setPhase('answered');
-        } else {
-          setPhase('question');
-        }
-      } else {
-        setWagerSubmitted(false);
-        setWagerAmount(0);
-        setPhase(restored !== null ? 'answered' : 'question');
-      }
+      setPhase(restored !== null ? 'answered' : 'question');
     };
 
     const onTimerUpdate = (data: {
@@ -1069,10 +1058,7 @@ export default function GamePage() {
     }) => {
       if (typeof data.timerRunning === 'boolean') {
         setTimerRunning(data.timerRunning);
-        if (
-          data.timerRunning &&
-          (questionRef.current?.roundType || '').toUpperCase() === 'MUSIC'
-        ) {
+        if (data.timerRunning && (questionRef.current?.roundType || '').toUpperCase() === 'MUSIC') {
           setMusicVenuePlaybackStarted(true);
         }
       } else if (data.paused === true) {
@@ -1117,7 +1103,7 @@ export default function GamePage() {
       }
       const sid = session.teamId != null ? Number(session.teamId) : NaN;
       const teamIdStr = Number.isFinite(sid) ? String(sid) : '';
-      
+
       let myScore = 0;
       if (teamIdStr && data.scores) {
         if (data.scores[teamIdStr] !== undefined) {
@@ -1134,10 +1120,7 @@ export default function GamePage() {
       // array on `answer_reveal` still carries the wrong-team list for telemetry. Honour
       // `allWrong` here so the last surviving player isn't bounced into the eliminated UI
       // when they answer alone and miss.
-      if (
-        !data.allWrong &&
-        data.eliminations?.some((id) => sameTeamId(id, session.teamId))
-      ) {
+      if (!data.allWrong && data.eliminations?.some((id) => sameTeamId(id, session.teamId))) {
         isEliminatedRef.current = true;
         setIsEliminated(true);
         setPhase('eliminated');
@@ -1332,13 +1315,7 @@ export default function GamePage() {
 
   const handleSelectOption = useCallback(
     (index: number) => {
-      if (
-        selectedOption !== null ||
-        !socket ||
-        isEliminatedRef.current ||
-        timerRemaining <= 0 ||
-        phaseRef.current !== 'question'
-      )
+      if (selectedOption !== null || !socket || isEliminatedRef.current || timerRemaining <= 0)
         return;
       setSelectedOption(index);
       setPhase('answered');
@@ -1351,13 +1328,7 @@ export default function GamePage() {
   );
 
   const handleLockOrdering = useCallback(() => {
-    if (
-      selectedOption !== null ||
-      !socket ||
-      isEliminatedRef.current ||
-      timerRemaining <= 0 ||
-      phaseRef.current !== 'question'
-    )
+    if (selectedOption !== null || !socket || isEliminatedRef.current || timerRemaining <= 0)
       return;
     setSelectedOption(orderingSelection);
     setPhase('answered');
@@ -1754,36 +1725,47 @@ export default function GamePage() {
                               if (!opt) return null;
                               const isLocked = isAnswerSelectionLocked;
                               return (
-                                <div key={optIdx} className={cn(
-                                  "flex min-h-14 w-full items-center justify-between rounded-xl px-4 py-3 text-white font-bold shadow-[0_4px_10px_rgba(0,0,0,0.5),inset_0_1px_1px_rgba(255,255,255,0.2)] sm:min-h-16 sm:px-6 sm:py-4 md:min-h-[4.75rem]",
-                                  OPTION_BG[optIdx] || 'bg-[#1565c0]',
-                                  isLocked && "opacity-60 grayscale-[0.3] cursor-not-allowed"
-                                )}>
+                                <div
+                                  key={optIdx}
+                                  className={cn(
+                                    'flex min-h-14 w-full items-center justify-between rounded-xl px-4 py-3 text-white font-bold shadow-[0_4px_10px_rgba(0,0,0,0.5),inset_0_1px_1px_rgba(255,255,255,0.2)] sm:min-h-16 sm:px-6 sm:py-4 md:min-h-[4.75rem]',
+                                    OPTION_BG[optIdx] || 'bg-[#1565c0]',
+                                    isLocked && 'opacity-60 grayscale-[0.3] cursor-not-allowed',
+                                  )}
+                                >
                                   <span className="text-left text-base font-black leading-tight drop-shadow-md sm:text-lg md:text-xl flex items-center gap-2">
-                                    <span className="w-7 h-7 flex items-center justify-center bg-black/40 rounded-full text-sm shrink-0 shadow-inner">{index + 1}</span>
+                                    <span className="w-7 h-7 flex items-center justify-center bg-black/40 rounded-full text-sm shrink-0 shadow-inner">
+                                      {index + 1}
+                                    </span>
                                     {opt.text}
                                   </span>
                                   {!isLocked && (
                                     <div className="flex flex-col gap-1">
-                                      <button 
+                                      <button
                                         className="bg-black/30 hover:bg-black/50 active:bg-white/20 rounded px-3 py-1.5 text-xs transition"
                                         onClick={(e) => {
                                           e.stopPropagation();
                                           if (index === 0) return;
                                           const newArr = [...orderingSelection];
-                                          [newArr[index - 1], newArr[index]] = [newArr[index], newArr[index - 1]];
+                                          [newArr[index - 1], newArr[index]] = [
+                                            newArr[index],
+                                            newArr[index - 1],
+                                          ];
                                           setOrderingSelection(newArr);
                                         }}
                                       >
                                         ▲
                                       </button>
-                                      <button 
+                                      <button
                                         className="bg-black/30 hover:bg-black/50 active:bg-white/20 rounded px-3 py-1.5 text-xs transition"
                                         onClick={(e) => {
                                           e.stopPropagation();
                                           if (index === orderingSelection.length - 1) return;
                                           const newArr = [...orderingSelection];
-                                          [newArr[index + 1], newArr[index]] = [newArr[index], newArr[index + 1]];
+                                          [newArr[index + 1], newArr[index]] = [
+                                            newArr[index],
+                                            newArr[index + 1],
+                                          ];
                                           setOrderingSelection(newArr);
                                         }}
                                       >
@@ -1795,12 +1777,12 @@ export default function GamePage() {
                               );
                             })}
                             {!isAnswerSelectionLocked && (
-                               <button 
-                                 onClick={handleLockOrdering}
-                                 className="mt-2 w-full py-3.5 rounded-xl bg-[#00e5ff]/20 text-[#00e5ff] border border-[#00e5ff]/50 font-bold text-lg hover:bg-[#00e5ff]/30 transition-colors"
-                               >
-                                 Lock Answer
-                               </button>
+                              <button
+                                onClick={handleLockOrdering}
+                                className="mt-2 w-full py-3.5 rounded-xl bg-[#00e5ff]/20 text-[#00e5ff] border border-[#00e5ff]/50 font-bold text-lg hover:bg-[#00e5ff]/30 transition-colors"
+                              >
+                                Lock Answer
+                              </button>
                             )}
                           </div>
                         );
@@ -1903,15 +1885,22 @@ export default function GamePage() {
                           <div className="flex flex-col gap-3">
                             <div className="mb-2 text-center">
                               <span className="inline-block px-4 py-2 rounded-lg bg-black/40 border border-green-500/50 text-green-400 font-bold text-sm sm:text-base md:text-lg uppercase tracking-wider shadow-inner">
-                                Correct Order: {(revealData.correctOrderArray || []).map((idx: number) => question.question.options[idx]?.text).join(' → ')}
+                                Correct Order:{' '}
+                                {(revealData.correctOrderArray || [])
+                                  .map((idx: number) => question.question.options[idx]?.text)
+                                  .join(' → ')}
                               </span>
                             </div>
                             {(() => {
-                              const userArr = Array.isArray(selectedOption) && selectedOption.length === question.question.options.length 
-                                ? selectedOption 
-                                : question.question.options.map((_, i) => i);
-                              const correctArr = revealData.correctOrderArray || question.question.options.map((_, i) => i);
-                              
+                              const userArr =
+                                Array.isArray(selectedOption) &&
+                                selectedOption.length === question.question.options.length
+                                  ? selectedOption
+                                  : question.question.options.map((_, i) => i);
+                              const correctArr =
+                                revealData.correctOrderArray ||
+                                question.question.options.map((_, i) => i);
+
                               return userArr.map((optIdx: number, userPos: number) => {
                                 const opt = question.question.options[optIdx];
                                 const expectedPos = correctArr.indexOf(optIdx);
@@ -1923,17 +1912,21 @@ export default function GamePage() {
                                     className={cn(
                                       'flex min-h-14 w-full items-center justify-between gap-3 rounded-xl border border-white/20 px-4 py-3 text-white font-bold sm:min-h-16 sm:px-6 sm:py-4 md:min-h-[4.75rem]',
                                       'touch-manipulation select-none transition-all',
-                                      OPTION_BG[optIdx] || 'bg-[#1565c0]'
+                                      OPTION_BG[optIdx] || 'bg-[#1565c0]',
                                     )}
                                   >
                                     <span className="min-w-0 flex-1 text-left text-base font-black leading-tight drop-shadow-md flex items-center gap-2 sm:text-lg md:text-xl">
-                                      <span className="w-7 h-7 flex items-center justify-center bg-black/40 rounded-full text-sm shrink-0 shadow-inner">{userPos + 1}</span>
+                                      <span className="w-7 h-7 flex items-center justify-center bg-black/40 rounded-full text-sm shrink-0 shadow-inner">
+                                        {userPos + 1}
+                                      </span>
                                       {opt.text}
                                     </span>
-                                    <span className={cn(
-                                      "text-xs font-bold px-2 py-1.5 rounded-md bg-black/40 shadow-inner whitespace-nowrap",
-                                      isCorrectPos ? "text-[#39ff14]" : "text-[#ff2525]"
-                                    )}>
+                                    <span
+                                      className={cn(
+                                        'text-xs font-bold px-2 py-1.5 rounded-md bg-black/40 shadow-inner whitespace-nowrap',
+                                        isCorrectPos ? 'text-[#39ff14]' : 'text-[#ff2525]',
+                                      )}
+                                    >
                                       Correct Pos: {expectedPos >= 0 ? expectedPos + 1 : '-'}
                                     </span>
                                   </motion.div>
@@ -1948,7 +1941,9 @@ export default function GamePage() {
                         const isMajorityRulesRound =
                           (question.roundType || '').toUpperCase() === 'MAJORITY_RULES';
                         const majorityWinners = new Set(
-                          (revealData.majorityOptionIndexes || []).map(Number).filter(Number.isFinite),
+                          (revealData.majorityOptionIndexes || [])
+                            .map(Number)
+                            .filter(Number.isFinite),
                         );
                         const isVoteWinner = majorityWinners.has(i);
                         const isCorrectOption = i === revealData.correctOptionIndex;
@@ -1971,7 +1966,9 @@ export default function GamePage() {
                           selectedOption !== null &&
                           (pointsGained ?? 0) <= 0;
 
-                        const showCorrectTick = isMajorityRulesRound ? isVoteWinner : isCorrectOption;
+                        const showCorrectTick = isMajorityRulesRound
+                          ? isVoteWinner
+                          : isCorrectOption;
                         const showWrongCross = isMajorityRulesRound
                           ? userMajorityLose && isSelectedOption
                           : isSelectedWrong;
@@ -2020,20 +2017,68 @@ export default function GamePage() {
                     const isMajorityRulesRound =
                       (question.roundType || '').toUpperCase() === 'MAJORITY_RULES';
                     const isOrdering = question.question.isOrdering;
+                    const myRevealResponse = revealData.responseDetails?.find((r) =>
+                      sameTeamId(r.teamId, session.teamId),
+                    );
+                    const hasRevealResponseForTeam = Boolean(myRevealResponse);
+                    const submittedViaRevealDetails = Boolean(
+                      myRevealResponse &&
+                      (Array.isArray(myRevealResponse.selectedOptionIndex)
+                        ? myRevealResponse.selectedOptionIndex.length > 0
+                        : Number.isFinite(Number(myRevealResponse.selectedOptionIndex)) &&
+                          Number(myRevealResponse.selectedOptionIndex) >= 0),
+                    );
+                    // Fallback for rare resync races where responseDetails can miss this team's row
+                    // but local selected option is already restored and rendered.
+                    const submittedViaLocalSelection =
+                      !hasRevealResponseForTeam &&
+                      (Array.isArray(selectedOption)
+                        ? selectedOption.length > 0
+                        : Number.isFinite(Number(selectedOption)) && Number(selectedOption) >= 0);
+                    const didSubmitOnReveal =
+                      submittedViaRevealDetails || submittedViaLocalSelection;
+                    const selectedFromReveal = Array.isArray(myRevealResponse?.selectedOptionIndex)
+                      ? null
+                      : Number.isFinite(Number(myRevealResponse?.selectedOptionIndex))
+                        ? Number(myRevealResponse?.selectedOptionIndex)
+                        : null;
+                    // Prefer what the player currently sees selected on UI; if absent, fall back
+                    // to reveal payload details.
+                    const selectedFromUi = Number.isFinite(Number(selectedOption))
+                      ? Number(selectedOption)
+                      : null;
+                    const resolvedSelectedOption =
+                      selectedFromUi !== null ? selectedFromUi : selectedFromReveal;
+                    const isFixedScoringRound = [
+                      'MULTIPLE_CHOICE',
+                      'MUSIC',
+                      'FINAL_MULTIPLE_CHOICE',
+                    ].includes((question.roundType || '').toUpperCase());
+                    const answeredCorrectly =
+                      resolvedSelectedOption !== null
+                        ? resolvedSelectedOption === Number(revealData.correctOptionIndex)
+                        : Number(pointsGained ?? 0) > 0;
+                    const correctPointsDisplay = isFixedScoringRound
+                      ? Math.max(Number(pointsGained ?? 0), 10)
+                      : Math.max(Number(pointsGained ?? 0), 0);
+                    const incorrectPointsDisplay =
+                      isFixedScoringRound && Number(pointsGained ?? 0) === 0
+                        ? -2
+                        : Number(pointsGained ?? 0);
                     if (isOrdering) {
                       const isCorrect = (pointsGained ?? 0) > 0;
                       return (
                         <p
                           className={cn(
                             'text-lg font-black leading-none sm:text-xl md:text-2xl',
-                            selectedOption === null
+                            !didSubmitOnReveal
                               ? 'text-[#00D9FF] drop-shadow-[0_0_15px_rgba(255,255,255,0.4)]'
                               : isCorrect
                                 ? 'text-[#53ff57] drop-shadow-[0_0_15px_rgba(83,255,87,0.8)]'
                                 : 'text-[#ff2525] drop-shadow-[0_0_15px_rgba(255,37,37,0.8)]',
                           )}
                         >
-                          {selectedOption === null
+                          {!didSubmitOnReveal
                             ? 'No Answer Submitted !! (0)'
                             : isCorrect
                               ? `That's Correct !! (+${Math.max(pointsGained ?? 0, 0)})`
@@ -2047,18 +2092,18 @@ export default function GamePage() {
                         <p
                           className={cn(
                             'text-lg font-black leading-none sm:text-xl md:text-2xl',
-                            selectedOption === null
+                            !didSubmitOnReveal
                               ? 'text-[#00D9FF] drop-shadow-[0_0_15px_rgba(255,255,255,0.4)]'
-                              : selectedOption === revealData.correctOptionIndex
+                              : answeredCorrectly
                                 ? 'text-[#53ff57] drop-shadow-[0_0_15px_rgba(83,255,87,0.8)]'
                                 : 'text-[#ff2525] drop-shadow-[0_0_15px_rgba(255,37,37,0.8)]',
                           )}
                         >
-                          {selectedOption === null
+                          {!didSubmitOnReveal
                             ? 'No Answer Submitted !! (0)'
-                            : selectedOption === revealData.correctOptionIndex
-                              ? `That's Correct !! (+${Math.max(pointsGained ?? 0, 0)})`
-                              : `Oops Wrong Answer !! (${pointsGained ?? 0})`}
+                            : answeredCorrectly
+                              ? `That's Correct !! (+${correctPointsDisplay})`
+                              : `Oops Wrong Answer !! (${incorrectPointsDisplay})`}
                         </p>
                       );
                     }
@@ -2067,14 +2112,14 @@ export default function GamePage() {
                       <p
                         className={cn(
                           'text-lg font-black leading-none sm:text-xl md:text-2xl',
-                          selectedOption === null
+                          !didSubmitOnReveal
                             ? 'text-[#00D9FF] drop-shadow-[0_0_15px_rgba(255,255,255,0.4)]'
                             : (pointsGained ?? 0) > 0
                               ? 'text-[#53ff57] drop-shadow-[0_0_15px_rgba(83,255,87,0.8)]'
                               : 'text-[#ff2525] drop-shadow-[0_0_15px_rgba(255,37,37,0.8)]',
                         )}
                       >
-                        {selectedOption === null
+                        {!didSubmitOnReveal
                           ? 'No Vote Submitted !! (0)'
                           : (pointsGained ?? 0) > 0
                             ? `Majority Vote !! (+${Math.max(pointsGained ?? 0, 0)})`

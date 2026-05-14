@@ -121,11 +121,14 @@ const buildRevealSnapshot = async (pin, gameState) => {
   const responseDetails = Object.entries(responses).map(([teamId, response]) => ({
     teamId: Number(teamId),
     selectedOptionIndex:
-      response && Number.isFinite(Number(response.selectedOptionIndex))
-        ? Number(response.selectedOptionIndex)
-        : -1,
+      response && Array.isArray(response.selectedOptionIndex)
+        ? response.selectedOptionIndex
+        : response && Number.isFinite(Number(response.selectedOptionIndex))
+          ? Number(response.selectedOptionIndex)
+          : -1,
     responseTime:
-      response && Number.isFinite(Number(response.responseTime))
+      response &&
+      Number.isFinite(Number(response.responseTime))
         ? Number(response.responseTime)
         : null,
   }));

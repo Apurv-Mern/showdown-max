@@ -63,7 +63,7 @@ const publicSessionRoutes = async (fastify) => {
       return success({ accepted: false }, 'Leave intent ignored');
     }
 
-    await gameController.handlePlayerSocketDisconnect(io, pin, teamId, { immediate: true });
+    await gameController.handlePlayerSocketDisconnect(io, pin, teamId);
     return success({ accepted: true }, 'Leave intent processed');
   });
 };

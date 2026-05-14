@@ -116,9 +116,16 @@ const removeTeam = async (teamId) => {
 
     const io = getSocketIo();
     if (io) {
-      io.to(`session:${pin}`).emit('team_removed', { teamId: Number(teamId) });
+      io.to(`session:${pin}`).emit('team_removed', {
+        teamId: Number(teamId),
+        reason: 'host_removed',
+      });
       if (removedSocketId) {
-        io.to(removedSocketId).emit('team_removed', { teamId: Number(teamId), direct: true });
+        io.to(removedSocketId).emit('team_removed', {
+          teamId: Number(teamId),
+          direct: true,
+          reason: 'host_removed',
+        });
       }
     }
   }

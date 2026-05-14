@@ -504,7 +504,7 @@ const playerHandlers = (io, socket) => {
       if (!pin || !teamId) return;
 
       // Explicit leave: purge immediately (no grace window — same as host remove).
-      await gameController.handlePlayerSocketDisconnect(io, pin, teamId, { immediate: true });
+      await gameController.handlePlayerSocketDisconnect(io, pin, teamId);
 
       socket.leave(`session:${pin}`);
       socket.data = {};
@@ -556,3 +556,4 @@ const playerHandlers = (io, socket) => {
 };
 
 module.exports = playerHandlers;
+

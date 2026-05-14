@@ -918,8 +918,7 @@ const advanceToNextRound = async (io, pin) => {
 };
 
 /**
- * Removes the team after a disconnect (purge + broadcasts). Used after grace period or
- * immediately when the player explicitly leaves.
+ * Removes the team after a disconnect (purge + broadcasts).
  */
 const executePlayerDisconnectPurge = async (io, pin, teamId) => {
   const teamRow = await Team.findByPk(teamId, { attributes: ['id', 'socketId'] });
@@ -932,13 +931,6 @@ const executePlayerDisconnectPurge = async (io, pin, teamId) => {
   }
 
   const gameState = await redisStore.getGameState(pin);
-
-  if (gameState && gameState.state !== GAME_STATES.LOBBY) {
-    // Game has started. Do not purge the team. Just mark them as disconnected.
-    await Team.update({ isConnected: false }, { where: { id: teamId } });
-    logger.info('Player disconnected during active game — marking as disconnected, not purging', { pin, teamId });
-    return;
-  }
 
   const { removedSocketId } = await purgeTeamFromLiveSession(pin, teamId);
 
@@ -988,45 +980,30 @@ const executePlayerDisconnectPurge = async (io, pin, teamId) => {
     }
   }
 
-  io.to(`session:${pin}`).emit(SOCKET_EVENTS.TEAM_REMOVED, { teamId });
+  io.to(`session:${pin}`).emit(SOCKET_EVENTS.TEAM_REMOVED, {
+    teamId,
+    reason: 'disconnected',
+  });
   if (removedSocketId) {
-    io.to(removedSocketId).emit(SOCKET_EVENTS.TEAM_REMOVED, { teamId, direct: true });
+    io.to(removedSocketId).emit(SOCKET_EVENTS.TEAM_REMOVED, {
+      teamId,
+      direct: true,
+      reason: 'disconnected',
+    });
   }
   logger.info('Player disconnected — team purged from session', { pin, teamId });
 };
 
 /**
- * Tab close / network loss: schedule purge after a grace window so a full-page refresh can
- * `join_session` and cancel. Explicit `leave_session` uses `{ immediate: true }`.
+ * Tab close / network loss / explicit leave.
  */
-const handlePlayerSocketDisconnect = async (io, pin, teamIdRaw, options = {}) => {
+const handlePlayerSocketDisconnect = async (io, pin, teamIdRaw) => {
   const teamId = Number(teamIdRaw);
   if (!pin || !Number.isFinite(teamId)) return;
 
-  if (options.immediate) {
-    cancelScheduledDisconnectPurge(pin, teamId);
-    await executePlayerDisconnectPurge(io, pin, teamId);
-    return;
-  }
-
   cancelScheduledDisconnectPurge(pin, teamId);
-  const key = disconnectPurgeKey(pin, teamId);
-  const t = setTimeout(() => {
-    disconnectPurgeTimers.delete(key);
-    executePlayerDisconnectPurge(io, pin, teamId).catch((err) =>
-      logger.error('executePlayerDisconnectPurge failed', {
-        pin,
-        teamId,
-        error: err.message,
-      }),
-    );
-  }, DISCONNECT_PURGE_DELAY_MS);
-  disconnectPurgeTimers.set(key, t);
-  logger.info('Player socket disconnected — purge scheduled', {
-    pin,
-    teamId,
-    delayMs: DISCONNECT_PURGE_DELAY_MS,
-  });
+  await executePlayerDisconnectPurge(io, pin, teamId);
+  logger.info('Player socket disconnected — team removed immediately', { pin, teamId });
 };
 
 /**

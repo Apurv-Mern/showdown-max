@@ -49,18 +49,26 @@ export function PlayerSessionDeletedBridge() {
     // session room as `team_removed` with `{ teamId }`. We only react when it's THIS player's
     // teamId; the same event is also used by the host/venue UIs to update their roster, so
     // narrowing the match here keeps unrelated removals (other teams) from kicking everyone out.
-    const onTeamRemoved = (data: { teamId?: number | string }) => {
+    const onTeamRemoved = (data: {
+      teamId?: number | string;
+      reason?: string;
+      direct?: boolean;
+    }) => {
       const removedId = data?.teamId != null ? Number(data.teamId) : NaN;
       const myId = session.teamId != null ? Number(session.teamId) : NaN;
       if (!Number.isFinite(removedId) || !Number.isFinite(myId)) return;
       if (removedId !== myId) return;
-      try {
-        sessionStorage.setItem(
-          PLAY_JOIN_FLASH_KEY,
-          'You have been removed from the game by the host.',
-        );
-      } catch {
-        /* private mode etc. — flash is optional */
+      const hostRemoved =
+        data?.reason === 'host_removed' || data?.reason === 'removed_by_host';
+      if (hostRemoved) {
+        try {
+          sessionStorage.setItem(
+            PLAY_JOIN_FLASH_KEY,
+            'You have been removed from the game by the host.',
+          );
+        } catch {
+          /* private mode etc. — flash is optional */
+        }
       }
       clearSession();
       router.replace('/play/join');

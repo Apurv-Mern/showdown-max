@@ -280,9 +280,16 @@ const hostHandlers = (io, socket) => {
       const { pin, teamId } = data;
       const { removedSocketId } = await purgeTeamRecord(pin, teamId);
 
-      io.to(`session:${pin}`).emit(SOCKET_EVENTS.TEAM_REMOVED, { teamId });
+      io.to(`session:${pin}`).emit(SOCKET_EVENTS.TEAM_REMOVED, {
+        teamId,
+        reason: 'host_removed',
+      });
       if (removedSocketId) {
-        io.to(removedSocketId).emit(SOCKET_EVENTS.TEAM_REMOVED, { teamId, direct: true });
+        io.to(removedSocketId).emit(SOCKET_EVENTS.TEAM_REMOVED, {
+          teamId,
+          direct: true,
+          reason: 'host_removed',
+        });
       }
       logger.info('Team removed', { pin, teamId });
     } catch (err) {

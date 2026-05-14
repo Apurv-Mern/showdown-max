@@ -641,7 +641,24 @@ export default function GamePage() {
             (mine !== undefined && mine !== null && Number.isFinite(Number(mine))
               ? Number(mine)
               : null);
-          if (restored !== null) {
+          const isWagerRound =
+            data.roundType === 'WAGER' || data.roundType === 'FINAL_WAGER';
+          const hasLockedWager =
+            data.lockedWagerAmount !== null && data.lockedWagerAmount !== undefined;
+          if (isWagerRound) {
+            if (hasLockedWager) {
+              setWagerAmount(Number(data.lockedWagerAmount));
+              setWagerSubmitted(true);
+            } else {
+              setWagerAmount(initialWagerAmountForRoundType(data.roundType));
+              setWagerSubmitted(false);
+            }
+          }
+
+          if (isWagerRound && !hasLockedWager) {
+            setSelectedOption(null);
+            setPhase('wager_input');
+          } else if (restored !== null) {
             setSelectedOption(restored);
             setPhase('answered');
           } else {
@@ -815,6 +832,9 @@ export default function GamePage() {
             if (hasLockedWager) {
               setWagerAmount(Number(lockedWagerAmount));
               setWagerSubmitted(true);
+            } else {
+              setWagerAmount(initialWagerAmountForRoundType(gs.currentQuestion.roundType));
+              setWagerSubmitted(false);
             }
           } else {
             setWagerSubmitted(false);
@@ -831,19 +851,18 @@ export default function GamePage() {
             setSelectedOption(null);
             setPhase('eliminated');
           } else if (gs.questionState === 'ACTIVE') {
-            if (restoredIdx !== null) {
+            const isWagerQuestion =
+              gs.currentQuestion.roundType === 'WAGER' ||
+              gs.currentQuestion.roundType === 'FINAL_WAGER';
+            if (isWagerQuestion && !hasLockedWager) {
+              setSelectedOption(null);
+              setPhase('wager_input');
+            } else if (restoredIdx !== null) {
               setSelectedOption(restoredIdx);
               setPhase('answered');
             } else {
               setSelectedOption(null);
-              if (
-                gs.currentQuestion.roundType === 'WAGER' ||
-                gs.currentQuestion.roundType === 'FINAL_WAGER'
-              ) {
-                setPhase(hasLockedWager || wagerSubmitted ? 'question' : 'wager_input');
-              } else {
-                setPhase('question');
-              }
+              setPhase('question');
             }
           } else {
             setSelectedOption(null);
@@ -1019,15 +1038,16 @@ export default function GamePage() {
         if (hasLockedWager) {
           setWagerAmount(Number(data.lockedWagerAmount));
           setWagerSubmitted(true);
-        }
-        if (restored !== null) {
-          setPhase('answered');
-        } else if (hasLockedWager) {
-          setPhase('question');
-        } else if (wagerSubmitted) {
-          setPhase('question');
         } else {
+          setWagerAmount(initialWagerAmountForRoundType(data.roundType));
+          setWagerSubmitted(false);
+        }
+        if (!hasLockedWager) {
           setPhase('wager_input');
+        } else if (restored !== null) {
+          setPhase('answered');
+        } else {
+          setPhase('question');
         }
       } else {
         setWagerSubmitted(false);

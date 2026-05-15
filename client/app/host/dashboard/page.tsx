@@ -2137,7 +2137,15 @@ function HostDashboardContent() {
               {miniGameLoading && !activeMiniGameLocal ? (
                 <div className="flex flex-1 flex-col items-center justify-center gap-4">
                   <div className="text-5xl animate-pulse">
-                    {gameState?.activeMiniGame === 'kangaroo_race' ? '🦘' : '🃏'}
+                    {gameState?.activeMiniGame === 'kangaroo_race' ? (
+                      '🦘'
+                    ) : (
+                      <img
+                        src="/client/public/games/card-shuffle/queencard.png"
+                        alt="Card"
+                        className="w-15 h-15"
+                      />
+                    )}
                   </div>
                   <p className="text-lg font-semibold text-white/60">
                     Launching mini-game on venue...
@@ -2147,8 +2155,10 @@ function HostDashboardContent() {
                   </div>
                 </div>
               ) : activeMiniGameLocal === 'card_shuffle' ? (
-                <div className="flex flex-1 flex-col items-center justify-center gap-6">
-                  <div className="text-6xl">🃏</div>
+                <div className="flex flex-1 flex-col items-center justify-center gap-4">
+                  <div className="text-6xl">
+                    <img src="/games/card-shuffle/queencard.png" alt="Card" className="w-15 h-20" />
+                  </div>
                   <p className="text-xl font-bold text-white">
                     Card Shuffle is running on the big screen
                   </p>
@@ -2353,8 +2363,15 @@ function HostDashboardContent() {
                   ) : null}
                 </div>
               ) : activeMiniGameLocal === 'kangaroo_race' ? (
-                <div className="flex flex-1 flex-col items-center justify-center gap-6">
-                  <div className="text-6xl">🦘</div>
+                <div className="flex flex-1 flex-col items-center justify-center gap-4">
+                  <div className="text-6xl">
+                    <img
+                      src="/KangarooPic.png"
+                      alt=""
+                      aria-hidden="true"
+                      className="h-20 w-20 object-contain drop-shadow-[0_2px_4px_rgba(0,0,0,0.45)]"
+                    />
+                  </div>
                   <p className="text-xl font-bold text-white">
                     Kangaroo Race is running on the big screen
                   </p>

@@ -147,7 +147,7 @@ export default function HostLoginPage() {
                   />
                 </div>
 
-                <label className="flex cursor-pointer select-none items-center gap-2.5">
+                {/* <label className="flex cursor-pointer select-none items-center gap-2.5">
                   <input
                     type="checkbox"
                     checked={rememberMe}
@@ -170,8 +170,8 @@ export default function HostLoginPage() {
                       </svg>
                     ) : null}
                   </span>
-                  {/* <span className="text-sm text-white">Remember Me</span> */}
-                </label>
+                  <span className="text-sm text-white">Remember Me</span>
+                </label> */}
               </div>
 
               <div className="mt-8 flex justify-center">

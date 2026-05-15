@@ -362,6 +362,8 @@ function VenueDisplayContent() {
   const [venueBreakEndsAtMs, setVenueBreakEndsAtMs] = useState<number | null>(null);
   const [venueBreakSkewMs, setVenueBreakSkewMs] = useState(0);
   const [miniGameType, setMiniGameType] = useState<VenueMiniGameType | null>(null);
+  /** Bumped on venue reload / mini_game_start so Unity remounts after a browser refresh. */
+  const [unityMountKey, setUnityMountKey] = useState(0);
   const [miniGameCommand, setMiniGameCommand] = useState<MiniGameCommand | null>(null);
   const [miniGameReveal, setMiniGameReveal] = useState<MiniGameReveal | null>(null);
   // Card Shuffle's pre-game introduction overlay needs to know whether the
@@ -394,6 +396,7 @@ function VenueDisplayContent() {
    *  the question lifecycle. Stops on reveal / round end / scoreboard. */
   const venueMp4Ref = useRef<HTMLVideoElement | null>(null);
   const phaseRef = useRef<VenuePhase>('welcome');
+  const miniGameTypeRef = useRef<VenueMiniGameType | null>(null);
   const showVenueSplashRef = useRef(showVenueSplash);
   const welcomeHoldRef = useRef(welcomeHold);
   const deferredVenuePhaseRef = useRef<VenuePhase | null>(null);
@@ -438,6 +441,10 @@ function VenueDisplayContent() {
   useEffect(() => {
     phaseRef.current = phase;
   }, [phase]);
+
+  useEffect(() => {
+    miniGameTypeRef.current = miniGameType;
+  }, [miniGameType]);
 
   showVenueSplashRef.current = showVenueSplash;
   welcomeHoldRef.current = welcomeHold;
@@ -501,10 +508,22 @@ function VenueDisplayContent() {
       }
       if (data.revealData) setRevealData(data.revealData);
       if (Array.isArray(data.scoreboard)) setScoreboard(data.scoreboard);
+      if (data.miniGameType) {
+        const cachedMini = normalizeVenueMiniGameType(data.miniGameType);
+        if (cachedMini) {
+          miniGameTypeRef.current = cachedMini;
+          setMiniGameType(cachedMini);
+        }
+      }
       if (data.phase && data.phase !== 'welcome') {
         setWelcomeHold(false);
         setShowVenueSplash(false);
-        setPhase(data.phase);
+        // Cached trivia phase must not override an active mini-game on first paint.
+        if (miniGameTypeRef.current && (data.phase === 'question' || data.phase === 'reveal')) {
+          setPhase('mini_game');
+        } else {
+          setPhase(data.phase);
+        }
       }
     } catch {
       window.sessionStorage.removeItem(getVenueStateStorageKey(sessionPin));
@@ -950,35 +969,16 @@ function VenueDisplayContent() {
             totalRounds: data.rounds.length,
           });
       }
-      if (data.currentQuestion) {
-        setQuestion(data.currentQuestion);
-        setTimerDuration(
-          Number(data.currentQuestion.timerDuration ?? data.timerDuration ?? 30) || 30,
-        );
-        setTimerRemaining(data.timerRemaining ?? data.currentQuestion.timerDuration ?? 0);
-        // Mirror the server's timerRunning flag so the music-round waiting
-        // overlay can render correctly on initial connect / reconnect, where
-        // we only get session_state and not a fresh question_active event.
-        if (typeof data.timerRunning === 'boolean') {
-          setTimerRunning(data.timerRunning);
-        }
-        const total = Number(data.totalTeams ?? 0);
-        setLiveResponses({ correct: 0, incorrect: 0, noAnswer: 0, total });
-      } else if (data.state !== 'QUESTION') {
-        setQuestion(null);
-      }
 
-      // Determine the correct phase from the server state
+      // Mini-game takes priority over underlying trivia phase (e.g. QUESTION during break mini-games).
       const normalizedActiveMiniGame = normalizeVenueMiniGameType(data.activeMiniGame);
       if (normalizedActiveMiniGame) {
+        miniGameTypeRef.current = normalizedActiveMiniGame;
         setMiniGameType(normalizedActiveMiniGame);
         if (normalizedActiveMiniGame !== 'card_shuffle') {
           setMiniGameCommand(null);
           setCardShuffleVenueStarted(false);
         } else {
-          // On reconnect / initial load, server tells us whether the host has
-          // already started the round; keep the intro overlay hidden in that
-          // case so the venue resumes the actual game view.
           setCardShuffleVenueStarted(Boolean(data.miniGameState?.gameStarted));
         }
         if (normalizedActiveMiniGame === 'Kangaroo_race') {
@@ -1006,7 +1006,54 @@ function VenueDisplayContent() {
           setMiniGameReveal(null);
         }
         applyVenuePhaseFromSession('mini_game');
-      } else if (data.state === 'QUESTION') {
+
+        if (typeof window !== 'undefined') {
+          const sessionTeams = data.teams
+            ? Array.isArray(data.teams)
+              ? data.teams
+              : Object.values(data.teams)
+            : teams;
+          window.sessionStorage.setItem(
+            getVenueStateStorageKey(sessionPin),
+            JSON.stringify({
+              phase: 'mini_game',
+              miniGameType: normalizedActiveMiniGame,
+              qrCodeData: data.qrCodeData || qrCodeData,
+              teams: sessionTeams,
+              maxTeams: Number.isFinite(Number(data.maxTeams)) ? Number(data.maxTeams) : maxTeams,
+              totalTeams: Number.isFinite(Number(data.totalTeams))
+                ? Number(data.totalTeams)
+                : sessionTeams.length,
+            }),
+          );
+        }
+        return;
+      }
+
+      if (miniGameTypeRef.current) {
+        miniGameTypeRef.current = null;
+        setMiniGameType(null);
+        setMiniGameCommand(null);
+        setMiniGameReveal(null);
+        setMiniGameResult(null);
+      }
+
+      if (data.currentQuestion) {
+        setQuestion(data.currentQuestion);
+        setTimerDuration(
+          Number(data.currentQuestion.timerDuration ?? data.timerDuration ?? 30) || 30,
+        );
+        setTimerRemaining(data.timerRemaining ?? data.currentQuestion.timerDuration ?? 0);
+        if (typeof data.timerRunning === 'boolean') {
+          setTimerRunning(data.timerRunning);
+        }
+        const total = Number(data.totalTeams ?? 0);
+        setLiveResponses({ correct: 0, incorrect: 0, noAnswer: 0, total });
+      } else if (data.state !== 'QUESTION') {
+        setQuestion(null);
+      }
+
+      if (data.state === 'QUESTION') {
         if (data.currentQuestion) {
           applyVenuePhaseFromSession('question');
         } else if (phaseRef.current === 'reveal' || phaseRef.current === 'question') {
@@ -1039,11 +1086,17 @@ function VenueDisplayContent() {
             ? data.teams
             : Object.values(data.teams)
           : teams;
+        const resolvedPhase =
+          normalizedActiveMiniGame != null
+            ? 'mini_game'
+            : data.state && stateToPhase[data.state]
+              ? stateToPhase[data.state]
+              : phaseRef.current;
         window.sessionStorage.setItem(
           getVenueStateStorageKey(sessionPin),
           JSON.stringify({
-            phase:
-              data.state && stateToPhase[data.state] ? stateToPhase[data.state] : phaseRef.current,
+            phase: resolvedPhase,
+            miniGameType: normalizedActiveMiniGame,
             qrCodeData: data.qrCodeData || qrCodeData,
             teams: sessionTeams,
             maxTeams: Number.isFinite(Number(data.maxTeams)) ? Number(data.maxTeams) : maxTeams,
@@ -1070,6 +1123,7 @@ function VenueDisplayContent() {
     };
 
     const onRoundIntro = (data: any) => {
+      if (miniGameTypeRef.current) return;
       setRoundInfo(data);
       setPhase('round_intro');
       setIsVenueMp3Playing(false);
@@ -1082,6 +1136,7 @@ function VenueDisplayContent() {
     };
 
     const onQuestionActive = (data: QuestionData) => {
+      if (miniGameTypeRef.current) return;
       setQuestion(data);
       setTimerDuration(data.timerDuration);
       setTimerRemaining(data.timerRemaining ?? data.timerDuration);
@@ -1138,12 +1193,14 @@ function VenueDisplayContent() {
     };
 
     const onAnswerReveal = (data: RevealData) => {
+      if (miniGameTypeRef.current) return;
       setRevealData(data);
       setScoreboard(data.teams.sort((a, b) => b.score - a.score));
       setPhase('reveal');
     };
 
     const onScoreboard = (data: { teams: Team[]; revealSnapshot?: RevealData | null }) => {
+      if (miniGameTypeRef.current) return;
       if (phaseRef.current !== 'scoreboard') {
         previousPhaseBeforeScoreboardRef.current = phaseRef.current;
       }
@@ -1250,7 +1307,12 @@ function VenueDisplayContent() {
       });
     };
 
-    const onMiniGameStart = (data: { game: string; kangarooNames?: string[] }) => {
+    const onMiniGameStart = (data: {
+      game: string;
+      kangarooNames?: string[];
+      venueReload?: boolean;
+      rejoinReplay?: boolean;
+    }) => {
       const normalizedGame = normalizeVenueMiniGameType(data.game);
       if (!normalizedGame) return;
       if (
@@ -1265,13 +1327,15 @@ function VenueDisplayContent() {
       cardShuffleRevealFlushGenRef.current += 1;
       lastCardShuffleUnityRef.current = null;
       clearCardShuffleRevealFlushTimers();
+      miniGameTypeRef.current = normalizedGame;
       setMiniGameType(normalizedGame);
       setMiniGameCommand(null);
       setMiniGameReveal(null);
       setMiniGameResult(null);
-      // Reset the Card Shuffle pre-start overlay flag whenever a fresh
-      // mini-game is loaded so the introduction screen shows again.
       setCardShuffleVenueStarted(false);
+      if (data.venueReload || !data.rejoinReplay) {
+        setUnityMountKey((k) => k + 1);
+      }
       setPhase('mini_game');
     };
 
@@ -2465,6 +2529,7 @@ function VenueDisplayContent() {
             ) : null} */}
             <div className="flex min-h-0 flex-1 flex-col px-3 py-3 sm:px-4 sm:py-4">
               <DynamicUnityGame
+                key={`${miniGameType}-${unityMountKey}`}
                 gameType={miniGameType as 'Kangaroo_race' | 'card_shuffle'}
                 onPlayerAction={handleUnityPlayerAction}
                 onGameComplete={handleUnityGameComplete}

@@ -44,6 +44,7 @@ function JoinContent() {
 
     const onSessionState = (data: any) => {
       if (data.joined) {
+        setError('');
         const gs = data.gameState;
         if (gs?.currentRound && gs.state === 'ROUND_INTRO') {
           sessionStorage.setItem(
@@ -66,8 +67,7 @@ function JoinContent() {
                 .filter((id) => Number.isFinite(id))
             : [];
           const tid = data.teamId != null ? Number(data.teamId) : NaN;
-          const row =
-            data.teamId != null && rawTeams ? rawTeams[String(data.teamId)] : undefined;
+          const row = data.teamId != null && rawTeams ? rawTeams[String(data.teamId)] : undefined;
           const myEliminated =
             Boolean(row?.isEliminated) || (Number.isFinite(tid) && eliminatedTeamIds.includes(tid));
           sessionStorage.setItem(
@@ -151,8 +151,7 @@ function JoinContent() {
       };
       if (!res.ok || !json?.success) {
         setError(
-          json?.error ||
-            'Session not found, not active, or no host is assigned to this PIN yet.',
+          json?.error || 'Session not found, not active, or no host is assigned to this PIN yet.',
         );
         setJoining(false);
         return;
@@ -163,7 +162,11 @@ function JoinContent() {
       return;
     }
 
-    socket.emit('join_session', { pin, teamName: cleanTeamName });
+    socket.emit('join_session', {
+      pin,
+      teamName: cleanTeamName,
+      ...(session.teamId != null ? { teamId: session.teamId } : {}),
+    });
   };
 
   return (

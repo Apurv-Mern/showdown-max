@@ -583,22 +583,24 @@ export default function MiniGamePage() {
 
     const onRoundIntro = () => {
       logSocketIn('round_intro');
-      if (shouldExitMiniGame()) exitMiniGameToGame();
+      // Host resumed trivia after mini-game "game over" hold — leave even if
+      // session_state has not arrived yet (holdScreen skips that emit).
+      exitMiniGameToGame();
     };
 
     const onQuestionActive = () => {
       logSocketIn('question_active');
-      if (shouldExitMiniGame()) exitMiniGameToGame();
+      exitMiniGameToGame();
     };
 
     const onAnswerReveal = () => {
       logSocketIn('answer_reveal');
-      if (shouldExitMiniGame()) exitMiniGameToGame();
+      exitMiniGameToGame();
     };
 
     const onScoreboard = () => {
       logSocketIn('scoreboard');
-      if (shouldExitMiniGame()) exitMiniGameToGame();
+      exitMiniGameToGame();
     };
 
     const onSessionState = (data: any) => {
@@ -690,15 +692,7 @@ export default function MiniGamePage() {
         }
       }
 
-      const miniGameKey = gameState?.miniGameState?.game;
-      const hasPersistedMiniGameSession =
-        miniGameKey === 'kangaroo_race' || miniGameKey === 'card_shuffle';
-
-      if (
-        !gameState.activeMiniGame &&
-        gameState.state !== 'LOBBY' &&
-        !hasPersistedMiniGameSession
-      ) {
+      if (!gameState.activeMiniGame && gameState.state !== 'LOBBY') {
         exitMiniGameToGame();
       }
     };

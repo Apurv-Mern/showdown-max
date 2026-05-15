@@ -1122,8 +1122,17 @@ function VenueDisplayContent() {
       }));
     };
 
+    const clearVenueMiniGameOverlay = () => {
+      miniGameTypeRef.current = null;
+      setMiniGameType(null);
+      setMiniGameCommand(null);
+      setMiniGameReveal(null);
+      setMiniGameResult(null);
+      setCardShuffleVenueStarted(false);
+    };
+
     const onRoundIntro = (data: any) => {
-      if (miniGameTypeRef.current) return;
+      clearVenueMiniGameOverlay();
       setRoundInfo(data);
       setPhase('round_intro');
       setIsVenueMp3Playing(false);
@@ -1131,12 +1140,13 @@ function VenueDisplayContent() {
     };
 
     const onWagerCollectionStart = (data: any) => {
+      clearVenueMiniGameOverlay();
       if (data) setRoundInfo(data);
       setPhase('wager_collection');
     };
 
     const onQuestionActive = (data: QuestionData) => {
-      if (miniGameTypeRef.current) return;
+      clearVenueMiniGameOverlay();
       setQuestion(data);
       setTimerDuration(data.timerDuration);
       setTimerRemaining(data.timerRemaining ?? data.timerDuration);
@@ -1193,14 +1203,14 @@ function VenueDisplayContent() {
     };
 
     const onAnswerReveal = (data: RevealData) => {
-      if (miniGameTypeRef.current) return;
+      clearVenueMiniGameOverlay();
       setRevealData(data);
       setScoreboard(data.teams.sort((a, b) => b.score - a.score));
       setPhase('reveal');
     };
 
     const onScoreboard = (data: { teams: Team[]; revealSnapshot?: RevealData | null }) => {
-      if (miniGameTypeRef.current) return;
+      clearVenueMiniGameOverlay();
       if (phaseRef.current !== 'scoreboard') {
         previousPhaseBeforeScoreboardRef.current = phaseRef.current;
       }

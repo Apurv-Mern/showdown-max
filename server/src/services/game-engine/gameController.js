@@ -444,6 +444,15 @@ const nextQuestion = async (io, pin) => {
         ? require('shared/constants/scoring').getEliminationPoints(gameState.currentQuestionIndex)
         : null,
   });
+
+  // Non-music path only emitted QUESTION_ACTIVE before; venue/mobile on mini-game
+  // "game over" need session_state to clear holdScreen when host presses Next.
+  if (gsForQuestionActive) {
+    io.to(`session:${pin}`).emit(
+      SOCKET_EVENTS.SESSION_STATE,
+      clientPayloadFromGameState(gsForQuestionActive),
+    );
+  }
 };
 
 /**

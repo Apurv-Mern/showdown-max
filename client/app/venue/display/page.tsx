@@ -402,6 +402,11 @@ function VenueDisplayContent() {
   const deferredVenuePhaseRef = useRef<VenuePhase | null>(null);
   const previousPhaseBeforeScoreboardRef = useRef<VenuePhase | null>(null);
   const questionRef = useRef<QuestionData | null>(null);
+  const roundInfoRef = useRef<{
+    round: { id?: number; name?: string; type?: string };
+    roundIndex: number;
+    totalRounds: number;
+  } | null>(null);
   const revealDataRef = useRef<RevealData | null>(null);
   /** Latest SHUFFLE_COMPLETE from Unity; used to re-emit canonical payload after host Reveal. */
   const lastCardShuffleUnityRef = useRef<{ cp: number; cards: number[] } | null>(null);
@@ -461,6 +466,10 @@ function VenueDisplayContent() {
   useEffect(() => {
     questionRef.current = question;
   }, [question]);
+
+  useEffect(() => {
+    roundInfoRef.current = roundInfo;
+  }, [roundInfo]);
 
   useEffect(() => {
     revealDataRef.current = revealData;
@@ -1264,21 +1273,47 @@ function VenueDisplayContent() {
       setPhase('break');
     };
 
-    const onBreakEnd = () => {
-      // Drop break locals immediately so the BreakView countdown can't briefly resurface while we
-      // wait for the follow-up session_state. The actual phase swap is server-driven via
-      // session_state, but if that frame is delayed we at least stop showing the timer.
+    const resolvePhaseAfterBreakEnd = (hint?: {
+      restoredState?: string;
+      questionState?: string;
+    }) => {
+      const stateToPhase: Record<string, VenuePhase> = {
+        LOBBY: 'lobby',
+        ROUND_INTRO: 'round_intro',
+        WAGER_COLLECTION: 'wager_collection',
+        QUESTION: 'question',
+        SCOREBOARD: 'scoreboard',
+        BREAK: 'break',
+        MINI_GAME: 'mini_game',
+        FINAL_RESULTS: 'game_end',
+      };
+      const restored = hint?.restoredState ? stateToPhase[hint.restoredState] : null;
+      if (restored && restored !== 'lobby' && restored !== 'break') {
+        return restored;
+      }
+      if (revealDataRef.current && questionRef.current) return 'reveal';
+      if (questionRef.current) {
+        if (hint?.questionState === 'REVEALED') return 'reveal';
+        return 'question';
+      }
+      if (roundInfoRef.current) return 'round_intro';
+      if (phaseRef.current === 'scoreboard') return 'scoreboard';
+      if (phaseRef.current === 'round_intro') return 'round_intro';
+      if (phaseRef.current === 'wager_collection') return 'wager_collection';
+      if (phaseRef.current === 'mini_game' || phaseRef.current === 'mini_game_result') {
+        return phaseRef.current;
+      }
+      // Never fall back to lobby mid-game — team registration is pre-start only.
+      return phaseRef.current !== 'lobby' && phaseRef.current !== 'welcome'
+        ? phaseRef.current
+        : 'round_intro';
+    };
+
+    const onBreakEnd = (data?: { restoredState?: string; questionState?: string }) => {
       setVenueBreakEndsAtMs(null);
       setVenueBreakSkewMs(0);
       if (phaseRef.current === 'break') {
-        // Optimistically leave the break screen — session_state will reconcile to question /
-        // round_intro within milliseconds. Avoids a perceptible "stuck on break" frame on
-        // slower projector hardware.
-        if (questionRef.current) {
-          setPhase('question');
-        } else {
-          setPhase('lobby');
-        }
+        applyVenuePhaseFromSession(resolvePhaseAfterBreakEnd(data));
       }
       setShowBreakEndedNotice(true);
       setTimeout(() => setShowBreakEndedNotice(false), 2400);

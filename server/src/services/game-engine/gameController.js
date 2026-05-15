@@ -1214,11 +1214,40 @@ const endBreak = async (io, pin) => {
     gameState.breakRemaining = 0;
 
     await redisStore.setGameState(pin, gameState);
-    io.to(`session:${pin}`).emit(SOCKET_EVENTS.BREAK_END, {});
+    io.to(`session:${pin}`).emit(SOCKET_EVENTS.BREAK_END, {
+      restoredState: gameState.state,
+      questionState: gameState.questionState,
+    });
     io.to(`session:${pin}`).emit(
       SOCKET_EVENTS.SESSION_STATE,
       clientPayloadFromGameState(gameState),
     );
+    if (
+      gameState.state === GAME_STATES.QUESTION &&
+      gameState.questionState === QUESTION_STATES.REVEALED
+    ) {
+      const revealPayload = await buildRevealSnapshot(pin, gameState);
+      if (revealPayload) {
+        io.to(`session:${pin}`).emit(SOCKET_EVENTS.ANSWER_REVEAL, revealPayload);
+        io.to(`session:${pin}`).emit(SOCKET_EVENTS.TIMER_UPDATE, { remaining: 0 });
+      }
+    }
+    if (gameState.state === GAME_STATES.SCOREBOARD) {
+      const sortedTeams = Object.values(gameState.teams || {}).sort((a, b) => b.score - a.score);
+      const revealPayload = await buildRevealSnapshot(pin, gameState);
+      io.to(`session:${pin}`).emit(SOCKET_EVENTS.SCOREBOARD, {
+        teams: sortedTeams,
+        source: 'manual',
+        ...(revealPayload ? { revealSnapshot: revealPayload } : {}),
+      });
+    }
+    if (gameState.state === GAME_STATES.ROUND_INTRO) {
+      io.to(`session:${pin}`).emit(SOCKET_EVENTS.ROUND_INTRO, {
+        round: stateMachine.getCurrentRound(gameState),
+        roundIndex: gameState.currentRoundIndex,
+        totalRounds: gameState.rounds.length,
+      });
+    }
     logger.info('Break ended and state restored', {
       pin,
       restoredState: gameState.state,
@@ -1313,7 +1342,10 @@ const endBreak = async (io, pin) => {
   result.gameState.breakRemaining = 0;
 
   await redisStore.setGameState(pin, result.gameState);
-  io.to(`session:${pin}`).emit(SOCKET_EVENTS.BREAK_END, {});
+  io.to(`session:${pin}`).emit(SOCKET_EVENTS.BREAK_END, {
+    restoredState: result.gameState.state,
+    questionState: result.gameState.questionState,
+  });
   io.to(`session:${pin}`).emit(SOCKET_EVENTS.SESSION_STATE, sanitizeForClients(result.gameState));
   logger.info('Break ended and returned to round intro', {
     pin,

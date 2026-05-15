@@ -102,6 +102,40 @@ function initialWagerAmountForRoundType(roundType?: string): number {
   return (roundType || '').toUpperCase() === 'FINAL_WAGER' ? FINAL_WAGER_PERCENT_OPTIONS[0] : 0;
 }
 
+/** Resolve this team's locked wager from join payloads or broadcast `session_state`. */
+function resolveLockedWagerFromPayload(
+  teamId: number | null | undefined,
+  roundId: number | string | null | undefined,
+  sources: {
+    currentQuestionLocked?: number | null;
+    topLevelLocked?: number | null;
+    roundWagers?: Record<string, Record<string, number>> | null;
+  },
+): { amount: number | null; hasLocked: boolean } {
+  const fromQuestion =
+    sources.currentQuestionLocked !== undefined && sources.currentQuestionLocked !== null
+      ? Number(sources.currentQuestionLocked)
+      : null;
+  const fromTop =
+    sources.topLevelLocked !== undefined && sources.topLevelLocked !== null
+      ? Number(sources.topLevelLocked)
+      : null;
+  const fromRedis =
+    teamId != null && roundId != null
+      ? sources.roundWagers?.[String(roundId)]?.[String(teamId)]
+      : undefined;
+  const raw =
+    fromQuestion != null && Number.isFinite(fromQuestion)
+      ? fromQuestion
+      : fromTop != null && Number.isFinite(fromTop)
+        ? fromTop
+        : fromRedis !== undefined && fromRedis !== null
+          ? Number(fromRedis)
+          : null;
+  const hasLocked = raw !== null && Number.isFinite(Number(raw));
+  return { amount: hasLocked ? Number(raw) : null, hasLocked };
+}
+
 const WAGER_DRAFT_STORAGE_PREFIX = 'mst:wagerDraft:';
 
 function wagerDraftStorageKey(pin: string, teamId: number) {
@@ -833,11 +867,12 @@ export default function GamePage() {
             }
           }
           const isWagerRound = data.roundType === 'WAGER' || data.roundType === 'FINAL_WAGER';
-          const hasLockedWager =
-            data.lockedWagerAmount !== null && data.lockedWagerAmount !== undefined;
           if (isWagerRound) {
-            if (hasLockedWager) {
-              setWagerAmount(Number(data.lockedWagerAmount));
+            const { amount, hasLocked } = resolveLockedWagerFromPayload(session.teamId, null, {
+              currentQuestionLocked: data.lockedWagerAmount,
+            });
+            if (hasLocked && amount != null) {
+              setWagerAmount(amount);
               setWagerSubmitted(true);
             } else {
               setWagerAmount(initialWagerAmountForRoundType(data.roundType));
@@ -845,10 +880,7 @@ export default function GamePage() {
             }
           }
 
-          if (isWagerRound && !hasLockedWager) {
-            setSelectedOption(null);
-            setPhase('wager_input');
-          } else if (hasSelectionIdx(restored)) {
+          if (hasSelectionIdx(restored)) {
             setSelectedOption(restored);
             setPhase('answered');
           } else {
@@ -1021,14 +1053,27 @@ export default function GamePage() {
             setPointsGained(null);
           }
 
-          const lockedWagerAmount = gs.currentQuestion.lockedWagerAmount;
-          const hasLockedWager = lockedWagerAmount !== null && lockedWagerAmount !== undefined;
+          const wagerRoundIdxForLock = Number(gs.currentRoundIndex ?? 0);
+          const roundMetaForLock =
+            gs.currentRound ??
+            (Array.isArray(gs.rounds) &&
+            wagerRoundIdxForLock >= 0 &&
+            wagerRoundIdxForLock < gs.rounds.length
+              ? gs.rounds[wagerRoundIdxForLock]
+              : null);
+          const roundIdForLock = roundMetaForLock?.id;
+          const { amount: lockedWagerAmount, hasLocked: hasLockedWager } =
+            resolveLockedWagerFromPayload(session.teamId, roundIdForLock, {
+              currentQuestionLocked: gs.currentQuestion.lockedWagerAmount,
+              topLevelLocked: gs.lockedWagerAmount,
+              roundWagers: gs.roundWagers,
+            });
           if (
             gs.currentQuestion.roundType === 'WAGER' ||
             gs.currentQuestion.roundType === 'FINAL_WAGER'
           ) {
-            if (hasLockedWager) {
-              setWagerAmount(Number(lockedWagerAmount));
+            if (hasLockedWager && lockedWagerAmount != null) {
+              setWagerAmount(lockedWagerAmount);
               setWagerSubmitted(true);
               if (session.pin && session.teamId != null) {
                 clearWagerDraft(session.pin, Number(session.teamId));
@@ -1098,13 +1143,9 @@ export default function GamePage() {
             setSelectedOption(null);
             setPhase('eliminated');
           } else if (gs.questionState === 'ACTIVE') {
-            const isWagerQuestion =
-              gs.currentQuestion.roundType === 'WAGER' ||
-              gs.currentQuestion.roundType === 'FINAL_WAGER';
-            if (isWagerQuestion && !hasLockedWager) {
-              setSelectedOption(null);
-              setPhase('wager_input');
-            } else if (hasSelectionIdx(restoredIdx)) {
+            // Wager UI is only for `WAGER_COLLECTION`. Once the host starts the question,
+            // stay on the question screen (wager was locked earlier in `roundWagers`).
+            if (hasSelectionIdx(restoredIdx)) {
               setSelectedOption(restoredIdx);
               setPhase('answered');
             } else {
@@ -1156,16 +1197,14 @@ export default function GamePage() {
               : null);
           const wagerRoundType = roundMeta?.type ?? gs.rounds?.[wagerRoundIdx]?.type;
           const roundId = roundMeta?.id;
-          const fromRoundWagers =
-            session.teamId != null &&
-            roundId != null &&
-            gs.roundWagers?.[String(roundId)]?.[String(session.teamId)];
-          const lockedRaw =
-            gs.lockedWagerAmount !== undefined && gs.lockedWagerAmount !== null
-              ? gs.lockedWagerAmount
-              : fromRoundWagers;
-          const hasLockedWager =
-            lockedRaw !== null && lockedRaw !== undefined && Number.isFinite(Number(lockedRaw));
+          const { amount: lockedRaw, hasLocked: hasLockedWager } = resolveLockedWagerFromPayload(
+            session.teamId,
+            roundId,
+            {
+              topLevelLocked: gs.lockedWagerAmount,
+              roundWagers: gs.roundWagers,
+            },
+          );
           if (hasLockedWager) {
             setWagerAmount(Number(lockedRaw));
             setWagerSubmitted(true);

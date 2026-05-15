@@ -718,17 +718,17 @@ export default function MiniGamePage() {
     const abortMiniRestore = new AbortController();
     const applyRestoreBundleMini = (bundle: PlayerRestoreBundle | null | undefined) => {
       if (!bundle?.sessionPayload || !pinRestore || !Number.isFinite(tidRestore)) return;
+      // Replays may still contain `round_intro` / `question_active` / … from the trivia
+      // flow. Those handlers call `exitMiniGameToGame` (full navigation to `/play/game`).
+      // When the host then launches a mini-game, `/play/game` immediately pushes back here
+      // → remount → restore runs again → infinite “refresh” loop on mobile.
+      // On this route we only need `session_state` + mini-game–specific events.
       applyPlayerRestoreBundle(bundle, {
         session_state: (d) => onSessionState(d as any),
         mini_game_start: (d) => onMiniGameStart(d as any),
         mini_game_reveal: (d) => onMiniGameReveal(d as any),
         mini_game_player_result: (d) => onMiniGamePlayerResult(d as any),
-        round_intro: () => onRoundIntro(),
-        question_active: () => onQuestionActive(),
-        answer_reveal: () => onAnswerReveal(),
-        scoreboard: () => onScoreboard(),
         game_end: () => onGameEnd(),
-        break_end: () => onBreakEnd(),
       });
     };
 

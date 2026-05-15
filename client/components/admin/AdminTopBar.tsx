@@ -25,7 +25,6 @@ export default function AdminTopBar() {
               SHOWDOWN
             </span>
           </span>
-
         </div>
         <div className="h-8 w-px bg-[rgba(0,217,255,0.3)]" />
         <span className="text-xl font-medium leading-7 text-[rgba(0,217,255,0.8)]">
@@ -36,7 +35,7 @@ export default function AdminTopBar() {
       {/* Right: search + notification + avatar */}
       <div className="flex items-center gap-4">
         {/* Search */}
-        <div className="relative">
+        {/* <div className="relative">
           <svg
             className="absolute left-3 top-1/2 -translate-y-1/2 text-[#6a7282]"
             width="20"
@@ -56,16 +55,25 @@ export default function AdminTopBar() {
             placeholder="Search questions / quizzes..."
             className="h-10 w-80 rounded-[10px] border border-[rgba(0,217,255,0.3)] bg-[#1a1f35] pl-10 pr-4 text-sm text-white placeholder:text-[#6a7282] outline-none transition-colors duration-200 focus:border-[rgba(0,217,255,0.6)]"
           />
-        </div>
+        </div> */}
 
         {/* Notification bell */}
-        <button className="relative flex size-[38px] items-center justify-center rounded-[10px] border border-[rgba(0,217,255,0.3)] bg-[#1a1f35] transition-colors duration-150 hover:bg-[#252b45]">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        {/* <button className="relative flex size-[38px] items-center justify-center rounded-[10px] border border-[rgba(0,217,255,0.3)] bg-[#1a1f35] transition-colors duration-150 hover:bg-[#252b45]">
+          <svg
+            width="20"
+            height="20"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="white"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
             <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
             <path d="M13.73 21a2 2 0 0 1-3.46 0" />
           </svg>
           <span className="absolute -right-1 -top-1 size-3 rounded-full border-2 border-[#0b0f1a] bg-[#ff0004]" />
-        </button>
+        </button> */}
 
         {/* Avatar / logout */}
         <button

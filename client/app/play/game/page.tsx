@@ -2694,14 +2694,14 @@ export default function GamePage() {
               >
                 <div className="mb-3 text-center sm:mb-4 flex items-center justify-center gap-10">
                   <img
-                    src="/LeaderboardIcon.png"
+                    src="/leaderboardIcon.png"
                     alt="Leaderboard"
                     className="w-15image.png h-15"
                   />{' '}
                   <h2 className="text-[clamp(1.75rem,6vw,3.25rem)] font-extrabold leading-none tracking-wide text-white drop-shadow-[0_0_10px_rgba(255,255,255,0.2)]">
                     Leaderboard
                   </h2>
-                  <img src="/LeaderboardIcon.png" alt="Leaderboard" className="w-15 h-15" />{' '}
+                  <img src="/leaderboardIcon.png" alt="Leaderboard" className="w-15 h-15" />{' '}
                 </div>
                 <motion.div
                   variants={staggerContainer}

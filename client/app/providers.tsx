@@ -37,4 +37,5 @@ export const Providers = ({ children }: { children: React.ReactNode }) => {
       <ClientDebugPanel />
     </AuthProvider>
   );
+  // changes
 };

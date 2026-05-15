@@ -916,7 +916,11 @@ export default function GamePage() {
         // Coming back from a backgrounded/throttled tab: ask the server for an authoritative
         // resync, otherwise a missed break_end leaves the break screen stuck.
         if (socket && session.pin && session.teamName) {
-          socket.emit('join_session', { pin: session.pin, teamName: session.teamName });
+          socket.emit('join_session', {
+            pin: session.pin,
+            teamName: session.teamName,
+            teamId: session.teamId,
+          });
         }
       }
     };
@@ -1667,7 +1671,11 @@ export default function GamePage() {
     // events like break_end / question_active were missed during the gap.
     const rejoinSession = () => {
       if (session.pin && session.teamName) {
-        socket.emit('join_session', { pin: session.pin, teamName: session.teamName });
+        socket.emit('join_session', {
+          pin: session.pin,
+          teamName: session.teamName,
+          teamId: session.teamId,
+        });
       }
     };
     socket.on('connect', rejoinSession);
@@ -1716,8 +1724,12 @@ export default function GamePage() {
   // Join → /play/game reuses an already-connected socket, so `connect` does not fire again.
   useEffect(() => {
     if (!socket || !session.pin || !session.teamName || session.teamId == null) return;
-    socket.emit('join_session', { pin: session.pin, teamName: session.teamName });
-  }, [socket, session.pin, session.teamName]);
+    socket.emit('join_session', {
+      pin: session.pin,
+      teamName: session.teamName,
+      teamId: session.teamId,
+    });
+  }, [socket, session.pin, session.teamName, session.teamId]);
 
   const handleSelectOption = useCallback(
     (index: number) => {

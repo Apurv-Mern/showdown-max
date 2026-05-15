@@ -34,7 +34,11 @@ export const useReconnect = ({
     setIsReconnecting(true);
 
     if (role === 'player' && teamName) {
-      socket.emit('join_session', { pin, teamName });
+      socket.emit('join_session', {
+        pin,
+        teamName,
+        ...(teamId != null ? { teamId } : {}),
+      });
     } else if (role === 'host') {
       socket.emit('host_connect', { pin });
     } else if (role === 'venue') {
@@ -42,7 +46,7 @@ export const useReconnect = ({
     }
 
     setTimeout(() => setIsReconnecting(false), 2000);
-  }, [socket, pin, teamName, role]);
+  }, [socket, pin, teamName, teamId, role]);
 
   useEffect(() => {
     if (!socket || !pin) return;

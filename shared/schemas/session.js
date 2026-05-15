@@ -8,6 +8,8 @@ const createSessionSchema = z.object({
 const joinSessionSchema = z.object({
   pin: z.string().length(6),
   teamName: z.string().min(1).max(50).trim(),
+  /** When set, reclaim this team row (refresh/reconnect). Omit on first join. */
+  teamId: z.coerce.number().int().positive().optional(),
 });
 
 module.exports = { createSessionSchema, joinSessionSchema };

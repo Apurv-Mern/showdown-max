@@ -27,7 +27,7 @@ const playerHandlers = (io, socket) => {
         return;
       }
 
-      const { pin, teamName } = parsed.data;
+      const { pin, teamName, teamId: reclaimTeamId } = parsed.data;
       const cleanTeamName = sanitizeTeamName(teamName);
       const normalizedTeamName = normalizeTeamName(cleanTeamName);
 
@@ -76,17 +76,38 @@ const playerHandlers = (io, socket) => {
         return;
       }
 
+      const disconnectStalePlayerSocket = (staleSocketId) => {
+        if (!staleSocketId || staleSocketId === socket.id) return;
+        const stale = io.sockets.sockets.get(staleSocketId);
+        if (stale?.connected) stale.disconnect(true);
+      };
+
       let team;
       if (existingTeam) {
-        if (existingTeam.isConnected && existingTeam.socketId) {
+        const isSameSocket = existingTeam.socketId === socket.id;
+        const isOwnTeamReconnect =
+          reclaimTeamId != null && Number(reclaimTeamId) === Number(existingTeam.id);
+
+        if (
+          !isSameSocket &&
+          !isOwnTeamReconnect &&
+          existingTeam.isConnected &&
+          existingTeam.socketId
+        ) {
           const existingSocket = io.sockets.sockets.get(existingTeam.socketId);
-          if (existingSocket && existingSocket.connected) {
+          if (existingSocket?.connected) {
             socket.emit(SOCKET_EVENTS.JOIN_ERROR, {
               message: 'Team name already taken. Please choose a different name.',
+              code: 'TEAM_NAME_TAKEN',
             });
             return;
           }
         }
+
+        if (!isSameSocket && existingTeam.socketId) {
+          disconnectStalePlayerSocket(existingTeam.socketId);
+        }
+
         team = existingTeam;
         await team.update({ isConnected: true, socketId: socket.id });
         logger.info('Player reconnected', { pin, teamName: team.teamName, teamId: team.id });

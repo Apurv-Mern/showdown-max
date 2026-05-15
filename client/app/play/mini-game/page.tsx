@@ -152,6 +152,7 @@ export default function MiniGamePage() {
   sessionTeamIdRef.current = session.teamId;
   const sessionTeamNameRef = useRef(session.teamName);
   sessionTeamNameRef.current = session.teamName;
+  const lastGameStateRef = useRef<any>(null);
   const miniRestoreGuardRef = useRef<{ pin: string; teamId: number } | null>(null);
   selectedChoiceRef.current = selectedChoice;
   const labelForKangaroo = (slot: number | null) => {
@@ -176,7 +177,8 @@ export default function MiniGamePage() {
       setKangarooPickSecondsLeft(null);
       return;
     }
-    let intervalId: ReturnType<typeof window.setInterval> | null = null;
+    // In browsers `setInterval` returns a number; avoid NodeJS.Timeout typing clashes.
+    let intervalId: number | null = null;
     const tick = () => {
       const remainingMs = kangarooPickDeadline - Date.now();
       const seconds = remainingMs > 0 ? Math.ceil(remainingMs / 1000) : 0;
@@ -230,7 +232,16 @@ export default function MiniGamePage() {
       setRoundAnnouncement(null);
       setKangarooPickDeadline(null);
       setKangarooPickSecondsLeft(null);
-      window.location.assign('/play/game');
+      router.replace('/play/game');
+    };
+
+    const shouldExitMiniGame = () => {
+      // If the server still has a mini-game active, don't kick the player back
+      // to the main game route (prevents ping-pong refresh loops during break_end /
+      // round_intro / question_active broadcasts).
+      const active = lastGameStateRef.current?.activeMiniGame;
+      if (active === undefined) return false; // don't guess before first session_state
+      return !active;
     };
 
     const applyCardShuffleReveal = (payload: {
@@ -562,38 +573,39 @@ export default function MiniGamePage() {
       setResultPhase(null);
       setRoundOpen(false);
       setRoundAnnouncement(null);
-      window.location.assign('/play/game');
+      router.replace('/play/game');
     };
 
     const onBreakEnd = () => {
       logSocketIn('break_end');
-      exitMiniGameToGame();
+      if (shouldExitMiniGame()) exitMiniGameToGame();
     };
 
     const onRoundIntro = () => {
       logSocketIn('round_intro');
-      exitMiniGameToGame();
+      if (shouldExitMiniGame()) exitMiniGameToGame();
     };
 
     const onQuestionActive = () => {
       logSocketIn('question_active');
-      exitMiniGameToGame();
+      if (shouldExitMiniGame()) exitMiniGameToGame();
     };
 
     const onAnswerReveal = () => {
       logSocketIn('answer_reveal');
-      exitMiniGameToGame();
+      if (shouldExitMiniGame()) exitMiniGameToGame();
     };
 
     const onScoreboard = () => {
       logSocketIn('scoreboard');
-      exitMiniGameToGame();
+      if (shouldExitMiniGame()) exitMiniGameToGame();
     };
 
     const onSessionState = (data: any) => {
       logSocketIn('session_state', data);
       const gameState = data?.gameState ?? data;
       if (!gameState || !gameState.state) return;
+      lastGameStateRef.current = gameState;
 
       const p = sessionPinRef.current;
       const t = sessionTeamIdRef.current != null ? Number(sessionTeamIdRef.current) : NaN;

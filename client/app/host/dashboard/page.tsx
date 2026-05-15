@@ -2340,7 +2340,13 @@ function HostDashboardContent() {
                             : 'border-white/10 bg-white/5',
                         )}
                       >
-                        <span className="text-3xl">🃏</span>
+                        <span className="text-3xl">
+                          <img
+                            src={`/games/card-shuffle/queencard.png`}
+                            alt={CARD_POSITION_LABELS[n]}
+                            className="h-12 w-12 object-contain"
+                          />
+                        </span>
                         <span className="text-sm font-bold text-white">
                           {CARD_POSITION_LABELS[n]}
                         </span>
@@ -2513,7 +2519,13 @@ function HostDashboardContent() {
                             : 'border-white/10 bg-white/5',
                         )}
                       >
-                        <span className="text-2xl">🦘</span>
+                        <span className="text-2xl">
+                          <img
+                            src="/KangarooPic.png"
+                            alt={normalizedKangarooNames[i] || `Kangaroo ${n}`}
+                            className="h-10 w-10 object-contain"
+                          />
+                        </span>
                         <span className="text-xs font-bold text-white">
                           #{n} {normalizedKangarooNames[i]}
                         </span>

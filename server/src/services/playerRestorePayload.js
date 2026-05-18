@@ -110,6 +110,7 @@ const buildSessionPayloadForPlayer = ({ pin, gameState, team, mySubmittedOptionI
           miniGameConfig: gameState.miniGameConfig || null,
           scoreboardVisible: Boolean(gameState.scoreboardVisible),
           teams: gameState.teams,
+          roundWagers: gameState.roundWagers || {},
           lockedWagerAmount: currentRound ? getLockedWager(gameState, currentRound, team.id) : null,
           ...(gameState.state === 'BREAK'
             ? {

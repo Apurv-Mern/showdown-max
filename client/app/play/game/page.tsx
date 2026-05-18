@@ -136,6 +136,53 @@ function resolveLockedWagerFromPayload(
   return { amount: hasLocked ? Number(raw) : null, hasLocked };
 }
 
+function isWagerRoundType(roundType?: string | null): boolean {
+  const rt = (roundType || '').toUpperCase();
+  return rt === 'WAGER' || rt === 'FINAL_WAGER';
+}
+
+/** QUESTION state: late joiners must lock wager before question / reveal / answered UI. */
+function pickQuestionPlayerPhase(opts: {
+  roundType?: string;
+  hasLockedWager: boolean;
+  questionState?: string;
+  hasRevealData?: boolean;
+  restoredIdx: number | number[] | null;
+  eliminated: boolean;
+}): GamePhase {
+  if (opts.eliminated) return 'eliminated';
+  if (isWagerRoundType(opts.roundType) && !opts.hasLockedWager) return 'wager_input';
+  if ((opts.questionState || '').toUpperCase() === 'REVEALED') {
+    if (opts.hasRevealData) return 'reveal';
+    if (hasSelectionIdx(opts.restoredIdx)) return 'answered';
+    return 'question';
+  }
+  if (hasSelectionIdx(opts.restoredIdx)) return 'answered';
+  return 'question';
+}
+
+function teamNeedsWagerLockScreen(roundType?: string, hasLockedWager: boolean): boolean {
+  return isWagerRoundType(roundType) && !hasLockedWager;
+}
+
+function resolveUnlockedWagerAmount(
+  pin: string | undefined,
+  teamId: number | undefined,
+  roundId: number | string | null | undefined,
+  roundType: string | undefined,
+): { amount: number; draftMeta: { amount: number | null; pendingLock: boolean } } {
+  let nextAmount = initialWagerAmountForRoundType(roundType);
+  let draftMeta: { amount: number | null; pendingLock: boolean } = { amount: null, pendingLock: false };
+  if (pin && teamId != null && roundId != null) {
+    draftMeta = readWagerDraft(pin, Number(teamId), roundId);
+    const d = draftMeta.amount;
+    if (d != null && isValidWagerDraftAmount(roundType, d)) {
+      nextAmount = d;
+    }
+  }
+  return { amount: nextAmount, draftMeta };
+}
+
 const WAGER_DRAFT_STORAGE_PREFIX = 'mst:wagerDraft:';
 
 function wagerDraftStorageKey(pin: string, teamId: number) {
@@ -763,6 +810,10 @@ export default function GamePage() {
   }>({ qid: null, idx: null });
   const answerDraftResubmitGuardRef = useRef<Set<string>>(new Set());
   const wagerLockResubmitGuardRef = useRef<Set<string>>(new Set());
+  /** Set synchronously in session_state so answer_reveal replays cannot flash reveal before React commits. */
+  const wagerLockRequiredRef = useRef(false);
+  const questionStateRef = useRef<string>('');
+  const ensureRevealAfterWagerLockRef = useRef<(() => void) | null>(null);
   /** Same pin+team: run local + HTTP restore only once per mount cycle (socket effect may re-run). */
   const playerRestoreGuardRef = useRef<{ pin: string; teamId: number } | null>(null);
   useEffect(() => {
@@ -866,11 +917,14 @@ export default function GamePage() {
               restored = draft.selectedOptionIndex;
             }
           }
-          const isWagerRound = data.roundType === 'WAGER' || data.roundType === 'FINAL_WAGER';
+          const isWagerRound = isWagerRoundType(data.roundType);
+          let hasLockedWager = true;
           if (isWagerRound) {
             const { amount, hasLocked } = resolveLockedWagerFromPayload(session.teamId, null, {
               currentQuestionLocked: data.lockedWagerAmount,
             });
+            hasLockedWager = hasLocked;
+            wagerLockRequiredRef.current = !hasLocked;
             if (hasLocked && amount != null) {
               setWagerAmount(amount);
               setWagerSubmitted(true);
@@ -880,12 +934,21 @@ export default function GamePage() {
             }
           }
 
-          if (hasSelectionIdx(restored)) {
+          if (hasSelectionIdx(restored) && hasLockedWager) {
             setSelectedOption(restored);
             setPhase('answered');
           } else {
             setSelectedOption(null);
-            setPhase('question');
+            setPhase(
+              pickQuestionPlayerPhase({
+                roundType: data.roundType,
+                hasLockedWager,
+                questionState: questionStateRef.current,
+                hasRevealData: Boolean(revealDataRef.current),
+                restoredIdx: hasLockedWager ? restored : null,
+                eliminated: false,
+              }),
+            );
           }
         }
       } catch {
@@ -1019,7 +1082,19 @@ export default function GamePage() {
         }
 
         if (gs.state === 'QUESTION') {
+          questionStateRef.current = String(gs.questionState || '');
           if (!gs.currentQuestion) {
+            // Incomplete QUESTION payloads (e.g. legacy sanitize-only broadcasts) must not
+            // kick players off an active question / wager screen.
+            const keepLocalQuestionUi =
+              questionRef.current &&
+              (phaseRef.current === 'question' ||
+                phaseRef.current === 'answered' ||
+                phaseRef.current === 'wager_input' ||
+                phaseRef.current === 'reveal');
+            if (keepLocalQuestionUi) {
+              return;
+            }
             // After break, server can emit QUESTION before currentQuestion is attached — leave break UI.
             setBreakRemaining(0);
             setTimerRunning(false);
@@ -1072,10 +1147,9 @@ export default function GamePage() {
               topLevelLocked: gs.lockedWagerAmount,
               roundWagers: gs.roundWagers,
             });
-          if (
-            gs.currentQuestion.roundType === 'WAGER' ||
-            gs.currentQuestion.roundType === 'FINAL_WAGER'
-          ) {
+          const isWagerQuestionRound = isWagerRoundType(gs.currentQuestion.roundType);
+          wagerLockRequiredRef.current = isWagerQuestionRound && !hasLockedWager;
+          if (isWagerQuestionRound) {
             if (hasLockedWager && lockedWagerAmount != null) {
               setWagerAmount(lockedWagerAmount);
               setWagerSubmitted(true);
@@ -1083,10 +1157,41 @@ export default function GamePage() {
                 clearWagerDraft(session.pin, Number(session.teamId));
               }
             } else {
-              setWagerAmount(initialWagerAmountForRoundType(gs.currentQuestion.roundType));
               setWagerSubmitted(false);
+              const { amount: draftAmount, draftMeta } = resolveUnlockedWagerAmount(
+                session.pin,
+                session.teamId != null ? Number(session.teamId) : undefined,
+                roundIdForLock,
+                gs.currentQuestion.roundType,
+              );
+              setWagerAmount(draftAmount);
+              const dAmt = draftMeta.amount;
+              if (
+                draftMeta.pendingLock &&
+                dAmt != null &&
+                isValidWagerDraftAmount(gs.currentQuestion.roundType, dAmt) &&
+                socket &&
+                roundIdForLock != null
+              ) {
+                const rk = String(roundIdForLock);
+                if (!wagerLockResubmitGuardRef.current.has(rk)) {
+                  wagerLockResubmitGuardRef.current.add(rk);
+                  setWagerSubmitted(true);
+                  window.requestAnimationFrame(() => {
+                    socket.emit('submit_wager', { amount: dAmt });
+                  });
+                }
+              }
+              if (roundMetaForLock?.type) {
+                setRoundInfo({
+                  round: roundMetaForLock,
+                  roundIndex: wagerRoundIdxForLock,
+                  totalRounds: Number(gs.totalRounds ?? gs.rounds?.length ?? 0),
+                });
+              }
             }
           } else {
+            wagerLockRequiredRef.current = false;
             setWagerSubmitted(false);
             setWagerAmount(0);
           }
@@ -1146,22 +1251,40 @@ export default function GamePage() {
           if (currentlyEliminated) {
             setSelectedOption(null);
             setPhase('eliminated');
-          } else if (gs.questionState === 'ACTIVE') {
-            // Wager UI is only for `WAGER_COLLECTION`. Once the host starts the question,
-            // stay on the question screen (wager was locked earlier in `roundWagers`).
-            if (hasSelectionIdx(restoredIdx)) {
+          } else if (
+            gs.questionState === 'ACTIVE' ||
+            gs.questionState === 'REVEALED'
+          ) {
+            const needsWagerLock = teamNeedsWagerLockScreen(
+              gs.currentQuestion.roundType,
+              hasLockedWager,
+            );
+            if (needsWagerLock) {
+              setSelectedOption(null);
+              setRevealData(null);
+              setPointsGained(null);
+            } else if (hasSelectionIdx(restoredIdx)) {
               setSelectedOption(restoredIdx);
-              setPhase('answered');
             } else {
               setSelectedOption(null);
-              setPhase('question');
             }
-          } else if (gs.questionState === 'REVEALED') {
-            // Break end or page refresh can restore directly into a revealed question.
-            // Restore the submitted selection if available; otherwise the reveal screen would
-            // incorrectly fall back to the generic no-answer state after a refresh.
-            setSelectedOption(hasSelectionIdx(restoredIdx) ? restoredIdx : null);
-            setPhase(currentlyEliminated ? 'eliminated' : 'reveal');
+            const nextPhase = pickQuestionPlayerPhase({
+              roundType: gs.currentQuestion.roundType,
+              hasLockedWager,
+              questionState: gs.questionState,
+              hasRevealData: Boolean(revealDataRef.current),
+              restoredIdx,
+              eliminated: false,
+            });
+            setPhase(nextPhase);
+            if (
+              hasLockedWager &&
+              (gs.questionState || '').toUpperCase() === 'REVEALED' &&
+              !revealDataRef.current &&
+              nextPhase !== 'wager_input'
+            ) {
+              ensureRevealAfterWagerLockRef.current?.();
+            }
           } else {
             setSelectedOption(null);
             setPhase('waiting');
@@ -1217,18 +1340,12 @@ export default function GamePage() {
             }
           } else {
             setWagerSubmitted(false);
-            let nextAmount = initialWagerAmountForRoundType(wagerRoundType);
-            let wagerDraftMeta: { amount: number | null; pendingLock: boolean } = {
-              amount: null,
-              pendingLock: false,
-            };
-            if (session.pin && session.teamId != null && roundId != null) {
-              wagerDraftMeta = readWagerDraft(session.pin, Number(session.teamId), roundId);
-              const d = wagerDraftMeta.amount;
-              if (d != null && isValidWagerDraftAmount(wagerRoundType, d)) {
-                nextAmount = d;
-              }
-            }
+            const { amount: nextAmount, draftMeta: wagerDraftMeta } = resolveUnlockedWagerAmount(
+              session.pin,
+              session.teamId != null ? Number(session.teamId) : undefined,
+              roundId,
+              wagerRoundType,
+            );
             setWagerAmount(nextAmount);
             const dAmt = wagerDraftMeta.amount;
             if (
@@ -1396,11 +1513,37 @@ export default function GamePage() {
 
       setSelectedOption(dead ? null : restored);
 
+      const isWagerQuestion = isWagerRoundType(data.roundType);
+      let hasLockedWager = true;
+      if (isWagerQuestion) {
+        const { amount, hasLocked } = resolveLockedWagerFromPayload(session.teamId, null, {
+          currentQuestionLocked: data.lockedWagerAmount,
+        });
+        hasLockedWager = hasLocked;
+        wagerLockRequiredRef.current = !hasLocked;
+        if (hasLocked && amount != null) {
+          setWagerAmount(amount);
+          setWagerSubmitted(true);
+        } else {
+          setWagerSubmitted(false);
+          setWagerAmount(initialWagerAmountForRoundType(data.roundType));
+        }
+      }
+
       if (dead) {
         setPhase('eliminated');
         return;
       }
-      setPhase(hasSelectionIdx(restored) ? 'answered' : 'question');
+      setPhase(
+        pickQuestionPlayerPhase({
+          roundType: data.roundType,
+          hasLockedWager,
+          questionState: questionStateRef.current,
+          hasRevealData: Boolean(revealDataRef.current),
+          restoredIdx: restored,
+          eliminated: false,
+        }),
+      );
     };
 
     const onTimerUpdate = (data: {
@@ -1435,6 +1578,12 @@ export default function GamePage() {
 
     const onAnswerReveal = (data: RevealData) => {
       setHasInitialState(true);
+      if (wagerLockRequiredRef.current) {
+        setTimerRunning(false);
+        setPhase('wager_input');
+        return;
+      }
+      revealDataRef.current = data;
       setRevealData(data);
       setTimerRunning(false);
       // If the player is already eliminated coming into this reveal (e.g. they got knocked out
@@ -1495,6 +1644,27 @@ export default function GamePage() {
         appendSnapshotReplay(session.pin, Number(session.teamId), 'answer_reveal', data);
       }
     };
+
+    const ensureRevealAfterWagerLock = () => {
+      if (wagerLockRequiredRef.current || revealDataRef.current) return;
+      const pin = session.pin;
+      const tid = session.teamId;
+      if (!pin || tid == null) return;
+      const snap = readPlayerSnapshot(pin, Number(tid));
+      const ar = snap?.replays?.find((r) => r.event === 'answer_reveal');
+      if (ar?.data) {
+        onAnswerReveal(ar.data as RevealData);
+        return;
+      }
+      if (socket && session.teamName) {
+        socket.emit('join_session', {
+          pin,
+          teamName: session.teamName,
+          teamId: tid,
+        });
+      }
+    };
+    ensureRevealAfterWagerLockRef.current = ensureRevealAfterWagerLock;
 
     const onPlayerEliminated = (data: { teamId: number }) => {
       if (sameTeamId(data.teamId, session.teamId)) {
@@ -1595,9 +1765,34 @@ export default function GamePage() {
         if (isEliminatedRef.current) {
           setPhase('eliminated');
         } else if (revealDataRef.current && questionRef.current) {
-          setPhase('reveal');
+          const q = questionRef.current;
+          const { hasLocked: hasLockedWager } = resolveLockedWagerFromPayload(
+            session.teamId,
+            roundInfo?.round?.id,
+            { currentQuestionLocked: q.lockedWagerAmount },
+          );
+          if (teamNeedsWagerLockScreen(q.roundType, hasLockedWager)) {
+            setPhase('wager_input');
+          } else {
+            setPhase('reveal');
+          }
         } else if (questionRef.current) {
-          setPhase('question');
+          const q = questionRef.current;
+          const { hasLocked: hasLockedWager } = resolveLockedWagerFromPayload(
+            session.teamId,
+            roundInfo?.round?.id,
+            { currentQuestionLocked: q.lockedWagerAmount },
+          );
+          setPhase(
+            pickQuestionPlayerPhase({
+              roundType: q.roundType,
+              hasLockedWager,
+              questionState: questionStateRef.current,
+              hasRevealData: Boolean(revealDataRef.current),
+              restoredIdx: null,
+              eliminated: false,
+            }),
+          );
         } else {
           setPhase('waiting');
         }
@@ -1804,7 +1999,7 @@ export default function GamePage() {
     const pin = session.pin;
     const tid = session.teamId;
     const rid = roundInfo?.round?.id;
-    const rt = roundInfo?.round?.type;
+    const rt = question?.roundType || roundInfo?.round?.type;
     // Keep a sessionStorage draft until `session_state` shows the server-side lock. Clearing
     // here used to wipe the only copy of the chosen amount on refresh if `submit_wager` was
     // slow, failed, or the tab reloaded before Redis was read back on rejoin.
@@ -1813,11 +2008,24 @@ export default function GamePage() {
     }
     socket.emit('submit_wager', { amount: wagerAmount });
     setWagerSubmitted(true);
-    // Only advance to question phase if the question is already active.
-    // During WAGER_COLLECTION, stay on wager_input — the question_active event
-    // will move the player to question phase when the host starts the round.
-    if (question) {
-      setPhase('question');
+    wagerLockRequiredRef.current = false;
+    const restoredIdx = answerRestoreRef.current.idx;
+    const nextPhase = pickQuestionPlayerPhase({
+      roundType: rt,
+      hasLockedWager: true,
+      questionState: questionStateRef.current,
+      hasRevealData: Boolean(revealDataRef.current),
+      restoredIdx,
+      eliminated: false,
+    });
+    if (question || nextPhase !== 'wager_input') {
+      setPhase(nextPhase);
+    }
+    if (
+      (questionStateRef.current || '').toUpperCase() === 'REVEALED' &&
+      !revealDataRef.current
+    ) {
+      ensureRevealAfterWagerLockRef.current?.();
     }
   };
 
@@ -2158,7 +2366,11 @@ export default function GamePage() {
                       <p className="font-semibold text-green-300">
                         Wager locked in: {lockedWagerLabel}
                       </p>
-                      <p className="mt-1 text-white/60">Waiting for host to start the round...</p>
+                      <p className="mt-1 text-white/60">
+                        {question
+                          ? 'Return to the question to submit your answer.'
+                          : 'Waiting for host to start the round...'}
+                      </p>
                     </div>
                   )}
                 </div>
@@ -2524,47 +2736,30 @@ export default function GamePage() {
                     const myRevealResponse = revealData.responseDetails?.find((r) =>
                       sameTeamId(r.teamId, session.teamId),
                     );
-                    const hasRevealResponseForTeam = Boolean(myRevealResponse);
-                    const submittedViaRevealDetails = Boolean(
-                      myRevealResponse &&
-                      (Array.isArray(myRevealResponse.selectedOptionIndex)
-                        ? myRevealResponse.selectedOptionIndex.length > 0
-                        : Number.isFinite(Number(myRevealResponse.selectedOptionIndex)) &&
-                          Number(myRevealResponse.selectedOptionIndex) >= 0),
-                    );
-                    // Fallback for rare resync races where responseDetails can miss this team's row
-                    // but local selected option is already restored and rendered.
-                    const submittedViaLocalSelection =
-                      !hasRevealResponseForTeam &&
-                      (Array.isArray(selectedOption)
-                        ? selectedOption.length > 0
-                        : Number.isFinite(Number(selectedOption)) && Number(selectedOption) >= 0);
-                    const didSubmitOnReveal =
-                      submittedViaRevealDetails || submittedViaLocalSelection;
-                    const selectedFromReveal = Array.isArray(myRevealResponse?.selectedOptionIndex)
-                      ? null
-                      : Number.isFinite(Number(myRevealResponse?.selectedOptionIndex))
-                        ? Number(myRevealResponse?.selectedOptionIndex)
-                        : null;
-                    // Prefer what the player currently sees selected on UI; if absent, fall back
-                    // to reveal payload details.
-                    const selectedFromUi = Number.isFinite(Number(selectedOption))
-                      ? Number(selectedOption)
+                    const fromRevealIdx = myRevealResponse
+                      ? parseSubmittedIdxFromMineRaw(myRevealResponse.selectedOptionIndex)
                       : null;
-                    // Authoritative submitted index lives on the server payload — local `selectedOption`
-                    // can be stale after refresh/resync while scores/responseDetails are correct.
-                    const resolvedSelectedOption =
-                      selectedFromReveal !== null && selectedFromReveal !== undefined
-                        ? selectedFromReveal
-                        : selectedFromUi;
+                    const fromUiIdx = parseSubmittedIdxFromMineRaw(selectedOption);
+                    // Server row wins when present; otherwise trust local only if this team has no row
+                    // (late join / resync). Never treat `null` as option 0 — `Number(null) === 0`.
+                    const didSubmitOnReveal = myRevealResponse
+                      ? hasSelectionIdx(fromRevealIdx)
+                      : hasSelectionIdx(fromUiIdx);
+                    const resolvedSelectedOption = hasSelectionIdx(fromRevealIdx)
+                      ? Array.isArray(fromRevealIdx)
+                        ? null
+                        : Number(fromRevealIdx)
+                      : hasSelectionIdx(fromUiIdx) && !Array.isArray(fromUiIdx)
+                        ? Number(fromUiIdx)
+                        : null;
                     const correctIdxReveal = Number(revealData.correctOptionIndex);
-                    const answeredCorrectly =
-                      resolvedSelectedOption !== null &&
-                      Number.isFinite(resolvedSelectedOption) &&
-                      Number.isFinite(correctIdxReveal) &&
-                      correctIdxReveal >= 0
-                        ? Number(resolvedSelectedOption) === correctIdxReveal
-                        : Number(pointsGained ?? 0) > 0;
+                    const answeredCorrectly = didSubmitOnReveal
+                      ? resolvedSelectedOption !== null &&
+                        Number.isFinite(correctIdxReveal) &&
+                        correctIdxReveal >= 0
+                        ? resolvedSelectedOption === correctIdxReveal
+                        : Number(pointsGained ?? 0) > 0
+                      : false;
                     const correctPointsDisplay = usesServerPtsLabel
                       ? Math.max(Number(pointsGained ?? 0), 0)
                       : usesFixedTenTwo && answeredCorrectly

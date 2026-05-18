@@ -621,7 +621,9 @@ const submitWager = async (io, pin, teamId, amount) => {
   if (io) {
     const fresh = await redisStore.getGameState(pin);
     if (fresh) {
-      io.to(`session:${pin}`).emit(SOCKET_EVENTS.SESSION_STATE, sanitizeForClients(fresh));
+      // Must include `currentQuestion` during QUESTION — bare sanitizeForClients drops it and
+      // forces every client (players + host) onto the waiting UI.
+      io.to(`session:${pin}`).emit(SOCKET_EVENTS.SESSION_STATE, clientPayloadFromGameState(fresh));
     }
   }
 

@@ -194,6 +194,87 @@ interface RevealData {
   teams: Team[];
 }
 
+function resolveHostRosterCount(
+  activeTeamIds?: number[],
+  teams?: Record<string | number, Team>,
+  totalTeams?: number,
+): number {
+  const activeCount = Array.isArray(activeTeamIds) ? activeTeamIds.length : 0;
+  const teamMapCount = teams ? Object.keys(teams).length : 0;
+  return activeCount > 0 ? activeCount : teamMapCount || Math.max(0, Number(totalTeams || 0));
+}
+
+/** Fresh tallies when a question opens (or resumes) with no answers yet. */
+function bootstrapLiveResponseStats(
+  rosterCount: number,
+  answered = 0,
+): { correct: number; incorrect: number; noAnswer: number; total: number } {
+  const roster = Math.max(0, rosterCount);
+  const ans = Math.max(0, Math.min(roster, answered));
+  return {
+    correct: 0,
+    incorrect: 0,
+    noAnswer: Math.max(0, roster - ans),
+    total: Math.max(1, roster),
+  };
+}
+
+function liveStatsFromRevealPayload(
+  reveal: RevealData,
+  roundType?: string,
+): { correct: number; incorrect: number; noAnswer: number; total: number } {
+  const rt = (roundType || '').toUpperCase();
+  const isMajority = rt === 'MAJORITY_RULES';
+  const correctIdx = Number(reveal.correctOptionIndex);
+  const majorityWinners = new Set(
+    (reveal.majorityOptionIndexes || []).map(Number).filter((n) => Number.isFinite(n)),
+  );
+  const details = reveal.responseDetails || [];
+  let correct = 0;
+  let incorrect = 0;
+  let noAnswer = 0;
+
+  const hasValidSelection = (idx: unknown): boolean => {
+    if (idx === undefined || idx === null) return false;
+    if (Array.isArray(idx)) return idx.length > 0;
+    const n = Number(idx);
+    return Number.isFinite(n) && n >= 0;
+  };
+
+  for (const r of details) {
+    if (!hasValidSelection(r.selectedOptionIndex)) {
+      noAnswer += 1;
+      continue;
+    }
+    if (isMajority) {
+      const sel = Array.isArray(r.selectedOptionIndex) ? NaN : Number(r.selectedOptionIndex);
+      if (majorityWinners.has(sel)) correct += 1;
+      else incorrect += 1;
+    } else if (Array.isArray(r.selectedOptionIndex)) {
+      const score =
+        reveal.scores?.[String(r.teamId)] ??
+        (reveal.scores as Record<number, number> | undefined)?.[r.teamId];
+      if (Number(score) > 0) correct += 1;
+      else incorrect += 1;
+    } else if (Number(r.selectedOptionIndex) === correctIdx) {
+      correct += 1;
+    } else {
+      incorrect += 1;
+    }
+  }
+
+  if (details.length === 0 && reveal.teams?.length) {
+    noAnswer = reveal.teams.length;
+  }
+
+  const total = Math.max(
+    reveal.teams?.length ?? 0,
+    details.length,
+    correct + incorrect + noAnswer,
+  );
+  return { correct, incorrect, noAnswer, total };
+}
+
 const OPTION_LETTERS = ['A', 'B', 'C', 'D', 'E', 'F'];
 
 const VENUE_OPTION_COLOR_CLASSES = [
@@ -561,22 +642,30 @@ function HostDashboardContent() {
         }
         setCurrentQuestion(data.state === 'QUESTION' ? (data.currentQuestion ?? null) : null);
         setLiveResponses((prev) => {
-          const activeCount = Array.isArray(data.activeTeamIds) ? data.activeTeamIds.length : 0;
-          const teamMapCount = data.teams ? Object.keys(data.teams as object).length : 0;
-          const denom =
-            data.state === 'QUESTION' && data.questionState === 'ACTIVE'
-              ? activeCount > 0
-                ? activeCount
-                : teamMapCount || Number(data.totalTeams || 0)
-              : Number(data.totalTeams || 0);
+          const rosterCount = resolveHostRosterCount(
+            data.activeTeamIds,
+            data.teams as Record<string | number, Team> | undefined,
+            data.totalTeams,
+          );
+          const answered = Math.max(0, Number(data.responseCount ?? 0));
+          if (data.state === 'QUESTION' && data.questionState === 'ACTIVE') {
+            if (answered === 0) {
+              return bootstrapLiveResponseStats(rosterCount, 0);
+            }
+            const hasTallies = prev.correct + prev.incorrect + prev.noAnswer > 0;
+            if (hasTallies) {
+              return { ...prev, total: Math.max(prev.total, rosterCount, 1) };
+            }
+            return bootstrapLiveResponseStats(rosterCount, answered);
+          }
+          if (data.state === 'QUESTION' && data.questionState === 'REVEALED') {
+            return { ...prev, total: Math.max(prev.total, rosterCount, 1) };
+          }
           return {
-            correct:
-              data.state === 'QUESTION' && data.questionState === 'ACTIVE' ? prev.correct : 0,
-            incorrect:
-              data.state === 'QUESTION' && data.questionState === 'ACTIVE' ? prev.incorrect : 0,
-            noAnswer:
-              data.state === 'QUESTION' && data.questionState === 'ACTIVE' ? prev.noAnswer : 0,
-            total: denom,
+            correct: 0,
+            incorrect: 0,
+            noAnswer: 0,
+            total: rosterCount,
           };
         });
         if (data.questionState !== 'REVEALED') {
@@ -662,17 +751,11 @@ function HostDashboardContent() {
         typeof tr === 'number' && Number.isFinite(tr) ? tr : Number(data.timerDuration ?? 30),
       );
       setIsScoreboardVisible(false);
-      setLiveResponses({
-        correct: 0,
-        incorrect: 0,
-        noAnswer: 0,
-        total: (() => {
-          const g = gameStateRef.current;
-          const activeCount = Array.isArray(g?.activeTeamIds) ? g.activeTeamIds.length : 0;
-          const teamMapCount = g?.teams ? Object.keys(g.teams).length : 0;
-          return activeCount > 0 ? activeCount : teamMapCount || Number(g?.totalTeams || 0);
-        })(),
-      });
+      {
+        const g = gameStateRef.current;
+        const roster = resolveHostRosterCount(g?.activeTeamIds, g?.teams, g?.totalTeams);
+        setLiveResponses(bootstrapLiveResponseStats(roster, 0));
+      }
       setMp3Playing(false);
       setMp4Playing(false);
       setTimerPaused((data.roundType || '').toUpperCase() === 'MUSIC');
@@ -710,6 +793,9 @@ function HostDashboardContent() {
       setMp4Playing(false);
       setMp3Playing(false);
       socket.emit('music_control', { pin, action: 'pause' });
+      const gs = gameStateRef.current;
+      const roundType = gs?.rounds?.[gs.currentRoundIndex ?? 0]?.type;
+      setLiveResponses(liveStatsFromRevealPayload(data, roundType));
       setGameState((prev) => {
         if (!prev) return prev;
         const nextTeams = { ...prev.teams };
@@ -882,8 +968,13 @@ function HostDashboardContent() {
       );
     };
 
-    const onBreakEnd = () => {
-      // Exact phase/state is restored by server via session_state.
+    const onBreakEnd = (data?: { restoredState?: string; questionState?: string }) => {
+      if (data?.restoredState === 'QUESTION' && data?.questionState === 'ACTIVE') {
+        const g = gameStateRef.current;
+        const roster = resolveHostRosterCount(g?.activeTeamIds, g?.teams, g?.totalTeams);
+        const answered = Math.max(0, Number(g?.responseCount ?? 0));
+        setLiveResponses(bootstrapLiveResponseStats(roster, answered));
+      }
     };
 
     const onGameEnd = (data?: { teams?: Team[] }) => {
@@ -1222,6 +1313,11 @@ function HostDashboardContent() {
     setFinishedMiniGameType(null);
     setCardShuffleFinishedMessage('Game Over. Wait for the host to start the game.');
     const gs = gameStateRef.current;
+    if (gs?.state === 'LOBBY') {
+      setStartGameRequested(true);
+      emit('start_game');
+      return;
+    }
     const round = gs?.rounds?.[gs?.currentRoundIndex ?? 0];
     const isLastQuestion =
       Array.isArray(round?.questions) &&
@@ -1233,6 +1329,17 @@ function HostDashboardContent() {
     ) {
       emit('advance_round');
       return;
+    }
+    if (gs?.state === 'ROUND_INTRO') {
+      const isRoundEmpty = Array.isArray(round?.questions) && round.questions.length === 0;
+      if (isRoundEmpty) {
+        emit('advance_round');
+        return;
+      }
+      if (round?.type === 'WAGER' || round?.type === 'FINAL_WAGER') {
+        emit('collect_wagers');
+        return;
+      }
     }
     emit('next_question');
   };
@@ -1689,6 +1796,10 @@ function HostDashboardContent() {
     Array.isArray(currentRound?.questions) &&
     currentRound.questions.length === 0;
   const questionState = gameState?.questionState || 'WAITING';
+  const totalRounds = gameState?.rounds?.length || gameStateRef.current?.rounds?.length || 0;
+  const currentRoundIndex =
+    gameStateRef.current?.currentRoundIndex ?? gameState?.currentRoundIndex ?? 0;
+  const isLastRound = totalRounds > 0 && currentRoundIndex === totalRounds - 1;
   const teamList = gameState?.teams ? Object.values(gameState.teams) : [];
   const sortedTeams = [...teamList].sort((a, b) => b.score - a.score);
   /** Roster rows come from `teams`; never trust `totalTeams` alone (reconnect could inflate it). */
@@ -1726,9 +1837,27 @@ function HostDashboardContent() {
   const revealOnLastQuestionOfRound =
     state === 'QUESTION' && questionState === 'REVEALED' && isLastQuestionOfRound;
   const miniGameFinishShouldAdvanceRound = state === 'SCOREBOARD' || revealOnLastQuestionOfRound;
+  const isPreFirstQuestionRoundIntro = (sessionState: string, questionIdx: number, qState: string) =>
+    sessionState === 'ROUND_INTRO' && qState === 'WAITING' && questionIdx === 0;
+  const miniGameFinishTriviaNotStarted =
+    state === 'LOBBY' ||
+    isPreFirstQuestionRoundIntro(state, gameState?.currentQuestionIndex ?? 0, questionState) ||
+    (state === 'BREAK' &&
+      gameState?.breakResumeState &&
+      isPreFirstQuestionRoundIntro(
+        gameState.breakResumeState.state || 'ROUND_INTRO',
+        gameState.breakResumeState.currentQuestionIndex ?? 0,
+        gameState.breakResumeState.questionState || 'WAITING',
+      ));
   const miniGameFinishActionLabel = miniGameFinishShouldAdvanceRound
-    ? 'Start Next Round'
-    : 'Next Question';
+    ? isLastRound
+      ? 'Finish Game'
+      : 'Start Next Round'
+    : miniGameFinishTriviaNotStarted
+      ? state === 'LOBBY'
+        ? 'Start Game'
+        : 'Start Round'
+      : 'Next Question';
   const showNextQuestionAction =
     state === 'QUESTION' && questionState === 'REVEALED' && !isLastQuestionOfRound;
   const showRevealAnswerAction = state === 'QUESTION' && questionState === 'ACTIVE';
@@ -1753,7 +1882,6 @@ function HostDashboardContent() {
     (questionState === 'REVEALED' ||
       (questionState === 'ACTIVE' && !musicRoundAwaitingHostTimerStart && timerRemaining <= 0));
   const hostVideoPlaybackActive = mp4Playing && !hostMediaReplayLocked;
-  const totalRounds = gameState?.rounds?.length || 0;
   // While any mini-game (Kangaroo Race or Card Shuffle) is on the venue —
   // loaded → running → revealed, until the host taps Finish Race / Finish Game —
   // every standard footer control should be disabled so the host can't advance
@@ -1796,7 +1924,6 @@ function HostDashboardContent() {
       }
     }
   }, [hostVideoPlaybackActive]);
-  const isLastRound = totalRounds > 0 && gameState?.currentRoundIndex === totalRounds - 1;
   const isFinalRoundCompletionState =
     isLastRound &&
     (state === 'SCOREBOARD' ||

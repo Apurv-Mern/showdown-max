@@ -93,6 +93,59 @@ const parseSelectedOptionIndex = (rawResponse) => {
   }
 };
 
+/** Teams eligible to answer — prefer `activeTeamIds`, fall back to `teams` map (break resume, legacy state). */
+const resolveActiveTeamIdsForStats = (gameState) => {
+  const fromActive = (Array.isArray(gameState?.activeTeamIds) ? gameState.activeTeamIds : [])
+    .map(Number)
+    .filter((id) => Number.isFinite(id));
+  if (fromActive.length > 0) return fromActive;
+  return Object.keys(gameState?.teams || {})
+    .map(Number)
+    .filter((id) => Number.isFinite(id));
+};
+
+const isTeamEliminatedInState = (gameState, teamId) =>
+  Boolean(
+    gameState?.teams?.[teamId]?.isEliminated ?? gameState?.teams?.[String(teamId)]?.isEliminated,
+  );
+
+/** Late joiners / roster sync: enroll a non-eliminated team into the elimination active roster. */
+const ensureEliminationActiveTeam = (gameState, teamId) => {
+  const id = Number(teamId);
+  if (!Number.isFinite(id) || isTeamEliminatedInState(gameState, id)) return gameState;
+  const active = resolveActiveTeamIdsForStats(gameState);
+  if (active.includes(id)) return gameState;
+  return { ...gameState, activeTeamIds: [...active, id] };
+};
+
+/** Keep in-memory knockout state aligned when teams join mid elimination round. */
+const syncEliminationStateActiveRoster = (pin, gameState) => {
+  const elimState = eliminationStates.get(pin);
+  if (!elimState) return;
+  const active = resolveActiveTeamIdsForStats(gameState);
+  const merged = [...(elimState.activeTeamIds || []).map(Number).filter((id) => Number.isFinite(id))];
+  for (const id of active) {
+    if (!merged.includes(id) && !isTeamEliminatedInState(gameState, id)) {
+      merged.push(id);
+    }
+  }
+  elimState.activeTeamIds = merged;
+  eliminationStates.set(pin, elimState);
+};
+
+/** Any team that submitted for this question must be scored (and eligible for knockout). */
+const mergeEliminationRespondersIntoActive = (gameState, responses) => {
+  const round = stateMachine.getCurrentRound(gameState);
+  if (round?.type !== ROUND_TYPES.ELIMINATION) return gameState;
+  let next = gameState;
+  for (const teamIdStr of Object.keys(responses || {})) {
+    const id = Number(teamIdStr);
+    if (!Number.isFinite(id)) continue;
+    next = ensureEliminationActiveTeam(next, id);
+  }
+  return next;
+};
+
 /** Answers among a specific team-id list (used after a disconnect shrinks `activeTeamIds`). */
 const countValidAnswersAmongTeamIds = (responsesRaw, teamIds) => {
   if (!responsesRaw || !Array.isArray(teamIds)) return 0;
@@ -107,7 +160,7 @@ const countValidAnswersAmongTeamIds = (responsesRaw, teamIds) => {
 };
 
 const buildLiveResponseStats = (gameState, question, responsesRaw = {}) => {
-  const activeTeamIds = Array.isArray(gameState?.activeTeamIds) ? gameState.activeTeamIds : [];
+  const activeTeamIds = resolveActiveTeamIdsForStats(gameState);
   const total = activeTeamIds.length;
   const roundType = (
     question?.roundType ||
@@ -301,6 +354,12 @@ const nextQuestion = async (io, pin) => {
   let gameState = await redisStore.getGameState(pin);
   if (!gameState) return;
 
+  if (gameState.state === GAME_STATES.BREAK) {
+    await endBreak(io, pin);
+    gameState = await redisStore.getGameState(pin);
+    if (!gameState) return;
+  }
+
   if (gameState.state === GAME_STATES.ROUND_INTRO) {
     const round = stateMachine.getCurrentRound(gameState);
     if (isWagerLockRound(round)) {
@@ -330,18 +389,21 @@ const nextQuestion = async (io, pin) => {
   }
 
   gameState = stateMachine.activateQuestion(gameState);
+  const rosterIds = resolveActiveTeamIdsForStats(gameState);
+  if (
+    rosterIds.length > 0 &&
+    (!Array.isArray(gameState.activeTeamIds) || gameState.activeTeamIds.length === 0)
+  ) {
+    gameState.activeTeamIds = rosterIds;
+  }
   await redisStore.setGameState(pin, gameState);
 
   const question = stateMachine.getCurrentQuestion(gameState);
   const round = stateMachine.getCurrentRound(gameState);
   const effectiveTimer = Number(question.timerDuration ?? round.timerDuration ?? 30) || 30;
 
-  io.to(`session:${pin}`).emit(SOCKET_EVENTS.LIVE_RESPONSE_UPDATE, {
-    correct: 0,
-    incorrect: 0,
-    noAnswer: 0,
-    total: gameState.activeTeamIds.length,
-  });
+  const responsesRaw = await redisStore.getResponses(pin, question.id);
+  const liveStatsOnActivate = buildLiveResponseStats(gameState, question, responsesRaw);
   logger.info('Question activated', {
     pin,
     roundIndex: gameState.currentRoundIndex,
@@ -453,6 +515,7 @@ const nextQuestion = async (io, pin) => {
       clientPayloadFromGameState(gsForQuestionActive),
     );
   }
+  io.to(`session:${pin}`).emit(SOCKET_EVENTS.LIVE_RESPONSE_UPDATE, liveStatsOnActivate);
 };
 
 /**
@@ -499,20 +562,19 @@ const submitAnswer = async (io, pin, teamId, data) => {
     return;
   }
 
-  if (
-    currentRound?.type === ROUND_TYPES.ELIMINATION &&
-    (!gameState.activeTeamIds.map(Number).includes(Number(teamId)) ||
-      Boolean(
-        gameState.teams?.[teamId]?.isEliminated ?? gameState.teams?.[String(teamId)]?.isEliminated,
-      ))
-  ) {
-    logger.info('Rejected answer from eliminated team', {
-      pin,
-      teamId,
-      roundIndex: gameState.currentRoundIndex,
-      questionIndex: gameState.currentQuestionIndex,
-    });
-    return;
+  if (currentRound?.type === ROUND_TYPES.ELIMINATION) {
+    if (isTeamEliminatedInState(gameState, teamId)) {
+      logger.info('Rejected answer from eliminated team', {
+        pin,
+        teamId,
+        roundIndex: gameState.currentRoundIndex,
+        questionIndex: gameState.currentQuestionIndex,
+      });
+      return;
+    }
+    gameState = ensureEliminationActiveTeam(gameState, teamId);
+    await redisStore.updateGameState(pin, { activeTeamIds: gameState.activeTeamIds });
+    syncEliminationStateActiveRoster(pin, gameState);
   }
 
   const existing = await redisStore.getResponses(pin, question.id);
@@ -556,11 +618,10 @@ const submitAnswer = async (io, pin, teamId, data) => {
   gameState.responseCount = count;
   await redisStore.updateGameState(pin, { responseCount: count });
 
+  const rosterTotal = resolveActiveTeamIdsForStats(gameState).length;
   io.to(`session:${pin}`).emit(SOCKET_EVENTS.RESPONSE_COUNT, {
     count,
-    total: Array.isArray(gameState.activeTeamIds)
-      ? gameState.activeTeamIds.length
-      : gameState.totalTeams,
+    total: rosterTotal > 0 ? rosterTotal : gameState.totalTeams,
   });
   const responsesRaw = await redisStore.getResponses(pin, question.id);
   io.to(`session:${pin}`).emit(
@@ -577,7 +638,7 @@ const submitAnswer = async (io, pin, teamId, data) => {
     totalTeams: gameState.totalTeams,
   });
 
-  if (count >= gameState.activeTeamIds.length) {
+  if (count >= Math.max(1, rosterTotal)) {
     timerManager.forceExpire(pin);
 
     io.to(`session:${pin}`).emit(SOCKET_EVENTS.TIMER_UPDATE, { remaining: 0, timerRunning: false });
@@ -655,20 +716,6 @@ const revealAnswer = async (io, pin) => {
   const question = stateMachine.getCurrentQuestion(gameState);
   const rawResponses = await redisStore.getResponses(pin, question.id);
 
-  // Safety: in elimination rounds, scores for knocked-out teams must stay frozen.
-  // Keep active list strictly aligned to non-eliminated teams before scoring.
-  if (round.type === ROUND_TYPES.ELIMINATION) {
-    const filteredActiveTeamIds = (
-      Array.isArray(gameState.activeTeamIds) ? gameState.activeTeamIds : []
-    )
-      .map(Number)
-      .filter((id) => gameState.teams?.[id] && !gameState.teams[id].isEliminated);
-
-    if (filteredActiveTeamIds.length !== gameState.activeTeamIds.length) {
-      gameState.activeTeamIds = filteredActiveTeamIds;
-    }
-  }
-
   const responses = {};
   for (const [teamId, raw] of Object.entries(rawResponses)) {
     try {
@@ -684,8 +731,18 @@ const revealAnswer = async (io, pin) => {
     }
   }
 
+  if (round.type === ROUND_TYPES.ELIMINATION) {
+    gameState = mergeEliminationRespondersIntoActive(gameState, responses);
+    syncEliminationStateActiveRoster(pin, gameState);
+    const filteredActiveTeamIds = resolveActiveTeamIdsForStats(gameState).filter(
+      (id) => !isTeamEliminatedInState(gameState, id),
+    );
+    gameState.activeTeamIds = filteredActiveTeamIds;
+  }
+
   const isWagerRound = round.type === ROUND_TYPES.WAGER || round.type === ROUND_TYPES.FINAL_WAGER;
-  for (const teamId of gameState.activeTeamIds) {
+  const activeForReveal = resolveActiveTeamIdsForStats(gameState);
+  for (const teamId of activeForReveal) {
     const tid = String(teamId);
     if (!responses[tid]) {
       responses[tid] = {
@@ -704,7 +761,7 @@ const revealAnswer = async (io, pin) => {
     responses,
     questionIndex: gameState.currentQuestionIndex,
     teams: gameState.teams,
-    activeTeamIds: gameState.activeTeamIds,
+    activeTeamIds: activeForReveal,
   });
 
   for (const [teamId, points] of Object.entries(result.scores)) {
@@ -717,7 +774,10 @@ const revealAnswer = async (io, pin) => {
   if (round.type === ROUND_TYPES.ELIMINATION) {
     let elimState = eliminationStates.get(pin);
     if (!elimState) {
-      elimState = knockoutEngine.initEliminationRound(gameState.activeTeamIds);
+      elimState = knockoutEngine.initEliminationRound(activeForReveal);
+    } else {
+      syncEliminationStateActiveRoster(pin, gameState);
+      elimState = eliminationStates.get(pin);
     }
     elimState = knockoutEngine.processElimination(
       elimState,
@@ -1214,6 +1274,14 @@ const endBreak = async (io, pin) => {
     delete gameState.breakResumeState;
     delete gameState.breakEndsAt;
     gameState.breakRemaining = 0;
+
+    const rosterIds = resolveActiveTeamIdsForStats(gameState);
+    if (
+      rosterIds.length > 0 &&
+      (!Array.isArray(gameState.activeTeamIds) || gameState.activeTeamIds.length === 0)
+    ) {
+      gameState.activeTeamIds = rosterIds;
+    }
 
     await redisStore.setGameState(pin, gameState);
     io.to(`session:${pin}`).emit(SOCKET_EVENTS.BREAK_END, {

@@ -1632,13 +1632,18 @@ export default function GamePage() {
       // array on `answer_reveal` still carries the wrong-team list for telemetry. Honour
       // `allWrong` here so the last surviving player isn't bounced into the eliminated UI
       // when they answer alone and miss.
-      if (!data.allWrong && data.eliminations?.some((id) => sameTeamId(id, session.teamId))) {
+      if (
+        !data.allWrong &&
+        (data.eliminations?.some((id) => sameTeamId(id, session.teamId)) ||
+          Boolean(myTeam?.isEliminated))
+      ) {
         isEliminatedRef.current = true;
         setIsEliminated(true);
         setPhase('eliminated');
       } else if (persistEliminated) {
         isEliminatedRef.current = true;
         setIsEliminated(true);
+        setPhase('eliminated');
       }
       if (session.pin && session.teamId != null) {
         appendSnapshotReplay(session.pin, Number(session.teamId), 'answer_reveal', data);

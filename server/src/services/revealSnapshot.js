@@ -91,9 +91,21 @@ const buildRevealSnapshot = async (pin, gameState) => {
   let activeTeamIds = Array.isArray(gameState.activeTeamIds) ? [...gameState.activeTeamIds] : [];
 
   if (round.type === ROUND_TYPES.ELIMINATION) {
-    activeTeamIds = activeTeamIds
-      .map(Number)
-      .filter((id) => gameState.teams?.[id] && !gameState.teams[id].isEliminated);
+    const activeSet = new Set(
+      activeTeamIds
+        .map(Number)
+        .filter((id) => {
+          if (!Number.isFinite(id)) return false;
+          const row = gameState.teams?.[id] ?? gameState.teams?.[String(id)];
+          return row && !row.isEliminated;
+        }),
+    );
+    for (const teamIdStr of Object.keys(responses || {})) {
+      const id = Number(teamIdStr);
+      const row = gameState.teams?.[id] ?? gameState.teams?.[teamIdStr];
+      if (Number.isFinite(id) && row && !row.isEliminated) activeSet.add(id);
+    }
+    activeTeamIds = [...activeSet];
   }
 
   for (const teamId of activeTeamIds) {

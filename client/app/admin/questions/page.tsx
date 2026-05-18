@@ -533,7 +533,7 @@ export default function QuestionsPage() {
     <div className="flex flex-col gap-6 antialiased">
       <div className="flex min-h-12 flex-wrap items-center justify-between gap-4">
         <h1 className="text-[30px] font-medium leading-9 text-white">Question Bank</h1>
-        <button
+        {/* <button
           type="button"
           onClick={() => openAddModal()}
           className="flex h-12 items-center gap-3 rounded-[14px] bg-[#2e354c] px-5 text-base font-medium text-white transition-colors hover:bg-[#3a4260]"
@@ -550,7 +550,7 @@ export default function QuestionsPage() {
             <line x1="5" y1="12" x2="19" y2="12" />
           </svg>
           Add Question
-        </button>
+        </button> */}
       </div>
       <p className="text-sm text-[#99a1af]">
         {total} question{total !== 1 ? 's' : ''} · set category to Easy, Medium, or Hard to tag

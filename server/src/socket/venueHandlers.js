@@ -326,4 +326,5 @@ const buildFullStatePayload = async (gameState, pin) => {
   };
 };
 
+venueHandlers.buildFullStatePayload = buildFullStatePayload;
 module.exports = venueHandlers;

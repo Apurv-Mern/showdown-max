@@ -48,6 +48,12 @@ interface Team {
   isEliminated?: boolean;
 }
 
+function sameVenueTeamId(a: unknown, b: unknown): boolean {
+  const na = Number(a);
+  const nb = Number(b);
+  return Number.isFinite(na) && Number.isFinite(nb) && na === nb;
+}
+
 interface QuestionData {
   questionIndex: number;
   totalQuestions: number;
@@ -956,8 +962,14 @@ function VenueDisplayContent() {
           typeof data.teams === 'object' && !Array.isArray(data.teams)
             ? (Object.values(data.teams) as Team[])
             : (data.teams as Team[]);
+        const rosterCount = teamList.length;
         setTeams(teamList);
-        setTotalTeams(teamList.length);
+        setTotalTeams(rosterCount);
+        setLiveResponses((prev) => ({ ...prev, total: rosterCount }));
+      } else if (Number.isFinite(Number(data.totalTeams))) {
+        const n = Math.max(0, Number(data.totalTeams));
+        setTotalTeams(n);
+        setLiveResponses((prev) => ({ ...prev, total: n }));
       }
       const stateToPhase: Record<string, VenuePhase> = {
         LOBBY: 'lobby',
@@ -1118,17 +1130,32 @@ function VenueDisplayContent() {
     };
 
     const onTeamJoined = (team: Team) => {
-      setTeams((prev) => [...prev.filter((t) => t.teamId !== team.teamId), team]);
-      setTotalTeams((prev) => prev + 1);
+      setTeams((prev) => {
+        const next = [
+          ...prev.filter((t) => !sameVenueTeamId(t.teamId, team.teamId)),
+          team,
+        ];
+        const n = next.length;
+        setTotalTeams(n);
+        setLiveResponses((lr) => ({ ...lr, total: n }));
+        return next;
+      });
     };
 
     const onTeamRemoved = ({ teamId }: { teamId: number }) => {
-      setTeams((prev) => prev.filter((t) => t.teamId !== teamId));
-      setTotalTeams((prev) => Math.max(0, prev - 1));
-      setLiveResponses((prev) => ({
-        ...prev,
-        total: Math.max(0, (prev.total || 0) - 1),
-      }));
+      setTeams((prev) => {
+        const next = prev.filter((t) => !sameVenueTeamId(t.teamId, teamId));
+        const n = next.length;
+        setTotalTeams(n);
+        setLiveResponses((lr) => ({
+          ...lr,
+          total: n,
+          correct: Math.min(lr.correct, n),
+          incorrect: Math.min(lr.incorrect, n),
+          noAnswer: Math.min(lr.noAnswer, n),
+        }));
+        return next;
+      });
     };
 
     const clearVenueMiniGameOverlay = () => {
@@ -1194,7 +1221,9 @@ function VenueDisplayContent() {
     };
 
     const onResponseCount = (data: { count: number; total: number }) => {
-      setTotalTeams(data.total);
+      const n = Math.max(0, Number(data.total) || 0);
+      setTotalTeams(n);
+      setLiveResponses((prev) => ({ ...prev, total: n }));
     };
 
     const onLiveResponseUpdate = (data: {
@@ -1648,21 +1677,9 @@ function VenueDisplayContent() {
     </div>
   );
 
-  /** Roster from session_state + team_removed / team_joined — authoritative for “teams in session”. */
-  const rosterTeamCount = Math.max(teams.length, totalTeams);
-  /**
-   * liveResponses.total can stay stale (e.g. disconnect during REVEAL — server may not re-emit
-   * live_response_update). Never show a headcount above roster or below it when roster is 0.
-   */
-  const liveTotalTeams = Math.max(
-    0,
-    Math.min(
-      typeof liveResponses.total === 'number' && liveResponses.total > 0
-        ? liveResponses.total
-        : Number.POSITIVE_INFINITY,
-      rosterTeamCount,
-    ),
-  );
+  /** Roster length is authoritative — do not use max(teams, totalTeams); totalTeams can lag after remove. */
+  const rosterTeamCount = teams.length;
+  const liveTotalTeams = rosterTeamCount;
   const liveQuestionPoints = (() => {
     const roundType = (question?.roundType || '').toUpperCase();
     if (roundType === 'WAGER') return '0-50';

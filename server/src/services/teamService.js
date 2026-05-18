@@ -3,6 +3,9 @@ const logger = require('../utils/logger');
 const { normalizeTeamName, sanitizeTeamName } = require('../utils/teamName');
 const { getSocketIo } = require('../socket/ioRegistry');
 const { purgeTeamFromLiveSession } = require('./purgeTeamFromLiveSession');
+const venueHandlers = require('../socket/venueHandlers');
+const redisStore = require('./redisSessionStore');
+const { SOCKET_EVENTS } = require('shared/constants/socketEvents');
 
 /**
  * Create a new team for a session (admin REST endpoint).
@@ -98,6 +101,13 @@ const removeTeam = async (teamId) => {
         direct: true,
         reason: 'host_removed',
       });
+    }
+    const gameState = await redisStore.getGameState(pin);
+    if (gameState) {
+      io.to(`session:${pin}`).emit(
+        SOCKET_EVENTS.SESSION_STATE,
+        await venueHandlers.buildFullStatePayload(gameState, pin),
+      );
     }
   }
 

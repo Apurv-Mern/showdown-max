@@ -8,8 +8,33 @@ const redisStore = require('../services/redisSessionStore');
 const { Session, Quiz, Round, Question, Team } = require('../models');
 const { normalizeTeamName, sanitizeTeamName } = require('../utils/teamName');
 const { purgeTeamFromLiveSession } = require('../services/purgeTeamFromLiveSession');
+const venueHandlers = require('./venueHandlers');
 
 const purgeTeamRecord = async (pin, teamId) => purgeTeamFromLiveSession(pin, teamId, true);
+
+/** Push full roster to host + venue after manual add/remove (same shape as reconnect). */
+const emitSessionRosterState = async (io, pin) => {
+  const gameState = await redisStore.getGameState(pin);
+  if (gameState) {
+    io.to(`session:${pin}`).emit(
+      SOCKET_EVENTS.SESSION_STATE,
+      await venueHandlers.buildFullStatePayload(gameState, pin),
+    );
+    return;
+  }
+  const session = await Session.findOne({ where: { pin } });
+  const lobbyTeams = await redisStore.getLobbyTeams(pin);
+  io.to(`session:${pin}`).emit(SOCKET_EVENTS.SESSION_STATE, {
+    state: 'LOBBY',
+    pin,
+    teams: lobbyTeams.reduce((acc, t) => {
+      acc[t.teamId] = t;
+      return acc;
+    }, {}),
+    totalTeams: lobbyTeams.length,
+    maxTeams: session?.maxTeams || lobbyTeams.length,
+  });
+};
 
 /**
  * Registers host-specific socket event handlers
@@ -280,6 +305,7 @@ const hostHandlers = (io, socket) => {
       await redisStore.removeHostRemovalBlocklistNormalizedNames(pin, [normalized]);
 
       io.to(`session:${pin}`).emit(SOCKET_EVENTS.TEAM_JOINED, teamData);
+      await emitSessionRosterState(io, pin);
       logger.info('Team added manually', { pin, teamName, score });
     } catch (err) {
       logger.error('add_team error', { error: err.message });
@@ -302,6 +328,7 @@ const hostHandlers = (io, socket) => {
           reason: 'host_removed',
         });
       }
+      await emitSessionRosterState(io, pin);
       logger.info('Team removed', { pin, teamId });
     } catch (err) {
       logger.error('remove_team error', { error: err.message });

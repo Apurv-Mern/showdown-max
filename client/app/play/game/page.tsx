@@ -161,7 +161,7 @@ function pickQuestionPlayerPhase(opts: {
   return 'question';
 }
 
-function teamNeedsWagerLockScreen(roundType?: string, hasLockedWager: boolean): boolean {
+function teamNeedsWagerLockScreen(roundType?: string, hasLockedWager?: boolean): boolean {
   return isWagerRoundType(roundType) && !hasLockedWager;
 }
 
@@ -172,7 +172,10 @@ function resolveUnlockedWagerAmount(
   roundType: string | undefined,
 ): { amount: number; draftMeta: { amount: number | null; pendingLock: boolean } } {
   let nextAmount = initialWagerAmountForRoundType(roundType);
-  let draftMeta: { amount: number | null; pendingLock: boolean } = { amount: null, pendingLock: false };
+  let draftMeta: { amount: number | null; pendingLock: boolean } = {
+    amount: null,
+    pendingLock: false,
+  };
   if (pin && teamId != null && roundId != null) {
     draftMeta = readWagerDraft(pin, Number(teamId), roundId);
     const d = draftMeta.amount;
@@ -1251,10 +1254,7 @@ export default function GamePage() {
           if (currentlyEliminated) {
             setSelectedOption(null);
             setPhase('eliminated');
-          } else if (
-            gs.questionState === 'ACTIVE' ||
-            gs.questionState === 'REVEALED'
-          ) {
+          } else if (gs.questionState === 'ACTIVE' || gs.questionState === 'REVEALED') {
             const needsWagerLock = teamNeedsWagerLockScreen(
               gs.currentQuestion.roundType,
               hasLockedWager,
@@ -2021,10 +2021,7 @@ export default function GamePage() {
     if (question || nextPhase !== 'wager_input') {
       setPhase(nextPhase);
     }
-    if (
-      (questionStateRef.current || '').toUpperCase() === 'REVEALED' &&
-      !revealDataRef.current
-    ) {
+    if ((questionStateRef.current || '').toUpperCase() === 'REVEALED' && !revealDataRef.current) {
       ensureRevealAfterWagerLockRef.current?.();
     }
   };

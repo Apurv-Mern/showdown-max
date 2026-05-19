@@ -146,6 +146,7 @@ interface GameState {
   breakEndsAt?: number;
   /** Present on some payloads so clients can estimate server/client clock skew. */
   serverNow?: number;
+  breakResumeState?: Partial<GameState> | null;
   rounds: { id: number; name: string; type: string; timerDuration: number; questions: unknown[] }[];
   teams: Record<string, Team>;
   activeTeamIds: number[];
@@ -187,6 +188,7 @@ interface RevealData {
   correctOptionIndex: number;
   correctText: string;
   scores: Record<string, number>;
+  responseDetails?: { teamId: number; selectedOptionIndex: number | number[]; responseTime?: number | null }[];
   majorityOptionIndexes?: number[];
   voteCounts?: Record<string, number>;
   eliminations: number[];

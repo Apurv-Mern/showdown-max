@@ -145,6 +145,72 @@ const getRoundScoringLines = (roundType?: string) => {
   };
 };
 
+function bootstrapLiveResponseStats(
+  rosterCount: number,
+  answered = 0,
+): { correct: number; incorrect: number; noAnswer: number; total: number } {
+  const roster = Math.max(0, rosterCount);
+  const ans = Math.max(0, Math.min(roster, answered));
+  return {
+    correct: 0,
+    incorrect: 0,
+    noAnswer: Math.max(0, roster - ans),
+    total: Math.max(1, roster),
+  };
+}
+
+function liveStatsFromRevealPayload(
+  reveal: RevealData,
+  roundType?: string,
+): { correct: number; incorrect: number; noAnswer: number; total: number } {
+  const rt = (roundType || '').toUpperCase();
+  const isMajority = rt === 'MAJORITY_RULES';
+  const correctIdx = Number(reveal.correctOptionIndex);
+  const majorityWinners = new Set(
+    (reveal.majorityOptionIndexes || []).map(Number).filter((n) => Number.isFinite(n)),
+  );
+  const details = reveal.responseDetails || [];
+  let correct = 0;
+  let incorrect = 0;
+  let noAnswer = 0;
+
+  const hasValidSelection = (idx: unknown): boolean => {
+    if (idx === undefined || idx === null) return false;
+    if (Array.isArray(idx)) return idx.length > 0;
+    const n = Number(idx);
+    return Number.isFinite(n) && n >= 0;
+  };
+
+  for (const r of details) {
+    if (!hasValidSelection(r.selectedOptionIndex)) {
+      noAnswer += 1;
+      continue;
+    }
+    if (isMajority) {
+      const sel = Array.isArray(r.selectedOptionIndex) ? NaN : Number(r.selectedOptionIndex);
+      if (majorityWinners.has(sel)) correct += 1;
+      else incorrect += 1;
+    } else if (Array.isArray(r.selectedOptionIndex)) {
+      const score =
+        reveal.scores?.[String(r.teamId)] ??
+        (reveal.scores as Record<number, number> | undefined)?.[r.teamId];
+      if (Number(score) > 0) correct += 1;
+      else incorrect += 1;
+    } else if (Number(r.selectedOptionIndex) === correctIdx) {
+      correct += 1;
+    } else {
+      incorrect += 1;
+    }
+  }
+
+  if (details.length === 0 && reveal.teams?.length) {
+    noAnswer = reveal.teams.length;
+  }
+
+  const total = Math.max(reveal.teams?.length ?? 0, details.length, correct + incorrect + noAnswer);
+  return { correct, incorrect, noAnswer, total };
+}
+
 const formatRoundTypeLabel = (roundType?: string) => {
   const type = (roundType || '').toUpperCase();
   switch (type) {
@@ -521,7 +587,10 @@ function VenueDisplayContent() {
       if (Number.isFinite(Number(data.timerRemaining))) {
         setTimerRemaining(Number(data.timerRemaining));
       }
-      if (data.revealData) setRevealData(data.revealData);
+      if (data.revealData) {
+        setRevealData(data.revealData);
+        setLiveResponses(liveStatsFromRevealPayload(data.revealData, data.question?.roundType));
+      }
       if (Array.isArray(data.scoreboard)) setScoreboard(data.scoreboard);
       if (data.miniGameType) {
         const cachedMini = normalizeVenueMiniGameType(data.miniGameType);
@@ -1068,11 +1137,32 @@ function VenueDisplayContent() {
         if (typeof data.timerRunning === 'boolean') {
           setTimerRunning(data.timerRunning);
         }
-        const total = Number(data.totalTeams ?? 0);
-        setLiveResponses({ correct: 0, incorrect: 0, noAnswer: 0, total });
       } else if (data.state !== 'QUESTION') {
         setQuestion(null);
       }
+
+      setLiveResponses((prev) => {
+        const rosterCount = Array.isArray(data.activeTeamIds) 
+          ? data.activeTeamIds.length 
+          : (data.teams ? Object.keys(data.teams).length : 0) || Number(data.totalTeams || 0);
+        const answered = Math.max(0, Number(data.responseCount ?? 0));
+        
+        if (data.state === 'QUESTION' && data.questionState === 'ACTIVE') {
+          if (answered === 0) {
+            return bootstrapLiveResponseStats(rosterCount, 0);
+          }
+          return { ...prev, total: Math.max(prev.total, rosterCount, 1) };
+        }
+        if (data.state === 'QUESTION' && data.questionState === 'REVEALED') {
+          return { ...prev, total: Math.max(prev.total, rosterCount, 1) };
+        }
+        return {
+          correct: 0,
+          incorrect: 0,
+          noAnswer: 0,
+          total: rosterCount,
+        };
+      });
 
       if (data.state === 'QUESTION') {
         if (data.currentQuestion) {
@@ -1243,6 +1333,7 @@ function VenueDisplayContent() {
     const onAnswerReveal = (data: RevealData) => {
       clearVenueMiniGameOverlay();
       setRevealData(data);
+      setLiveResponses(liveStatsFromRevealPayload(data, questionRef.current?.roundType));
       setScoreboard(data.teams.sort((a, b) => b.score - a.score));
       setPhase('reveal');
     };

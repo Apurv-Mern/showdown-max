@@ -23,7 +23,7 @@ const emitSessionRosterState = async (io, pin) => {
     return;
   }
   const session = await Session.findOne({ where: { pin } });
-  const lobbyTeams = await redisStore.getLobbyTeams(pin);
+  const lobbyTeams = await redisStore.getAllTeamsData(pin);
   io.to(`session:${pin}`).emit(SOCKET_EVENTS.SESSION_STATE, {
     state: 'LOBBY',
     pin,
@@ -72,7 +72,7 @@ const hostHandlers = (io, socket) => {
         return;
       }
 
-      const lobbyTeams = await redisStore.getLobbyTeams(pin);
+      const lobbyTeams = await redisStore.getAllTeamsData(pin);
       if (lobbyTeams.length === 0) {
         socket.emit(SOCKET_EVENTS.ERROR, {
           message: 'Cannot start game with no teams. Wait for players to join.',

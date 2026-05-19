@@ -300,7 +300,7 @@ const createHorseRaceState = (kangarooNames = DEFAULT_KANGAROO_NAMES) => ({
  */
 const startGame = async (io, pin, quiz, sessionId) => {
   const gameState = stateMachine.createInitialState(sessionId, quiz);
-  const teams = await redisStore.getLobbyTeams(pin);
+  const teams = await redisStore.getAllTeamsData(pin);
   const session = await Session.findByPk(sessionId);
 
   gameState.totalTeams = teams.length;
@@ -1446,7 +1446,7 @@ const launchMiniGame = async (io, pin, gameType, config = {}) => {
 
   // If launching from LOBBY, gameState might not exist yet
   if (!gameState) {
-    const lobbyTeams = await redisStore.getLobbyTeams(pin);
+    const lobbyTeams = await redisStore.getAllTeamsData(pin);
     const teamsObj = {};
     for (const t of lobbyTeams) {
       teamsObj[t.teamId] = t;

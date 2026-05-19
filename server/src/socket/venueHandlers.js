@@ -134,7 +134,7 @@ const venueHandlers = (io, socket) => {
         const session = await Session.findOne({
           where: { pin, status: { [Op.in]: ['pending', 'active'] } },
         });
-        const lobbyTeams = await redisStore.getLobbyTeams(pin);
+        const lobbyTeams = await redisStore.getAllTeamsData(pin);
         if (session) {
           socket.emit(SOCKET_EVENTS.SESSION_STATE, {
             state: 'LOBBY',
@@ -177,7 +177,7 @@ const venueHandlers = (io, socket) => {
         await emitTriviaReconnectSideEvents(socket, pin, gameState);
       } else {
         const session = await Session.findOne({ where: { pin } });
-        const lobbyTeams = await redisStore.getLobbyTeams(pin);
+        const lobbyTeams = await redisStore.getAllTeamsData(pin);
         socket.emit(SOCKET_EVENTS.SESSION_STATE, {
           state: 'LOBBY',
           pin,
@@ -241,7 +241,7 @@ const buildFullStatePayload = async (gameState, pin) => {
   const currentQuestionRow = currentRound?.questions?.[gameState.currentQuestionIndex] || null;
   const includeQuestionPayload = gameState.state === 'QUESTION' && !gameState.activeMiniGame;
   const currentQuestion = includeQuestionPayload ? currentQuestionRow : null;
-  const lobbyTeams = await redisStore.getLobbyTeams(pin);
+  const lobbyTeams = await redisStore.getAllTeamsData(pin);
   const teams =
     gameState.teams && Object.keys(gameState.teams).length > 0
       ? gameState.teams

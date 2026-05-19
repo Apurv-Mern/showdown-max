@@ -572,9 +572,6 @@ const submitAnswer = async (io, pin, teamId, data) => {
       });
       return;
     }
-    gameState = ensureEliminationActiveTeam(gameState, teamId);
-    await redisStore.updateGameState(pin, { activeTeamIds: gameState.activeTeamIds });
-    syncEliminationStateActiveRoster(pin, gameState);
   }
 
   const existing = await redisStore.getResponses(pin, question.id);
@@ -616,7 +613,18 @@ const submitAnswer = async (io, pin, teamId, data) => {
 
   const count = await redisStore.getResponseCount(pin, question.id);
   gameState.responseCount = count;
-  await redisStore.updateGameState(pin, { responseCount: count });
+
+  let updates = { responseCount: count };
+  if (currentRound?.type === ROUND_TYPES.ELIMINATION) {
+    const nextState = ensureEliminationActiveTeam(gameState, teamId);
+    if (nextState !== gameState) {
+      updates.activeTeamIds = nextState.activeTeamIds;
+      gameState.activeTeamIds = nextState.activeTeamIds;
+    }
+    syncEliminationStateActiveRoster(pin, gameState);
+  }
+
+  await redisStore.updateGameState(pin, updates);
 
   const rosterTotal = resolveActiveTeamIdsForStats(gameState).length;
   io.to(`session:${pin}`).emit(SOCKET_EVENTS.RESPONSE_COUNT, {

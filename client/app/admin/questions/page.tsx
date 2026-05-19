@@ -457,14 +457,21 @@ export default function QuestionsPage() {
     }
   };
 
-  const handleDeleteQuestion = async (id: number) => {
-    if (!confirm('Delete this question?')) return;
+  const [questionToDelete, setQuestionToDelete] = useState<number | null>(null);
+
+  const handleDeleteQuestion = (id: number) => {
+    setQuestionToDelete(id);
+  };
+
+  const executeDeleteQuestion = async () => {
+    if (questionToDelete === null) return;
     try {
-      await api.delete(`/api/questions/${id}`);
-      setQuestions((prev) => prev.filter((q) => q.id !== id));
+      await api.delete(`/api/questions/${questionToDelete}`);
+      setQuestions((prev) => prev.filter((q) => q.id !== questionToDelete));
       setTotal((prev) => prev - 1);
       fetchRounds();
       toast.success('Question deleted');
+      setQuestionToDelete(null);
     } catch (err) {
       console.error('Failed to delete question:', err);
       toast.error('Failed to delete question');
@@ -971,7 +978,7 @@ export default function QuestionsPage() {
                     <div className="flex items-center gap-2 shrink-0">
                       {formData.mediaType === 'image' && (
                         <img
-                          src={`${API_URL}${formData.mediaUrl}`}
+                          src={formData.mediaUrl}
                           alt="preview"
                           className="w-12 h-12 object-cover rounded"
                         />
@@ -1147,6 +1154,24 @@ export default function QuestionsPage() {
           </Modal>
         );
       })()}
+
+      <Modal
+        isOpen={questionToDelete !== null}
+        onClose={() => setQuestionToDelete(null)}
+        title="Delete Question"
+      >
+        <p className="text-foreground/80 mb-6">
+          Are you sure you want to delete this question? This action cannot be undone.
+        </p>
+        <div className="flex justify-end gap-3">
+          <Button variant="secondary" onClick={() => setQuestionToDelete(null)}>
+            Cancel
+          </Button>
+          <Button variant="danger" onClick={executeDeleteQuestion}>
+            Delete
+          </Button>
+        </div>
+      </Modal>
     </div>
   );
 }

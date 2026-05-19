@@ -307,13 +307,14 @@ function MediaImagePreview({ filename }: { filename: string }) {
 
 export default function MediaPage() {
   const [libraryItems, setLibraryItems] = useState<LibraryMediaFile[]>([]);
+  const [videoFiles, setVideoFiles] = useState<LibraryMediaFile[]>([]);
   const [otherFiles, setOtherFiles] = useState<LibraryMediaFile[]>([]);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
-  const [mediaTab, setMediaTab] = useState<'music' | 'images'>('music');
+  const [mediaTab, setMediaTab] = useState<'music' | 'video' | 'images'>('music');
   const browseInputRef = useRef<HTMLInputElement>(null);
   const mp3InputRef = useRef<HTMLInputElement>(null);
   const mp4InputRef = useRef<HTMLInputElement>(null);
@@ -332,7 +333,19 @@ export default function MediaPage() {
       } else if (Array.isArray(raw)) {
         music = raw;
       }
-      setLibraryItems(music);
+      
+      const audioList: LibraryMediaFile[] = [];
+      const videoList: LibraryMediaFile[] = [];
+      music.forEach((f) => {
+        if (f.mediaType === 'mp4' || f.mediaType === 'video/mp4' || f.filename.toLowerCase().endsWith('.mp4')) {
+          videoList.push(f);
+        } else {
+          audioList.push(f);
+        }
+      });
+      
+      setLibraryItems(audioList);
+      setVideoFiles(videoList);
       setOtherFiles(images);
     } catch (err: unknown) {
       console.error('Failed to fetch files:', err);
@@ -349,11 +362,11 @@ export default function MediaPage() {
   useEffect(() => {
     if (loading) return;
     setMediaTab((prev) => {
-      if (libraryItems.length === 0 && otherFiles.length > 0) return 'images';
-      if (otherFiles.length === 0 && libraryItems.length > 0) return 'music';
+      if (libraryItems.length === 0 && videoFiles.length === 0 && otherFiles.length > 0) return 'images';
+      if (libraryItems.length === 0 && videoFiles.length > 0) return 'video';
       return prev;
     });
-  }, [loading, libraryItems.length, otherFiles.length]);
+  }, [loading, libraryItems.length, videoFiles.length, otherFiles.length]);
 
   const doUpload = useCallback(async (file: File) => {
     // Pre-flight size guard so a 50+ MB drag-and-drop doesn't blow up over the wire — the
@@ -631,6 +644,33 @@ export default function MediaPage() {
             <button
               type="button"
               role="tab"
+              aria-selected={mediaTab === 'video'}
+              id="media-tab-video"
+              aria-controls="media-panel-video"
+              onClick={() => setMediaTab('video')}
+              className={cn(
+                'flex items-center gap-2 rounded-t-lg border border-b-0 px-5 py-2.5 text-sm font-bold uppercase tracking-wide transition',
+                mediaTab === 'video'
+                  ? 'border-[rgba(0,217,255,0.45)] bg-[linear-gradient(180deg,rgba(0,217,255,0.12)_0%,rgba(15,20,32,0.95)_100%)] text-[#00d9ff] shadow-[0_-4px_16px_rgba(0,217,255,0.08)]'
+                  : 'border-transparent bg-white/5 text-white/55 hover:bg-white/10 hover:text-white/80',
+              )}
+            >
+              <IconVideo className="size-4 shrink-0" />
+              Video
+              <span
+                className={cn(
+                  'rounded-full px-2 py-0.5 text-xs font-black tabular-nums',
+                  mediaTab === 'video'
+                    ? 'bg-[#00d9ff]/20 text-[#00d9ff]'
+                    : 'bg-white/10 text-white/50',
+                )}
+              >
+                {videoFiles.length}
+              </span>
+            </button>
+            <button
+              type="button"
+              role="tab"
               aria-selected={mediaTab === 'images'}
               id="media-tab-images"
               aria-controls="media-panel-images"
@@ -659,13 +699,13 @@ export default function MediaPage() {
 
           {mediaTab === 'music' ? (
             <section
-              data-name="MP3 MP4 Library"
+              data-name="MP3 Library"
               id="media-panel-music"
               role="tabpanel"
               aria-labelledby="media-tab-music"
             >
               <p className="mb-4 text-sm text-[#99a1af]">
-                MP3 / MP4 with quiz and question usage. Play inline below each file.
+                MP3 files with quiz and question usage. Play inline below each file.
               </p>
               {libraryItems.length === 0 ? (
                 <div
@@ -694,6 +734,73 @@ export default function MediaPage() {
                         <div className="mb-3 flex h-[100px] items-center justify-center rounded-[10px] bg-[#252b45]">
                           {isMp3 && <IconMusic className="size-8 text-[#00d9ff]" />}
                           {isMp4 && <IconVideo className="size-8 text-[#00d9ff]" />}
+                        </div>
+                        <p
+                          className="mb-2 truncate text-sm font-medium text-white"
+                          title={file.filename}
+                        >
+                          {file.filename}
+                        </p>
+                        <p className="mb-3 text-xs text-[#99a1af]">
+                          {file.mediaType?.toUpperCase() || 'Unknown'} · {formatSize(file.size)} ·{' '}
+                          {new Date(file.createdAt).toLocaleDateString()}
+                        </p>
+
+                        <UsedInReferences references={file.references} />
+
+                        <div className="mt-auto flex flex-col gap-2">
+                          <MediaInlinePlayer filename={file.filename} mediaType={file.mediaType} />
+                          <button
+                            type="button"
+                            onClick={() => setDeleteTarget(file.filename)}
+                            className="flex w-full items-center justify-center gap-2 rounded-[10px] border border-[rgba(255,0,128,0.3)] bg-[#252b45] py-2 text-sm text-white/90 transition-colors hover:bg-[#2e354c]"
+                            aria-label={`Delete ${file.filename}`}
+                          >
+                            <IconTrash className="size-3" />
+                            Delete
+                          </button>
+                        </div>
+                      </article>
+                    );
+                  })}
+                </div>
+              )}
+            </section>
+          ) : mediaTab === 'video' ? (
+            <section
+              data-name="MP4 Library"
+              id="media-panel-video"
+              role="tabpanel"
+              aria-labelledby="media-tab-video"
+            >
+              <p className="mb-4 text-sm text-[#99a1af]">
+                MP4 files with quiz and question usage. Play inline below each file.
+              </p>
+              {videoFiles.length === 0 ? (
+                <div
+                  className={cn(
+                    'rounded-2xl border-2 border-[rgba(0,217,255,0.2)] py-10 text-center text-[#99a1af]',
+                    BG_MEDIA_CARD,
+                  )}
+                >
+                  No video files in storage yet.
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 gap-6 lg:grid-cols-2 xl:grid-cols-3">
+                  {videoFiles.map((file) => {
+                    const isMp4 = true;
+
+                    return (
+                      <article
+                        key={file.filename}
+                        data-name="Container"
+                        className={cn(
+                          'flex flex-col rounded-2xl border-2 border-[rgba(0,217,255,0.3)] p-4',
+                          BG_MEDIA_CARD,
+                        )}
+                      >
+                        <div className="mb-3 flex h-[100px] items-center justify-center rounded-[10px] bg-[#252b45]">
+                          <IconVideo className="size-8 text-[#00d9ff]" />
                         </div>
                         <p
                           className="mb-2 truncate text-sm font-medium text-white"

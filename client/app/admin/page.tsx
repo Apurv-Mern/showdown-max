@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
+import Link from 'next/link';
 
 interface DashboardStats {
   totalQuizzes: number;
@@ -12,11 +13,13 @@ interface DashboardStats {
 const STAT_CARDS: {
   key: keyof DashboardStats;
   label: string;
+  href: string;
   icon: React.ReactNode;
 }[] = [
   {
     key: 'totalQuizzes',
     label: 'Total Quizzes Created',
+    href: '/admin/quizzes',
     icon: (
       <svg
         width="32"
@@ -36,6 +39,7 @@ const STAT_CARDS: {
   {
     key: 'totalQuestions',
     label: 'Total Questions in Bank',
+    href: '/admin/questions',
     icon: (
       <svg
         width="32"
@@ -56,6 +60,7 @@ const STAT_CARDS: {
   {
     key: 'activeSessions',
     label: 'Active Sessions',
+    href: '/admin/sessions',
     icon: (
       <svg
         width="32"
@@ -71,27 +76,6 @@ const STAT_CARDS: {
       </svg>
     ),
   },
-  // {
-  //   key: 'totalTeams',
-  //   label: 'Total Teams Registered',
-  //   icon: (
-  //     <svg
-  //       width="32"
-  //       height="32"
-  //       viewBox="0 0 24 24"
-  //       fill="none"
-  //       stroke="#00d9ff"
-  //       strokeWidth="1.5"
-  //       strokeLinecap="round"
-  //       strokeLinejoin="round"
-  //     >
-  //       <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
-  //       <circle cx="9" cy="7" r="4" />
-  //       <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
-  //       <path d="M16 3.13a4 4 0 0 1 0 7.75" />
-  //     </svg>
-  //   ),
-  // },
 ];
 
 export default function AdminDashboardPage() {
@@ -144,9 +128,10 @@ export default function AdminDashboardPage() {
 
       <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 xl:grid-cols-4">
         {STAT_CARDS.map((card) => (
-          <div
+          <Link
             key={card.key}
-            className="relative overflow-hidden rounded-2xl border-2 border-[rgba(0,217,255,0.3)] bg-[linear-gradient(150deg,rgb(26,31,53)_0%,rgb(20,25,42)_50%,rgb(15,20,32)_100%)] p-6"
+            href={card.href}
+            className="relative block overflow-hidden rounded-2xl border-2 border-[rgba(0,217,255,0.3)] bg-[linear-gradient(150deg,rgb(26,31,53)_0%,rgb(20,25,42)_50%,rgb(15,20,32)_100%)] p-6 transition-all duration-200 hover:-translate-y-1 hover:border-[rgba(0,217,255,0.6)] hover:shadow-[0_0_20px_rgba(0,217,255,0.15)]"
           >
             <div
               className="pointer-events-none absolute -right-6 -top-6 size-32 rounded-full bg-[rgba(0,217,255,0.05)] blur-3xl"
@@ -159,7 +144,7 @@ export default function AdminDashboardPage() {
               </span>
               <span className="text-sm leading-5 text-white">{card.label}</span>
             </div>
-          </div>
+          </Link>
         ))}
       </div>
     </div>

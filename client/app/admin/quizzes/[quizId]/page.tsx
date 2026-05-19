@@ -1119,7 +1119,7 @@ export default function QuizDetailPage() {
                     <div className="flex gap-2 shrink-0">
                       {formData.mediaType === 'image' && (
                         <img
-                          src={`${API_URL}${formData.mediaUrl}`}
+                          src={formData.mediaUrl}
                           alt="preview"
                           className="w-12 h-12 object-cover rounded"
                         />

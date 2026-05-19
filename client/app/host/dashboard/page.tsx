@@ -267,11 +267,7 @@ function liveStatsFromRevealPayload(
     noAnswer = reveal.teams.length;
   }
 
-  const total = Math.max(
-    reveal.teams?.length ?? 0,
-    details.length,
-    correct + incorrect + noAnswer,
-  );
+  const total = Math.max(reveal.teams?.length ?? 0, details.length, correct + incorrect + noAnswer);
   return { correct, incorrect, noAnswer, total };
 }
 
@@ -652,11 +648,8 @@ function HostDashboardContent() {
             if (answered === 0) {
               return bootstrapLiveResponseStats(rosterCount, 0);
             }
-            const hasTallies = prev.correct + prev.incorrect + prev.noAnswer > 0;
-            if (hasTallies) {
-              return { ...prev, total: Math.max(prev.total, rosterCount, 1) };
-            }
-            return bootstrapLiveResponseStats(rosterCount, answered);
+            // Keep tallies from live_response_update; session_state only syncs roster size.
+            return { ...prev, total: Math.max(prev.total, rosterCount, 1) };
           }
           if (data.state === 'QUESTION' && data.questionState === 'REVEALED') {
             return { ...prev, total: Math.max(prev.total, rosterCount, 1) };
@@ -768,6 +761,7 @@ function HostDashboardContent() {
               ...prev,
               state: 'QUESTION',
               questionState: 'ACTIVE',
+              responseCount: 0,
               ...(incomingQuestionIndex !== null
                 ? { currentQuestionIndex: incomingQuestionIndex }
                 : {}),
@@ -1837,8 +1831,11 @@ function HostDashboardContent() {
   const revealOnLastQuestionOfRound =
     state === 'QUESTION' && questionState === 'REVEALED' && isLastQuestionOfRound;
   const miniGameFinishShouldAdvanceRound = state === 'SCOREBOARD' || revealOnLastQuestionOfRound;
-  const isPreFirstQuestionRoundIntro = (sessionState: string, questionIdx: number, qState: string) =>
-    sessionState === 'ROUND_INTRO' && qState === 'WAITING' && questionIdx === 0;
+  const isPreFirstQuestionRoundIntro = (
+    sessionState: string,
+    questionIdx: number,
+    qState: string,
+  ) => sessionState === 'ROUND_INTRO' && qState === 'WAITING' && questionIdx === 0;
   const miniGameFinishTriviaNotStarted =
     state === 'LOBBY' ||
     isPreFirstQuestionRoundIntro(state, gameState?.currentQuestionIndex ?? 0, questionState) ||

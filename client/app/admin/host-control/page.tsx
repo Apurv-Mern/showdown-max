@@ -5,6 +5,7 @@ import toast from 'react-hot-toast';
 import { api } from '@/lib/api';
 import { Button } from '@/components/shared/Button';
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner';
+import { Modal } from '@/components/shared/Modal';
 
 interface HostAccount {
   id: number;
@@ -39,6 +40,8 @@ export default function HostControlPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [sessionId, setSessionId] = useState<number | ''>('');
+  
+  const [hostToDelete, setHostToDelete] = useState<HostAccount | null>(null);
 
   const fetchData = async () => {
     try {
@@ -114,12 +117,17 @@ export default function HostControlPage() {
     }
   };
 
-  const deleteHost = async (host: HostAccount) => {
-    if (!confirm(`Delete host account ${host.email}?`)) return;
+  const confirmDeleteHost = (host: HostAccount) => {
+    setHostToDelete(host);
+  };
+
+  const executeDeleteHost = async () => {
+    if (!hostToDelete) return;
     try {
-      await api.delete(`/api/hosts/${host.id}`);
-      setHosts((prev) => prev.filter((h) => h.id !== host.id));
+      await api.delete(`/api/hosts/${hostToDelete.id}`);
+      setHosts((prev) => prev.filter((h) => h.id !== hostToDelete.id));
       toast.success('Host account deleted');
+      setHostToDelete(null);
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : 'Failed to delete host account');
     }
@@ -288,7 +296,7 @@ export default function HostControlPage() {
                 <Button variant="secondary" size="sm" onClick={() => toggleActive(host)}>
                   {host.isActive ? 'Disable' : 'Enable'}
                 </Button>
-                <Button variant="danger" size="sm" onClick={() => deleteHost(host)}>
+                <Button variant="danger" size="sm" onClick={() => confirmDeleteHost(host)}>
                   Delete
                 </Button>
               </div>
@@ -296,6 +304,26 @@ export default function HostControlPage() {
           ))}
         </div>
       )}
+
+      <Modal
+        isOpen={!!hostToDelete}
+        onClose={() => setHostToDelete(null)}
+        title="Delete Host Account"
+      >
+        <p className="text-foreground/80 mb-6">
+          Are you sure you want to delete the host account{' '}
+          <span className="font-semibold text-foreground">{hostToDelete?.email}</span>?
+          This action cannot be undone.
+        </p>
+        <div className="flex justify-end gap-3">
+          <Button variant="secondary" onClick={() => setHostToDelete(null)}>
+            Cancel
+          </Button>
+          <Button variant="danger" onClick={executeDeleteHost}>
+            Delete
+          </Button>
+        </div>
+      </Modal>
     </div>
   );
 }

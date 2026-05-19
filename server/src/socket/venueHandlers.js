@@ -279,6 +279,7 @@ const buildFullStatePayload = async (gameState, pin) => {
     totalTeams,
     rounds: sanitizedRounds,
     teams,
+    roundWagers: gameState.roundWagers || {},
     activeTeamIds:
       Array.isArray(gameState.activeTeamIds) && gameState.activeTeamIds.length > 0
         ? gameState.activeTeamIds

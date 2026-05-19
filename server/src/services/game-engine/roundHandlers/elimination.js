@@ -27,20 +27,28 @@ const calculate = ({ question, responses, questionIndex, activeTeamIds }) => {
 
   for (const teamIdStr of activeTeamIds.map(String)) {
     const response = responses[teamIdStr];
-    if (!response) {
-      wrongTeams.push(teamIdStr);
-      scores[teamIdStr] = -points;
+    
+    let isUnsubmitted = false;
+    if (!response || response.selectedOptionIndex === undefined) {
+      isUnsubmitted = true;
+    } else if (isOrdering) {
+      isUnsubmitted = !Array.isArray(response.selectedOptionIndex) || response.selectedOptionIndex.length === 0;
+    } else {
+      isUnsubmitted = Number(response.selectedOptionIndex) < 0;
+    }
+
+    if (isUnsubmitted) {
+      scores[teamIdStr] = 0;
       continue;
     }
 
     let isCorrect = false;
     if (isOrdering) {
-      if (Array.isArray(response.selectedOptionIndex)) {
-        isCorrect = JSON.stringify(response.selectedOptionIndex) === correctOrderStr;
-      }
+      isCorrect = JSON.stringify(response.selectedOptionIndex) === correctOrderStr;
     } else {
       isCorrect = Number(response.selectedOptionIndex) === correctIndex;
     }
+    
     if (isCorrect) {
       correctTeams.push(teamIdStr);
       scores[teamIdStr] = points;
@@ -50,7 +58,7 @@ const calculate = ({ question, responses, questionIndex, activeTeamIds }) => {
     }
   }
 
-  const allWrong = correctTeams.length === 0 && wrongTeams.length > 0;
+  const allWrong = wrongTeams.length > 0 && wrongTeams.length === activeTeamIds.length;
 
   for (const teamId of wrongTeams) {
     eliminations.push(Number(teamId));

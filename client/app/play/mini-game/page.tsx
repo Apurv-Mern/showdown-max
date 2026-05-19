@@ -976,7 +976,7 @@ export default function MiniGamePage() {
 
               <div className="shrink-0 rounded-xl border border-[#00d8ff]/65 bg-[rgba(0,0,0,0.62)] px-4 py-3 text-center shadow-[0_0_12px_rgba(0,216,255,0.25)]">
                 <p className="text-base font-black text-white sm:text-lg">
-                  Race is about to Start !!
+                  Race is about to Start on venue screen !!
                 </p>
               </div>
             </div>

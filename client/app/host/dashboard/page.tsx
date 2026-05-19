@@ -1853,9 +1853,7 @@ function HostDashboardContent() {
       ? 'Finish Game'
       : 'Start Next Round'
     : miniGameFinishTriviaNotStarted
-      ? state === 'LOBBY'
-        ? 'Start Game'
-        : 'Start Round'
+      ? 'Start Next Round'
       : 'Next Question';
   const showNextQuestionAction =
     state === 'QUESTION' && questionState === 'REVEALED' && !isLastQuestionOfRound;
@@ -2216,13 +2214,15 @@ function HostDashboardContent() {
                 <p className="mt-5 text-xl font-semibold text-[#8fefff] sm:text-2xl">
                   {cardShuffleFinishedMessage}
                 </p>
-                <button
-                  type="button"
-                  onClick={handleStartNextRoundAfterCardShuffle}
-                  className="mt-10 rounded-xl border border-[#22c55e]/65 bg-[linear-gradient(180deg,#16a34a_0%,#14532d_100%)] px-8 py-4 text-base font-extrabold uppercase tracking-[0.14em] text-white shadow-[0_0_18px_rgba(34,197,94,0.28)] transition hover:brightness-110 sm:text-lg"
-                >
-                  {miniGameFinishActionLabel}
-                </button>
+                {state !== 'GAME_END' && (
+                  <button
+                    type="button"
+                    onClick={handleStartNextRoundAfterCardShuffle}
+                    className="mt-10 rounded-xl border border-[#22c55e]/65 bg-[linear-gradient(180deg,#16a34a_0%,#14532d_100%)] px-8 py-4 text-base font-extrabold uppercase tracking-[0.14em] text-white shadow-[0_0_18px_rgba(34,197,94,0.28)] transition hover:brightness-110 sm:text-lg"
+                  >
+                    {miniGameFinishActionLabel}
+                  </button>
+                )}
               </div>
             </div>
           ) : activeMiniGameLocal || miniGameLoading ? (

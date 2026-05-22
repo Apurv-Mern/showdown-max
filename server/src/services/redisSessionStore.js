@@ -18,6 +18,70 @@ const TTL = 86400;
 const memoryStore = new Map();
 const loggedPinModes = new Map();
 
+const cloneValue = (value) => {
+  if (value === null || value === undefined) return value;
+  return JSON.parse(JSON.stringify(value));
+};
+
+const memorySet = (key, value, ttlSec = TTL) => {
+  memoryStore.set(key, {
+    value,
+    expiresAt: Date.now() + ttlSec * 1000,
+  });
+};
+
+const memoryGet = (key) => {
+  const entry = memoryStore.get(key);
+  if (!entry) return undefined;
+  if (entry.expiresAt <= Date.now()) {
+    memoryStore.delete(key);
+    return undefined;
+  }
+  return entry.value;
+};
+
+const memoryGetHash = (key) => {
+  const value = memoryGet(key);
+  return value && typeof value === 'object' ? value : {};
+};
+
+const memorySetHash = (key, hash, ttlSec = TTL) => {
+  memorySet(key, hash, ttlSec);
+};
+
+const evictExpiredMemoryEntries = () => {
+  const now = Date.now();
+  for (const [key, entry] of memoryStore) {
+    if (entry.expiresAt <= now) {
+      memoryStore.delete(key);
+    }
+  }
+};
+
+const scanRedisKeys = async (redis, pattern) => {
+  const keys = [];
+  let cursor = '0';
+  do {
+    const [nextCursor, batch] = await redis.scan(cursor, 'MATCH', pattern, 'COUNT', 100);
+    cursor = nextCursor;
+    keys.push(...batch);
+  } while (cursor !== '0');
+  return keys;
+};
+
+const countRedisKeys = async (redis, pattern) => {
+  let count = 0;
+  let cursor = '0';
+  do {
+    const [nextCursor, batch] = await redis.scan(cursor, 'MATCH', pattern, 'COUNT', 200);
+    cursor = nextCursor;
+    count += batch.length;
+  } while (cursor !== '0');
+  return count;
+};
+
+setInterval(evictExpiredMemoryEntries, 5 * 60 * 1000).unref();
+
 const rememberPinMode = (pin) => {
   const mode = getRedisMode();
   const key = String(pin);
@@ -49,7 +113,7 @@ const setSession = async (pin, sessionId) => {
       await redis.set(KEYS.session(pin), JSON.stringify({ sessionId }), 'EX', TTL);
     },
     () => {
-      memoryStore.set(KEYS.session(pin), { sessionId });
+      memorySet(KEYS.session(pin), { sessionId });
     },
   );
 };
@@ -62,7 +126,7 @@ const getSession = async (pin) => {
       const data = await redis.get(KEYS.session(pin));
       return data ? JSON.parse(data) : null;
     },
-    () => memoryStore.get(KEYS.session(pin)) || null,
+    () => memoryGet(KEYS.session(pin)) || null,
   );
 };
 
@@ -74,7 +138,7 @@ const setGameState = async (pin, state) => {
       await redis.set(KEYS.gameState(pin), JSON.stringify(state), 'EX', TTL);
     },
     () => {
-      memoryStore.set(KEYS.gameState(pin), JSON.parse(JSON.stringify(state)));
+      memorySet(KEYS.gameState(pin), cloneValue(state));
     },
   );
 };
@@ -88,8 +152,8 @@ const getGameState = async (pin) => {
       return data ? JSON.parse(data) : null;
     },
     () => {
-      const data = memoryStore.get(KEYS.gameState(pin));
-      return data ? JSON.parse(JSON.stringify(data)) : null;
+      const data = memoryGet(KEYS.gameState(pin));
+      return data ? cloneValue(data) : null;
     },
   );
 };
@@ -124,9 +188,9 @@ const addTeamToLobby = async (pin, team) => {
     },
     () => {
       const key = KEYS.lobby(pin);
-      const lobby = memoryStore.get(key) || {};
+      const lobby = memoryGetHash(key);
       lobby[team.teamId.toString()] = team;
-      memoryStore.set(key, lobby);
+      memorySetHash(key, lobby);
     },
   );
 };
@@ -140,9 +204,9 @@ const removeTeamFromLobby = async (pin, teamId) => {
     },
     () => {
       const key = KEYS.lobby(pin);
-      const lobby = memoryStore.get(key) || {};
+      const lobby = memoryGetHash(key);
       delete lobby[teamId.toString()];
-      memoryStore.set(key, lobby);
+      memorySetHash(key, lobby);
     },
   );
 };
@@ -156,9 +220,9 @@ const removeTeamData = async (pin, teamId) => {
     },
     () => {
       const key = KEYS.teams(pin);
-      const teams = memoryStore.get(key) || {};
+      const teams = memoryGetHash(key);
       delete teams[teamId.toString()];
-      memoryStore.set(key, teams);
+      memorySetHash(key, teams);
     },
   );
 };
@@ -172,7 +236,7 @@ const getLobbyTeams = async (pin) => {
       return Object.values(data).map((v) => JSON.parse(v));
     },
     () => {
-      const lobby = memoryStore.get(KEYS.lobby(pin)) || {};
+      const lobby = memoryGetHash(KEYS.lobby(pin));
       return Object.values(lobby);
     },
   );
@@ -188,9 +252,9 @@ const updateTeamData = async (pin, teamId, teamData) => {
     },
     () => {
       const key = KEYS.teams(pin);
-      const teams = memoryStore.get(key) || {};
+      const teams = memoryGetHash(key);
       teams[teamId.toString()] = teamData;
-      memoryStore.set(key, teams);
+      memorySetHash(key, teams);
     },
   );
 };
@@ -204,7 +268,7 @@ const getAllTeamsData = async (pin) => {
       return Object.values(data).map((v) => JSON.parse(v));
     },
     () => {
-      const teams = memoryStore.get(KEYS.teams(pin)) || {};
+      const teams = memoryGetHash(KEYS.teams(pin));
       return Object.values(teams);
     },
   );
@@ -224,9 +288,9 @@ const recordResponse = async (pin, questionId, teamId, selectedOptionIndex) => {
     },
     () => {
       const key = KEYS.responses(pin, questionId);
-      const responses = memoryStore.get(key) || {};
+      const responses = memoryGetHash(key);
       responses[teamId.toString()] = selectedOptionIndex.toString();
-      memoryStore.set(key, responses);
+      memorySetHash(key, responses);
     },
   );
 };
@@ -239,7 +303,7 @@ const getResponseCount = async (pin, questionId) => {
       return redis.hlen(KEYS.responses(pin, questionId));
     },
     () => {
-      const responses = memoryStore.get(KEYS.responses(pin, questionId)) || {};
+      const responses = memoryGetHash(KEYS.responses(pin, questionId));
       return Object.keys(responses).length;
     },
   );
@@ -252,7 +316,7 @@ const getResponses = async (pin, questionId) => {
       const redis = getRedisClient();
       return redis.hgetall(KEYS.responses(pin, questionId));
     },
-    () => memoryStore.get(KEYS.responses(pin, questionId)) || {},
+    () => memoryGetHash(KEYS.responses(pin, questionId)),
   );
 };
 
@@ -281,7 +345,7 @@ const getHostRemovalBlocklist = async (pin) => {
       const raw = await redis.get(key);
       return parseHostRemovalBlocklist(raw);
     },
-    () => parseHostRemovalBlocklist(memoryStore.get(key)),
+    () => parseHostRemovalBlocklist(memoryGet(key)),
   );
 };
 
@@ -309,7 +373,7 @@ const appendHostRemovalBlocklist = async (pin, { normalizedName, teamId }) => {
       await redis.set(key, JSON.stringify({ teamNames, teamIds }), 'EX', TTL);
     },
     () => {
-      const prev = parseHostRemovalBlocklist(memoryStore.get(key));
+      const prev = parseHostRemovalBlocklist(memoryGet(key));
       const teamNames = Array.from(
         new Set(
           [...prev.teamNames, normalizedName ? normalizeTeamName(normalizedName) : null].filter(
@@ -320,7 +384,7 @@ const appendHostRemovalBlocklist = async (pin, { normalizedName, teamId }) => {
       const teamIds = Array.from(
         new Set([...prev.teamIds, Number(teamId)].filter(Number.isFinite)),
       );
-      memoryStore.set(key, { teamNames, teamIds });
+      memorySet(key, { teamNames, teamIds });
     },
   );
 };
@@ -348,13 +412,13 @@ const removeHostRemovalBlocklistNormalizedNames = async (pin, normalizedNames) =
       }
     },
     () => {
-      const prev = parseHostRemovalBlocklist(memoryStore.get(key));
+      const prev = parseHostRemovalBlocklist(memoryGet(key));
       const teamNames = prev.teamNames.filter((n) => !drop.has(normalizeTeamName(n)));
       const teamIds = prev.teamIds;
       if (teamNames.length === 0) {
         memoryStore.delete(key);
       } else {
-        memoryStore.set(key, { teamNames, teamIds });
+        memorySet(key, { teamNames, teamIds });
       }
     },
   );
@@ -362,10 +426,16 @@ const removeHostRemovalBlocklistNormalizedNames = async (pin, normalizedNames) =
 
 const cleanupSession = async (pin) => {
   loggedPinModes.delete(String(pin));
+  try {
+    const { cleanupSessionResources } = require('./sessionResourceCleanup');
+    cleanupSessionResources(pin);
+  } catch (err) {
+    logger.warn('Failed to release session resources', { pin, error: err.message });
+  }
   return withFallback(
     async () => {
       const redis = getRedisClient();
-      const keys = await redis.keys(`game:${pin}:*`);
+      const keys = await scanRedisKeys(redis, `game:${pin}:*`);
       if (keys.length > 0) {
         await redis.del(...keys);
       }
@@ -387,7 +457,7 @@ const inspectSessionCache = async (pin) => {
   return withFallback(
     async () => {
       const redis = getRedisClient();
-      const responseKeys = await redis.keys(KEYS.responses(pin, '*'));
+      const responseKeys = await scanRedisKeys(redis, `game:${pin}:responses:*`);
       const existingKeys = [];
       for (const key of [...keys, ...responseKeys]) {
         const exists = await redis.exists(key);
@@ -421,8 +491,8 @@ const clearAllGameCaches = async () => {
   return withFallback(
     async () => {
       const redis = getRedisClient();
-      const gameKeys = await redis.keys('game:*');
-      const sessionKeys = await redis.keys('session:*');
+      const gameKeys = await scanRedisKeys(redis, 'game:*');
+      const sessionKeys = await scanRedisKeys(redis, 'session:*');
       const keys = [...gameKeys, ...sessionKeys];
       if (keys.length > 0) {
         await redis.del(...keys);
@@ -431,7 +501,7 @@ const clearAllGameCaches = async () => {
     },
     () => {
       let clearedKeys = 0;
-      for (const [key] of memoryStore) {
+      for (const key of memoryStore.keys()) {
         if (key.startsWith('game:') || key.startsWith('session:')) {
           memoryStore.delete(key);
           clearedKeys += 1;
@@ -446,8 +516,8 @@ const inspectCache = async () => {
   return withFallback(
     async () => {
       const redis = getRedisClient();
-      const gameKeys = await redis.keys('game:*');
-      const sessionKeys = await redis.keys('session:*');
+      const gameKeys = await scanRedisKeys(redis, 'game:*');
+      const sessionKeys = await scanRedisKeys(redis, 'session:*');
       const keys = [...gameKeys, ...sessionKeys].sort();
       return { mode: 'redis', keys };
     },
@@ -464,20 +534,19 @@ const getCacheSummary = async () => {
   return withFallback(
     async () => {
       const redis = getRedisClient();
-      const gameKeys = await redis.keys('game:*');
-      const sessionKeys = await redis.keys('session:*');
+      const game = await countRedisKeys(redis, 'game:*');
+      const session = await countRedisKeys(redis, 'session:*');
       return {
         mode: 'redis',
-        counts: {
-          game: gameKeys.length,
-          session: sessionKeys.length,
-        },
+        counts: { game, session },
       };
     },
     () => {
+      evictExpiredMemoryEntries();
       let game = 0;
       let session = 0;
-      for (const [key] of memoryStore) {
+      for (const key of memoryStore.keys()) {
+        if (memoryGet(key) === undefined) continue;
         if (key.startsWith('game:')) game += 1;
         if (key.startsWith('session:')) session += 1;
       }

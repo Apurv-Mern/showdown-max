@@ -12,6 +12,8 @@ export function ClientDebugPanel() {
   useEffect(() => {
     const initialEnabled = clientLogger.isEnabled();
     setEnabled(initialEnabled);
+    if (!initialEnabled && !isDev) return;
+
     setEntries(getClientDebugEntries());
 
     const interval = window.setInterval(() => {
@@ -20,7 +22,7 @@ export function ClientDebugPanel() {
     }, 1200);
 
     return () => window.clearInterval(interval);
-  }, []);
+  }, [isDev]);
 
   const previewEntries = useMemo(() => entries.slice(0, 40), [entries]);
 

@@ -156,6 +156,8 @@ const forceExpire = (sessionPin) => {
   stopTimer(normalizeTimerPin(sessionPin));
 };
 
+const getActiveTimerCount = () => activeTimers.size;
+
 module.exports = {
   startTimer,
   armPausedTimer,
@@ -166,4 +168,5 @@ module.exports = {
   hasLiveTimer,
   getReconnectTimerRemaining,
   forceExpire,
+  getActiveTimerCount,
 };

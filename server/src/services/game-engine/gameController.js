@@ -31,6 +31,32 @@ const DISCONNECT_PURGE_DELAY_MS = Math.max(
 
 const disconnectPurgeKey = (pin, teamId) => `${String(pin)}:${Number(teamId)}`;
 
+/** Debounce Redis timer writes — the ticker fires every second and was cloning full game state each tick. */
+const timerPersistDebouncers = new Map();
+
+const flushTimerPersistRemaining = (pin) => {
+  const pinKey = String(pin);
+  const entry = timerPersistDebouncers.get(pinKey);
+  if (!entry) return;
+  if (entry.timeout) {
+    clearTimeout(entry.timeout);
+    entry.timeout = null;
+  }
+  const remaining = entry.lastRemaining;
+  timerPersistDebouncers.delete(pinKey);
+  if (remaining == null) return;
+  redisStore
+    .getGameState(pinKey)
+    .then((gs) => {
+      if (!gs || gs.state !== GAME_STATES.QUESTION) return null;
+      if (gs.questionState !== QUESTION_STATES.ACTIVE) return null;
+      return redisStore.updateGameState(pinKey, {
+        timerRemaining: Math.max(0, Number(remaining) || 0),
+      });
+    })
+    .catch(() => {});
+};
+
 const cancelScheduledDisconnectPurge = (pin, teamId) => {
   const key = disconnectPurgeKey(pin, teamId);
   const t = disconnectPurgeTimers.get(key);
@@ -47,17 +73,24 @@ const clampAmount = (amount, min, max) => {
 };
 
 /** Keep Redis `timerRemaining` aligned with the in-memory ticker (reconnect / venue / host). */
-const persistTimerRemainingIfActiveQuestion = (pin, remaining) => {
-  redisStore
-    .getGameState(pin)
-    .then((gs) => {
-      if (!gs || gs.state !== GAME_STATES.QUESTION) return null;
-      if (gs.questionState !== QUESTION_STATES.ACTIVE) return null;
-      return redisStore.updateGameState(pin, {
-        timerRemaining: Math.max(0, Number(remaining) || 0),
-      });
-    })
-    .catch(() => {});
+const persistTimerRemainingIfActiveQuestion = (pin, remaining, { immediate = false } = {}) => {
+  const pinKey = String(pin);
+  const rem = Math.max(0, Number(remaining) || 0);
+  let entry = timerPersistDebouncers.get(pinKey);
+  if (!entry) {
+    entry = { timeout: null, lastRemaining: null };
+    timerPersistDebouncers.set(pinKey, entry);
+  }
+  entry.lastRemaining = rem;
+  if (immediate) {
+    flushTimerPersistRemaining(pinKey);
+    return;
+  }
+  if (entry.timeout) return;
+  entry.timeout = setTimeout(() => {
+    entry.timeout = null;
+    flushTimerPersistRemaining(pinKey);
+  }, 3000);
 };
 
 const clampWagerByRoundType = (roundType, amount) => {
@@ -718,6 +751,7 @@ const revealAnswer = async (io, pin) => {
   }
 
   timerManager.stopTimer(pin);
+  flushTimerPersistRemaining(pin);
   gameState = stateMachine.revealAnswer(gameState);
 
   const round = stateMachine.getCurrentRound(gameState);
@@ -907,6 +941,9 @@ const revealAnswer = async (io, pin) => {
 const endRound = async (io, pin, gameState) => {
   if (eliminationStates.has(pin)) {
     eliminationStates.delete(pin);
+  }
+  if (gameState.revealSnapshotsByQuestionId) {
+    gameState.revealSnapshotsByQuestionId = {};
   }
 
   for (const teamId of Object.keys(gameState.teams)) {
@@ -1593,7 +1630,7 @@ const pauseTimer = async (io, pin) => {
     paused: true,
     timerRunning: false,
   });
-  persistTimerRemainingIfActiveQuestion(pin, remaining);
+  persistTimerRemainingIfActiveQuestion(pin, remaining, { immediate: true });
 
   // Stop Timer in a music round must also stop the audio/video on host + venue. The
   // start-timer path (above) emits MUSIC_CONTROL `play`; we mirror that here so the projector's
@@ -1841,6 +1878,26 @@ const startWagerCollection = async (io, pin) => {
   });
 };
 
+/** Drop per-session in-memory maps when a session ends or is purged from cache. */
+const cleanupInMemorySession = (pin) => {
+  const pinKey = String(pin);
+  eliminationStates.delete(pinKey);
+  flushTimerPersistRemaining(pinKey);
+  for (const [key, timeoutId] of disconnectPurgeTimers) {
+    if (key.startsWith(`${pinKey}:`)) {
+      clearTimeout(timeoutId);
+      disconnectPurgeTimers.delete(key);
+    }
+  }
+  timerManager.stopTimer(pinKey);
+};
+
+const getInMemoryDiagnostics = () => ({
+  eliminationSessions: eliminationStates.size,
+  pendingDisconnectPurges: disconnectPurgeTimers.size,
+  timerPersistDebouncers: timerPersistDebouncers.size,
+});
+
 module.exports = {
   startGame,
   nextQuestion,
@@ -1851,6 +1908,8 @@ module.exports = {
   advanceToNextRound,
   handlePlayerSocketDisconnect,
   cancelScheduledDisconnectPurge,
+  cleanupInMemorySession,
+  getInMemoryDiagnostics,
   showScoreboard,
   hideScoreboard,
   startBreak,

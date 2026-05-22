@@ -14,9 +14,14 @@
     "logs:clear:local": "npm run logs:clear:local -w server",
     "build": "npm run build -w shared && npm run build -w server && npm run build -w client",
     "build:prod": "npm run build -w shared && npm run build -w server && npm run build:prod -w client",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "load-test": "node tools/load-test/run.js",
+    "load-test:setup": "node tools/load-test/run.js --setup --bots 150",
+    "load-test:local": "node tools/load-test/run.js --setup --bots 30 --duration 120"
   },
   "devDependencies": {
-    "concurrently": "^9.1.0"
+    "concurrently": "^9.1.0",
+    "dotenv": "^16.4.0",
+    "socket.io-client": "^4.8.3"
   }
 }

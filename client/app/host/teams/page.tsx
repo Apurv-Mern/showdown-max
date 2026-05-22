@@ -39,7 +39,7 @@ function HostTeamsContent() {
 
     socket.emit('host_connect', { pin });
 
-    socket.on('session_state', (data: any) => {
+    const onSessionState = (data: any) => {
       if (data.teams) {
         const teamList =
           typeof data.teams === 'object' && !Array.isArray(data.teams)
@@ -47,42 +47,49 @@ function HostTeamsContent() {
             : (data.teams as Team[]);
         setTeams(teamList.sort((a, b) => b.score - a.score));
       }
-    });
+    };
 
-    socket.on('team_joined', (team: Team) => {
+    const onTeamJoined = (team: Team) => {
       setTeams((prev) =>
         [...prev.filter((t) => t.teamId !== team.teamId), team].sort((a, b) => b.score - a.score),
       );
-    });
+    };
 
-    socket.on('error', (payload: { message?: string } | string) => {
+    const onError = (payload: { message?: string } | string) => {
       const message = typeof payload === 'string' ? payload : payload?.message;
       if (message) toast.error(message);
-    });
+    };
 
-    socket.on('team_removed', ({ teamId }: { teamId: number }) => {
+    const onTeamRemoved = ({ teamId }: { teamId: number }) => {
       setTeams((prev) => prev.filter((t) => t.teamId !== teamId));
-    });
+    };
 
-    socket.on('team_updated', ({ teamId, score }: { teamId: number; score: number }) => {
+    const onTeamUpdated = ({ teamId, score }: { teamId: number; score: number }) => {
       setTeams((prev) =>
         prev
           .map((t) => (t.teamId === teamId ? { ...t, score } : t))
           .sort((a, b) => b.score - a.score),
       );
-    });
+    };
 
-    socket.on('scoreboard', (data: { teams: Team[] }) => {
+    const onScoreboard = (data: { teams: Team[] }) => {
       setTeams(data.teams.sort((a, b) => b.score - a.score));
-    });
+    };
+
+    socket.on('session_state', onSessionState);
+    socket.on('team_joined', onTeamJoined);
+    socket.on('error', onError);
+    socket.on('team_removed', onTeamRemoved);
+    socket.on('team_updated', onTeamUpdated);
+    socket.on('scoreboard', onScoreboard);
 
     return () => {
-      socket.off('session_state');
-      socket.off('team_joined');
-      socket.off('error');
-      socket.off('team_removed');
-      socket.off('team_updated');
-      socket.off('scoreboard');
+      socket.off('session_state', onSessionState);
+      socket.off('team_joined', onTeamJoined);
+      socket.off('error', onError);
+      socket.off('team_removed', onTeamRemoved);
+      socket.off('team_updated', onTeamUpdated);
+      socket.off('scoreboard', onScoreboard);
     };
   }, [socket, pin]);
 

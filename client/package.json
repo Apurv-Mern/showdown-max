@@ -6,7 +6,8 @@
     "dev": "next dev -p 5003",
     "build": "next build",
     "build:prod": "cross-env NODE_OPTIONS=--max-old-space-size=1024 next build --webpack",
-    "start": "next start",
+    "start": "next start -p 5003",
+    "start:prod": "cross-env NODE_OPTIONS=--max-old-space-size=768 next start -p 5003",
     "lint": "eslint"
   },
   "dependencies": {

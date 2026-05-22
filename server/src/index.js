@@ -7,9 +7,9 @@ const logger = require('./utils/logger');
 const { errorHandler } = require('./middleware/errorHandler');
 const { initializeSocket } = require('./socket');
 const { success } = require('./utils/responseWrapper');
-const { testConnection, syncDatabase, sequelize } = require('./models');
-const { getRedisClient, pingRedis, isRedisReady, getRedisMode, getSafeRedisTarget } = require('./config/redis');
-const redisStore = require('./services/redisSessionStore');
+const { buildHealthSnapshot } = require('./utils/healthSnapshot');
+const { testConnection, syncDatabase } = require('./models');
+const { getRedisClient, isRedisReady, getRedisMode, getSafeRedisTarget } = require('./config/redis');
 
 const authRoutes = require('./routes/authRoutes');
 const quizRoutes = require('./routes/quizRoutes');
@@ -79,34 +79,8 @@ const start = async () => {
   fastify.setErrorHandler(errorHandler);
 
   fastify.get('/health', async (request) => {
-    let db = { ok: false, message: 'Unknown' };
-    try {
-      await sequelize.authenticate();
-      db = { ok: true, message: 'Connected' };
-    } catch (error) {
-      db = { ok: false, message: error.message };
-    }
-
-    const redisPing = await pingRedis();
-    const cacheSummary = await redisStore.getCacheSummary();
-
-    return success({
-      status: db.ok ? 'ok' : 'degraded',
-      timestamp: new Date().toISOString(),
-      uptimeSeconds: Math.floor(process.uptime()),
-      pid: process.pid,
-      env: env.NODE_ENV,
-      requestId: request.correlationId || request.id,
-      database: db,
-      redis: {
-        ok: redisPing.ok,
-        ready: isRedisReady(),
-        mode: getRedisMode(),
-        target: getSafeRedisTarget(),
-        ping: redisPing.message,
-      },
-      cache: cacheSummary,
-    }, 'Server health');
+    const snapshot = await buildHealthSnapshot(request);
+    return success(snapshot, 'Server health');
   });
 
   fastify.register(authRoutes, { prefix: '/api/auth' });
@@ -137,6 +111,15 @@ const start = async () => {
     user: env.DB_USER,
   });
   getRedisClient();
+
+  setTimeout(() => {
+    if (!isRedisReady()) {
+      logger.warn(
+        'Redis unavailable — live session data is stored in Node.js heap. Start Redis on the server to avoid memory growth and restarts.',
+        { mode: getRedisMode(), target: getSafeRedisTarget() },
+      );
+    }
+  }, 3000).unref();
 
   if (env.NODE_ENV === 'development' && env.DB_SYNC_ALTER) {
     await syncDatabase({ alter: true });

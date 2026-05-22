@@ -34,6 +34,11 @@ const readDebugFlag = () => {
   return enabled;
 };
 
+const shouldBufferLogs = () => {
+  if (!canUseWindow()) return false;
+  return readDebugFlag();
+};
+
 const getStore = () => {
   if (!canUseWindow()) return [];
   if (!window.__SHOWDOWN_CLIENT_LOGS__) {
@@ -61,7 +66,7 @@ export const clientLogger = {
       meta,
     };
 
-    if (canUseWindow()) {
+    if (canUseWindow() && shouldBufferLogs()) {
       const logs = getStore();
       logs.push(entry);
       if (logs.length > MAX_LOGS) {

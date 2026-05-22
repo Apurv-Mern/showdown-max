@@ -6,6 +6,9 @@ const SOCKET_URL = PUBLIC_SOCKET_URL;
 
 let socket: Socket | null = null;
 
+const isVerboseSocketLogging = () =>
+  process.env.NODE_ENV !== 'production' || process.env.NEXT_PUBLIC_DEBUG_LOGS === 'true';
+
 /**
  * Returns a singleton Socket.io client instance
  */
@@ -21,14 +24,23 @@ export const getSocket = (): Socket => {
       timeout: 20000,
     });
 
-    const originalEmit = socket.emit.bind(socket);
-    socket.emit = ((event: string, ...args: unknown[]) => {
-      clientLogger.debug('socket:outgoing', 'Socket event emitted', {
-        eventName: event,
-        payload: args[0],
+    if (isVerboseSocketLogging()) {
+      const originalEmit = socket.emit.bind(socket);
+      socket.emit = ((event: string, ...args: unknown[]) => {
+        clientLogger.debug('socket:outgoing', 'Socket event emitted', {
+          eventName: event,
+          payload: args[0],
+        });
+        return originalEmit(event, ...args);
+      }) as Socket['emit'];
+
+      socket.onAny((eventName, payload) => {
+        clientLogger.debug('socket:incoming', 'Socket event received', {
+          eventName,
+          payload,
+        });
       });
-      return originalEmit(event, ...args);
-    }) as Socket['emit'];
+    }
 
     socket.on('connect', () => {
       clientLogger.info('socket', 'Socket connected', {
@@ -55,13 +67,6 @@ export const getSocket = (): Socket => {
     socket.io.on('reconnect_error', (error) => {
       clientLogger.error('socket', 'Socket reconnect error', {
         error: error instanceof Error ? error.message : 'Unknown reconnect error',
-      });
-    });
-
-    socket.onAny((eventName, payload) => {
-      clientLogger.debug('socket:incoming', 'Socket event received', {
-        eventName,
-        payload,
       });
     });
   }

@@ -8,12 +8,15 @@
     "shared"
   ],
   "scripts": {
-    "dev": "concurrently -n client,server -c blue,green \"npm run dev -w client\" \"npm run dev -w server\"",
-    "dev:client": "npm run dev -w client",
-    "dev:server": "npm run dev -w server",
+    "dev": "dotenv -e .env.development -e .env -- concurrently -n client,server -c blue,green \"npm run dev -w client\" \"npm run dev -w server\"",
+    "dev:client": "dotenv -e .env.development -e .env -- npm run dev -w client",
+    "dev:server": "dotenv -e .env.development -e .env -- npm run dev -w server",
     "logs:clear:local": "npm run logs:clear:local -w server",
-    "build": "npm run build -w shared && npm run build -w server && npm run build -w client",
-    "build:prod": "npm run build -w shared && npm run build -w server && npm run build:prod -w client",
+    "build": "npm run build -w shared && npm run build -w server && dotenv -e .env.development -e .env -- npm run build -w client",
+    "build:prod": "npm run build -w shared && npm run build -w server && dotenv -e .env.production -e .env -- npm run build:prod -w client",
+    "start:prod": "dotenv -e .env.production -e .env -- concurrently -n client,server -c blue,green \"npm run start:prod -w client\" \"npm run start:prod -w server\"",
+    "start:prod:client": "dotenv -e .env.production -e .env -- npm run start:prod -w client",
+    "start:prod:server": "dotenv -e .env.production -e .env -- npm run start:prod -w server",
     "lint": "eslint .",
     "load-test": "node tools/load-test/run.js",
     "load-test:setup": "node tools/load-test/run.js --setup --bots 150",
@@ -22,6 +25,7 @@
   "devDependencies": {
     "concurrently": "^9.1.0",
     "dotenv": "^16.4.0",
+    "dotenv-cli": "^11.0.0",
     "socket.io-client": "^4.8.3"
   }
 }

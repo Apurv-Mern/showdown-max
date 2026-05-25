@@ -42,6 +42,9 @@ const envSchema = z.object({
     .string()
     .optional()
     .transform((value) => String(value).toLowerCase() === 'true'),
+  // Comma-separated list of allowed CORS origins. Leave unset to use
+  // sensible per-NODE_ENV defaults in `server/src/config/cors.js`.
+  ALLOWED_ORIGINS: z.string().optional(),
 });
 
 const env = envSchema.parse(process.env);

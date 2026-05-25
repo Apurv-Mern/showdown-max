@@ -2,6 +2,7 @@ const Fastify = require('fastify');
 const crypto = require('crypto');
 const cors = require('@fastify/cors');
 const { env } = require('./config/env');
+const { getCorsOptions } = require('./config/cors');
 const { getSSLConfig } = require('./config/ssl');
 const logger = require('./utils/logger');
 const { errorHandler } = require('./middleware/errorHandler');
@@ -43,10 +44,7 @@ const start = async () => {
 
   const fastify = Fastify(fastifyOptions);
 
-  await fastify.register(cors, {
-    origin: true,
-    credentials: true,
-  });
+  await fastify.register(cors, getCorsOptions());
 
   fastify.addHook('onRequest', async (request, reply) => {
     const requestId = request.headers['x-request-id'] || request.id || crypto.randomUUID();

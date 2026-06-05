@@ -106,9 +106,61 @@ const getRoundWagerForTeam = (gameState, roundId, teamId) => {
   return Number(gameState?.roundWagers?.[String(roundId)]?.[String(teamId)] ?? 0);
 };
 
+/**
+ * Per-question wager lookup. Falls back to legacy roundWagers if this question hasn't been
+ * locked yet (mostly for sessions started before the per-question refactor and edge cases
+ * during the migration window).
+ */
+const getQuestionWagerForTeam = (gameState, questionId, teamId, roundId) => {
+  const perQ = gameState?.questionWagers?.[String(questionId)]?.[String(teamId)];
+  if (perQ !== undefined && perQ !== null) return Number(perQ);
+  if (roundId != null) {
+    const legacy = gameState?.roundWagers?.[String(roundId)]?.[String(teamId)];
+    if (legacy !== undefined && legacy !== null) return Number(legacy);
+  }
+  return 0;
+};
+
+const isQuestionWagerLocked = (gameState, questionId, teamId) => {
+  const value = gameState?.questionWagers?.[String(questionId)]?.[String(teamId)];
+  return value !== undefined && value !== null;
+};
+
 const isWagerLockRound = (round) => {
   const t = String(round?.type || '').toUpperCase();
   return t === ROUND_TYPES.WAGER || t === ROUND_TYPES.FINAL_WAGER;
+};
+
+/** Count distinct teams that have locked a wager for the given question. */
+const countLockedWagers = (gameState, questionId) => {
+  if (questionId == null) return 0;
+  const bucket = gameState?.questionWagers?.[String(questionId)];
+  if (!bucket || typeof bucket !== 'object') return 0;
+  let n = 0;
+  for (const key of Object.keys(bucket)) {
+    if (bucket[key] !== undefined && bucket[key] !== null) n += 1;
+  }
+  return n;
+};
+
+/**
+ * Emit the wager-lock progress for the current question. No-op outside a wager-lock round
+ * (cheap guard so we don't broadcast bogus zeroes during regular rounds).
+ */
+const emitWagerLockUpdate = (io, pin, gameState) => {
+  if (!io || !gameState) return;
+  const round = stateMachine.getCurrentRound(gameState);
+  if (!isWagerLockRound(round)) return;
+  const question = stateMachine.getCurrentQuestion(gameState);
+  if (!question?.id) return;
+  const locked = countLockedWagers(gameState, question.id);
+  const total = resolveActiveTeamIdsForStats(gameState).length;
+  io.to(`session:${pin}`).emit(SOCKET_EVENTS.WAGER_LOCK_UPDATE, {
+    questionId: question.id,
+    locked,
+    total,
+    roundType: round.type,
+  });
 };
 
 const parseSelectedOptionIndex = (rawResponse) => {
@@ -338,6 +390,11 @@ const startGame = async (io, pin, quiz, sessionId) => {
 
   gameState.totalTeams = teams.length;
   gameState.maxTeams = session?.maxTeams || teams.length;
+  // Persist admin-configured break duration into the live game state so subsequent
+  // `startBreak` / `BREAK_START` payloads use it without re-querying the DB.
+  gameState.breakDuration = Number.isFinite(Number(session?.breakDuration))
+    ? Number(session.breakDuration)
+    : 360;
   gameState.activeTeamIds = teams.map((t) => t.teamId);
   gameState.teams = {};
   for (const team of teams) {
@@ -393,19 +450,33 @@ const nextQuestion = async (io, pin) => {
     if (!gameState) return;
   }
 
+  // Host pressed "Next" while sitting on the new "Round Over" transition screen.
+  // Advance to the scoreboard (which will then advance to the next round intro).
+  if (gameState.state === GAME_STATES.ROUND_END) {
+    await proceedFromRoundEnd(io, pin);
+    return;
+  }
+
   if (gameState.state === GAME_STATES.ROUND_INTRO) {
     const round = stateMachine.getCurrentRound(gameState);
     if (isWagerLockRound(round)) {
-      await startWagerCollection(io, pin);
+      await startQuestionWagerCollection(io, pin);
       return;
     }
     const transResult = stateMachine.transition(gameState, GAME_STATES.QUESTION);
     if (!transResult.valid) return;
     gameState = transResult.gameState;
-  } else if (
-    gameState.state === GAME_STATES.SCOREBOARD ||
-    gameState.state === GAME_STATES.WAGER_COLLECTION
-  ) {
+  } else if (gameState.state === GAME_STATES.WAGER_COLLECTION) {
+    // Host pressed "Start Question" after wager collection: open the upcoming question.
+    const transResult = stateMachine.transition(gameState, GAME_STATES.QUESTION);
+    if (!transResult.valid) return;
+    gameState = transResult.gameState;
+  } else if (gameState.state === GAME_STATES.SCOREBOARD) {
+    const round = stateMachine.getCurrentRound(gameState);
+    if (isWagerLockRound(round)) {
+      await startQuestionWagerCollection(io, pin);
+      return;
+    }
     const transResult = stateMachine.transition(gameState, GAME_STATES.QUESTION);
     if (!transResult.valid) return;
     gameState = transResult.gameState;
@@ -413,6 +484,26 @@ const nextQuestion = async (io, pin) => {
     gameState.state === GAME_STATES.QUESTION &&
     gameState.questionState === QUESTION_STATES.REVEALED
   ) {
+    const round = stateMachine.getCurrentRound(gameState);
+
+    // Elimination: once only one (or zero) teams remain, close the round here instead of
+    // walking the host through the rest of the questions.
+    if (round?.type === ROUND_TYPES.ELIMINATION && gameState.eliminationEndEarly) {
+      logger.info('Elimination round ending early on host Next press', {
+        pin,
+        roundIndex: gameState.currentRoundIndex,
+      });
+      await endRound(io, pin, gameState);
+      return;
+    }
+
+    // Per-question wager lock: re-enter WAGER_COLLECTION for the upcoming question instead
+    // of activating it directly.
+    if (isWagerLockRound(round)) {
+      await startQuestionWagerCollection(io, pin);
+      return;
+    }
+
     const advance = stateMachine.advanceQuestion(gameState);
     if (!advance.hasNext) {
       await endRound(io, pin, gameState);
@@ -499,12 +590,12 @@ const nextQuestion = async (io, pin) => {
             );
           }
         }
-        logger.info('Timer expired for question, waiting for host to reveal', {
+        logger.info('Timer expired for question — auto-revealing', {
           pin,
           roundIndex: gs?.currentRoundIndex,
           questionIndex: gs?.currentQuestionIndex,
         });
-        // await revealAnswer(io, pin);
+        await revealAnswer(io, pin);
       },
     );
 
@@ -527,6 +618,7 @@ const nextQuestion = async (io, pin) => {
       options: question.options.map((o) => ({ text: o.text })),
       mediaUrl: question.mediaUrl,
       mediaType: question.mediaType,
+      category: question.category || null,
       isOrdering: question.options.some((o) => o.correctOrder !== undefined),
     },
     timerDuration: effectiveTimer,
@@ -621,9 +713,9 @@ const submitAnswer = async (io, pin, teamId, data) => {
   };
 
   if (isWagerLockRound(currentRound)) {
-    const roundIdStr = String(currentRound.id);
+    const questionIdStr = String(question.id);
     const teamIdStr = String(teamId);
-    const rawLocked = gameState.roundWagers?.[roundIdStr]?.[teamIdStr];
+    const rawLocked = gameState.questionWagers?.[questionIdStr]?.[teamIdStr];
     const missingLock = rawLocked === undefined || rawLocked === null;
     let resolvedWager = missingLock
       ? clampWagerByRoundType(
@@ -635,10 +727,13 @@ const submitAnswer = async (io, pin, teamId, data) => {
       : Number(rawLocked);
 
     if (missingLock) {
-      if (!gameState.roundWagers) gameState.roundWagers = {};
-      if (!gameState.roundWagers[roundIdStr]) gameState.roundWagers[roundIdStr] = {};
-      gameState.roundWagers[roundIdStr][teamIdStr] = resolvedWager;
+      if (!gameState.questionWagers) gameState.questionWagers = {};
+      if (!gameState.questionWagers[questionIdStr]) gameState.questionWagers[questionIdStr] = {};
+      gameState.questionWagers[questionIdStr][teamIdStr] = resolvedWager;
       await redisStore.setGameState(pin, gameState);
+      // Surface this implicit lock to host/venue counters — covers the edge case where
+      // a team skips the wager-input screen and submits the answer first.
+      emitWagerLockUpdate(io, pin, gameState);
     }
     responseData.wagerAmount = resolvedWager;
   }
@@ -679,19 +774,15 @@ const submitAnswer = async (io, pin, teamId, data) => {
     totalTeams: gameState.totalTeams,
   });
 
-  if (count >= Math.max(1, rosterTotal)) {
-    timerManager.forceExpire(pin);
-
-    io.to(`session:${pin}`).emit(SOCKET_EVENTS.TIMER_UPDATE, { remaining: 0, timerRunning: false });
-    io.to(`session:${pin}`).emit(SOCKET_EVENTS.TIMER_EXPIRED, {});
-
-    gameState.timerRunning = false;
-    gameState.timerRemaining = 0;
-    await redisStore.updateGameState(pin, { timerRunning: false, timerRemaining: 0 });
-
-    io.to(`session:${pin}`).emit(SOCKET_EVENTS.AUTO_REVEAL, {});
-    // await revealAnswer(io, pin);
-  }
+  // Timer policy (all round types, including Music): the timer runs to completion
+  // even if every team has already answered. Auto-reveal is driven solely by timer
+  // expiry; "everyone answered" no longer fast-forwards the clock. This keeps audio /
+  // video in Music rounds playing through, and gives every round a consistent feel
+  // (host can still manually reveal early). `currentRound`/`rosterTotal`/`count` are
+  // intentionally left unused by this block — kept above for diagnostics & logs.
+  void currentRound;
+  void rosterTotal;
+  void count;
 };
 
 /**
@@ -706,26 +797,33 @@ const submitWager = async (io, pin, teamId, amount) => {
   const round = stateMachine.getCurrentRound(gameState);
   if (!round || !isWagerLockRound(round)) return { saved: false };
 
-  const roundId = String(round.id);
+  // The wager is locked against the upcoming question — which is the current question
+  // when called from WAGER_COLLECTION (clientPayloadFromGameState already exposes it).
+  const question = stateMachine.getCurrentQuestion(gameState);
+  if (!question?.id) return { saved: false };
+
+  const questionIdKey = String(question.id);
   const teamIdKey = String(teamId);
-  const locked = gameState.roundWagers?.[roundId]?.[teamIdKey];
+  const locked = gameState.questionWagers?.[questionIdKey]?.[teamIdKey];
   if (locked !== undefined && locked !== null) {
     return { saved: false, alreadyLocked: true };
   }
 
   const wager = clampWagerByRoundType(round.type, amount);
-  if (!gameState.roundWagers) gameState.roundWagers = {};
-  if (!gameState.roundWagers[roundId]) gameState.roundWagers[roundId] = {};
-  gameState.roundWagers[roundId][teamIdKey] = wager;
+  if (!gameState.questionWagers) gameState.questionWagers = {};
+  if (!gameState.questionWagers[questionIdKey]) gameState.questionWagers[questionIdKey] = {};
+  gameState.questionWagers[questionIdKey][teamIdKey] = wager;
 
   await redisStore.setGameState(pin, gameState);
 
   if (io) {
     const fresh = await redisStore.getGameState(pin);
     if (fresh) {
-      // Must include `currentQuestion` during QUESTION — bare sanitizeForClients drops it and
-      // forces every client (players + host) onto the waiting UI.
+      // Must include `currentQuestion` during QUESTION/WAGER_COLLECTION — bare
+      // sanitizeForClients drops it and forces every client (players + host) onto the
+      // waiting UI.
       io.to(`session:${pin}`).emit(SOCKET_EVENTS.SESSION_STATE, clientPayloadFromGameState(fresh));
+      emitWagerLockUpdate(io, pin, fresh);
     }
   }
 
@@ -793,7 +891,7 @@ const revealAnswer = async (io, pin) => {
       };
     }
     if (isWagerRound) {
-      responses[tid].wagerAmount = getRoundWagerForTeam(gameState, round.id, tid);
+      responses[tid].wagerAmount = getQuestionWagerForTeam(gameState, question.id, tid, round.id);
     }
   }
 
@@ -847,6 +945,9 @@ const revealAnswer = async (io, pin) => {
 
     if (knockoutEngine.shouldEndEarly(elimState)) {
       logger.info('Elimination round ending early — 0 or 1 team remaining', { pin });
+      gameState.eliminationEndEarly = true;
+    } else {
+      gameState.eliminationEndEarly = false;
     }
   }
 
@@ -938,6 +1039,15 @@ const revealAnswer = async (io, pin) => {
 /**
  * End the current round and show scoreboard
  */
+/**
+ * End the current round.
+ *
+ * Transitions to ROUND_END (the new "round is over" transition screen). The host then
+ * advances either via "Next" -> SCOREBOARD (handled by proceedFromRoundEnd) or via
+ * "Advance Round" -> ROUND_INTRO/BREAK (handled by advanceToNextRound).
+ *
+ * Score persistence happens here so it is durable regardless of how the host advances.
+ */
 const endRound = async (io, pin, gameState) => {
   if (eliminationStates.has(pin)) {
     eliminationStates.delete(pin);
@@ -945,6 +1055,8 @@ const endRound = async (io, pin, gameState) => {
   if (gameState.revealSnapshotsByQuestionId) {
     gameState.revealSnapshotsByQuestionId = {};
   }
+  // Clear any elimination-end-early flag — fresh start for the next round.
+  gameState.eliminationEndEarly = false;
 
   for (const teamId of Object.keys(gameState.teams)) {
     if (gameState.teams[teamId]) {
@@ -953,7 +1065,7 @@ const endRound = async (io, pin, gameState) => {
   }
   gameState.activeTeamIds = Object.keys(gameState.teams).map(Number);
 
-  const result = stateMachine.transition(gameState, GAME_STATES.SCOREBOARD);
+  const result = stateMachine.transition(gameState, GAME_STATES.ROUND_END);
   if (!result.valid) return;
 
   await redisStore.setGameState(pin, result.gameState);
@@ -966,9 +1078,48 @@ const endRound = async (io, pin, gameState) => {
     totalTeams: Object.keys(result.gameState.teams).length,
   });
 
+  const currentRound = stateMachine.getCurrentRound(result.gameState);
+  const nextIdx = Number(result.gameState.currentRoundIndex) + 1;
+  const nextRound =
+    nextIdx >= 0 && nextIdx < result.gameState.rounds.length
+      ? result.gameState.rounds[nextIdx]
+      : null;
+  const isFinalRound = !nextRound;
+
   io.to(`session:${pin}`).emit(SOCKET_EVENTS.ROUND_END, {
-    roundIndex: gameState.currentRoundIndex,
+    roundIndex: result.gameState.currentRoundIndex,
+    roundName: currentRound?.name || `Round ${Number(result.gameState.currentRoundIndex) + 1}`,
+    roundType: currentRound?.type || '',
+    nextRound: nextRound
+      ? {
+          index: nextIdx,
+          name: nextRound.name || `Round ${nextIdx + 1}`,
+          type: nextRound.type || '',
+        }
+      : null,
+    isFinalRound,
   });
+  io.to(`session:${pin}`).emit(
+    SOCKET_EVENTS.SESSION_STATE,
+    clientPayloadFromGameState(result.gameState),
+  );
+};
+
+/**
+ * Advance from the ROUND_END "round is over" screen to the SCOREBOARD.
+ *
+ * Called when the host presses "Next" while sitting on ROUND_END. Builds the reveal
+ * snapshot and emits the scoreboard payload — the same shape clients used to receive
+ * directly from endRound() in the legacy single-step flow.
+ */
+const proceedFromRoundEnd = async (io, pin) => {
+  const gameState = await redisStore.getGameState(pin);
+  if (!gameState || gameState.state !== GAME_STATES.ROUND_END) return;
+
+  const result = stateMachine.transition(gameState, GAME_STATES.SCOREBOARD);
+  if (!result.valid) return;
+
+  await redisStore.setGameState(pin, result.gameState);
 
   const sortedTeams = Object.values(result.gameState.teams).sort((a, b) => b.score - a.score);
 
@@ -976,7 +1127,10 @@ const endRound = async (io, pin, gameState) => {
   try {
     revealSnapshot = await buildRevealSnapshot(pin, result.gameState);
   } catch (err) {
-    logger.warn('buildRevealSnapshot failed (round_end scoreboard)', { pin, error: err.message });
+    logger.warn('buildRevealSnapshot failed (proceed from round end)', {
+      pin,
+      error: err.message,
+    });
   }
 
   io.to(`session:${pin}`).emit(SOCKET_EVENTS.SCOREBOARD, {
@@ -984,6 +1138,10 @@ const endRound = async (io, pin, gameState) => {
     source: 'round_end',
     ...(revealSnapshot ? { revealSnapshot } : {}),
   });
+  io.to(`session:${pin}`).emit(
+    SOCKET_EVENTS.SESSION_STATE,
+    clientPayloadFromGameState(result.gameState),
+  );
 };
 
 /**
@@ -1002,9 +1160,12 @@ const advanceToNextRound = async (io, pin) => {
     const lastIdx = qLen > 0 ? qLen - 1 : -1;
     const onLastQuestion = lastIdx >= 0 && Number(gameState.currentQuestionIndex) === lastIdx;
     if (onLastQuestion) {
+      // End the round and STOP on the ROUND_END "round is over" transition screen.
+      // The host (and venue / players) must see the round-over screen before we
+      // advance further; another `next_question` or `advance_round` press from
+      // ROUND_END moves the game forward.
       await endRound(io, pin, gameState);
-      gameState = await redisStore.getGameState(pin);
-      if (!gameState) return;
+      return;
     }
   }
 
@@ -1114,6 +1275,21 @@ const executePlayerDisconnectPurge = async (io, pin, teamId, options = {}) => {
     es.activeTeamIds = (es.activeTeamIds || []).map(Number).filter((id) => id !== teamId);
   }
 
+  // If we're collecting wagers and the leaver had locked one, drop their entry from the bucket
+  // and re-emit the counter so host/venue progress doesn't stay stuck on the old denominator.
+  if (gameState && gameState.state === GAME_STATES.WAGER_COLLECTION) {
+    const wagerQuestion = stateMachine.getCurrentQuestion(gameState);
+    const questionIdKey = wagerQuestion?.id != null ? String(wagerQuestion.id) : null;
+    if (questionIdKey && gameState.questionWagers?.[questionIdKey]) {
+      const teamKey = String(teamId);
+      if (gameState.questionWagers[questionIdKey][teamKey] !== undefined) {
+        delete gameState.questionWagers[questionIdKey][teamKey];
+        await redisStore.setGameState(pin, gameState);
+      }
+    }
+    emitWagerLockUpdate(io, pin, gameState);
+  }
+
   if (
     gameState &&
     gameState.state === GAME_STATES.QUESTION &&
@@ -1137,21 +1313,9 @@ const executePlayerDisconnectPurge = async (io, pin, teamId, options = {}) => {
         buildLiveResponseStats(gameState, question, responsesRaw),
       );
 
-      if (
-        gameState.activeTeamIds.length > 0 &&
-        answeredAmongActive >= gameState.activeTeamIds.length
-      ) {
-        timerManager.forceExpire(pin);
-        io.to(`session:${pin}`).emit(SOCKET_EVENTS.TIMER_UPDATE, {
-          remaining: 0,
-          timerRunning: false,
-        });
-        io.to(`session:${pin}`).emit(SOCKET_EVENTS.TIMER_EXPIRED, {});
-        gameState.timerRunning = false;
-        gameState.timerRemaining = 0;
-        await redisStore.setGameState(pin, gameState);
-        io.to(`session:${pin}`).emit(SOCKET_EVENTS.AUTO_REVEAL, {});
-      }
+      // Timer policy (matches submitAnswer): all rounds let the clock run to completion
+      // even when every remaining team has answered. Auto-reveal is driven by timer
+      // expiry alone, so a disconnect that completes the roster never short-circuits it.
     }
   }
 
@@ -1397,6 +1561,7 @@ const endBreak = async (io, pin) => {
               options: question.options.map((o) => ({ text: o.text })),
               mediaUrl: question.mediaUrl,
               mediaType: question.mediaType,
+              category: question.category || null,
               isOrdering: question.options.some((o) => o.correctOrder !== undefined),
             },
             timerDuration: effectiveTimer,
@@ -1674,10 +1839,10 @@ const startTimer = async (io, pin) => {
         gs.timerRemaining = 0;
         await redisStore.setGameState(pin, gs);
       }
-      logger.info('Timer expired for question on resumed timer, waiting for host to reveal', {
+      logger.info('Timer expired for question on resumed timer — auto-revealing', {
         pin,
       });
-      // await revealAnswer(io, pin);
+      await revealAnswer(io, pin);
     },
   );
 
@@ -1815,6 +1980,7 @@ const clientPayloadFromGameState = (gameState) => {
       options: (cq.options || []).map((o) => ({ text: o.text })),
       mediaUrl: cq.mediaUrl,
       mediaType: cq.mediaType,
+      category: cq.category || null,
     },
     timerDuration: Number(cq.timerDuration ?? round.timerDuration ?? 30) || 30,
     roundType: round.type || '',
@@ -1823,24 +1989,37 @@ const clientPayloadFromGameState = (gameState) => {
 };
 
 /**
- * Start wager collection phase for WAGER rounds.
- * Transitions ROUND_INTRO → WAGER_COLLECTION and tells mobile to show wager input.
+ * Start wager collection for the *upcoming* question in a Wager / Final Wager round.
+ *
+ * Supports three entry points:
+ *  - ROUND_INTRO -> WAGER_COLLECTION (first question of the round; host pressed "Lock Wager Points")
+ *  - QUESTION (REVEALED) -> WAGER_COLLECTION (per-question lock between consecutive questions)
+ *  - SCOREBOARD -> WAGER_COLLECTION (rare path; host re-entered wager collection after showing scoreboard)
+ *
+ * When advancing from REVEALED, the question index is incremented first so the wager UI
+ * targets the *next* question.
  */
-const startWagerCollection = async (io, pin) => {
-  const gameState = await redisStore.getGameState(pin);
+const startQuestionWagerCollection = async (io, pin) => {
+  let gameState = await redisStore.getGameState(pin);
   if (!gameState) return;
 
-  if (gameState.state !== GAME_STATES.ROUND_INTRO) {
-    logger.warn('startWagerCollection called but state is not ROUND_INTRO', {
-      pin,
-      state: gameState.state,
-    });
-    return;
+  const entryState = gameState.state;
+  const entryQuestionState = gameState.questionState;
+
+  // From REVEALED, advance the question index so the wager screen is for the upcoming question.
+  if (entryState === GAME_STATES.QUESTION && entryQuestionState === QUESTION_STATES.REVEALED) {
+    const advance = stateMachine.advanceQuestion(gameState);
+    if (!advance.hasNext) {
+      // No more questions in this round -> end the round instead of opening a wager screen.
+      await endRound(io, pin, gameState);
+      return;
+    }
+    gameState = advance.gameState;
   }
 
   const round = stateMachine.getCurrentRound(gameState);
   if (!round || !isWagerLockRound(round)) {
-    logger.warn('startWagerCollection called on non-wager round', {
+    logger.warn('startQuestionWagerCollection called on non-wager round', {
       pin,
       roundType: round?.type,
     });
@@ -1849,11 +2028,17 @@ const startWagerCollection = async (io, pin) => {
 
   const result = stateMachine.transition(gameState, GAME_STATES.WAGER_COLLECTION);
   if (!result.valid) {
-    logger.error('Failed to transition to WAGER_COLLECTION', { pin, error: result.error });
+    logger.error('Failed to transition to WAGER_COLLECTION', {
+      pin,
+      from: gameState.state,
+      error: result.error,
+    });
     return;
   }
 
   await redisStore.setGameState(pin, result.gameState);
+
+  const upcomingQuestion = stateMachine.getCurrentQuestion(result.gameState);
 
   io.to(`session:${pin}`).emit(SOCKET_EVENTS.WAGER_COLLECTION_START, {
     round: {
@@ -1864,6 +2049,9 @@ const startWagerCollection = async (io, pin) => {
     },
     roundIndex: result.gameState.currentRoundIndex,
     totalRounds: result.gameState.rounds.length,
+    questionIndex: result.gameState.currentQuestionIndex,
+    totalQuestions: round.questions.length,
+    questionId: upcomingQuestion?.id ?? null,
   });
 
   io.to(`session:${pin}`).emit(
@@ -1871,12 +2059,20 @@ const startWagerCollection = async (io, pin) => {
     clientPayloadFromGameState(result.gameState),
   );
 
+  // Reset the locked-wager counter (no team has locked for the new question yet).
+  emitWagerLockUpdate(io, pin, result.gameState);
+
   logger.info('Wager collection started', {
     pin,
     roundIndex: result.gameState.currentRoundIndex,
+    questionIndex: result.gameState.currentQuestionIndex,
     roundType: round.type,
+    from: entryState,
   });
 };
+
+/** Back-compat alias — older callers used `startWagerCollection`. */
+const startWagerCollection = startQuestionWagerCollection;
 
 /** Drop per-session in-memory maps when a session ends or is purged from cache. */
 const cleanupInMemorySession = (pin) => {

@@ -30,10 +30,19 @@ type GamePhase =
   | 'wager_input'
   | 'answered'
   | 'reveal'
+  | 'round_end'
   | 'scoreboard'
   | 'eliminated'
   | 'break'
   | 'game_end';
+
+interface RoundEndInfo {
+  roundIndex: number;
+  roundName: string;
+  roundType: string;
+  nextRound: { index: number; name: string; type: string } | null;
+  isFinalRound: boolean;
+}
 
 interface QuestionData {
   questionIndex: number;
@@ -44,6 +53,7 @@ interface QuestionData {
     options: { text: string }[];
     mediaUrl?: string;
     mediaType?: string;
+    category?: string | null;
     isOrdering?: boolean;
   };
   timerDuration: number;
@@ -96,20 +106,26 @@ const OPTION_LETTERS = ['A', 'B', 'C', 'D', 'E', 'F'];
 
 const WAGER_POINT_OPTIONS = [0, 10, 20, 30, 40, 50] as const;
 // Final wager: fixed % steps on mobile; server clamps to SCORING.FINAL_WAGER (shared/constants/scoring.js).
-const FINAL_WAGER_PERCENT_OPTIONS = [0, 10, 20, 30, 40, 50] as const;
+const FINAL_WAGER_PERCENT_OPTIONS = [0, 20, 40, 60, 80, 100] as const;
 
 function initialWagerAmountForRoundType(roundType?: string): number {
   return (roundType || '').toUpperCase() === 'FINAL_WAGER' ? FINAL_WAGER_PERCENT_OPTIONS[0] : 0;
 }
 
-/** Resolve this team's locked wager from join payloads or broadcast `session_state`. */
+/**
+ * Resolve this team's locked wager from join payloads or broadcast `session_state`.
+ * Per-question lock: prefers `questionWagers[questionId][teamId]`; falls back to the legacy
+ * `roundWagers[roundId][teamId]` so older sessions keep working.
+ */
 function resolveLockedWagerFromPayload(
   teamId: number | null | undefined,
   roundId: number | string | null | undefined,
+  questionId: number | string | null | undefined,
   sources: {
     currentQuestionLocked?: number | null;
     topLevelLocked?: number | null;
     roundWagers?: Record<string, Record<string, number>> | null;
+    questionWagers?: Record<string, Record<string, number>> | null;
   },
 ): { amount: number | null; hasLocked: boolean } {
   const fromQuestion =
@@ -120,6 +136,10 @@ function resolveLockedWagerFromPayload(
     sources.topLevelLocked !== undefined && sources.topLevelLocked !== null
       ? Number(sources.topLevelLocked)
       : null;
+  const fromPerQuestion =
+    teamId != null && questionId != null
+      ? sources.questionWagers?.[String(questionId)]?.[String(teamId)]
+      : undefined;
   const fromRedis =
     teamId != null && roundId != null
       ? sources.roundWagers?.[String(roundId)]?.[String(teamId)]
@@ -129,9 +149,11 @@ function resolveLockedWagerFromPayload(
       ? fromQuestion
       : fromTop != null && Number.isFinite(fromTop)
         ? fromTop
-        : fromRedis !== undefined && fromRedis !== null
-          ? Number(fromRedis)
-          : null;
+        : fromPerQuestion !== undefined && fromPerQuestion !== null
+          ? Number(fromPerQuestion)
+          : fromRedis !== undefined && fromRedis !== null
+            ? Number(fromRedis)
+            : null;
   const hasLocked = raw !== null && Number.isFinite(Number(raw));
   return { amount: hasLocked ? Number(raw) : null, hasLocked };
 }
@@ -168,7 +190,7 @@ function teamNeedsWagerLockScreen(roundType?: string, hasLockedWager?: boolean):
 function resolveUnlockedWagerAmount(
   pin: string | undefined,
   teamId: number | undefined,
-  roundId: number | string | null | undefined,
+  questionId: number | string | null | undefined,
   roundType: string | undefined,
 ): { amount: number; draftMeta: { amount: number | null; pendingLock: boolean } } {
   let nextAmount = initialWagerAmountForRoundType(roundType);
@@ -176,8 +198,8 @@ function resolveUnlockedWagerAmount(
     amount: null,
     pendingLock: false,
   };
-  if (pin && teamId != null && roundId != null) {
-    draftMeta = readWagerDraft(pin, Number(teamId), roundId);
+  if (pin && teamId != null && questionId != null) {
+    draftMeta = readWagerDraft(pin, Number(teamId), questionId);
     const d = draftMeta.amount;
     if (d != null && isValidWagerDraftAmount(roundType, d)) {
       nextAmount = d;
@@ -192,17 +214,23 @@ function wagerDraftStorageKey(pin: string, teamId: number) {
   return `${WAGER_DRAFT_STORAGE_PREFIX}${pin}:${teamId}`;
 }
 
+/**
+ * Drafts are keyed per-question: each question in a Wager / Final Wager round opens its
+ * own lock screen, so we discard drafts from previous questions automatically.
+ */
 function readWagerDraft(
   pin: string,
   teamId: number,
-  roundId: number | string | undefined,
+  questionId: number | string | undefined,
 ): { amount: number | null; pendingLock: boolean } {
-  if (!pin || teamId == null || roundId == null) return { amount: null, pendingLock: false };
+  if (!pin || teamId == null || questionId == null) return { amount: null, pendingLock: false };
   try {
     const raw = sessionStorage.getItem(wagerDraftStorageKey(pin, teamId));
     if (!raw) return { amount: null, pendingLock: false };
-    const o = JSON.parse(raw) as { roundId?: unknown; amount?: unknown; pendingLock?: unknown };
-    if (String(o.roundId ?? '') !== String(roundId)) return { amount: null, pendingLock: false };
+    const o = JSON.parse(raw) as { questionId?: unknown; amount?: unknown; pendingLock?: unknown };
+    if (String(o.questionId ?? '') !== String(questionId)) {
+      return { amount: null, pendingLock: false };
+    }
     const n = Number(o.amount);
     const amount = Number.isFinite(n) ? n : null;
     return { amount, pendingLock: Boolean(o.pendingLock) };
@@ -214,14 +242,14 @@ function readWagerDraft(
 function writeWagerDraft(
   pin: string,
   teamId: number,
-  roundId: number | string,
+  questionId: number | string,
   amount: number,
   opts?: { pendingLock?: boolean },
 ) {
   try {
     sessionStorage.setItem(
       wagerDraftStorageKey(pin, teamId),
-      JSON.stringify({ roundId, amount, pendingLock: Boolean(opts?.pendingLock) }),
+      JSON.stringify({ questionId, amount, pendingLock: Boolean(opts?.pendingLock) }),
     );
   } catch {
     /* quota / private mode */
@@ -238,7 +266,6 @@ function clearWagerDraft(pin: string, teamId: number) {
 
 function isValidWagerDraftAmount(roundType: string | undefined, amount: number): boolean {
   const rt = (roundType || '').toUpperCase();
-  const inSharedGrid = (FINAL_WAGER_PERCENT_OPTIONS as readonly number[]).includes(amount);
   if (rt === 'FINAL_WAGER') {
     return FINAL_WAGER_PERCENT_OPTIONS.includes(
       amount as (typeof FINAL_WAGER_PERCENT_OPTIONS)[number],
@@ -247,8 +274,11 @@ function isValidWagerDraftAmount(roundType: string | undefined, amount: number):
   if (rt === 'WAGER') {
     return WAGER_POINT_OPTIONS.includes(amount as (typeof WAGER_POINT_OPTIONS)[number]);
   }
-  // Payload sometimes omits round `type` on reconnect; both wager UIs use the same 0–50 steps.
-  return inSharedGrid;
+  // Reconnect payloads sometimes omit `roundType`; accept either grid as a permissive default.
+  return (
+    (WAGER_POINT_OPTIONS as readonly number[]).includes(amount) ||
+    (FINAL_WAGER_PERCENT_OPTIONS as readonly number[]).includes(amount)
+  );
 }
 
 const ANSWER_DRAFT_PREFIX = 'mst:answerDraft:';
@@ -773,6 +803,9 @@ export default function GamePage() {
     roundIndex: number;
     totalRounds: number;
   } | null>(null);
+  // Drives the player-side "round is over" transition screen between the last reveal
+  // and the scoreboard / next round intro.
+  const [roundEndInfo, setRoundEndInfo] = useState<RoundEndInfo | null>(null);
   const [question, setQuestion] = useState<QuestionData | null>(null);
   const [timerRemaining, setTimerRemaining] = useState(0);
   const [timerEndsAt, setTimerEndsAt] = useState<number | null>(null);
@@ -821,6 +854,10 @@ export default function GamePage() {
   const playerRestoreGuardRef = useRef<{ pin: string; teamId: number } | null>(null);
   useEffect(() => {
     phaseRef.current = phase;
+    // Drop the cached round-end payload once we leave the dedicated round_end phase.
+    if (phase !== 'round_end') {
+      setRoundEndInfo(null);
+    }
   }, [phase]);
 
   useEffect(() => {
@@ -923,9 +960,12 @@ export default function GamePage() {
           const isWagerRound = isWagerRoundType(data.roundType);
           let hasLockedWager = true;
           if (isWagerRound) {
-            const { amount, hasLocked } = resolveLockedWagerFromPayload(session.teamId, null, {
-              currentQuestionLocked: data.lockedWagerAmount,
-            });
+            const { amount, hasLocked } = resolveLockedWagerFromPayload(
+              session.teamId,
+              null,
+              data.question?.id ?? null,
+              { currentQuestionLocked: data.lockedWagerAmount },
+            );
             hasLockedWager = hasLocked;
             wagerLockRequiredRef.current = !hasLocked;
             if (hasLocked && amount != null) {
@@ -1144,11 +1184,13 @@ export default function GamePage() {
               ? gs.rounds[wagerRoundIdxForLock]
               : null);
           const roundIdForLock = roundMetaForLock?.id;
+          const questionIdForLock = gs.currentQuestion?.question?.id ?? null;
           const { amount: lockedWagerAmount, hasLocked: hasLockedWager } =
-            resolveLockedWagerFromPayload(session.teamId, roundIdForLock, {
+            resolveLockedWagerFromPayload(session.teamId, roundIdForLock, questionIdForLock, {
               currentQuestionLocked: gs.currentQuestion.lockedWagerAmount,
               topLevelLocked: gs.lockedWagerAmount,
               roundWagers: gs.roundWagers,
+              questionWagers: gs.questionWagers,
             });
           const isWagerQuestionRound = isWagerRoundType(gs.currentQuestion.roundType);
           wagerLockRequiredRef.current = isWagerQuestionRound && !hasLockedWager;
@@ -1164,7 +1206,7 @@ export default function GamePage() {
               const { amount: draftAmount, draftMeta } = resolveUnlockedWagerAmount(
                 session.pin,
                 session.teamId != null ? Number(session.teamId) : undefined,
-                roundIdForLock,
+                questionIdForLock,
                 gs.currentQuestion.roundType,
               );
               setWagerAmount(draftAmount);
@@ -1174,11 +1216,11 @@ export default function GamePage() {
                 dAmt != null &&
                 isValidWagerDraftAmount(gs.currentQuestion.roundType, dAmt) &&
                 socket &&
-                roundIdForLock != null
+                questionIdForLock != null
               ) {
-                const rk = String(roundIdForLock);
-                if (!wagerLockResubmitGuardRef.current.has(rk)) {
-                  wagerLockResubmitGuardRef.current.add(rk);
+                const qk = String(questionIdForLock);
+                if (!wagerLockResubmitGuardRef.current.has(qk)) {
+                  wagerLockResubmitGuardRef.current.add(qk);
                   setWagerSubmitted(true);
                   window.requestAnimationFrame(() => {
                     socket.emit('submit_wager', { amount: dAmt });
@@ -1306,8 +1348,24 @@ export default function GamePage() {
           return;
         }
 
+        if (gs.state === 'ROUND_END') {
+          // Keep showing the round-over transition screen. The `round_end` event
+          // (which arrives in parallel) populates roundEndInfo with the next-round
+          // preview; this branch just guarantees the phase sticks even on a
+          // refresh / reconnect that lands directly in ROUND_END.
+          setTimerRunning(false);
+          setSelectedOption(null);
+          setRevealData(null);
+          setPointsGained(null);
+          setPhase('round_end');
+          return;
+        }
+
         if (gs.state === 'WAGER_COLLECTION') {
-          setQuestion(null);
+          // Keep the upcoming question handle so the per-question wager draft + submit can
+          // resolve `question.question.id`. The wager_input UI never renders the question
+          // text/options, so exposing it here is purely a state plumbing concern.
+          setQuestion(gs.currentQuestion || null);
           setTimerEndsAt(null);
           setTimerRemaining(0);
           setTimerRunning(false);
@@ -1324,12 +1382,16 @@ export default function GamePage() {
               : null);
           const wagerRoundType = roundMeta?.type ?? gs.rounds?.[wagerRoundIdx]?.type;
           const roundId = roundMeta?.id;
+          const wagerQuestionId = gs.currentQuestion?.question?.id ?? null;
           const { amount: lockedRaw, hasLocked: hasLockedWager } = resolveLockedWagerFromPayload(
             session.teamId,
             roundId,
+            wagerQuestionId,
             {
+              currentQuestionLocked: gs.currentQuestion?.lockedWagerAmount,
               topLevelLocked: gs.lockedWagerAmount,
               roundWagers: gs.roundWagers,
+              questionWagers: gs.questionWagers,
             },
           );
           if (hasLockedWager) {
@@ -1343,7 +1405,7 @@ export default function GamePage() {
             const { amount: nextAmount, draftMeta: wagerDraftMeta } = resolveUnlockedWagerAmount(
               session.pin,
               session.teamId != null ? Number(session.teamId) : undefined,
-              roundId,
+              wagerQuestionId,
               wagerRoundType,
             );
             setWagerAmount(nextAmount);
@@ -1353,11 +1415,11 @@ export default function GamePage() {
               dAmt != null &&
               isValidWagerDraftAmount(wagerRoundType, dAmt) &&
               socket &&
-              roundId != null
+              wagerQuestionId != null
             ) {
-              const rk = String(roundId);
-              if (!wagerLockResubmitGuardRef.current.has(rk)) {
-                wagerLockResubmitGuardRef.current.add(rk);
+              const qk = String(wagerQuestionId);
+              if (!wagerLockResubmitGuardRef.current.has(qk)) {
+                wagerLockResubmitGuardRef.current.add(qk);
                 setWagerSubmitted(true);
                 window.requestAnimationFrame(() => {
                   socket.emit('submit_wager', { amount: dAmt });
@@ -1516,9 +1578,12 @@ export default function GamePage() {
       const isWagerQuestion = isWagerRoundType(data.roundType);
       let hasLockedWager = true;
       if (isWagerQuestion) {
-        const { amount, hasLocked } = resolveLockedWagerFromPayload(session.teamId, null, {
-          currentQuestionLocked: data.lockedWagerAmount,
-        });
+        const { amount, hasLocked } = resolveLockedWagerFromPayload(
+          session.teamId,
+          null,
+          data.question?.id ?? null,
+          { currentQuestionLocked: data.lockedWagerAmount },
+        );
         hasLockedWager = hasLocked;
         wagerLockRequiredRef.current = !hasLocked;
         if (hasLocked && amount != null) {
@@ -1727,8 +1792,30 @@ export default function GamePage() {
       setPhase('waiting');
     };
 
-    const onRoundEnd = () => {
+    const onRoundEnd = (payload?: {
+      roundIndex?: number;
+      roundName?: string;
+      roundType?: string;
+      nextRound?: { index?: number; name?: string; type?: string } | null;
+      isFinalRound?: boolean;
+    }) => {
       setTimerRunning(false);
+      const nextRound = payload?.nextRound;
+      setRoundEndInfo({
+        roundIndex: Number(payload?.roundIndex ?? 0),
+        roundName: String(payload?.roundName || ''),
+        roundType: String(payload?.roundType || ''),
+        nextRound:
+          nextRound && typeof nextRound === 'object'
+            ? {
+                index: Number(nextRound.index ?? 0),
+                name: String(nextRound.name || ''),
+                type: String(nextRound.type || ''),
+              }
+            : null,
+        isFinalRound: Boolean(payload?.isFinalRound),
+      });
+      setPhase('round_end');
     };
 
     const onBreakStart = (data: {
@@ -1774,6 +1861,7 @@ export default function GamePage() {
           const { hasLocked: hasLockedWager } = resolveLockedWagerFromPayload(
             session.teamId,
             roundInfo?.round?.id,
+            q.question?.id ?? null,
             { currentQuestionLocked: q.lockedWagerAmount },
           );
           if (teamNeedsWagerLockScreen(q.roundType, hasLockedWager)) {
@@ -1786,6 +1874,7 @@ export default function GamePage() {
           const { hasLocked: hasLockedWager } = resolveLockedWagerFromPayload(
             session.teamId,
             roundInfo?.round?.id,
+            q.question?.id ?? null,
             { currentQuestionLocked: q.lockedWagerAmount },
           );
           setPhase(
@@ -2003,13 +2092,13 @@ export default function GamePage() {
     if (!socket) return;
     const pin = session.pin;
     const tid = session.teamId;
-    const rid = roundInfo?.round?.id;
+    const qid = question?.question?.id;
     const rt = question?.roundType || roundInfo?.round?.type;
     // Keep a sessionStorage draft until `session_state` shows the server-side lock. Clearing
     // here used to wipe the only copy of the chosen amount on refresh if `submit_wager` was
     // slow, failed, or the tab reloaded before Redis was read back on rejoin.
-    if (pin && tid != null && rid != null && isValidWagerDraftAmount(rt, wagerAmount)) {
-      writeWagerDraft(pin, Number(tid), rid, wagerAmount, { pendingLock: true });
+    if (pin && tid != null && qid != null && isValidWagerDraftAmount(rt, wagerAmount)) {
+      writeWagerDraft(pin, Number(tid), qid, wagerAmount, { pendingLock: true });
     }
     socket.emit('submit_wager', { amount: wagerAmount });
     setWagerSubmitted(true);
@@ -2035,17 +2124,18 @@ export default function GamePage() {
     if (phase !== 'wager_input' || wagerSubmitted) return;
     const pin = session.pin;
     const tid = session.teamId;
-    const rid = roundInfo?.round?.id;
-    const rt = roundInfo?.round?.type;
-    if (!pin || tid == null || rid == null) return;
+    const qid = question?.question?.id;
+    const rt = question?.roundType || roundInfo?.round?.type;
+    if (!pin || tid == null || qid == null) return;
     if (!isValidWagerDraftAmount(rt, wagerAmount)) return;
-    writeWagerDraft(pin, Number(tid), rid, wagerAmount, { pendingLock: false });
+    writeWagerDraft(pin, Number(tid), qid, wagerAmount, { pendingLock: false });
   }, [
     phase,
     wagerSubmitted,
     session.pin,
     session.teamId,
-    roundInfo?.round?.id,
+    question?.question?.id,
+    question?.roundType,
     roundInfo?.round?.type,
     wagerAmount,
   ]);
@@ -2291,6 +2381,21 @@ export default function GamePage() {
                   >
                     Place Your Wager
                   </motion.h2>
+                  {question?.question?.category ? (
+                    <motion.div
+                      initial={{ opacity: 0, y: -6 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: 0.05 }}
+                      className="mb-5 inline-flex items-center gap-2 rounded-full border border-[#00d9ff]/45 bg-[rgba(0,217,255,0.08)] px-4 py-1.5 shadow-[0_0_14px_rgba(0,217,255,0.18)]"
+                    >
+                      <span className="text-[10px] font-semibold uppercase tracking-[0.22em] text-[#9de9ff]/80">
+                        Category
+                      </span>
+                      <span className="text-sm font-bold uppercase tracking-[0.14em] text-[#00d9ff]">
+                        {question.question.category}
+                      </span>
+                    </motion.div>
+                  ) : null}
                   {/* Current Score Display */}
                   {/* <motion.div
                     initial={{ opacity: 0, scale: 0.9 }}
@@ -2305,7 +2410,7 @@ export default function GamePage() {
                   </motion.div> */}
                   {isFinalWagerRound ? (
                     <p className="text-foreground/40 text-sm mb-6">
-                      Wager 0%–50% of your current score on the final question.
+                      Wager 0%–100% of your current score on the final question.
                     </p>
                   ) : (
                     <div className="mb-6 space-y-2 rounded-xl border border-white/10 bg-black/25 px-4 py-3 text-left text-sm leading-snug text-white/75 sm:text-center">
@@ -2668,23 +2773,15 @@ export default function GamePage() {
                           ? !isVoteWinner && !isSelectedOption
                           : !isCorrectOption && !isSelectedWrong;
 
-                        const userMajorityWin =
-                          isMajorityRulesRound &&
-                          isSelectedOption &&
-                          selectedOption !== null &&
-                          (pointsGained ?? 0) > 0;
-                        const userMajorityLose =
-                          isMajorityRulesRound &&
-                          isSelectedOption &&
-                          selectedOption !== null &&
-                          (pointsGained ?? 0) <= 0;
-
-                        const showCorrectTick = isMajorityRulesRound
+                        // Majority Rules: keep the green halo on the winning option, but
+                        // suppress the green tick and the red cross/ring on the user's pick
+                        // (per host requirement — winners shouldn't look "correct/incorrect").
+                        const showCorrectRing = isMajorityRulesRound
                           ? isVoteWinner
                           : isCorrectOption;
-                        const showWrongCross = isMajorityRulesRound
-                          ? userMajorityLose && isSelectedOption
-                          : isSelectedWrong;
+                        const showWrongRing = isMajorityRulesRound ? false : isSelectedWrong;
+                        const showCorrectIcon = isMajorityRulesRound ? false : isCorrectOption;
+                        const showWrongIcon = isMajorityRulesRound ? false : isSelectedWrong;
 
                         return (
                           <motion.div
@@ -2701,9 +2798,9 @@ export default function GamePage() {
                               // correct option, bright red halo for the player's
                               // wrong pick. Mirrors the Figma reveal screen so the
                               // outcome is unmistakable on a phone.
-                              showCorrectTick &&
+                              showCorrectRing &&
                                 'ring-2 ring-[#39ff14] shadow-[0_0_18px_4px_rgba(57,255,20,0.7)]',
-                              showWrongCross &&
+                              showWrongRing &&
                                 'ring-2 ring-[#ff2525] shadow-[0_0_18px_4px_rgba(255,37,37,0.7)]',
                               shouldDim && 'opacity-30 brightness-50 contrast-75 scale-[0.98]',
                             )}
@@ -2711,8 +2808,8 @@ export default function GamePage() {
                             <span className="min-w-0 flex-1 text-left text-base font-black leading-tight drop-shadow-md sm:text-lg md:text-xl">
                               {OPTION_LETTERS[i]}. {opt.text}
                             </span>
-                            {showCorrectTick && <RevealOptionStatusIcon variant="correct" />}
-                            {showWrongCross && <RevealOptionStatusIcon variant="wrong" />}
+                            {showCorrectIcon && <RevealOptionStatusIcon variant="correct" />}
+                            {showWrongIcon && <RevealOptionStatusIcon variant="wrong" />}
                           </motion.div>
                         );
                       });
@@ -2894,6 +2991,56 @@ export default function GamePage() {
               </motion.div>
             )}
 
+            {/* ── Round Over (transition screen between last reveal and leaderboard) ── */}
+            {phase === 'round_end' && (
+              <motion.div
+                key="round-end"
+                {...pageTransition}
+                className="flex flex-1 flex-col items-center justify-center px-5 pb-10 pt-8 text-center sm:px-8"
+              >
+                <div className="inline-flex items-center gap-3 rounded-full border border-[#41d9ff]/55 bg-[linear-gradient(180deg,rgba(20,42,89,0.95)_0%,rgba(11,20,46,0.95)_100%)] px-6 py-2 shadow-[0_0_22px_rgba(0,217,255,0.25)]">
+                  <span className="text-xs font-semibold uppercase tracking-[0.22em] text-[#8cdfff]">
+                    Round {(roundEndInfo?.roundIndex ?? roundInfo?.roundIndex ?? 0) + 1}{' '}
+                    Complete
+                  </span>
+                </div>
+                <h2 className="mt-6 text-[clamp(2rem,8vw,3.5rem)] font-black leading-tight text-white drop-shadow-[0_0_18px_rgba(123,194,255,0.45)]">
+                  {roundEndInfo?.roundName ||
+                    normalizeRoundIntroTitle(
+                      roundInfo?.round?.name,
+                      roundInfo?.round?.type,
+                      roundInfo?.roundIndex,
+                    )}{' '}
+                  Over
+                </h2>
+                <p className="mt-5 max-w-xs text-base text-[#9de9ff]/90 sm:text-lg">
+                  {roundEndInfo?.isFinalRound
+                    ? 'All rounds are finished. The final results are coming up next.'
+                    : roundEndInfo?.nextRound
+                      ? (
+                          <>
+                            Coming up next:{' '}
+                            <span className="font-bold text-white">
+                              {formatRoundTypeLabel(roundEndInfo.nextRound.type)} Round
+                            </span>
+                          </>
+                        )
+                      : 'Get ready for the next round!'}
+                </p>
+                <div className="mt-6 flex items-center gap-2 text-[#9de9ff]/70">
+                  <div className="h-2 w-2 rounded-full bg-[#00d9ff] animate-pulse" />
+                  <div
+                    className="h-2 w-2 rounded-full bg-[#00d9ff] animate-pulse"
+                    style={{ animationDelay: '0.3s' }}
+                  />
+                  <div
+                    className="h-2 w-2 rounded-full bg-[#00d9ff] animate-pulse"
+                    style={{ animationDelay: '0.6s' }}
+                  />
+                </div>
+              </motion.div>
+            )}
+
             {/* ── Leaderboard ── */}
             {phase === 'scoreboard' && (
               <motion.div
@@ -2927,9 +3074,17 @@ export default function GamePage() {
                         className={cn(
                           'relative flex items-center justify-between rounded-2xl border px-2 py-3 shadow-[0_0_18px_rgba(0,229,255,0.3)] sm:px-3 sm:py-4',
                           'border-[#12ddff]/70 bg-[linear-gradient(90deg,#2d12a0_0%,#9a0dbd_100%)]',
-                          isMe && 'ring-2 ring-[#35f6ff] shadow-[0_0_22px_rgba(53,246,255,0.5)]',
+                          isMe &&
+                            'border-[#35f6ff] ring-4 ring-[#35f6ff] ring-offset-2 ring-offset-[#0b0524] shadow-[0_0_36px_rgba(53,246,255,0.85),0_0_72px_rgba(53,246,255,0.45)] scale-[1.03] z-10 animate-pulse-me',
                         )}
                       >
+                        {/* "YOU" pill — anchored to the top-right so it never collides with the
+                            rank badge or the name+score row. Only rendered for the player's own row. */}
+                        {isMe && (
+                          <span className="pointer-events-none absolute -top-2 right-3 rounded-full border border-[#35f6ff] bg-[#0b0524] px-2 py-[2px] text-[10px] font-black uppercase tracking-[0.18em] text-[#8af7ff] shadow-[0_0_12px_rgba(53,246,255,0.7)] sm:text-xs">
+                            You
+                          </span>
+                        )}
                         <div className="flex min-w-0 items-center gap-2 sm:gap-3">
                           <span
                             className={cn(
@@ -2948,7 +3103,8 @@ export default function GamePage() {
                           <span
                             className={cn(
                               'truncate text-xl font-bold text-white sm:text-2xl md:text-3xl',
-                              isMe && 'text-[#8af7ff]',
+                              isMe &&
+                                'text-[#bff8ff] drop-shadow-[0_0_8px_rgba(53,246,255,0.85)]',
                             )}
                           >
                             {team.teamName}
@@ -2957,7 +3113,8 @@ export default function GamePage() {
                         <span
                           className={cn(
                             'shrink-0 pl-2 text-2xl font-extrabold leading-none text-white sm:text-3xl md:text-4xl',
-                            isMe && 'text-[#8af7ff]',
+                            isMe &&
+                              'text-[#bff8ff] drop-shadow-[0_0_8px_rgba(53,246,255,0.85)]',
                           )}
                         >
                           {team.score >= 0 ? '+' : ''}

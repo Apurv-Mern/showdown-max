@@ -97,6 +97,22 @@ const hostHandlers = (io, socket) => {
     }
   });
 
+  /**
+   * Host pressed Space (or otherwise asked) to dismiss the venue's looping welcome video.
+   * The venue listens for `venue_welcome_dismiss` and advances past the welcome screen.
+   * This event is idempotent — emitting it after the venue has already dismissed is a no-op.
+   */
+  socket.on(SOCKET_EVENTS.DISMISS_WELCOME, async (data) => {
+    try {
+      const pin = data?.pin;
+      if (!pin) return;
+      io.to(`session:${pin}`).emit(SOCKET_EVENTS.VENUE_WELCOME_DISMISS, {});
+      logger.info('Venue welcome dismissed by host', { pin });
+    } catch (err) {
+      logger.error('dismiss_welcome error', { error: err.message });
+    }
+  });
+
   socket.on(SOCKET_EVENTS.COLLECT_WAGERS, async (data) => {
     try {
       await gameController.startWagerCollection(io, data.pin);

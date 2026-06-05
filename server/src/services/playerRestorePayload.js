@@ -36,14 +36,26 @@ const getMySubmittedOptionIndex = async (pin, questionId, teamId) => {
   }
 };
 
-const getLockedWager = (gameState, round, teamId) => {
+/**
+ * Resolve the locked wager for the current question (per-question lock).
+ * Falls back to the legacy per-round bucket for sessions started before the per-question
+ * refactor.
+ */
+const getLockedWager = (gameState, round, teamId, questionId) => {
   if (!gameState || !round) return null;
   const t = String(round.type || '').toUpperCase();
   if (t !== 'WAGER' && t !== 'FINAL_WAGER') return null;
-  const value = gameState.roundWagers?.[String(round.id)]?.[String(teamId)];
-  if (value === undefined || value === null) return null;
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : null;
+  if (questionId != null) {
+    const perQ = gameState.questionWagers?.[String(questionId)]?.[String(teamId)];
+    if (perQ !== undefined && perQ !== null) {
+      const parsed = Number(perQ);
+      if (Number.isFinite(parsed)) return parsed;
+    }
+  }
+  const legacy = gameState.roundWagers?.[String(round.id)]?.[String(teamId)];
+  if (legacy === undefined || legacy === null) return null;
+  const parsedLegacy = Number(legacy);
+  return Number.isFinite(parsedLegacy) ? parsedLegacy : null;
 };
 
 /**
@@ -52,8 +64,13 @@ const getLockedWager = (gameState, round, teamId) => {
 const buildSessionPayloadForPlayer = ({ pin, gameState, team, mySubmittedOptionIndex }) => {
   const currentRound = gameState?.rounds?.[gameState.currentRoundIndex];
   const currentQuestionRow = currentRound?.questions?.[gameState.currentQuestionIndex] || null;
+  // Surface the upcoming question during WAGER_COLLECTION so the wager-input screen
+  // anchors to the right question id (per-question wager lock).
   const currentQuestion =
-    gameState?.state === 'QUESTION' && currentQuestionRow ? currentQuestionRow : null;
+    (gameState?.state === 'QUESTION' || gameState?.state === 'WAGER_COLLECTION') &&
+    currentQuestionRow
+      ? currentQuestionRow
+      : null;
 
   const redisTeamRow = gameState?.teams?.[team.id] ?? gameState?.teams?.[String(team.id)] ?? null;
   const redisScoreRaw = redisTeamRow?.score;
@@ -92,11 +109,17 @@ const buildSessionPayloadForPlayer = ({ pin, gameState, team, mySubmittedOptionI
                   options: (currentQuestion.options || []).map((o) => ({ text: o.text })),
                   mediaUrl: currentQuestion.mediaUrl,
                   mediaType: currentQuestion.mediaType,
+                  category: currentQuestion.category || null,
                 },
                 timerDuration:
                   Number(currentQuestion.timerDuration ?? currentRound?.timerDuration ?? 30) || 30,
                 roundType: currentRound?.type || '',
-                lockedWagerAmount: getLockedWager(gameState, currentRound, team.id),
+                lockedWagerAmount: getLockedWager(
+                  gameState,
+                  currentRound,
+                  team.id,
+                  currentQuestion?.id,
+                ),
               }
             : null,
           timerRemaining: timerManager.getReconnectTimerRemaining(pin, gameState),
@@ -111,7 +134,10 @@ const buildSessionPayloadForPlayer = ({ pin, gameState, team, mySubmittedOptionI
           scoreboardVisible: Boolean(gameState.scoreboardVisible),
           teams: gameState.teams,
           roundWagers: gameState.roundWagers || {},
-          lockedWagerAmount: currentRound ? getLockedWager(gameState, currentRound, team.id) : null,
+          questionWagers: gameState.questionWagers || {},
+          lockedWagerAmount: currentRound
+            ? getLockedWager(gameState, currentRound, team.id, currentQuestion?.id)
+            : null,
           ...(gameState.state === 'BREAK'
             ? {
                 breakDuration: Math.max(0, Math.round(Number(gameState.breakDuration ?? 360))),
@@ -175,6 +201,7 @@ const buildJoinReplayEvents = async ({ pin, gameState, team, mySubmittedOptionIn
           options: (currentQuestion.options || []).map((o) => ({ text: o.text })),
           mediaUrl: currentQuestion.mediaUrl,
           mediaType: currentQuestion.mediaType,
+          category: currentQuestion.category || null,
         },
         timerDuration: Number(currentQuestion.timerDuration ?? round.timerDuration ?? 30) || 30,
         timerRemaining: timerManager.getReconnectTimerRemaining(pin, gameState),
@@ -182,7 +209,7 @@ const buildJoinReplayEvents = async ({ pin, gameState, team, mySubmittedOptionIn
         timerEndsAt: safeClientTimerEndsAt(gameState.timerEndsAt),
         serverNow: Date.now(),
         roundType: round.type,
-        lockedWagerAmount: getLockedWager(gameState, round, team.id),
+        lockedWagerAmount: getLockedWager(gameState, round, team.id, currentQuestion?.id),
         mySubmittedOptionIndex,
         eliminatedTeamIds: eliminatedTeamIdsForPayload,
       },
@@ -213,6 +240,28 @@ const buildJoinReplayEvents = async ({ pin, gameState, team, mySubmittedOptionIn
       data: {
         teams: Object.values(gameState.teams).sort((a, b) => b.score - a.score),
         ...(revealSnapshot ? { revealSnapshot } : {}),
+      },
+    });
+  }
+
+  if (gameState.state === 'ROUND_END' && round) {
+    const nextIdx = Number(gameState.currentRoundIndex) + 1;
+    const nextRound =
+      nextIdx >= 0 && nextIdx < gameState.rounds.length ? gameState.rounds[nextIdx] : null;
+    events.push({
+      event: SOCKET_EVENTS.ROUND_END,
+      data: {
+        roundIndex: gameState.currentRoundIndex,
+        roundName: round.name || `Round ${Number(gameState.currentRoundIndex) + 1}`,
+        roundType: round.type || '',
+        nextRound: nextRound
+          ? {
+              index: nextIdx,
+              name: nextRound.name || `Round ${nextIdx + 1}`,
+              type: nextRound.type || '',
+            }
+          : null,
+        isFinalRound: !nextRound,
       },
     });
   }

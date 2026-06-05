@@ -429,9 +429,12 @@ export default function QuestionsPage() {
         ? validOptions.map((o, i) => ({ text: o.text.trim(), isCorrect: i === 0 }))
         : validOptions.map((o) => ({ text: o.text.trim(), isCorrect: o.isCorrect }));
 
+    const trimmedCategory = formData.category.trim();
     const payload: any = {
       text: formData.text.trim(),
-      category: formData.category.trim() || undefined,
+      // Editing: send `null` when blank so the server clears any previously-saved category.
+      // Creating: omit the field entirely so the column stays NULL by default.
+      category: editingQuestion ? (trimmedCategory || null) : (trimmedCategory || undefined),
       options: optionsPayload,
       roundId: Number(formData.roundId),
       mediaUrl: formData.mediaUrl || undefined,

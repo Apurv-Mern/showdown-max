@@ -3,13 +3,11 @@ const logger = require('../utils/logger');
 
 // Origins permitted when no explicit ALLOWED_ORIGINS is set in env.
 // Client (Next.js) runs on port 5003; venue/host/admin are all served from the same client.
-const DEFAULT_DEV_ORIGINS = [
-  'http://localhost:5003',
-  'http://127.0.0.1:5003',
-];
+const DEFAULT_DEV_ORIGINS = ['http://localhost:5003', 'http://127.0.0.1:5003'];
 
 const DEFAULT_PROD_ORIGINS = [
   'https://showdowntrivia.24livehost.com',
+  'https://showdowntrivia-web.24livehost.com',
 ];
 
 const parseAllowedOrigins = (raw) => {

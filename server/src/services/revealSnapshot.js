@@ -28,6 +28,19 @@ const getRoundWagerForTeam = (gameState, roundId, teamId) =>
   Number(gameState?.roundWagers?.[String(roundId)]?.[String(teamId)] ?? 0);
 
 /**
+ * Per-question wager (fallback to legacy roundWagers when missing so reveals of older
+ * sessions still resolve).
+ */
+const getQuestionWagerForTeam = (gameState, questionId, teamId, roundId) => {
+  const perQ = gameState?.questionWagers?.[String(questionId)]?.[String(teamId)];
+  if (perQ !== undefined && perQ !== null) return Number(perQ);
+  if (roundId != null) {
+    return getRoundWagerForTeam(gameState, roundId, teamId);
+  }
+  return 0;
+};
+
+/**
  * Build the same payload shape as ANSWER_REVEAL for the current question index,
  * using persisted snapshot from reveal (preferred) or Redis responses + scoring (fallback).
  * @param {string} pin
@@ -117,7 +130,12 @@ const buildRevealSnapshot = async (pin, gameState) => {
       };
     }
     if (isWagerRound) {
-      responses[tid].wagerAmount = getRoundWagerForTeam(gameState, round.id, tid);
+      responses[tid].wagerAmount = getQuestionWagerForTeam(
+        gameState,
+        currentQuestion.id,
+        tid,
+        round.id,
+      );
     }
   }
 

@@ -82,7 +82,7 @@ const ROUND_POINTS_PREVIEW: Record<string, string> = {
   ELIMINATION: '10–120 pts ladder · Wrong answer = knockout',
   MAJORITY_RULES: 'Majority +50 pts · Minority −50 pts',
   FINAL_MULTIPLE_CHOICE: 'Correct answer: +10 pts · Incorrect: −2 pts',
-  FINAL_WAGER: 'Wager 0–50% of score · Win/lose wager',
+  FINAL_WAGER: 'Wager 0–100% of score · Win/lose wager',
 };
 
 const ROUND_TYPE_COLORS: Record<string, string> = {
@@ -511,9 +511,13 @@ export default function QuizDetailPage() {
         ? validOptions.map((o, i) => ({ text: o.text.trim(), isCorrect: i === 0 }))
         : validOptions.map((o) => ({ text: o.text.trim(), isCorrect: o.isCorrect }));
 
+    const trimmedCategory = formData.category.trim();
     const payload: any = {
       text: formData.text.trim(),
-      category: formData.category.trim() || undefined,
+      // On create: omit the field if blank. On update: send `null` so the server clears any
+      // previously-saved category (useful when the host wants to rename or remove a wager-round
+      // category like "Science" -> "Geography" -> ""). `undefined` would leave it untouched.
+      category: editingQuestion ? (trimmedCategory || null) : (trimmedCategory || undefined),
       options: optionsPayload,
       roundId: addingToRound,
       mediaUrl: formData.mediaUrl || undefined,
@@ -1065,33 +1069,23 @@ export default function QuizDetailPage() {
                 />
               </div>
 
-              {/* Category + Timer Row */}
-              <div className="grid grid-cols-2 gap-3">
-                {/* <div>
-              <label className="block text-sm font-medium text-foreground/70 mb-1">Category</label>
-              <input
-                type="text"
-                value={formData.category}
-                onChange={(e) => setFormData((p) => ({ ...p, category: e.target.value }))}
-                placeholder="e.g. Geography, Science..."
-                className="w-full bg-surface-light border border-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-foreground/40 focus:outline-none focus:ring-2 focus:ring-primary/50"
-              />
-            </div> */}
-                {/* <div> */}
-                {/* <label className="block text-sm font-medium text-foreground/70 mb-1"> */}
-                {/* Timer (seconds) */}
-                {/* <span className="text-foreground/30 font-normal ml-1">optional override</span> */}
-                {/* </label> */}
-                {/* <input
-                    type="number"
-                    value={formData.timerDuration}
-                    onChange={(e) => setFormData((p) => ({ ...p, timerDuration: e.target.value }))}
-                    placeholder="Use round default"
-                    min={5}
-                    max={300}
+              <div className="grid grid-cols-1 gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-foreground/70 mb-1">
+                    Category
+                    <span className="text-foreground/30 font-normal ml-1">
+                      shown to players, venue and host on the wager-lock screen
+                    </span>
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.category}
+                    onChange={(e) => setFormData((p) => ({ ...p, category: e.target.value }))}
+                    placeholder="e.g. Geography, Science, Sports..."
+                    maxLength={100}
                     className="w-full bg-surface-light border border-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-foreground/40 focus:outline-none focus:ring-2 focus:ring-primary/50"
-                  /> */}
-                {/* </div> */}
+                  />
+                </div>
               </div>
 
               {/* Media Section */}

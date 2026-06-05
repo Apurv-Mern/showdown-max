@@ -34,12 +34,21 @@ type VenuePhase =
   | 'round_intro'
   | 'question'
   | 'reveal'
+  | 'round_end'
   | 'scoreboard'
   | 'break'
   | 'wager_collection'
   | 'mini_game'
   | 'mini_game_result'
   | 'game_end';
+
+interface RoundEndInfo {
+  roundIndex: number;
+  roundName: string;
+  roundType: string;
+  nextRound: { index: number; name: string; type: string } | null;
+  isFinalRound: boolean;
+}
 
 interface Team {
   teamId: number;
@@ -63,6 +72,7 @@ interface QuestionData {
     options: { text: string }[];
     mediaUrl?: string;
     mediaType?: string;
+    category?: string | null;
     isOrdering?: boolean;
   };
   timerDuration: number;
@@ -427,6 +437,12 @@ function VenueDisplayContent() {
     noAnswer: 0,
     total: 0,
   });
+  // Wager-lock progress counter for the venue's wager-collection screen.
+  const [wagerLockedCount, setWagerLockedCount] = useState(0);
+  const [wagerLockedTotal, setWagerLockedTotal] = useState(0);
+  // Drives the venue's "round is over" transition screen between the last
+  // question reveal and the scoreboard. Cleared on phase change away from round_end.
+  const [roundEndInfo, setRoundEndInfo] = useState<RoundEndInfo | null>(null);
   const [revealData, setRevealData] = useState<RevealData | null>(null);
   const [scoreboard, setScoreboard] = useState<Team[]>([]);
   const [breakDuration, setBreakDuration] = useState(360);
@@ -517,6 +533,11 @@ function VenueDisplayContent() {
 
   useEffect(() => {
     phaseRef.current = phase;
+    // Drop the cached round-end payload once we leave the dedicated round_end phase
+    // so a later phase (e.g. lingering reveal/scoreboard) can't accidentally render it.
+    if (phase !== 'round_end') {
+      setRoundEndInfo(null);
+    }
   }, [phase]);
 
   useEffect(() => {
@@ -1045,6 +1066,7 @@ function VenueDisplayContent() {
         ROUND_INTRO: 'round_intro',
         WAGER_COLLECTION: 'wager_collection',
         QUESTION: 'question',
+        ROUND_END: 'round_end',
         SCOREBOARD: 'scoreboard',
         BREAK: 'break',
         MINI_GAME: 'mini_game',
@@ -1269,6 +1291,9 @@ function VenueDisplayContent() {
       clearVenueMiniGameOverlay();
       if (data) setRoundInfo(data);
       setPhase('wager_collection');
+      // Reset the lock counter so the venue doesn't briefly show the previous question's
+      // value before the server's initial `wager_lock_update` (0/total) arrives.
+      setWagerLockedCount(0);
     };
 
     const onQuestionActive = (data: QuestionData) => {
@@ -1314,6 +1339,11 @@ function VenueDisplayContent() {
       const n = Math.max(0, Number(data.total) || 0);
       setTotalTeams(n);
       setLiveResponses((prev) => ({ ...prev, total: n }));
+    };
+
+    const onWagerLockUpdate = (data: { locked?: number; total?: number; questionId?: number }) => {
+      setWagerLockedCount(Math.max(0, Number(data?.locked ?? 0)));
+      setWagerLockedTotal(Math.max(0, Number(data?.total ?? 0)));
     };
 
     const onLiveResponseUpdate = (data: {
@@ -1369,9 +1399,33 @@ function VenueDisplayContent() {
       setPhase('lobby');
     };
 
-    const onRoundEnd = () => {
+    const onRoundEnd = (payload?: {
+      roundIndex?: number;
+      roundName?: string;
+      roundType?: string;
+      nextRound?: { index?: number; name?: string; type?: string } | null;
+      isFinalRound?: boolean;
+    }) => {
       setIsVenueMp3Playing(false);
       stopMp3();
+      const nextRound = payload?.nextRound;
+      setRoundEndInfo({
+        roundIndex: Number(
+          payload?.roundIndex ?? roundInfoRef.current?.roundIndex ?? 0,
+        ),
+        roundName: String(payload?.roundName || ''),
+        roundType: String(payload?.roundType || ''),
+        nextRound:
+          nextRound && typeof nextRound === 'object'
+            ? {
+                index: Number(nextRound.index ?? 0),
+                name: String(nextRound.name || ''),
+                type: String(nextRound.type || ''),
+              }
+            : null,
+        isFinalRound: Boolean(payload?.isFinalRound),
+      });
+      setPhase('round_end');
     };
 
     const onBreakStart = (data: {
@@ -1402,6 +1456,7 @@ function VenueDisplayContent() {
         ROUND_INTRO: 'round_intro',
         WAGER_COLLECTION: 'wager_collection',
         QUESTION: 'question',
+        ROUND_END: 'round_end',
         SCOREBOARD: 'scoreboard',
         BREAK: 'break',
         MINI_GAME: 'mini_game',
@@ -1695,6 +1750,7 @@ function VenueDisplayContent() {
     socket.on('timer_update', onTimerUpdate);
     socket.on('timer_expired', onTimerExpired);
     socket.on('response_count', onResponseCount);
+    socket.on('wager_lock_update', onWagerLockUpdate);
     socket.on('live_response_update', onLiveResponseUpdate);
     socket.on('answer_reveal', onAnswerReveal);
     socket.on('scoreboard', onScoreboard);
@@ -1708,6 +1764,7 @@ function VenueDisplayContent() {
     socket.on('music_control', onMusicControl);
     socket.on('mini_game_end', onMiniGameEnd);
     socket.on('game_end', onGameEnd);
+    socket.on('venue_welcome_dismiss', handleWelcomeContinue);
 
     joinVenue();
 
@@ -1725,6 +1782,7 @@ function VenueDisplayContent() {
       socket.off('timer_update', onTimerUpdate);
       socket.off('timer_expired', onTimerExpired);
       socket.off('response_count', onResponseCount);
+      socket.off('wager_lock_update', onWagerLockUpdate);
       socket.off('live_response_update', onLiveResponseUpdate);
       socket.off('answer_reveal', onAnswerReveal);
       socket.off('scoreboard', onScoreboard);
@@ -1737,8 +1795,19 @@ function VenueDisplayContent() {
       socket.off('mini_game_reveal', onMiniGameReveal);
       socket.off('mini_game_end', onMiniGameEnd);
       socket.off('game_end', onGameEnd);
+      socket.off('venue_welcome_dismiss', handleWelcomeContinue);
     };
-  }, [socket, sessionPin, isPinReady, router, playMp3, pauseMp3, setMp3Source, stopMp3]);
+  }, [
+    socket,
+    sessionPin,
+    isPinReady,
+    router,
+    playMp3,
+    pauseMp3,
+    setMp3Source,
+    stopMp3,
+    handleWelcomeContinue,
+  ]);
 
   const QROverlay = () => {
     if (
@@ -1774,7 +1843,7 @@ function VenueDisplayContent() {
   const liveQuestionPoints = (() => {
     const roundType = (question?.roundType || '').toUpperCase();
     if (roundType === 'WAGER') return '0-50';
-    if (roundType === 'FINAL_WAGER') return '0-50%';
+    if (roundType === 'FINAL_WAGER') return '0-100%';
     if (roundType === 'MAJORITY_RULES') return '50';
     if (roundType === 'ELIMINATION') return String(question?.pointsForQuestion ?? 10);
     return String(question?.pointsForQuestion ?? 10);
@@ -1888,13 +1957,12 @@ function VenueDisplayContent() {
                   </p>
                 </div>
                 {welcomeHold && !showVenueSplash ? (
-                  <button
-                    type="button"
-                    onClick={handleWelcomeContinue}
-                    className="rounded-lg sm:rounded-xl border-2 border-neon-cyan bg-neon-cyan/20 px-8 sm:px-12 md:px-14 py-3 sm:py-4 md:py-5 text-[10px] sm:text-xs md:text-sm font-black tracking-[0.15em] md:tracking-[0.2em] text-neon-cyan uppercase shadow-[0_0_28px_rgba(0,229,255,0.45)] transition hover:bg-neon-cyan/30 focus:outline-none focus-visible:ring-2 focus-visible:ring-neon-cyan focus-visible:ring-offset-2 focus-visible:ring-offset-[#030818]"
+                  <div
+                    className="rounded-lg sm:rounded-xl border-2 border-neon-cyan/80 bg-neon-cyan/10 px-6 sm:px-8 md:px-10 py-3 sm:py-4 md:py-5 text-center text-[10px] sm:text-xs md:text-sm font-black tracking-[0.15em] md:tracking-[0.2em] text-neon-cyan uppercase shadow-[0_0_24px_rgba(0,229,255,0.35)]"
+                    aria-live="polite"
                   >
-                    Continue
-                  </button>
+                    Waiting for host…
+                  </div>
                 ) : null}
               </div>
             </div>
@@ -2031,6 +2099,16 @@ function VenueDisplayContent() {
                   Round {(roundInfo?.roundIndex || 0) + 1} — Wager Round
                 </span>
               </div>
+              {question?.question?.category ? (
+                <div className="inline-flex items-center gap-3 rounded-full border border-[#00d9ff]/45 bg-[rgba(0,217,255,0.08)] px-7 py-2.5 shadow-[0_0_22px_rgba(0,217,255,0.2)]">
+                  <span className="text-sm font-semibold uppercase tracking-[0.22em] text-[#9de9ff]/85 sm:text-base">
+                    Category
+                  </span>
+                  <span className="text-lg font-black uppercase tracking-[0.18em] text-[#00d9ff] sm:text-xl">
+                    {question.question.category}
+                  </span>
+                </div>
+              ) : null}
               <div className="mx-auto flex h-28 w-28 items-center justify-center rounded-full border-2 border-[#ffc400]/50 bg-[rgba(255,196,0,0.08)] shadow-[0_0_36px_rgba(255,196,0,0.3)]">
                 <svg
                   className="h-14 w-14 text-[#ffc400] animate-pulse"
@@ -2054,6 +2132,33 @@ function VenueDisplayContent() {
               <p className="text-2xl font-medium text-[#ffc400]/75">
                 Please place your wagers on your devices now...
               </p>
+              <div className="mt-4 inline-flex items-center gap-3 rounded-full border border-[#1de8ff]/60 bg-[#11154f]/80 px-6 py-3 shadow-[0_0_18px_rgba(29,232,255,0.25)]">
+                <div className="flex h-10 w-10 items-center justify-center rounded-full border border-[#1de8ff]/70 bg-[#0c0f3a]">
+                  <svg
+                    viewBox="0 0 24 24"
+                    className="h-5 w-5 text-[#1de8ff]"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                  >
+                    <path d="M17 21v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2" />
+                    <circle cx="9" cy="7" r="3" />
+                    <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+                    <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+                  </svg>
+                </div>
+                <div className="text-left">
+                  <p className="text-xs font-semibold uppercase tracking-wider text-[#1de8ff]/80">
+                    Wagered
+                  </p>
+                  <p className="text-3xl font-black leading-none text-white">
+                    {wagerLockedCount}{' '}
+                    <span className="text-xl text-white/60">
+                      / {wagerLockedTotal || liveTotalTeams}
+                    </span>
+                  </p>
+                </div>
+              </div>
               <div className="flex items-center gap-3 mt-2">
                 <div className="h-2.5 w-2.5 rounded-full bg-[#ffc400] animate-pulse" />
                 <div
@@ -2557,7 +2662,7 @@ function VenueDisplayContent() {
                               {OPTION_LETTERS[i]}.
                             </span>
                             <span className="truncate text-left flex-1">{opt.text}</span>
-                            {isRevealedWinner && (
+                            {isRevealedWinner && !isMajorityRulesRound && (
                               <div className="ml-auto w-6 h-6 sm:w-7 h-7 md:w-8 h-8 rounded-full bg-green-500 flex items-center justify-center border-2 border-white shadow-lg shrink-0">
                                 <span className="text-white text-sm sm:text-base md:text-lg">
                                   ✓
@@ -2571,6 +2676,43 @@ function VenueDisplayContent() {
                   </div>
                 </div>
               </div>
+            </div>
+          </div>
+        )}
+
+        {/* Round Over (audience-facing transition screen between the last reveal and scoreboard) */}
+        {phase === 'round_end' && (
+          <div className="w-full h-full flex items-center justify-center px-4 sm:px-6 md:px-10 animate-fadeIn">
+            <div className="w-full max-w-3xl rounded-3xl border border-[#41d9ff]/50 bg-[linear-gradient(180deg,rgba(24,9,76,0.95)_0%,rgba(12,6,48,0.95)_100%)] shadow-[0_0_36px_rgba(0,217,255,0.28)] px-6 py-10 sm:px-10 sm:py-14 text-center">
+              <div className="mx-auto inline-flex items-center gap-3 rounded-full border border-[#41d9ff]/55 bg-[linear-gradient(180deg,rgba(20,42,89,0.95)_0%,rgba(11,20,46,0.95)_100%)] px-7 py-2.5 shadow-[0_0_22px_rgba(0,217,255,0.25)]">
+                <span className="text-xs font-semibold uppercase tracking-[0.28em] text-[#8cdfff] sm:text-sm">
+                  Round{' '}
+                  {(roundEndInfo?.roundIndex ?? roundInfo?.roundIndex ?? 0) + 1} Complete
+                </span>
+              </div>
+              <h2 className="mt-6 text-4xl font-black leading-tight text-white drop-shadow-[0_0_18px_rgba(123,194,255,0.45)] sm:text-6xl md:text-7xl">
+                {roundEndInfo?.roundName ||
+                  normalizeRoundIntroTitle(
+                    roundInfo?.round?.name,
+                    roundInfo?.round?.type,
+                    roundInfo?.roundIndex,
+                  )}{' '}
+                Over
+              </h2>
+              <p className="mt-6 text-lg text-[#9de9ff]/90 sm:text-2xl md:text-3xl">
+                {roundEndInfo?.isFinalRound
+                  ? 'All rounds are finished — the final results are coming up next!'
+                  : roundEndInfo?.nextRound
+                    ? (
+                        <>
+                          Coming up next:{' '}
+                          <span className="font-bold text-white">
+                            {formatRoundTypeLabel(roundEndInfo.nextRound.type)} Round
+                          </span>
+                        </>
+                      )
+                    : 'Get ready for the next round!'}
+              </p>
             </div>
           </div>
         )}

@@ -177,6 +177,7 @@ interface QuestionData {
     options: { text: string }[];
     mediaUrl?: string;
     mediaType?: string;
+    category?: string | null;
   };
   timerDuration: number;
   timerRemaining?: number;
@@ -427,6 +428,10 @@ function HostDashboardContent() {
     noAnswer: 0,
     total: 0,
   });
+  // Wager-lock progress counter (drives the WAGER_COLLECTION copy in the Live Responses panel).
+  // Reset to 0 on every wager-collection screen via `wager_lock_update` from the server.
+  const [wagerLockedCount, setWagerLockedCount] = useState(0);
+  const [wagerLockedTotal, setWagerLockedTotal] = useState(0);
 
   const [addTeamName, setAddTeamName] = useState('');
   const [addTeamScore, setAddTeamScore] = useState('');
@@ -477,6 +482,15 @@ function HostDashboardContent() {
   >(null);
   const [teamPendingRemoval, setTeamPendingRemoval] = useState<Team | null>(null);
   const [isScoreboardVisible, setIsScoreboardVisible] = useState(false);
+  // Set on `round_end`; drives the "Round X is Over" transition screen between the last
+  // question's REVEAL and the SCOREBOARD. Cleared once we move past ROUND_END.
+  const [roundEndInfo, setRoundEndInfo] = useState<{
+    roundIndex: number;
+    roundName: string;
+    roundType: string;
+    nextRound: { index: number; name: string; type: string } | null;
+    isFinalRound: boolean;
+  } | null>(null);
   const [mp3Playing, setMp3Playing] = useState(false);
   const [mp4Playing, setMp4Playing] = useState(false);
   const hostPreviewVideoRef = useRef<HTMLVideoElement | null>(null);
@@ -617,6 +631,11 @@ function HostDashboardContent() {
           setHostBreakRemaining(w.remaining);
         }
         setIsScoreboardVisible(data.state === 'SCOREBOARD');
+        // The round-over transition is only meaningful while the server keeps us in
+        // ROUND_END; once we move on (scoreboard, next intro, break, etc.) drop the info.
+        if (data.state !== 'ROUND_END') {
+          setRoundEndInfo(null);
+        }
         setTimerRemaining(
           data.state === 'QUESTION' && data.questionState === 'REVEALED'
             ? 0
@@ -638,7 +657,13 @@ function HostDashboardContent() {
             socket.emit('music_control', { pin, action: 'pause' });
           }
         }
-        setCurrentQuestion(data.state === 'QUESTION' ? (data.currentQuestion ?? null) : null);
+        // Also keep the question payload during WAGER_COLLECTION so the wager-lock screen
+        // can surface per-question metadata (e.g. category).
+        setCurrentQuestion(
+          data.state === 'QUESTION' || data.state === 'WAGER_COLLECTION'
+            ? (data.currentQuestion ?? null)
+            : null,
+        );
         setLiveResponses((prev) => {
           const rosterCount = resolveHostRosterCount(
             data.activeTeamIds,
@@ -826,6 +851,13 @@ function HostDashboardContent() {
       );
     };
 
+    const onWagerLockUpdate = (data: { locked?: number; total?: number; questionId?: number }) => {
+      const locked = Math.max(0, Number(data?.locked ?? 0));
+      const total = Math.max(0, Number(data?.total ?? 0));
+      setWagerLockedCount(locked);
+      setWagerLockedTotal(total);
+    };
+
     const onLiveResponseUpdate = (data: {
       correct?: number;
       incorrect?: number;
@@ -922,12 +954,33 @@ function HostDashboardContent() {
       });
     };
 
-    const onRoundEnd = () => {
+    const onRoundEnd = (payload?: {
+      roundIndex?: number;
+      roundName?: string;
+      roundType?: string;
+      nextRound?: { index?: number; name?: string; type?: string } | null;
+      isFinalRound?: boolean;
+    }) => {
       setIsScoreboardVisible(false);
       setCurrentQuestion(null);
       setRevealData(null);
       setMp3Playing(false);
-      setGameState((prev) => (prev ? { ...prev, state: 'SCOREBOARD' } : prev));
+      const nextRound = payload?.nextRound;
+      setRoundEndInfo({
+        roundIndex: Number(payload?.roundIndex ?? gameStateRef.current?.currentRoundIndex ?? 0),
+        roundName: String(payload?.roundName || ''),
+        roundType: String(payload?.roundType || ''),
+        nextRound:
+          nextRound && typeof nextRound === 'object'
+            ? {
+                index: Number(nextRound.index ?? 0),
+                name: String(nextRound.name || ''),
+                type: String(nextRound.type || ''),
+              }
+            : null,
+        isFinalRound: Boolean(payload?.isFinalRound),
+      });
+      setGameState((prev) => (prev ? { ...prev, state: 'ROUND_END' } : prev));
     };
 
     const onBreakStart = (payload?: {
@@ -1167,12 +1220,16 @@ function HostDashboardContent() {
     socket.on('timer_expired', onTimerExpired);
     socket.on('answer_reveal', onAnswerReveal);
     socket.on('response_count', onResponseCount);
+    socket.on('wager_lock_update', onWagerLockUpdate);
     socket.on('live_response_update', onLiveResponseUpdate);
     socket.on('live_responses_update', onLiveResponseUpdate);
     const onWagerCollectionStart = () => {
       setGameState((prev) =>
         prev ? { ...prev, state: 'WAGER_COLLECTION', questionState: 'WAITING' } : prev,
       );
+      // New wager-collection screen — fresh counter (server will emit the initial 0/total
+      // shortly after, but reset locally so the UI doesn't flash a stale count).
+      setWagerLockedCount(0);
     };
 
     socket.on('round_intro', onRoundIntro);
@@ -1264,6 +1321,7 @@ function HostDashboardContent() {
       socket.off('timer_expired', onTimerExpired);
       socket.off('answer_reveal', onAnswerReveal);
       socket.off('response_count', onResponseCount);
+      socket.off('wager_lock_update', onWagerLockUpdate);
       socket.off('live_response_update', onLiveResponseUpdate);
       socket.off('live_responses_update', onLiveResponseUpdate);
       socket.off('round_intro', onRoundIntro);
@@ -1699,6 +1757,13 @@ function HostDashboardContent() {
     const s = gs?.state || 'LOBBY';
     const round = gs?.rounds?.[gs?.currentRoundIndex ?? 0];
     const isRoundEmpty = Array.isArray(round?.questions) && round.questions.length === 0;
+    // LOBBY: Space dismisses the venue's looping welcome video. The Start Game
+    // button still controls the actual game-start; this just clears the welcome
+    // hold on the venue so the operator can show the team-registration grid.
+    if (s === 'LOBBY' && socket && pin) {
+      socket.emit('dismiss_welcome', { pin });
+      return;
+    }
     if (s === 'ROUND_INTRO' && isRoundEmpty) {
       handleAdvanceRound();
       return;
@@ -1725,6 +1790,8 @@ function HostDashboardContent() {
     handleAdvanceRound,
     handleCollectWagers,
     handleNextQuestion,
+    socket,
+    pin,
   ]);
 
   useKeyboardShortcuts({
@@ -2779,7 +2846,7 @@ function HostDashboardContent() {
                             {OPTION_LETTERS[i]}.
                           </span>
                           <span className="flex-1 truncate">{opt.text}</span>
-                          {isRevealedWinner && (
+                          {isRevealedWinner && !isMajorityRulesRound && (
                             <div className="ml-2 flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-white bg-green-500 shadow-lg">
                               <span className="text-sm text-white">✓</span>
                             </div>
@@ -2808,6 +2875,16 @@ function HostDashboardContent() {
                           Wager Collection
                         </span>
                       </div>
+                      {currentQuestion?.question?.category ? (
+                        <div className="inline-flex items-center gap-2 rounded-full border border-[#00d9ff]/45 bg-[rgba(0,217,255,0.08)] px-5 py-1.5 shadow-[0_0_18px_rgba(0,217,255,0.18)]">
+                          <span className="text-xs font-semibold uppercase tracking-[0.18em] text-[#9de9ff]/80">
+                            Category
+                          </span>
+                          <span className="text-sm font-bold uppercase tracking-[0.16em] text-[#00d9ff]">
+                            {currentQuestion.question.category}
+                          </span>
+                        </div>
+                      ) : null}
                       <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-full border-2 border-[#ffc400]/50 bg-[rgba(255,196,0,0.1)] shadow-[0_0_24px_rgba(255,196,0,0.25)]">
                         <svg
                           className="h-10 w-10 text-[#ffc400] animate-pulse"
@@ -2963,6 +3040,43 @@ function HostDashboardContent() {
                     </div>
                   </div>
                 </div>
+              ) : state === 'ROUND_END' ? (
+                <div className="flex w-full max-w-[720px] flex-col items-center justify-center gap-6 py-8 text-center animate-fadeIn">
+                  <div className="inline-flex items-center gap-3 rounded-full border border-[#41d9ff]/45 bg-[linear-gradient(180deg,rgba(20,42,89,0.95)_0%,rgba(11,20,46,0.95)_100%)] px-8 py-3 shadow-[0_0_22px_rgba(0,217,255,0.2)]">
+                    <span className="text-sm font-semibold uppercase tracking-[0.22em] text-[#8cdfff]">
+                      Round{' '}
+                      {(roundEndInfo?.roundIndex ?? gameState?.currentRoundIndex ?? 0) + 1}{' '}
+                      Complete
+                    </span>
+                  </div>
+                  <h2 className="text-4xl font-black leading-tight text-white drop-shadow-[0_0_14px_rgba(123,194,255,0.35)] sm:text-5xl">
+                    {roundEndInfo?.roundName ||
+                      (currentRound
+                        ? normalizeRoundIntroTitle(
+                            currentRound.name,
+                            currentRound.type,
+                            gameState?.currentRoundIndex,
+                          )
+                        : 'Round Over')}
+                  </h2>
+                  <p className="max-w-md text-base text-[#9de9ff]/90 sm:text-lg">
+                    That round is over.{' '}
+                    {roundEndInfo?.isFinalRound || isLastRound
+                      ? 'The final results are coming up next.'
+                      : roundEndInfo?.nextRound
+                        ? `Up next: ${formatRoundTypeLabel(roundEndInfo.nextRound.type)} Round.`
+                        : nextRound
+                          ? `Up next: ${formatRoundTypeLabel(nextRound.type)} Round.`
+                          : 'Continue to view the scoreboard.'}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={handleNextQuestion}
+                    className="mt-2 min-w-[260px] rounded-xl border border-[rgba(0,217,255,0.55)] bg-[linear-gradient(180deg,#3a4a68_0%,#1e2a42_100%)] px-10 py-4 text-base font-black uppercase tracking-[0.14em] text-white shadow-[0_0_24px_rgba(0,217,255,0.22)] transition hover:brightness-110"
+                  >
+                    Continue
+                  </button>
+                </div>
               ) : state === 'SCOREBOARD' ? (
                 <div className="flex w-full max-w-[720px] flex-col items-center justify-center gap-6 py-8 text-center animate-fadeIn">
                   <div className="inline-flex items-center gap-3 rounded-full border border-[#41d9ff]/45 bg-[linear-gradient(180deg,rgba(20,42,89,0.95)_0%,rgba(11,20,46,0.95)_100%)] px-8 py-3 shadow-[0_0_22px_rgba(0,217,255,0.2)]">
@@ -3029,16 +3143,30 @@ function HostDashboardContent() {
         >
           <div className="space-y-10">
             <section data-name="Live Responses Panel" data-node-id="232:4549">
-              <HostPanelTitle data-node-id="232:4556">Live Responses</HostPanelTitle>
+              <HostPanelTitle data-node-id="232:4556">
+                {state === 'WAGER_COLLECTION' ? 'Wager Lock Progress' : 'Live Responses'}
+              </HostPanelTitle>
               <div
                 className="rounded-xl border border-[rgba(0,217,255,0.25)] bg-[#151b2e]/80 px-4 py-4"
                 data-name="Response Progress Container"
               >
-                <p className="mb-4 text-lg text-white" data-node-id="232:4555">
-                  <span className="font-bold text-[#00d9ff]">{gameState?.responseCount ?? 0}</span>{' '}
-                  <span className="font-medium">of {respondedLineTotal} Teams responded</span>
-                </p>
+                {state === 'WAGER_COLLECTION' ? (
+                  <p className="text-lg text-white" data-node-id="232:4555">
+                    <span className="font-bold text-[#00d9ff]">{wagerLockedCount}</span>{' '}
+                    <span className="font-medium">
+                      of {wagerLockedTotal || respondedLineTotal} Teams wagered
+                    </span>
+                  </p>
+                ) : (
+                  <p className="mb-4 text-lg text-white" data-node-id="232:4555">
+                    <span className="font-bold text-[#00d9ff]">
+                      {gameState?.responseCount ?? 0}
+                    </span>{' '}
+                    <span className="font-medium">of {respondedLineTotal} Teams responded</span>
+                  </p>
+                )}
 
+                {state !== 'WAGER_COLLECTION' && (
                 <div className="space-y-4">
                   {[
                     {
@@ -3105,6 +3233,7 @@ function HostDashboardContent() {
                     );
                   })}
                 </div>
+                )}
               </div>
             </section>
 

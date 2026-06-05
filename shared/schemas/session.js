@@ -3,6 +3,7 @@ const { z } = require('zod');
 const createSessionSchema = z.object({
   quizId: z.number().int().positive(),
   maxTeams: z.number().int().min(1).max(500).default(50),
+  breakDuration: z.number().int().min(30).max(3600).default(360),
 });
 
 const joinSessionSchema = z.object({

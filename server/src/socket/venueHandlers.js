@@ -239,7 +239,11 @@ const emitTriviaReconnectSideEvents = async (socket, pin, gameState) => {
 const buildFullStatePayload = async (gameState, pin) => {
   const currentRound = gameState.rounds?.[gameState.currentRoundIndex];
   const currentQuestionRow = currentRound?.questions?.[gameState.currentQuestionIndex] || null;
-  const includeQuestionPayload = gameState.state === 'QUESTION' && !gameState.activeMiniGame;
+  // WAGER_COLLECTION needs the upcoming question id on the venue payload so the wager-lock
+  // counter can be displayed alongside the question label without waiting for QUESTION_ACTIVE.
+  const includeQuestionPayload =
+    (gameState.state === 'QUESTION' || gameState.state === 'WAGER_COLLECTION') &&
+    !gameState.activeMiniGame;
   const currentQuestion = includeQuestionPayload ? currentQuestionRow : null;
   const lobbyTeams = await redisStore.getAllTeamsData(pin);
   const teams =
@@ -280,6 +284,7 @@ const buildFullStatePayload = async (gameState, pin) => {
     rounds: sanitizedRounds,
     teams,
     roundWagers: gameState.roundWagers || {},
+    questionWagers: gameState.questionWagers || {},
     activeTeamIds:
       Array.isArray(gameState.activeTeamIds) && gameState.activeTeamIds.length > 0
         ? gameState.activeTeamIds
@@ -304,6 +309,7 @@ const buildFullStatePayload = async (gameState, pin) => {
             options: currentQuestion.options || [],
             mediaUrl: currentQuestion.mediaUrl,
             mediaType: currentQuestion.mediaType,
+            category: currentQuestion.category || null,
           },
           timerDuration:
             currentQuestion?.timerDuration ??

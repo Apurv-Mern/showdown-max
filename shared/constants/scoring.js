@@ -17,7 +17,7 @@ const SCORING = Object.freeze({
   },
   FINAL_WAGER: {
     MIN_PERCENT: 0,
-    MAX_PERCENT: 50,
+    MAX_PERCENT: 100,
   },
   MAJORITY_RULES: {
     MAJORITY: 50,

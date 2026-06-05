@@ -7,13 +7,33 @@ const VALID_TRANSITIONS = {
   [GAME_STATES.LOBBY]: [GAME_STATES.ROUND_INTRO],
   [GAME_STATES.ROUND_INTRO]: [GAME_STATES.QUESTION, GAME_STATES.BREAK, GAME_STATES.WAGER_COLLECTION],
   [GAME_STATES.WAGER_COLLECTION]: [GAME_STATES.QUESTION, GAME_STATES.BREAK],
-  [GAME_STATES.QUESTION]: [GAME_STATES.SCOREBOARD, GAME_STATES.BREAK, GAME_STATES.ROUND_INTRO],
+  // QUESTION -> WAGER_COLLECTION supports the per-question wager lock between consecutive
+  // questions in a Wager / Final Wager round (host presses Next after REVEAL).
+  [GAME_STATES.QUESTION]: [
+    GAME_STATES.SCOREBOARD,
+    GAME_STATES.BREAK,
+    GAME_STATES.ROUND_INTRO,
+    GAME_STATES.WAGER_COLLECTION,
+    GAME_STATES.ROUND_END,
+  ],
+  // ROUND_END is the explicit "round is over" transition screen sitting between
+  // the last question's REVEAL and the scoreboard. Host advances:
+  //  - "Next" -> SCOREBOARD (normal flow)
+  //  - "Advance Round" -> ROUND_INTRO / BREAK / FINAL_RESULTS (skips scoreboard)
+  [GAME_STATES.ROUND_END]: [
+    GAME_STATES.SCOREBOARD,
+    GAME_STATES.ROUND_INTRO,
+    GAME_STATES.BREAK,
+    GAME_STATES.FINAL_RESULTS,
+    GAME_STATES.FINAL_WAGER,
+  ],
   [GAME_STATES.SCOREBOARD]: [
     GAME_STATES.QUESTION,
     GAME_STATES.ROUND_INTRO,
     GAME_STATES.BREAK,
     GAME_STATES.FINAL_WAGER,
     GAME_STATES.FINAL_RESULTS,
+    GAME_STATES.WAGER_COLLECTION,
   ],
   [GAME_STATES.BREAK]: [
     GAME_STATES.ROUND_INTRO,
@@ -50,6 +70,7 @@ const createInitialState = (sessionId, quiz) => {
           options: q.options,
           mediaUrl: q.mediaUrl,
           mediaType: q.mediaType,
+          category: q.category || null,
           timerDuration: q.timerDuration ?? null,
         })),
     }));
@@ -68,6 +89,9 @@ const createInitialState = (sessionId, quiz) => {
     timerRunning: false,
     teams: {},
     roundWagers: {},
+    // Per-question wager locks: { [questionId]: { [teamId]: number } }. Each wager-lock round
+    // (WAGER / FINAL_WAGER) re-enters WAGER_COLLECTION before every question and locks fresh.
+    questionWagers: {},
     eliminatedTeams: {},
     activeTeamIds: [],
     responseCount: 0,

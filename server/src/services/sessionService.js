@@ -52,7 +52,7 @@ const getSessionById = async (sessionId) => {
 
 /**
  * Create a new game session
- * @param {{ quizId: number, maxTeams?: number }} data
+ * @param {{ quizId: number, maxTeams?: number, breakDuration?: number }} data
  * @returns {Promise<object>}
  */
 const createSession = async (data) => {
@@ -82,11 +82,16 @@ const createSession = async (data) => {
     hostToken,
     qrCodeData,
     maxTeams: data.maxTeams || 50,
+    breakDuration: Number.isFinite(Number(data.breakDuration)) ? Number(data.breakDuration) : 360,
     status: 'pending',
   });
 
   await redisStore.setSession(pin, session.id);
-  logger.info('Session created', { sessionId: session.id, pin });
+  logger.info('Session created', {
+    sessionId: session.id,
+    pin,
+    breakDuration: session.breakDuration,
+  });
 
   return {
     id: session.id,
@@ -94,6 +99,7 @@ const createSession = async (data) => {
     hostToken: session.hostToken,
     qrCodeData: session.qrCodeData,
     maxTeams: session.maxTeams,
+    breakDuration: session.breakDuration,
     status: session.status,
     quizId: session.quizId,
     quizTitle: quiz.title,

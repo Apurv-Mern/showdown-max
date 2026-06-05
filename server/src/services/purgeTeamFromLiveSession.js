@@ -44,14 +44,24 @@ const purgeTeamFromLiveSession = async (pin, teamId, isHostRemoval = false) => {
         .filter((id) => id !== numericTeamId);
 
       let roundWagers = current.roundWagers;
+      let questionWagers = current.questionWagers;
       // Host removal: drop this team's wagers. Passive disconnect (tab refresh): keep
-      // `roundWagers` so a reconnecting socket still reads a locked wager from Redis/join.
+      // `roundWagers` / `questionWagers` so a reconnecting socket still reads a locked
+      // wager from Redis/join.
       if (isHostRemoval && roundWagers && typeof roundWagers === 'object') {
         roundWagers = { ...roundWagers };
         for (const rid of Object.keys(roundWagers)) {
           const slice = { ...(roundWagers[rid] || {}) };
           delete slice[String(numericTeamId)];
           roundWagers[rid] = slice;
+        }
+      }
+      if (isHostRemoval && questionWagers && typeof questionWagers === 'object') {
+        questionWagers = { ...questionWagers };
+        for (const qid of Object.keys(questionWagers)) {
+          const slice = { ...(questionWagers[qid] || {}) };
+          delete slice[String(numericTeamId)];
+          questionWagers[qid] = slice;
         }
       }
 
@@ -73,6 +83,7 @@ const purgeTeamFromLiveSession = async (pin, teamId, isHostRemoval = false) => {
         teams,
         activeTeamIds,
         roundWagers,
+        questionWagers,
         removedTeamIds,
         removedTeamNames,
         totalTeams: Object.keys(teams).length,

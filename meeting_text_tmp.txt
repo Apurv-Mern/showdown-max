@@ -1,0 +1,840 @@
+Meeting with Varun-20260525_114857-Meeting Recording
+May 25, 2026, 6:18AM
+1h 26m 46s
+BA Chetan started transcription
+Varun Chaudhary   0:35M.I got you.
+Mohit Kumar   0:40Sorry.
+Max Allan   1:46Hey, guys. Hey, Varun, can you hear me?
+Varun Chaudhary   1:50Yeah, hi Max, how are you?
+Max Allan   1:51Yeah? How are you guys? Good to see you.Fusion with the call.
+Varun Chaudhary   1:58No worries, no way.
+Max Allan   1:58Uh...My video&apos;s not working for some reason.
+Varun Chaudhary   2:08Yeah, it&apos;s showing, it&apos;s showing black screen.
+Max Allan   2:08Cameras on.Yeah.Oh, I had it covered, that&apos;s why. How are we going, guys?
+Varun Chaudhary   2:26It&apos;s going good. No worries about the video. We can do without it as well. Yeah, yeah, finally we see you.
+Max Allan   2:30That&apos;s alright. There we go. Working and business. Right here. It&apos;s been a while, guys. How&apos;s things?
+Varun Chaudhary   2:35Yeah.
+Max Allan   2:40Going good.
+Varun Chaudhary   2:42Yes, so first thing first, the development part from our side is completed. So currently the complete software is in testing phase and the Pradeep is right now, Pradeep and me is testing the software end to end for all the different edge cases.
+Max Allan   2:42Yeah.Yeah.Wow.Yeah.
+Varun Chaudhary   3:00if there is no internet and all the stuff, how the things will work. And team also has some queries regarding some of the pointers that Apur and Moit will ask you. So initially, we can start with the demo, right? We can show you, we can all play with that game first.
+Max Allan   3:04Wow.Yes.Absolutely, yes. Yeah, yeah, for sure. I can&apos;t wait. That&apos;s incredible.
+Varun Chaudhary   3:22Yes.Over to you, Apur and Pradeep, so these guys will be giving you a demo.
+Apurv Gupta   3:27Yeah, aee.AMX.
+Max Allan   3:31Hey, how are you?
+Apurv Gupta   3:32I&apos;m fine, Ben and you? Thank you for asking. So let&apos;s start with the game first. Let me share my screen.
+Max Allan   3:35That&apos;s good.Yep.
+Apurv Gupta   3:44Mm.Is it visible at all?
+Max Allan   3:52Yes, I can see your screen, yeah.
+Apurv Gupta   3:54Okay.Just give me a sec.So we start from the beginning or you get a chance to look into the project software.
+Max Allan   4:16Okay, yep.
+Apurv Gupta   4:18So let&apos;s start from the beginning first. So this is basically a dashboard. This is not dynamic. Everything you can see here, total number of quiz created, active sections, and total number of quiz questions in the bank. And this is the main quiz creation part.Here we have a quiz creation where you can, so previously what happened is you can change the name of the rounds, right? But now these rounds are totally fixed. Round one is multiple choice, round two is Vegas, same as up to round seven.And you can see the default time as well, like 30 seconds for all and 60 seconds for final waker. You can change from here as well, but we set the default time like 30-30 seconds and 60 seconds for this.
+Max Allan   5:03Yep.Mhm.
+Apurv Gupta   5:11And this is a quiz bank section. This is kind of basically a small kind of filter where you can check according to quiz like this quiz and we suppose want a round one question so you get the all the questions of round one.
+Mohit Kumar   5:12Okay.
+Max Allan   5:18I.Mmh.
+Apurv Gupta   5:25Just for the easiness of the access, the questions, that&apos;s why we add this section, and you can check any section as well, right?
+Max Allan   5:33Wow, that looks great.
+Apurv Gupta   5:35And suppose you have to edit one section called majority rules and you can edit any question, add any options and images as well.
+Max Allan   5:46That&apos;s awesome. Yep.
+Apurv Gupta   5:47OK, so this is a media library, as we discussed in the previous call.This library, this section has music section. This music section like show you in which question and in which quiz and which question this music is used.
+Max Allan   6:08Mmh.
+Apurv Gupta   6:09Same for images and same for videos.
+Max Allan   6:13Wow.
+Apurv Gupta   6:14Okay, and suppose these are the videos, so this video using this, this, something like that.
+Max Allan   6:15That&apos;s great.That&apos;s great.
+Apurv Gupta   6:22And these are the active sessions right now. These 2 are running right now, but we start with the, so you are the admin, you can delete any one. And then you start a fresh one. Okay. So we start with the fresh one. So start with a quiz game. Suppose a member of.
+Max Allan   6:35Yeah.
+Apurv Gupta   6:4115 suppose and then create session. Now, there are two things you can directly give this manual QR code to the public so that they can scan and join the game. Or if you don&apos;t want to this, we add the QR section in the poster venue as well.
+Max Allan   6:46Mhm.Okay.
+Apurv Gupta   7:01So you have to 1st assign the session for the host. One is the host, your friend or colleague. You can assign them and they can directly go and log into the host by that email ID.
+Max Allan   7:13Yeah.
+Apurv Gupta   7:13So, a poor at the rate.So whenever they directly log into the host, they get to jump to the same session you assigned.Okay, so this is what the host waiting screen and you have to activate the venue as well.
+Max Allan   7:28That&apos;s awesome.Mhm.
+Apurv Gupta   7:35So this is the venue screen. This is a five second timer. This logo comes for five seconds. And then for initial phase, we set this three to one timer. Right now, this is in a loop video, but whenever we get the video from your side, we directly replace that.
+Max Allan   7:50Okay, that&apos;s awesome. And once I give you my video, it&apos;ll just play on repeat. Yeah, it&apos;ll just be a loop. Yeah, cool. Awesome. Because it&apos;ll show the screenshots and everything of the software. It&apos;ll show up with just a normal QR code, but it&apos;ll mainly prompt.
+Apurv Gupta   7:57Yeah.
+Max Allan   8:09people to write, get your phones out, get ready to scan the code and get ready to join the game. So, you know, some people might come to the venue earlier, but until everyone has arrived, that video is just going to keep playing in the background. That&apos;s the goal.
+Apurv Gupta   8:22So, I want to know how much, like, what is the duration of the video? It&apos;s how much second of the...
+Varun Chaudhary   8:23Ohh.
+Max Allan   8:28Probably about 30 seconds, no longer than 30 seconds.
+Apurv Gupta   8:32And it&apos;s a loop video.
+Max Allan   8:34It will be a loop video, yeah. I will make sure to tell him that. Would that work or do you need it shorter? I can do it shorter.
+Apurv Gupta   8:36Okay.No, no, the reason behind that, I want to add a, like, there is two options. Right now, it&apos;s in a continue button option so that you can, whenever you continue, you get the chance to see the registrations, right?
+Max Allan   8:42Yes.Uh-huh.Yeah.
+Apurv Gupta   8:54But as per my understanding, that continue button is on venue. And I think you don&apos;t need the continue button. You won&apos;t directly jump to the team registration section after the video ends. Or you want a section, you want a button so that you can get continue and you go to the team registration.
+Max Allan   9:11I&apos;m just thinking how we did it previously. I think it had a welcome screen with the session pin. Everyone opened up the app. Well, in our case, they will be doing the browser, obviously, the QR code. They popped the pin in and then...it&apos;ll say, right, you&apos;re in the game. And then the next script, but I will do that. I would have like, I did that with every team. And then once the teams are all in, then I press spacebar on the laptop and then it comes up with this. And it&apos;s basically in the past, it just required, I think it came up with like a red.
+Apurv Gupta   9:46Okay.
+Max Allan   9:50buzzer button on the spectator&apos;s phone and they just push that. And then let&apos;s say I had 25 teams registered for the night. We just saw 20, like numbers 25, not the team names, just numbers 25, get like a little spin and a green tick activated, just so I could confirm radio. I had 25 teams.groups that I just signed up, I should be seeing 25 green ticks on the screen. But this is obviously a lot better because we can see which teams exactly are joining. So if there&apos;s anyone who&apos;s not up on the screen, they can just pop their hand up and say, oh, we&apos;re not on the screen, Max, and they can just scan the QR code, right?
+Mohit Kumar   10:22Mm.
+Apurv Gupta   10:27Yeah, this is also this, yeah, continuum.
+Varun Chaudhary   10:27So...Apur, what we can do here is we can remove the continue button from the screen, keep the video in loop until Max or a host press space button to start the game.
+Apurv Gupta   10:37Okay.So, basically, we add 1 functionality in the host, right?
+Max Allan   10:42Yeah.
+Varun Chaudhary   10:46Yeah, just instead of continue button, we need to give a space.
+Apurv Gupta   10:47Okay.Sure, definitely. Okay.
+Max Allan   10:53Because if, can you go back to the previous screen for a second?
+Apurv Gupta   11:00Just give me a minute.
+Max Allan   11:00Um...
+Apurv Gupta   11:03No, no, that screen is gone now because that session is activated.
+Max Allan   11:05Oh, that&apos;s okay.
+Varun Chaudhary   11:06Yeah, create a new session.
+Max Allan   11:07With.
+Apurv Gupta   11:08Yeah, just give me a minute.
+Max Allan   11:09No, no, no, that&apos;s okay. That&apos;s okay.
+Apurv Gupta   11:11No, no, no, just give me a minute.
+Varun Chaudhary   11:16It&apos;s hardly take 5 seconds max.
+Max Allan   11:19That&apos;s awesome.
+Varun Chaudhary   11:43See ya.
+Apurv Gupta   11:58Yeah.
+Max Allan   11:58That would work perfectly. So if that video there is my promo video, you know, doing a nice little advertising of the software, telling the spectators, right, get your phones ready, sign up. There&apos;s a QR code right there for them to scan and pop the pin in, 602310.And then on the next screen, that&apos;ll show, will that then show all of the teams that have already registered from this screen? And in case there&apos;s anyone still in the venue who goes, oh no, we haven&apos;t registered our phone yet, they can see the QR code again on the next screen anyway, can&apos;t they? That was the only question that I had. That&apos;s why I wanted to go back to this.to this screen. So again, the video that&apos;s playing now is my promo video. So right now I will be walking through the venue and signing all the teams up, but there&apos;s still teams that are arriving. Not everyone&apos;s going to be there at the same time. So I&apos;m already addressing or I&apos;m talking to the people who are there already. I&apos;ll tell them straight away. Yep.
+Apurv Gupta   12:44Yeah.
+Max Allan   12:58Cool, there&apos;s your QR code. Scan that, pop the pin in, and maybe there is some people who, I don&apos;t know, arrive 5 minutes late, but we already jumped to the next screen. They can still sign up with the QR code on the next screen, right? Even if I didn&apos;t, yeah, okay, perfect. That&apos;s all I needed to know. Sorry, I made that a lot more confusing than it was, but that&apos;s sometimes what happens that.
+Apurv Gupta   13:10Yeah.
+Max Allan   13:17because we get such a large crowd, it&apos;s just impossible for me to address everyone because it&apos;s literally, it&apos;s so packed. And some people might arrive 2 minutes late, 3 minutes late. Some people, because we&apos;re so booked out, can&apos;t find a seat straight away. So they have to wait and they don&apos;t see this screen that is on the...on the display now, so they may only see the next screen where it actually shows the team registrations. But it doesn&apos;t happen too often, as long as they have two options to join the session, which is here now, whilst the promo is playing, and then a second opportunity for them to show, to scan the QR codes, and that time it&apos;ll show their team registration in real time anyway.
+Mohit Kumar   13:42And.
+Max Allan   13:58So, that&apos;s that that&apos;s perfect, yeah.
+Varun Chaudhary   13:58Yeah.I like next, do you want to increase the size of QR code as well? Or is it good right now on this screen?
+Apurv Gupta   14:00Yeah.
+Max Allan   14:09Sorry, say that again. What was the question?
+Varun Chaudhary   14:10Like, do you want us to increase the size of QR code or is it good to scan it?
+Max Allan   14:17Um...For the Tuesday, for the...
+Varun Chaudhary   14:20Like we can place it right side of the video if we need to increase the size of it.
+Max Allan   14:26Do you know what? Just in case, yes, let&apos;s do that. Just to make the QR code a little bit bigger. The Tuesday venue that we&apos;re hosting at has got a massive screen, won&apos;t be an issue. But for the Thursday venue, they&apos;ve got only small flat screen TVs around the venue. So if you can, yeah, make it somewhat bigger.And then I don&apos;t know what you want to do with the session pin, where you want to put that. That&apos;s up to you. But yeah, just increase it, just in case.
+Apurv Gupta   14:54So basically what we do is we, this bottom section, we increase the size and put it here, right here.
+Max Allan   15:01Yeah, awesome. Fantastic.
+Apurv Gupta   15:03So your session pin and everything comes here as well. Like this whole box comes here in a column by section.
+Max Allan   15:09Yeah, oh perfect in a column section. Yeah, yeah, awesome. Let&apos;s do that. Yeah.
+Apurv Gupta   15:12Yeah.Okay, so...
+Varun Chaudhary   15:15And most of your audience will join using QR code, right? No one will be joining via direct link, right?
+Max Allan   15:23I doubt it. Yeah, I&apos;m just trying to think. Some of the people with the current temporary software that we&apos;re using, I have manually typed in the URL just to make it easier because some people&apos;s cameras and stuff are a little bit dodgy.
+Varun Chaudhary   15:24Most of the people.
+Max Allan   15:43but the majority of them will be scanning the QR code. Yeah.
+Varun Chaudhary   15:48Okay.
+Apurv Gupta   15:48Okay.But.Let&apos;s move ahead.
+Varun Chaudhary   15:52So, yes, let&apos;s join the game.
+Apurv Gupta   15:55Yeah, bring your phone and scan this QR code.
+Max Allan   15:58Oh, so this is us. We&apos;re good to scan. Nice.
+Apurv Gupta   16:01Just give me a minute, I will show you.
+Max Allan   16:02Uhh.24 live host. I love the URL name as well. It&apos;s great. Very simple.
+Mohit Kumar   16:15Mm.
+Max Allan   16:45One thing, when I scanned the QR code, the initial game show logo, Max Showdown Live, it took a second to load. Is there any way to make it instead of, because it came in sections, is there any way to have it like, I don&apos;t know, up?
+Apurv Gupta   16:52Yeah.
+Max Allan   17:03already permanently or...
+Apurv Gupta   17:05Yeah, like this is on our demo server. So there are several projects running on the server. That&apos;s why it&apos;s might little bit slow. But when we go with the live section, like in the AWS and everything, then it works smoothly.
+Max Allan   17:12Ohh, right, OK.Oh, okay, cool. That&apos;s awesome.
+Apurv Gupta   17:22Everyone joined.Is there anyone remaining?
+Varun Chaudhary   17:25In.The is joined when it is there, but they aee, I think did.
+Apurv Gupta   17:30Mohit.
+Mohit Kumar   17:32Yep, same.
+Varun Chaudhary   17:36All of them are joint.
+Apurv Gupta   17:39I believe Mohit is remaining right now.
+Mohit Kumar   17:43Oh, is it good?
+Apurv Gupta   17:47Yeah, perfect. So we have seven people.
+Max Allan   17:48Wow, that&apos;s really good.Very nice layout.
+Apurv Gupta   17:53And yeah, this is the host screen. So you as all can see like how many peoples are there right now.So whenever you do a start game, so you get a round one multiple choice section.Everyone get on the screen, right?
+Max Allan   18:09Yep.
+Varun Chaudhary   18:11Yeah, yes.
+Max Allan   18:11Yes, yeah.
+Apurv Gupta   18:13So, let me start the round.So, this is the round first.
+Max Allan   18:20That looks so good.
+Apurv Gupta   18:20Yeah.You get the answer, everyone, please.
+Varun Chaudhary   18:22S.We need to submit the answer.
+Apurv Gupta   18:26Yeah.One person has no answer.
+Max Allan   18:29Yeah, that&apos;s me. I just want to, I do know the answer. I just want to see what happens with, like, how it looks if you get it right or wrong and stuff.
+Apurv Gupta   18:31Okay.Okay, let me reveal the answer.
+Max Allan   18:43That is so great. Okay.
+Apurv Gupta   18:46Everyone.
+Varun Chaudhary   18:46So who gives the right answer gets a 10 point, and other people will be getting zero.
+Apurv Gupta   18:51Yeah.
+Max Allan   18:55So just before we continue to adjust on that, so what I&apos;ve noticed was that you, the host, is in manual control of showing the answer. Yeah, it doesn&apos;t come up automatically after the 30 seconds is done.
+Apurv Gupta   19:06No, it&apos;s a manual process.
+Varun Chaudhary   19:07No, manual.
+Max Allan   19:09As manual, okay.
+Apurv Gupta   19:11So let me start with the next question.
+Max Allan   19:13Yeah.
+Varun Chaudhary   19:13Select host has the complete control over the game. You need to do it.
+Max Allan   19:17Okay, yeah, yep, yep.
+Apurv Gupta   19:18He can do anything, remove, add, increase the points, anything.
+Max Allan   19:23Yeah, that&apos;s awesome.
+Apurv Gupta   19:25Next question.
+Varun Chaudhary   19:27Answer is B.
+Apurv Gupta   19:34So yeah, one more thing. Whenever all the users, suppose we have 30 people and all the peoples give the answer at suppose 10 seconds, remaining 20 seconds comes to directly zero. So there is no point to like.play the next 20 seconds. That&apos;s why whenever all the users give the answer, this comes to a zero directly.
+Max Allan   19:49Yes.Perfect. Awesome. That was my next question. Yeah, because otherwise, yeah, we wouldn&apos;t want to wait to, yeah.
+Apurv Gupta   20:00Yeah.And I reveal the answer.
+Max Allan   20:04That&apos;s great.
+Apurv Gupta   20:06OK, let me, yeah.
+Varun Chaudhary   20:07So now, before you move to the next question, open the register team and provide 10 or 50 points to max.
+Apurv Gupta   20:16Sure.I give it two points to max now, and...
+Varun Chaudhary   20:21A mess you.
+Max Allan   20:22Changed on my phone immediately.
+Varun Chaudhary   20:24The.Yeah, so Max, do you see the 80 points?
+Max Allan   20:29Yes, yeah, I can see it on the top right corner.
+Varun Chaudhary   20:30Okay.
+Apurv Gupta   20:32Then I will give you 80-70 points for now.
+Varun Chaudhary   20:32Okay.Yeah.
+Apurv Gupta   20:38OK, everyone can get 20 points, so.
+Varun Chaudhary   20:39And.No, we can move, yeah, we can move further.
+Apurv Gupta   20:42Okay, so next question.Anyone know the answer? It&apos;s Persian or Egyptian. Okay, Persian. Okay, one incorrect again.
+Varun Chaudhary   20:51It&apos;s D. It&apos;s D.
+Max Allan   20:53Date.Probably me.
+Apurv Gupta   21:00Can I reveal the answer?
+Max Allan   21:04That&apos;s great.
+Apurv Gupta   21:05So this is the multiple choice question. So I walked through the whole 10 questions or we can switch to next round right now.
+Max Allan   21:12Yes, so just two questions with that. The layout looks absolutely magnificent, even on my phone. Like I said, the only fear that I had was, I don&apos;t know if you can see it on my phone, if you scroll down, or you&apos;d have to scroll down a little bit above the fold in order for thenotifying, you know, that&apos;s the correct answer. Will that be, I think I asked this on the last call, will it be okay in terms of layout for Android and iPhone? Will people need to scroll up and down or?Okay.
+Apurv Gupta   22:05But.All right.
+Varun Chaudhary   22:06Everyone is having iPhone or the screen size is 6.2 and above that. So we are not getting any issues with it.
+Max Allan   22:13Yeah, okay. That&apos;s, that&apos;s okay.
+Apurv Gupta   22:14And basically major issue is with the old age people. They accidentally touch while scrolling. But right now if you scroll while giving the answer, you don&apos;t get the answer selected. Yeah.
+Varun Chaudhary   22:26And we have we have solved that problem as well, like they can easily scroll it.
+Max Allan   22:31Okay. Oh, wow. Nice. And the other question that was in regards to the timer, have you, because I did send the audio files just to give like some inspiration of, you know, what kind of timer sound, incorrect answer. And well, there&apos;s no incorrect answer sound. It&apos;s only a correct answer sound.Once you know we reveal the answer on the screen, have you worked out an audio for?The...
+Apurv Gupta   23:03Yeah, we get a chance to check that audio. But the major issue is the looping sound that we want a sound of 30 seconds or more because Vega round is of 60 seconds. But that tick tick of suppose 10 seconds only, so we have to loop through again and again. This create a little bit mess right now.
+Max Allan   23:06Okay.
+Apurv Gupta   23:22So we are working on that right now. We get a chance so that we get the directly 60 second video. In 30 seconds, they get directly cut out, but for 60 second question, they can like playfully.
+Max Allan   23:22Okay.Okay.Yeah, okay.
+Varun Chaudhary   23:33Makes like we have like noted the point, but my main concern is like complete core game is running out not right now. It&apos;s in a small, a small thing we can find that we have the video, we have the audios. I&apos;ve asked my team to arrange more of the video and explore them.
+Apurv Gupta   23:41Yeah.
+Varun Chaudhary   23:52We can edit anytime. So once the complete software is ready and you are happy with it, that it&apos;s working correctly, then we can change these cosmetic changes anytime, anytime.
+Max Allan   23:54Yeah, OK.Yeah, nice. Okay. That&apos;s awesome. So in the meantime, because I like the feature that you added, let&apos;s say there&apos;s eight teams playing and all of the eight teams, it&apos;s an easy question, answered within the first three seconds. The timer, did you say, will automatically go to zero and
+Apurv Gupta   24:21Yeah.
+Max Allan   24:21That&apos;ll be my prompt as the host to basically press space and reveal the correct answer.
+Apurv Gupta   24:28Yeah, yes.
+Max Allan   24:28Yeah, okay, cool.
+Apurv Gupta   24:31So let&apos;s start. I will skip this round right now.
+Max Allan   24:35Mhm.
+Apurv Gupta   24:37So whenever all the questions for the current round is completed, you get the next round enabled. Next round button get enabled automatically. And you get the next round, you get a bigger round. So right now you get a little bit scattered screen.
+Max Allan   24:45Mhm.Yeah.
+Apurv Gupta   24:53So basically, Max, we want an instruction for every round from your side.
+Max Allan   24:57Okay.
+Apurv Gupta   24:58and a kind of question set because we have to set everything when you try to work on this software.
+Varun Chaudhary   25:06Yeah, basically all the question and answer of them and instruction what we need to write on this screen instead of 0 to 50 point for correct answer.
+Max Allan   25:07OK.
+Apurv Gupta   25:15Exactly.
+Max Allan   25:16All right, okay. Yeah, yeah, I see what you mean. Yes. Did you want me to add that in Figma? And I can give you an exact description. Okay.
+Apurv Gupta   25:22Yeah, yeah, sure, or you can.
+Varun Chaudhary   25:23Yeah, you can add it on in the Figma, or you can provide us in a document as well, whatever suits you best.
+Max Allan   25:28Okay.Probably Figma, make sure I&apos;ve got it still up and running. That&apos;ll be easiest, because that way I can go through every slide. I know I haven&apos;t done it last time, but after today&apos;s call, I&apos;ll do it straight away. And then that way, because you never ever have to change it again after. Once we write it, that&apos;s it, because it&apos;ll be.
+Apurv Gupta   25:36Sure, all good.
+Varun Chaudhary   25:48And if you get, and if you get some time also for the questions as well, like all the quiz round, their questions and their answers, if possible, you can share with us as well.
+Max Allan   25:49Red to repeat.Oh, okay, of course, yeah, yeah, I&apos;ll share, I&apos;ll share a doc, a Google Doc sheet sheet with you, a link that&apos;ll be easiest.
+Varun Chaudhary   26:06Yeah.The.So, yes, approve.
+Apurv Gupta   26:12Okay, so whenever the Vega round comes, you have a one more button called Lock Vega Points. This basically give you a chance to the users and you to lock Vega points, right? Whenever I click, so you have a, you got a screen of Vega points, right?
+Max Allan   26:18Yeah.
+Varun Chaudhary   26:28Yes, it&apos;s zero, 10, 20, 30, and 40.
+Apurv Gupta   26:30Yeah, so you can hit and lock Vigor.
+Max Allan   26:35Nice, OK.
+Varun Chaudhary   26:37So, I have done it.
+Max Allan   26:39Yeah, okay. I like the flow. Yep, yep, yep.
+Apurv Gupta   26:40Everyone.And then you start. And one more thing, Max, suppose for the ways around, you already complete up to suppose four and five questions. And now a new user comes into the picture and join the game. So they first see the, right now the flow works like they first see the Vagar screen.
+Max Allan   26:47Yeah.Yep.
+Apurv Gupta   27:03Vigor point screen, then they log their vigor, and then directly jump to the 5th question.
+Varun Chaudhary   27:11So for the new users who have joined recently on this software, after starting the round, they will see the exact question what is running on the real time. Like if it&apos;s 5th, so they will see the 5th question.
+Apurv Gupta   27:13Yeah.
+Max Allan   27:28Oh right, yeah, yeah. So basically what you&apos;re saying is if they join, let&apos;s say they come 20 minutes late to the trivia and they join at the 20 minute mark and we&apos;re already up to question 4.
+Varun Chaudhary   27:34Yeah.
+Max Allan   27:41Just jump in where they register is what you&apos;re saying.
+Varun Chaudhary   27:44Yeah.
+Max Allan   27:45Yeah, yeah, absolutely, of course, yeah, yeah, yeah.
+Varun Chaudhary   27:45But.
+Apurv Gupta   27:48OK, so now let me everyone log their wake up points.
+Varun Chaudhary   27:51Yes.
+Apurv Gupta   27:53OK, let me start the question.Which you?I don&apos;t know the answer.
+Varun Chaudhary   28:03And download 2 as well.
+Apurv Gupta   28:03Yeah.This.
+Varun Chaudhary   28:05Ohh.
+Apurv Gupta   28:06Three peoples, no answer, one, no answer. Everyone give the answer. So the right answer is C.1901
+Max Allan   28:14I live in, I live in Australia. I should, I should probably definitely know that answer, so I&apos;m glad I got that correct.
+Varun Chaudhary   28:14And.
+Apurv Gupta   28:21But.
+Varun Chaudhary   28:21No.
+Mohit Kumar   28:21Sure, sure.
+Varun Chaudhary   28:24Like our testing team put all the questions related to Australia.
+Mohit Kumar   28:27Yeah.
+Max Allan   28:29Nice, that&apos;s awesome.
+Apurv Gupta   28:31Next question.
+Varun Chaudhary   28:32I lose 40 points last round.
+Apurv Gupta   28:34Okay.The first British colonial establishment.
+Varun Chaudhary   28:37What was the name of?
+Apurv Gupta   28:39Max, Max, New South Wales.
+Varun Chaudhary   28:40What&apos;s the right answer?
+Apurv Gupta   28:44D, I believe.
+Max Allan   28:44What&apos;s the name of the day after the?
+Apurv Gupta   28:50Boom!
+Varun Chaudhary   28:50Let&apos;s do anything.
+Apurv Gupta   28:53D, yeah.
+Max Allan   28:54Oh.
+Varun Chaudhary   28:54So everyone got the right answer, wow.
+Max Allan   28:57Except for Max.
+Apurv Gupta   28:57No, one one is incorrect.
+Varun Chaudhary   28:58No.
+Max Allan   29:00These are very difficult questions, guys.
+Apurv Gupta   29:04OK, next one, this my.
+Max Allan   29:10So, while we&apos;re answering this, I&apos;ve got a question. Are you still selecting points before every question?
+Apurv Gupta   29:12Yeah.Yeah.
+Varun Chaudhary   29:15Yeah?
+Apurv Gupta   29:22NO.
+Max Allan   29:23Ah, okay, okay.
+Varun Chaudhary   29:24All the all the points of weather are fixed in the starting.
+Apurv Gupta   29:24Mm.
+Max Allan   29:29Ahh.
+Apurv Gupta   29:29This is a mandatory.
+Varun Chaudhary   29:31It&apos;s A mandatory thing. So each question will be of 40 points. Either you lose it, 40 will be deducted, or if you want it, you will, that point will be added in the score.
+Max Allan   29:42Right, okay. So you only get that wager option at the start of the round once.
+Varun Chaudhary   29:47Yes, yes.
+Apurv Gupta   29:48Yeah.
+Max Allan   29:49Okay, that&apos;s a little issue because with the Jeopardy round, we had the wager before every question. And we had, so the wager topic, sorry, the wager screen. So we&apos;ll start with the round.
+Varun Chaudhary   29:53Huh?
+Max Allan   30:06and we&apos;ll go, right, your first topic straight away. And this is something I wanted to mention as well with the text and the layout of what you have, what we can see on the phone. Minimal, very minimal, just the topic of the question. So we&apos;ll have, let&apos;s say we&apos;ll start with science. Science is your first topic.
+Varun Chaudhary   30:06Uh-huh.
+Max Allan   30:27your wager options below. Everyone&apos;s like, I&apos;m not feeling too confident with science. Everyone selects their points. Once the point selections are in, the question comes up, just like here. Then the next topic, let&apos;s say the next topic is languages. And same again, wager. So I would have, like I wanted to have a wager
+Varun Chaudhary   30:41Oh.
+Max Allan   30:48For well, basically 12 questions throughout the throughout the whole wager round. Is that is that possible because we didn&apos;t want to because I get what you what you did with the wagering that you set it in place once, but...
+Varun Chaudhary   30:57Oh.
+Max Allan   31:07That&apos;s the whole point was to have 12 topics throughout the Jeopardy rounds with various different, you know, difficulties. So some people might be really good at history, some people might be really good at sports. So what I wanted was to have the layout, everything is perfect. It&apos;s just we need to have
+Varun Chaudhary   31:26Mhm.
+Max Allan   31:28a wager selection screen before each topic. And I can give you the number now. It&apos;ll be 12. It will be 12 topics throughout the wagering route.
+Apurv Gupta   31:37And how many questions in a topic?
+Max Allan   31:41Just one, just one, so that, yeah.
+Apurv Gupta   31:42Okay, so basically 12 questions.
+Max Allan   31:44Twelve questions, that&apos;s right, yeah. The only thing is that I would need to have is the ability just to edit the display screen for whatever topic it is, because each week it might be different topics. You know, we might have one week where there&apos;s absolutely no sport.in the Jeopardy round at all. So I need to be able to edit the topic on the wager selection screen.And then, obviously, edit the edit the questions up.
+Varun Chaudhary   32:18So it will be like 12 topics, each topic, one question, and they will get an option to log the widget before any question arrives.
+Max Allan   32:21That&apos;s right.
+Mohit Kumar   32:25Mhm.
+Max Allan   32:28Exactly correct. Yes. So wagering option for each question before it comes up.
+Varun Chaudhary   32:35Okay.
+Apurv Gupta   32:37Okay.
+Varun Chaudhary   32:37Sure, so move forward and reveal the answer, please, Abhay.
+Apurv Gupta   32:46Okay.
+Varun Chaudhary   32:46It&apos;s.
+Apurv Gupta   32:48Let me fast forward this round now.
+Max Allan   32:52Yep.
+Varun Chaudhary   32:53You can do the start break as well, like...
+Apurv Gupta   32:56Yeah, okay. So this round is completed and you can do the start break.
+Max Allan   33:00Oh wow, that looks, yeah, that looks really good. So they&apos;ve even got the timer up on their phones. That&apos;s great. That&apos;s awesome. That&apos;s really cool. Yep.
+Varun Chaudhary   33:06Yeah.
+Apurv Gupta   33:06Because.as well as on venue as well, and on the host as well.
+Max Allan   33:12Nice, nice.
+Apurv Gupta   33:14And whenever you, yeah, yeah, please.
+Varun Chaudhary   33:14So...All 3, all the three screens are in sync.
+Max Allan   33:20That&apos;s awesome. Can I change the duration of the timer? Is that changeable? Yeah, okay, cool.
+Apurv Gupta   33:26Yeah.No, we are from our side, not from the admin. We have to do from the code.
+Max Allan   33:33Okay.
+Apurv Gupta   33:33If you give me a 5 minute, 6 minute, 10 minute.
+Max Allan   33:36Yeah, well, would you put them in? And so I&apos;ve got a choice because some venues are different with the nights in terms of how long they want to run. One venue will need a six minute timer. So we need a six minute, an 8 minute and a 10 minute timer. If you can add those.No more than that. That&apos;ll be perfect.
+Apurv Gupta   33:59Just give me a minute, let me write this.
+Varun Chaudhary   34:02No worries, Apur, we the call is on the record, so we can take the notes further as well.
+Apurv Gupta   34:05Okay.So now, whenever the break ends, you come to the where you start. So you directly come to the same 10th question, revealed answer section. Now you get a functionality to add next round. So before going to the next round, we start with a card game.
+Max Allan   34:19Mhm.Okay.
+Apurv Gupta   34:28So let me start.
+Varun Chaudhary   34:28Yeah, let&apos;s play the card game. Really excited for it.
+Max Allan   34:30So.
+Apurv Gupta   34:31So you get this kind of screen. Yeah, please.
+Max Allan   34:32Just speak.So, so sorry, just before you continue that, is it possible for you guys to add a static screen as well that just says end of round? So after the last question of each round, just have the same generic slide throughout and say end of round. And then because.It just flows a little nicer with the game. We can just call it end of round. You don&apos;t even have to be round specific, just end of round. And then once the end of round screen comes up, then I would love to go into the mini challenges and into the break. Because if I, yeah, well, once I then.
+Apurv Gupta   34:59At.Yeah.
+Max Allan   35:13End the the the either the games or the break, it just comes back to that screen that says end of round.
+Apurv Gupta   35:21So this is skin from like you want on venue players and hosts as well right all three.
+Max Allan   35:28Yes, please, if I can. And just really simple, end of round. Nothing fancy, yeah.
+Apurv Gupta   35:32Okay.So, whenever you go with a mini game, you click on Card Shuffle, you get this kind of screen.
+Max Allan   35:40Yep.
+Apurv Gupta   35:41And you get a button to load card game on menu.And you hit this.This game now let hold on holds on a venue screen, so this is how it looks like.
+Max Allan   35:57Wow.
+Apurv Gupta   35:57You also got a screen on player your phone as well.
+Max Allan   36:01Yes.
+Varun Chaudhary   36:02It&apos;s a queen, queen of heart.
+Apurv Gupta   36:03So...So now you have a control, you have to do the start game and this game gets start.
+Max Allan   36:10Yep.Wow.
+Apurv Gupta   36:20Now, you have to select one of them.
+Varun Chaudhary   36:23Max, it is a bit of lagging in this because of the teams streaming that we are on the call.
+Max Allan   36:28That&apos;s fine, that&apos;s fine. It&apos;s not even, it&apos;s not even too bad, so it actually looks really smooth now already. I&apos;ll just go.
+Apurv Gupta   36:34So, I believe...
+Varun Chaudhary   36:35Let&apos;s select the answer: left, right, or center.
+Apurv Gupta   36:44So, you now you have to reveal the answer when you go to reveal card.
+Max Allan   36:48Yeah.
+Varun Chaudhary   36:52Search the right.
+Apurv Gupta   36:55You get your pick. If you select the correct one, you get your pick and the green border and the blinky kind of design. And if you correct the incorrect one, you get a red border and your pick section.
+Max Allan   37:06That is so cool. That is awesome.
+Apurv Gupta   37:10And then you have...
+Varun Chaudhary   37:10Actually, this is a good screen. Design of this screen is very good. Right, Max?
+Max Allan   37:15Yes, I ab I absolutely love it. Yeah, it&apos;s great.
+Apurv Gupta   37:20Then you go to the next round section.
+Max Allan   37:39Okay.
+Apurv Gupta   37:41Everyone, mark your answer.
+Varun Chaudhary   37:46Yes.
+Apurv Gupta   37:48Okay, so let me reveal the answer.
+Max Allan   37:51Oh, right again. It&apos;s got a very dynamic, a very dynamic flow on the phone as well. Like it&apos;s, so for anyone who can&apos;t see the big screen, they&apos;re basically seeing the whole game, you know, like without the shuffle, obviously, on the phones, which is actually
+Varun Chaudhary   37:54Exide.
+Max Allan   38:10which is quite incredible.
+Varun Chaudhary   38:12Yeah, that that&apos;s what exactly I was saying about this design.
+Max Allan   38:15Yeah, that&apos;s absolutely, it&apos;s fantastic. Yeah, I love it.
+Apurv Gupta   38:21And now, next question.Next round, sorry.
+Varun Chaudhary   38:28This one is a little tougher.I have no idea which one is this, where it goes.
+Max Allan   38:40I&apos;ve got no idea. I&apos;m just gonna go middle.
+Apurv Gupta   38:43Me too, middle, everyone.Let&apos;s reveal the answer. I believe right one. Yeah, it&apos;s right one.
+Max Allan   38:50That&apos;s right, again.
+Varun Chaudhary   38:52It&apos;s again the right one.
+Apurv Gupta   38:56Let&apos;s go with the round for.
+Varun Chaudhary   38:57It&apos;s completely random, Max. It&apos;s completely random.
+Max Allan   39:00I was going to say, yeah, so it&apos;s a different outcome every time. That&apos;s awesome.
+Varun Chaudhary   39:04Yeah.Again, middle.
+Apurv Gupta   39:19Let&apos;s go with the right one now side.
+Varun Chaudhary   39:19I got it.
+Max Allan   39:21Yeah, I&apos;m choosing right and I&apos;ll probably be left. That is right, yeah, nice.
+Apurv Gupta   39:24Yeah, it&apos;s right.
+Max Allan   39:29That&apos;s awesome. It shows the round, it shows how many points that we&apos;re up to. Really good. I like it.
+Apurv Gupta   39:36And now you, whenever you give the, like, you get the finish button and you get the game mode screen now, and in here you get, like, you start the next round.
+Max Allan   39:42Yeah, love it.That&apos;s awesome.
+Apurv Gupta   39:47Then you start a music round.
+Max Allan   39:49Just real quick, after the card shuffle is finished, because the sequence is that we get to the end of the round, we show the scoreboards, and then I say to the players, right, time for our first mini challenge, we&apos;ll do the card shuffle.
+Varun Chaudhary   39:50Ohh.
+Apurv Gupta   39:56Yeah.
+Mohit Kumar   40:00And, you know.
+Max Allan   40:08Can I do the kangaroo race immediately after the card shuffle?
+Apurv Gupta   40:13The at right, yeah.
+Varun Chaudhary   40:13Yes.Let&apos;s start the Kangaroo race.
+Max Allan   40:15I aee.Like the one we&apos;ve all been waiting for.
+Apurv Gupta   40:17Okay.Now you have to do same process, load screen race on menu. Now this get loads.
+Max Allan   40:24Yeah.
+Varun Chaudhary   40:26It&apos;s too fast, ab. We should like add the names as well.
+Apurv Gupta   40:29Okay.Ohh, sorry.
+Max Allan   40:32But cool.
+Apurv Gupta   40:34So here you have, like, right now the game gets started already, so...So now I start the race.
+Varun Chaudhary   40:44Like makes until you click on the start button.
+Apurv Gupta   40:45Oh.
+Varun Chaudhary   40:48It won&apos;t be startling.
+Apurv Gupta   40:56Just give me a minute.
+Varun Chaudhary   41:02Everyone need to.Press one option.
+Max Allan   41:17Yeah.How good is that? That&apos;s awesome.
+Varun Chaudhary   41:47So, I was saying that, yeah, how, how&apos;s it?
+Max Allan   41:50That is so good. So good. So much better than expected. Absolutely fantastic.That&apos;s, yeah, sorry mate, the people will absolutely love this.
+Varun Chaudhary   42:00I think, yeah, yeah, yeah, I think we should play once again with the real names.
+Apurv Gupta   42:07Okay.
+Varun Chaudhary   42:09Let&apos;s start again, and before, like we need to choose, I think all of us didn&apos;t selected one option in the mobile right last time.
+Apurv Gupta   42:18Nah.
+Varun Chaudhary   42:20So, this time we will be selecting one option each, and let&apos;s see which Kangaroo will.
+Apurv Gupta   42:29So I load up every name.
+Varun Chaudhary   42:32Yes.
+Apurv Gupta   42:33Now let me start the race again.
+Max Allan   42:39Because I was recording the kangaroo race for my family and friends again. From there, can you show me the, because I logged me out, the session pin?Just so I can quickly pop that in again. I have 602310.
+Apurv Gupta   42:51Yeah.
+Varun Chaudhary   42:53Yes.
+Apurv Gupta   42:57Yeah.
+Varun Chaudhary   42:59And Max, like you don&apos;t need to record this. I&apos;ll share the complete all the links, complete admin panel host by end of this meeting. You can play and use the complete software by yourself. I&apos;m giving you one document as well in which all the instructions are there, how you are going to use it.
+Max Allan   43:06Okay.
+Varun Chaudhary   43:18So, you can showcase your family and friends, and you guys can play the real game.
+Max Allan   43:19Ha.Oh, that&apos;s so good. They would love that. Yeah, super exciting.
+Varun Chaudhary   43:26Yeah.
+Apurv Gupta   43:27Okay, can I start?
+Max Allan   43:29Yes, absolutely.
+Apurv Gupta   43:30Okay.
+Max Allan   43:33Yeah.As I even got.
+Varun Chaudhary   44:31I actually get excited at that time when crowd started cheering.
+Max Allan   44:36That is so good, so good.
+Apurv Gupta   44:37But...
+Varun Chaudhary   44:39Yeah.
+Apurv Gupta   44:40I thought Apoor will win.
+Varun Chaudhary   44:42Ha ha.
+Max Allan   44:42So I noticed that there was a countdown for them to select their kangaroo, yeah? So they&apos;ve only got 8, so they can even have 18 seconds into the race to still decide who they think is going to win.
+Apurv Gupta   44:49Yeah.Yep.
+Varun Chaudhary   44:50Yeah.Yeah.
+Max Allan   45:00Right, interesting. Okay.
+Varun Chaudhary   45:01Like, we have put a 20 seconds of timer for that.
+Max Allan   45:05Nice.That looks great. That looks absolutely fantastic.
+Varun Chaudhary   45:08But, but still, they are not able to find out which one is going to win.
+Max Allan   45:12Yeah, yeah, yeah. So they probably think, oh yeah, we can be clever here and we can have a little bit more time to decide. But now it&apos;s not going to help. That&apos;s awesome. Yeah, Kangaroo Ray is absolutely fantastic. Looks really, really good, guys.
+Apurv Gupta   45:14That&apos;s why.Now finish race and the same start next round and now this is a music round.
+Max Allan   45:26Yep.
+Apurv Gupta   45:32So you get we get a like in a previous call we already discussed you want a start time button. So now whenever you do the start time, the music would already start with this same 30 seconds. So let me start.
+Max Allan   45:38Yep.Perfect.
+Varun Chaudhary   45:47Either you click on this or a keyboard button T to play it.
+Apurv Gupta   45:52Yeah.
+Max Allan   45:53P to play, yep, sweet.
+Apurv Gupta   46:01So this is a famous Indian song.
+Varun Chaudhary   46:03Its answer is C, and you cannot answer until the music is stopped.
+Max Allan   46:04Yeah.
+Mohit Kumar   46:05You can do.
+Varun Chaudhary   46:10We all have to answer while the audio is running.
+Apurv Gupta   46:12Play. Yeah.
+Max Allan   46:13Oh, okay, yeah, perfect. That&apos;s good. That&apos;s good. That&apos;s good.
+Apurv Gupta   46:23Now, I&apos;ll give the correct answer.Let me reveal the answer.
+Max Allan   46:31That&apos;s awesome, yeah.
+Varun Chaudhary   46:32Max, have you heard any of the Hindi songs?
+Apurv Gupta   46:32No, next.
+Mohit Kumar   46:33Yeah.
+Apurv Gupta   46:35Book.
+Max Allan   46:35Sorry, do I know any Indian? No, but I looked at the answers and I&apos;m like, that definitely does not sound like Taylor Swift. That&apos;s for sure.
+Varun Chaudhary   46:39You.
+Mohit Kumar   46:41Yes.
+Apurv Gupta   46:41Yeah.
+Varun Chaudhary   46:45Yeah.
+Apurv Gupta   46:46Let me start the next question.
+Varun Chaudhary   46:48Yes, this one you must know.
+Apurv Gupta   47:00So, same functionality over here, whenever all the users give the answer, they automatically get paused.
+Max Allan   47:08Yeah. One thing with the, I think, especially for the music rounds, if it&apos;s easier for you guys to just apply it for the whole game, because the whole point, the music round is the biggest hole.Of the is it possible to have the 30 seconds, because the only the only time one of the questions is 60 seconds is the very last question. Everything else for that is 30 seconds. Is it possible to have the 30 seconds run?
+Apurv Gupta   47:39Yeah.
+Max Allan   47:45And even if every single team competing has answered, let&apos;s say it&apos;s a really easy question within the first five seconds, doesn&apos;t matter that the countdown still goes until zero. If I see obviously that every team has answered within 5 seconds, I can then manually push it as a host. But especially for the music rounds, even if it&apos;s a, you know.because we pick the best songs for people to sing along. The last thing we want to do is cut that short. So just to make it again easy for you guys, can we just change the functionality that the 30 seconds goes to 0 regardless of how quick every single team answers? Is that possible?
+Apurv Gupta   48:25Okay, so basically you want to complete whole 30 seconds.
+Max Allan   48:28Yeah, because that also makes, I&apos;m hoping, your job a little easier, then we don&apos;t have to worry about finding like a sound effect or, you know, I don&apos;t know, change the functionality. Like I can even prefer, if it is possible, that the correct answer automaticallyshows up without the host having to push anything once the 30, once the timer, regardless of how long it is, the timer hits zero and the answer automatically displays.if that&apos;s possible. Is that something that is possible or if not?
+Varun Chaudhary   49:02Actually, it will take some time because we need to change it for exact one round.
+Max Allan   49:09Okay, that&apos;s fine. Then I can still reveal the answer after the 30 seconds is done. Then I can just press space. Yeah, but if we don&apos;t worry about that the software automatically stops or that the countdown timer goes to 0 once everyone&apos;s answered, just let it run its full term.
+Varun Chaudhary   49:15Yes.
+Apurv Gupta   49:15Yeah.
+Varun Chaudhary   49:18Thank you.
+Max Allan   49:28Let it run its full 30 seconds, if that&apos;s alright.
+Varun Chaudhary   49:31Okay.
+Apurv Gupta   49:31Okay.
+Max Allan   49:32Thank you.
+Varun Chaudhary   49:32So like audio, audio will be for 30 seconds, right?
+Max Allan   49:36That&apos;s right, yeah, because again, the whole point of the music round is if there is a sing-along song and everyone loves it, even though it&apos;s an easy question, the last thing we want is the song to stop basically after, you know, everyone answering in five seconds. We want to drag it out for as long as possible, if that makes sense.
+Varun Chaudhary   49:43No.
+Apurv Gupta   49:53Okay, especially for music round, right?
+Varun Chaudhary   49:53Abdulrafique.
+Max Allan   49:55Especially for Music Round, yeah. But again, if it makes it easier for you guys, just apply that setting throughout the entire game show. Especially the 60 seconds, because the 60 seconds on the last question of the night, that&apos;s usually the hardest. And most people do bet 100% of their overall score.So we really want to give them that time. Now after they hit zero, obviously you can&apos;t answer anymore and I will manually press the reveal answer.
+Varun Chaudhary   50:27But actually they have the 60 seconds max until all of them has answered that question. It won&apos;t go to zero.
+Apurv Gupta   50:27Okay.Yeah.
+Max Allan   50:36Say that again, sir.
+Apurv Gupta   50:36Like, suppose we have five players playing the game, and then all the five players give the answer, then only it goes to zero. By the way, it&apos;s playing same as natural.
+Max Allan   50:41Yep.Okay.
+Apurv Gupta   50:51Like suppose, suppose we have a five team and this is the suppose current question for this song. You can hear, like you can hear this song up to 30 seconds until and unless all users give the answer. When all the users give the answer, then it comes to zero. Otherwise.
+Varun Chaudhary   50:51Like.Yes.
+Max Allan   50:55Mhm.Mhm.
+Apurv Gupta   51:10Goes to all the 30 seconds.
+Max Allan   51:12Okay. And that&apos;s what I mean. I don&apos;t want to run into that risk because some questions might be really easy, you know, in terms of song, because it is a popular song. I want to have the song play for the whole 30 seconds, even once everyone has answered, if that makes sense. Yeah.
+Apurv Gupta   51:27Okay, got it, got it. So you basically want all five team give the answer in.Top of 5 seconds, then remaining 25 seconds will play.
+Max Allan   51:38Yeah, yeah, absolutely.
+Apurv Gupta   51:40Okay, especially for music now.
+Max Allan   51:42Yeah, especially for Music Round. If ideally, look, because again, the current software that we use and the temporary one, I still have to manually control it as well, but once the timer hits zero,it automatically shows the correct answer on the screen without the host having to... Do I have to control it? Maybe I do press spacebar. I can&apos;t remember. But the main thing is I need to have...the ability, because sometimes people also take a lot of time to think, you know, because if there&apos;s like 10 people on a team, they&apos;re going to take longer to discuss the question than if there&apos;s only two or four people on a team. So they need the full 30 seconds. So even if every single team answers the question,within, let&apos;s say, 5 seconds. I still, if possible, don&apos;t put the timer to zero. Just let it run its course. And then after it hits zero, obviously, after the 30 seconds or 60 seconds for the last question, they&apos;ll be able to look like they&apos;ll be locked out.
+Apurv Gupta   52:47Okay.The.
+Max Allan   52:58Anyway, they can&apos;t response, and then it&apos;s up to the up to the host to manually, if...
+Varun Chaudhary   53:03Yes. Yeah, I totally get you.
+Max Allan   53:06Yeah, when you said it would take it would take some time to have the answer display automatically, how much? I mean, how long is that something that you would need to work on, or how long would it take, roughly?
+Apurv Gupta   53:07It.So basically it depend like we have to do this for all the seven rounds or for only for music round to reveal the answer automatically.
+Varun Chaudhary   53:24But.Just for complete, complete 7 rounds.
+Max Allan   53:34It would be for the complete show, yeah.
+Apurv Gupta   53:36Yeah, so it would take...Yeah, a little bit of time because we have to change the whole functionality for this.
+Varun Chaudhary   53:43No worries, no worries, Max. What we&apos;ll do, we&apos;ll brainstorm on it after the call internally, and we&apos;ll try to figure it out how we are going to implement it.
+Apurv Gupta   53:48Yeah.
+Max Allan   53:50Mm-hmm.Okay, no problem. Look, because even if it takes a few weeks on top of it, I don&apos;t mind it. Because, I mean, obviously, you know, everyone at Trivia is...
+Apurv Gupta   53:58The.
+Max Allan   54:06Super eager to see it. I&apos;m thinking about is also the hosts, my employees, and some of them might want to focus more on communicating with the with the with the crowds, so if the soft...
+Varun Chaudhary   54:19Yeah.
+Max Allan   54:23Here&apos;s the 30 seconds, everyone answers. And then after the 30 seconds, it&apos;ll automatically ****, show the correct answer. No one&apos;s able to answer anymore. It just gives the host a little bit more freedom. For me personally, because I still host myself, obviously, as the company owner, I wouldn&apos;t have a problem with it. But once I start training my hosts,The put it this way: the less they need to think about manually control-wise, the better, because that way they can just purely focus on the on on on hosting the nights. So, if you can, if that&apos;s something that you can make happen, it would be a tremendous help. Just that the software, 30 seconds after the 30 seconds, software automatically shows.correct answer on the venue screen, on the player screen, and then the host. Now once I press the space bar, boom, next question, automatically starts.
+Varun Chaudhary   55:18Okay, well like we&apos;ll look into it. Yeah, yeah, definitely. We&apos;ll look into it and we&apos;ll try to implement it. And I&apos;ll let you know how much time it will take.
+Apurv Gupta   55:19Okay.
+Max Allan   55:20If that makes sense. Yeah, thanks, Apes. Thank you.Yes, yeah.
+Varun Chaudhary   55:29Yeah, next question, Abhay, I will.
+Apurv Gupta   55:32Okay, now next question.OK, let me reveal the answer: 2017.
+Varun Chaudhary   56:12And I pulled in now.You can remove one of us from the register team, so we can check that functionality as well.
+Apurv Gupta   56:19Okay.Okay, I will remove myself then.
+Max Allan   56:22Yeah.
+Varun Chaudhary   56:27Yeah, so Max, basically, if you, if someone is removed, you need to add, you just, you can adjust using the add button, add team.
+Apurv Gupta   56:34So, if you see my camera, I directly go to logout screen.
+Max Allan   56:39That&apos;s all, yeah, yeah, that&apos;s correct.
+Varun Chaudhary   56:41It shows that you have been removed from the game or by the host.
+Mohit Kumar   56:41Good.
+Apurv Gupta   56:41Yeah.
+Max Allan   56:44Yeah, perfect.
+Apurv Gupta   56:46Let me add myself again, then.
+Varun Chaudhary   56:49And you can add someone else with it, and you can provide manual score as well, like base score. And that person only needs to enter same name that you have entered here with the session pin only.
+Apurv Gupta   57:07So, I got joined with the 100 points. If you can see my...
+Max Allan   57:07Okay.
+Varun Chaudhary   57:09So, he&apos;ll be back.We can&apos;t see, we can&apos;t see your screen.
+Max Allan   57:12So, e.
+Apurv Gupta   57:15No, you can see my camera if you can.
+Varun Chaudhary   57:17Yeah, yeah, yes, yes.
+Max Allan   57:18Yeah, so if one team, let&apos;s say it was you, who gets removed, either I remove them or they, I don&apos;t know, for whatever reason, get logged out. And let&apos;s say they were on a total of 300 points. If they re-log in with the same team name and the same session pin, will their points be restored?
+Apurv Gupta   57:37No, in that case, if they don&apos;t close the browser, then yes, they get the stored the points. But if they close everything and come back to you and please join me, then you can have to put the 300 points and they can join with the same name.
+Max Allan   57:52That&apos;s fine, okay, yeah, because that&apos;s why I asked about the manual function. So if they come to me and say, oh, our phone shut down or something, I can manually add them and I can say, right, what was your team name? Yep, cool. How many points were you on? Oh, we were on 300 points. Boom, I can just pop it in.
+Apurv Gupta   58:10Yeah.
+Max Allan   58:11Yeah, okay, perfect.
+Varun Chaudhary   58:11Yeah.
+Apurv Gupta   58:13So, can I skip to surround for now?
+Max Allan   58:15Absolutely, yeah, yeah, definitely go for it.
+Varun Chaudhary   58:17Yeah.
+Apurv Gupta   58:17Well.
+Varun Chaudhary   58:19Just show the one video, as if you can.
+Apurv Gupta   58:22Okay, if we have...
+Varun Chaudhary   58:26Any video.
+Max Allan   58:27Bye.
+Apurv Gupta   58:28Okay, I believe this one is a video.
+Varun Chaudhary   58:31Yes, yes, yes.
+Apurv Gupta   58:32Yeah, so this same.
+Varun Chaudhary   58:35Open the menu screen, yes.
+Mohit Kumar   58:35And.
+Apurv Gupta   58:38Big big hero up.Handar kya.So, this is only 19 seconds, so you did twice, and now let me reveal the answer.Tamasha, OK.Let me skip this round and now we got an elimination round.
+Max Allan   59:13Mhm.
+Apurv Gupta   59:14So this round basically first question 10 points, second question 20 points, up to 12 question 120 points.
+Max Allan   59:19That&apos;s right, yeah.
+Apurv Gupta   59:22So, this is the question.
+Varun Chaudhary   59:25This city was officially selected to become the capital city of Australia.
+Apurv Gupta   59:31State of Law cities.
+Varun Chaudhary   59:31Mix, let us know the answer.
+Max Allan   59:34Yeah, go for aee.
+Apurv Gupta   59:37Eat.
+Max Allan   59:38aee.
+Varun Chaudhary   59:39K.
+Max Allan   59:40Canberra.
+Apurv Gupta   59:45OK, recommended.
+Varun Chaudhary   59:45So the audience usually do the cheating part.
+Mohit Kumar   59:49Okay.
+Max Allan   59:49Yeah.
+Varun Chaudhary   59:49Are they really do it? Like they ask to someone else, what&apos;s the answer?Next question.
+Apurv Gupta   1:00:01Okay.Play.
+Varun Chaudhary   1:00:08Which last dessert?
+Max Allan   1:00:11And.
+Apurv Gupta   1:00:14The.
+Max Allan   1:00:15I think it&apos;s C.I think.
+Apurv Gupta   1:00:17Mm.Yeah.Mm.
+Varun Chaudhary   1:00:29Let&apos;s reveal, OK.
+Apurv Gupta   1:00:29That man, yeah, it&apos;s C.
+Max Allan   1:00:33Okay, geez, lots of pressure.
+Mohit Kumar   1:00:33Yes, sir.
+Apurv Gupta   1:00:36Yeah.No, that&apos;s next question.
+Varun Chaudhary   1:00:44This has only two options.
+Apurv Gupta   1:00:45I, I give the wrong answer.
+Max Allan   1:00:47Yeah, same.
+Varun Chaudhary   1:00:48It&apos;s B. It&apos;s B.
+Apurv Gupta   1:01:10Mm.Let me reveal the answer. So if you see my camera, I got knocked out.
+Max Allan   1:01:13Uh-huh.Yes. Yep. Same. I can see it on my phone as well. Yep.
+Apurv Gupta   1:01:21Okay.So now you are unable to play the next round only. Now for the whole this round you are knocked out.
+Max Allan   1:01:29That&apos;s good, yeah. Functionality wise, that&apos;s awesome.
+Apurv Gupta   1:01:33Oh, we can see only this knockout screen now.
+Varun Chaudhary   1:01:36But here, here I have one query. Like I also noted in the testing field as well. Like now I only left in this round, only single player.
+Mohit Kumar   1:01:37Mm.
+Apurv Gupta   1:01:42The.Yeah.
+Varun Chaudhary   1:01:50So, should I be able to play the complete round complete questions?
+Max Allan   1:01:54Ohh, no, no, if there is one team left, in this case, you Varun, that&apos;s it, that&apos;s the end of the round. You are the, you&apos;re the winner.
+Varun Chaudhary   1:01:59Mm.
+Apurv Gupta   1:02:03Mm.Oh.
+Varun Chaudhary   1:02:05Okay, so how currently it&apos;s working is that particular one team who is remaining in the round, they need to play complete all the questions.
+Apurv Gupta   1:02:06Suppose.
+Max Allan   1:02:16Ohh, okay, yeah, no.
+Varun Chaudhary   1:02:17And if they got wrong, the points will be deducted from their score.
+Max Allan   1:02:23Right.
+Varun Chaudhary   1:02:24We need to change here.
+Max Allan   1:02:26Yeah, unfortunately we do. Yeah, because that&apos;s the whole point of the knockout. It keeps going until we only have one team left.
+Varun Chaudhary   1:02:33And how much point they will get once they?
+Max Allan   1:02:34If...It depends on what whatever stage they get up to, yeah. If let&apos;s say, because it has happened before that on question, let&apos;s say #5.
+Varun Chaudhary   1:02:36It.
+Max Allan   1:02:47every single team gets it wrong except for one team, then that one team is automatically the winner.
+Varun Chaudhary   1:02:51Uh-huh.
+Apurv Gupta   1:02:55And this round get end now on Ocean Fifth.
+Varun Chaudhary   1:02:56Yeah.
+Max Allan   1:02:59Yeah, so pretty much if Varun was the only person left standing, as soon as he becomes the only person or the only team left standing, then that&apos;s it. He wins the game. And if it&apos;s, let&apos;s say, two teams left standing, battling it out head to head,
+Varun Chaudhary   1:03:16But.
+Max Allan   1:03:18If both teams get a question incorrect.they both lose that amount of points, whether that&apos;s on question 6, 7, 8, 9, 10, whatever. If they keep doing this, if it&apos;s at least two teams still playing.
+Varun Chaudhary   1:03:27K.Uh-huh.
+Max Allan   1:03:31And both teams still get it wrong.They lose the points, but it&apos;s still the last two teams, they still keep going, or three teams or four teams, even if it&apos;s just the lower number, until it gets to that point where one team gets it right and one team gets it wrong.
+Varun Chaudhary   1:03:42Okay.
+Apurv Gupta   1:03:50Okay, so the wrong one got knocked out and the round get ended.
+Max Allan   1:03:50And that applies to...That&apos;s right, yeah. As soon as there is only one team left for the knockout round, that&apos;s...
+Varun Chaudhary   1:04:01Mm-hmm.
+Max Allan   1:04:04But it has happened before that on question 5 or something, like every team, it was a flop. Every team got it wrong. Oops, that&apos;s my phone guys.
+Varun Chaudhary   1:04:13Sorry, sorry, Max, could you repeat that again? Like, we lost you.
+Max Allan   1:04:17Sorry. Yeah, so if, so everyone starts at the first question, let&apos;s say only one team gets knocked out, then obviously that one team gets knocked out. All the other teams still proceed. Let&apos;s say for whatever reason, it&apos;s a really difficult question very early onwards.
+Varun Chaudhary   1:04:22Mhm.Dhand.Okay.
+Mohit Kumar   1:04:33Yeah.
+Max Allan   1:04:36and the majority of the people get knocked out and there&apos;s only three teams left. It&apos;s still those three teams if...
+Varun Chaudhary   1:04:41Okay.I will move to next.
+Max Allan   1:04:44That&apos;s right. At any point, at any point, if every single team in that game, at any point, whether it&apos;s at the start, somewhere in the middle or towards the end, if all of the teams get the question wrong at the same time, they just lose the points.
+Varun Chaudhary   1:04:51Hello.Yeah?
+Apurv Gupta   1:04:59Yes.
+Varun Chaudhary   1:05:02Okay.
+Max Allan   1:05:02wherever stage they are at, question 3, 4, 5, 6, 7, et cetera, but it doesn&apos;t eliminate anyone. Every single team still proceeds to the next question. So it&apos;s only if two teams or three teams remain left standing in the knockout rounds. It just keeps going.
+Mohit Kumar   1:05:07Yeah.
+Max Allan   1:05:21right up until we have one team left. Now, what has also happened before that everyone gets knocked out and we&apos;ve got three teams or two teams left and they&apos;re going really good. Question 8, all correct. Question 9, all three teams get it right. Question 10, 11, 12. If after or up until question 12,
+Varun Chaudhary   1:05:29Ohh.
+Max Allan   1:05:43However many teams remaining.If they get it all wrong, it doesn&apos;t matter. At the end of the round, they all just lost those points. If all three teams still get it right.On question 12, well then we end up with three winning teams.If that makes sense. So that has also happened before that. Let&apos;s say there was five really, really strong teams. They knew absolutely everything. They went right up until the last questions. And sometimes we had five teams instead of 1.
+Varun Chaudhary   1:06:01Yeah.
+Max Allan   1:06:16that were the winning teams at the end. And then the leaderboard usually immediately after the knockout round showed us who those last five teams were. I don&apos;t know if that&apos;s a functionality that you can incorporate into the software. If not, no big deal. But I will show the scoreboard anyway one last time after the knockout rounds.So to sum that up again, I know it sounds a bit confusing, the workings behind it. If three teams are left, I&apos;m just using easy numbers, three teams are left until the end. And question 7, 8, 9, 10, 11, 12, they get all the questions wrong right up until the end. Doesn&apos;t matter.
+Varun Chaudhary   1:06:49What?
+Max Allan   1:06:55Those 3 teams were still the last ones standing.
+Apurv Gupta   1:06:56It.Okay.
+Varun Chaudhary   1:07:00Okay.
+Max Allan   1:07:00Opposite end, opposite.Three teams are left and they get every question correct, 7, 8, 9, 10, 11, 12. Then we have three winning teams at the end. Doesn&apos;t matter.
+Varun Chaudhary   1:07:04Uh-huh.Yeah, it completely makes sense, like...
+Apurv Gupta   1:07:14Okay.
+Max Allan   1:07:14I know it&apos;s a bit of a difficult sort of working behind the elimination, but it&apos;s probably the most complicated one out of all of them, just to get the mechanism right. But yeah, let me know, obviously, if you need any, if you have any other questions about that, but that&apos;s basically, that&apos;s basically it.
+Varun Chaudhary   1:07:24Thank you.Yeah, I, yeah, I got, I got the flow of it.
+Max Allan   1:07:33Yeah. Cool, cool, cool.
+Varun Chaudhary   1:07:34Yeah.So, let&apos;s move to next.
+Apurv Gupta   1:07:39Next round or next question?
+Varun Chaudhary   1:07:41Yeah, next round we can move to the.
+Apurv Gupta   1:07:44OK, just give me a minute.
+Mohit Kumar   1:07:44Yeah.
+Apurv Gupta   1:07:49So now, majority rules.
+Max Allan   1:07:52Perfect.
+Apurv Gupta   1:07:53No.Start round.So the majority number of votes is the correct answer.
+Max Allan   1:08:03Yes, that&apos;s right.
+Apurv Gupta   1:08:03So, I&apos;ll go with aee.
+Max Allan   1:08:07With D.
+Apurv Gupta   1:08:13Okay, everyone submit the answer. So you can see here majority, minority and reveal the answer. So A is the number one majority votes.
+Max Allan   1:08:27Okay, for that, the only change, actually, one question that I have, because that way I can give you guys an A-Z rundown of the feedback. What we see on the phone now are all of those slides in terms of what the players can see.Update it to the latest on Figma.
+Apurv Gupta   1:08:51Yeah, I believe if yeah.
+Max Allan   1:08:52They are.Actually, I&apos;ve got it open on my laptop. I don&apos;t know why I didn&apos;t look at it straight away. Hang on.Yeah, okay. Now, because the only reason also why I was asking was the wager selection for the Jeopardy rounds. It looked a bit different on the phone than it did to what I had on Figma.
+Apurv Gupta   1:09:22Yeah.Yeah.
+Max Allan   1:09:24That&apos;s the only reason why I asked, but other than that, where?
+Apurv Gupta   1:09:28The reason behind this is on Figma the buttons are a little bit small. So then if someone types 0 and then mistakenly type to 10. So that&apos;s why we create a big round big button so that because we have a spare screen, right? We don&apos;t want to give the blank space top and bottom. So that&apos;s why we use the space little bit.So that it looks good.
+Max Allan   1:09:47Gotcha.Yeah, okay, perfect. But yeah, since everything&apos;s updated in Figma, I will send you a complete rundown of feedback because for majority rules, that&apos;s more like a fun round, you know, what&apos;s your favorite flavor ice cream? Vanilla, strawberry, chocolate, etc.that it just displays the answer that has the most amount of votes. So we don&apos;t technically need the green tick and the cross on the mobile app. It just shows the people what everyone collectively as a group has selected. Otherwise, you&apos;ll have people getting up and start complaining, oh, but how is this the wrong answer?
+Apurv Gupta   1:10:24Ohh.
+Varun Chaudhary   1:10:25Here.
+Max Allan   1:10:35And that&apos;s when you as the host get very angry and you go, it&apos;s just a game, you idiot. Sit back down. So we want to avoid that.
+Varun Chaudhary   1:10:35I think that&apos;s it.
+Apurv Gupta   1:10:43He.
+Varun Chaudhary   1:10:44It&apos;s more of a choice of game, OK?
+Max Allan   1:10:45That&apos;s exactly right. Yeah. So it&apos;s just the majority, majority rules kind of thing.
+Varun Chaudhary   1:10:48So what we need to show here, like a count, like how many people have got, so.
+Max Allan   1:10:52No, not even, not even that, just the way the answers are lit up now, as that, just remove the green tick and the cross, and don&apos;t show the audience what they selected. Just tell them straight up. Like, obviously, when they...
+Varun Chaudhary   1:10:58Yeah.Okay.
+Max Allan   1:11:12When they vote, you can tell them, okay, yep, cool, we received your vote. But then just show them what&apos;s, yeah, what the majority.result is. So just show them one answer at the end.
+Apurv Gupta   1:11:24So basically, we want right answer only, no green tick, no green border. And it&apos;s like that.
+Varun Chaudhary   1:11:33Like, there will be a, there will be a green border, but not a red one.
+Apurv Gupta   1:11:36Okay.
+Max Allan   1:11:36Yeah, yeah, yeah, leave the green border. Just show them the one selection though. So they&apos;ll know, okay, that&apos;s what the whole, that&apos;s right, that&apos;s what the whole crowd selected basically, or what the majority selected. Yeah.
+Apurv Gupta   1:11:39Okay.Okay, not the incorrect one.Okay, got it.
+Varun Chaudhary   1:11:52And here comes the second query from my side that if people selected 2-2, like let&apos;s see, 6 players are playing this game, six teams, and A option is selected by three of them and B is selected by three of them. So how do we need to highlight both of them as a green one?
+Max Allan   1:12:03Okay.Okay.
+Varun Chaudhary   1:12:13I...Ohh.Uh-huh.And how points will be distributed?
+Max Allan   1:12:33Evenly, so 50 points to both lot of the three teams, if that makes sense, because, yeah, because it...
+Varun Chaudhary   1:12:39Okay, okay.
+Apurv Gupta   1:12:40Okay.
+Varun Chaudhary   1:12:42So, basically, everyone gets some of the points out of it.
+Max Allan   1:12:45Yeah, everyone gets the 50 points. If we have a really, really small venue with only six teams, three teams go for option A, three teams go for option B, well then yeah.
+Apurv Gupta   1:12:56Okay, yeah, that one.
+Max Allan   1:12:57Oh, it was an even, doesn&apos;t matter which one you went for, you still get the 50 points, three versus three. If it was seven teams playing and one answer obviously got four versus the answer got three, then obviously any team that were part of the four votes still get the 50 points, but not the part of the three.
+Varun Chaudhary   1:12:59Yeah.
+Apurv Gupta   1:13:02Yeah.
+Varun Chaudhary   1:13:02Definitely.Ohh.Perfect, OK.
+Apurv Gupta   1:13:13Okay, next question.
+Max Allan   1:13:15Okay.
+Apurv Gupta   1:13:17Yeah.
+Max Allan   1:13:17If I am, I probably chose to try to, yeah, ohh.
+Apurv Gupta   1:13:20Play.
+Max Allan   1:13:23Well, all of them. Let&apos;s go with Bondi Beach.
+Apurv Gupta   1:13:23Play.Play.Play.
+Max Allan   1:13:30Very popular beach.
+Apurv Gupta   1:13:32The.Thank you.Yeah.So, same situation arise.
+Max Allan   1:13:45Nice. So yeah, perfect. So six teams competing, three teams went for A, three teams went for C, all three, like, yeah, all teams still get the 50 points because they were part, it was an even majority vote.
+Apurv Gupta   1:13:58Yeah.
+Varun Chaudhary   1:13:58Right, right.
+Apurv Gupta   1:14:01So, next question.The female sports are normally played more celebrated in France throughout Australia, I believe.
+Varun Chaudhary   1:14:08The phone.It&apos;s rugby.
+Apurv Gupta   1:14:11Dennis.
+Max Allan   1:14:14Tennis is popular here, yes, but our very iconic Australian sport is obviously cricket and Australian rules football. So is rugby, actually, they are the top three.
+Apurv Gupta   1:14:20Play.Hey there.Yeah.
+Varun Chaudhary   1:14:32So, six got majority.
+Apurv Gupta   1:14:32Let me reveal not.Two, two, two.
+Max Allan   1:14:38Noah.
+Varun Chaudhary   1:14:39Ohh.
+Apurv Gupta   1:14:43Cricket playing tennis.Now, let&apos;s move to the next question.So, the following reason, not the official state of the day is to form the Commonwealth of Australia.Northern Territory.
+Varun Chaudhary   1:14:58Point slag.Actually, these are these questions are not for this round, I think.
+Apurv Gupta   1:15:05Yeah.
+Max Allan   1:15:07I hope not, because they are even, even I&apos;m struggling with them.
+Varun Chaudhary   1:15:08Yeah.
+Apurv Gupta   1:15:12Yeah.
+Varun Chaudhary   1:15:12Haha.This job is done by our paradeep.Who is on the call with us?
+Apurv Gupta   1:15:19Select.
+Max Allan   1:15:22Okay, well, thank God I got all right. Yes. So that&apos;s where I live. We&apos;re in Queensland, in Brisbane.
+Apurv Gupta   1:15:22Queensland.So, let me.
+Varun Chaudhary   1:15:25The.
+Apurv Gupta   1:15:28NO.
+Varun Chaudhary   1:15:28Yeah, okay. So let&apos;s show the leaderboard ones. Okay.So, we got...
+Max Allan   1:15:36Leaderboard looks very nice. That looks very good. But I see on the phone anyway, on the player&apos;s phone. That looks very, very good. Very nice flow, very clean layout. If there is, let&apos;s say, because some of our Tuesday venue gets like 28 teams, can they scroll up and down on the phone? Yeah, they can.
+Varun Chaudhary   1:15:46Three.
+Apurv Gupta   1:15:54Yeah.
+Varun Chaudhary   1:15:55Yes, yes, yes, yes.
+Max Allan   1:15:56Awesome, awesome. It highlights their own team name, which is great. So they know where they stand, they can see it straight away. That&apos;s, yeah. If actually, that&apos;s probably the only thing I would say to that feedback-wise, if you can make their team name circle more highlighted.with that same neon kind of lighting color, just to make it stand out more. So when they scroll, they can immediately pick up on it. Just a tiny adjustment.
+Apurv Gupta   1:16:24Okay.Show.
+Varun Chaudhary   1:16:28OK, sure, sure.OK, let&apos;s move to next round.
+Apurv Gupta   1:16:34Yeah.It&apos;s final multiple choice.
+Max Allan   1:16:36So, we should only have...Oh, okay. If you want to, this can really be skipped because it&apos;s got the same functionality as the previous rounds, can&apos;t it? Yeah.
+Apurv Gupta   1:16:44Yeah.Let me do that.
+Varun Chaudhary   1:16:45I think it, okay, yes.
+Max Allan   1:16:49Because layout and everything.
+Varun Chaudhary   1:16:49I will, let&apos;s move, let&apos;s move to the drag and drop one.
+Apurv Gupta   1:16:50Bull.Oh, that one is in the first round. I have to start the quiz again for that.
+Max Allan   1:16:54Yep.
+Varun Chaudhary   1:16:58Ohh, I&apos;ll just let it be.Like Max, you have asked us to put one last question in the first round. The 10th question will be a drag-drop kind of, but we missed that question in the first round that was asking.
+Max Allan   1:17:07Yeah.Okay, yeah, sweet. Nice.
+Apurv Gupta   1:17:13You should think.
+Max Allan   1:17:14That&apos;s fine. No, don&apos;t stress. We can do that on the next call. That&apos;s fine. It gives you enough time to go over the feedback as well. That&apos;s fine. Don&apos;t stress about that.
+Varun Chaudhary   1:17:18Okay, thank you.Yes, yes, yes.
+Apurv Gupta   1:17:25So, same screen final, we go around 50%, 10%, 20%.
+Max Allan   1:17:32So obviously for them, the choices for the wager would be 0.Ten. Oh, no, hang on. Zero, 20, 40, 60, 80, and 100%. Yeah, so double or nothing. So people risk it. So if they get it wrong on 100%, bad luck. You go back to zero.
+Apurv Gupta   1:17:4540, 60, 8, 100.But on previous call, you decided to like 0, 10, 20.
+Varun Chaudhary   1:17:56But for the weather around, he&apos;s saying for the final weather up.
+Apurv Gupta   1:18:01Okay, got it, got it.
+Max Allan   1:18:03Yeah, what do you meant was for the for the jeopardy for the wait for the other wagering round? So, I think we had zero, 10, 20, 30, I think it was, yeah. And then, but just for the for the last one, zero, 20, 40, 60, 80, and 100%, if that if that works.
+Apurv Gupta   1:18:08But...
+Varun Chaudhary   1:18:11Forty and 50, yeah, yes, yes, yes.
+Apurv Gupta   1:18:21Sorted, OK, yeah.
+Max Allan   1:18:22Thank you. Because this is where the people, you know, they start to get a little bit exhausted and drained and they&apos;re like, oh, but this is where it picks them up one last time and they go, oh, ****, well, if we&apos;re going to have 100% here, we better get it right.
+Apurv Gupta   1:18:35That is.
+Varun Chaudhary   1:18:39Yeah.
+Apurv Gupta   1:18:40So, which is Sri Lankan girlfriend?
+Varun Chaudhary   1:18:40Which Australian cricket is regarded as one of the greatest best men? It&apos;s they keep pointing.
+Apurv Gupta   1:18:46It&apos;s just, I keep pointing, yeah, I, Glen, Shane, wanna, because I keep pointing, let&apos;s go.
+Max Allan   1:18:49I&apos;ve new, I&apos;ve even locked the wager.
+Varun Chaudhary   1:18:55And you first given us in one?
+Max Allan   1:18:58Okay.
+Apurv Gupta   1:18:59So let me reveal the answer. Yeah, it&apos;s Ricky pointing.
+Max Allan   1:19:03Oh, really? Oh, okay. Don Bradman was, he&apos;s also a very famous cricketer here as well, with the highest innings. I think he had 99.99 was his test average. But
+Varun Chaudhary   1:19:16Bing.
+Max Allan   1:19:17One thing I noticed there was while the question was already running, I was still on the on the wager select screen.
+Apurv Gupta   1:19:23Yeah, because that screen is mandatory to first you have to lock your Vigor, then only you can move to the questions.
+Max Allan   1:19:29Okay, but I will see, I can see once everyone has made their choice before I proceed to the question.
+Apurv Gupta   1:19:36And.That right now, this is a manual process. We thought like you have to ask for the audience like you put your vagar or not. If you want, we can put a timer on the vagar points.So that.
+Max Allan   1:19:49No, no, no, no timer. Just so I know that, what did we do last time? Is it possible to have, you know, when a normal question comes up, a normal multiple choice question, and up on the, I don&apos;t know, it was left or right corner, it shows a live number.for how many live teams are responding. Can we have that for the wager selection on the, yeah, that one there, up on the top right. Can we have that on the wager screen for the very last question? Just because, again, if we have a lot of teams like 28 groups, and I know.Okay, we definitely have 28 groups. Once this screen comes up on the venue screen, let&apos;s say this is the wager selection screen for the last question, I can see, okay, cool, I need to see 28 up on the top right corner.
+Varun Chaudhary   1:20:38And.
+Apurv Gupta   1:20:47Yeah, OK.
+Varun Chaudhary   1:20:47Yes.
+Max Allan   1:20:48Because that&apos;s the easiest way for me to tell. Cool. I know that everyone has locked it in. Because we timer, I don&apos;t want because I put pressure on the on the on the on the players. As long as I can see, yep, the live response of the numbers coming in. Cool.Because that way I can also say, let&apos;s say I&apos;ve got 28 teams and that number up on the venue screen shows 27. I know, okay, cool, we&apos;re waiting on one more, we&apos;re waiting on one more team. So I can even call into the crowd and say, rightyo guys, you know, let&apos;s go, hurry up, 5 seconds, make your choice. But that visual.gives me at least an indication.
+Apurv Gupta   1:21:26Sure, sure. So we can add on venue and on host as well, somewhat here.
+Max Allan   1:21:31Yes, please. Yeah.
+Apurv Gupta   1:21:34Okay, got it.
+Max Allan   1:21:34That&apos;ll be great.That&apos;ll be perfect.
+Apurv Gupta   1:21:37So, after the rounds, you get a finish game button.
+Max Allan   1:21:40Yep.
+Apurv Gupta   1:21:41So, before that, you just show the scorecard to everyone.
+Max Allan   1:21:44Perfect.
+Apurv Gupta   1:21:45And then you just to finish game and everyone get logged out from their phone because you already show the scorecard and you have you got the screen you when you get all.
+Max Allan   1:21:48Yeah.
+Varun Chaudhary   1:21:56But I didn&apos;t get any reward.But I didn&apos;t get any reward for winning it, Max.
+Apurv Gupta   1:21:59Oh, something.Meetings.Max will give you a reward.
+Max Allan   1:22:04It depends on it depends on how well you did, but are you talking about you guys? Yeah, you get a reward.
+Varun Chaudhary   1:22:10Yeah.
+Apurv Gupta   1:22:12Yeah.
+Varun Chaudhary   1:22:13So that&apos;s why I was asking, where is my reward? I got 525.
+Apurv Gupta   1:22:36Yes.
+Max Allan   1:22:37If you want to, I can send you a Google Doc link just for each round. What&apos;s mainly for design, so you guys know exactly what to write on the screen. I&apos;ll do in Figma. And then once you&apos;ve done that, that&apos;s it. You don&apos;t need to change it again, because it&apos;ll be the same every week. In terms of the functionality, like revealing the correct answer automatically.I&apos;ll put all of that in a Google Doc sheet and I&apos;ll send that to you. And then on the next call, you can tell me, yeah, how much longer, if it takes a lot longer, let me know. Other than that, it all looks absolutely fantastic. And then once we&apos;re happy with the testing and the...how it all operates phase, then yeah, like Varun said, we&apos;ll go into the cosmetic space and really just neaten it up, touching it up with the sounds, images, flows, etc. There&apos;s a few very, very minor design feedbacks, nothing like bad or anything like that, just adjustments.
+Varun Chaudhary   1:23:34Yeah.
+Max Allan   1:23:35before we move on to the next call. But other than that, guys, it looks absolutely epic. The players cannot wait. The kangaroo race is, yeah, and same still stands, guys, for we&apos;re working to get another venue on board and all the venue of ours.
+Varun Chaudhary   1:23:43Definitely. Glad, glad we like you like it.
+Max Allan   1:23:53If we do get it, it&apos;ll be a massive, massive contract for us. Plus, we&apos;re going to have, man, that venue usually had like over 300 people in there. So if we get 300 people in, I will make sure that we will have a social media team taking videos of the crowd going absolutely
+Varun Chaudhary   1:23:54Huh?Yeah.
+Max Allan   1:24:14crazy and ballistic for the kangaroo race and we&apos;ll have, we&apos;ll make sure that you guys get the footage as well. And you can use that in your review or your testimonials. I&apos;ll send you plenty of videos and photos so you can use it all. Don&apos;t need to worry about that.
+Varun Chaudhary   1:24:20Yeah.Definitely, like we are excited, like the team is working day and night for the last nine weeks, so I&apos;m like...
+Max Allan   1:24:32It absolutely, it absolutely shows. It absolutely shows. And yeah, obviously I run the company, so I know what it&apos;s like to put every bit of sweat, blood and tears into it. It shows. It really, it looks fantastic, guys. Really, really happy.
+Varun Chaudhary   1:24:36Edit.Yeah.And I appreciate your time as well that you are continuously with us and providing feedback on the software. Really appreciate it.
+Apurv Gupta   1:24:49Yeah.
+Max Allan   1:24:50It.No, absolutely not. I&apos;m just, I&apos;m just excited. I&apos;m just excited. It&apos;s not really strategy calls, is it? It&apos;s more so, let&apos;s get ready for the kangaroo race. Cool. No, it&apos;s fantastic, guys, really. Thank you so much. I&apos;ll get on to Figma, give you guys some feedback, and Varun, I&apos;ll send you the Google Doc, and I&apos;ll get the latest two invoices sorted tonight as well.
+Varun Chaudhary   1:24:55Yeah.
+Mohit Kumar   1:25:00Okay.
+Varun Chaudhary   1:25:03Definitely.Yes.And like just before we end, Max, based on the call that we have discussed so far, I think there will be a few weeks of time required from you. Like one or two weeks will be required for the new changes. So that will be good.
+Max Allan   1:25:14Okay.Yep.Yep.Oh, for the... Yeah, absolutely. Yeah, yeah, go for it. Yeah, even if we get if we get it to a point where we say, right, this is like robust, this is bulletproof, I&apos;d even be more than happy to, I don&apos;t know, bring the software into the into the actual venues for a live trial, because the Thursday venue currently is a smaller venue.
+Varun Chaudhary   1:25:31Definitely.
+Max Allan   1:25:48So they only have about maybe 8 or 9 teams. So the software is not gonna get, you know, overloaded with too much. But if that is, if we get the software to a point where we can say, yep, screw it, let&apos;s take it out into the field. If there&apos;s gonna be mistakes, the players are gonna, they&apos;re gonna know it because I&apos;ll give them the updates and they&apos;ll say, look guys, if anything goes wrong tonight.
+Varun Chaudhary   1:26:05Yeah.
+Max Allan   1:26:08We&apos;re in a testing phase. But once we get to a point where we can say, yep, if we can&apos;t make the call for whatever reason, and we say, we wonder how this works with a live crowd, I&apos;ll take it out. I&apos;ll take it out. I&apos;ll show the guys. Because from what I&apos;ve seen so far, it looks fantastic. So really only minor tweaks.
+Varun Chaudhary   1:26:22A friend.
+Max Allan   1:26:27that we need. So really happy. No, no worries at all, guys. Thank you so much for your patience and for sticking around. You too, guys. Thank you. And we will organize the next call whenever, whenever you&apos;re ready. Varun.
+Varun Chaudhary   1:26:27Definitely. Thanks. Thank you. Thank you for your time, Max.
+Apurv Gupta   1:26:27Yeah.
+Varun Chaudhary   1:26:34Have a great week.Bye-bye. Thank you, team.
+Apurv Gupta   1:26:40Sure.
+Varun Chaudhary   1:26:40Definitely, sure. Thank you.
+Mohit Kumar   1:26:40Sure.
+Max Allan   1:26:41Awesome. Thanks so much, guys. Have a good week. Bye-bye.
+Apurv Gupta   1:26:43But, but...
+Mohit Kumar   1:26:44Let me.
+Kushagra Jain   1:26:44Thank you.
+BA Chetan stopped transcription

@@ -25,6 +25,7 @@ interface Session {
   pin: string;
   status: string;
   maxTeams: number;
+  breakDuration?: number;
   createdAt: string;
   quiz: Quiz;
   teams: Team[];
@@ -37,6 +38,7 @@ interface NewSession {
   qrCodeData: string;
   quizTitle: string;
   maxTeams: number;
+  breakDuration?: number;
 }
 
 export default function SessionsPage() {
@@ -46,8 +48,10 @@ export default function SessionsPage() {
   const [showCreate, setShowCreate] = useState(false);
   const [selectedQuiz, setSelectedQuiz] = useState<number | ''>('');
   const [maxTeams, setMaxTeams] = useState(50);
+  const [breakDuration, setBreakDuration] = useState(360);
   const [creating, setCreating] = useState(false);
   const [createSessionError, setCreateSessionError] = useState('');
+  const [breakDurationError, setBreakDurationError] = useState('');
   const [createdSession, setCreatedSession] = useState<NewSession | null>(null);
   const [deletingSessionId, setDeletingSessionId] = useState<number | null>(null);
   const [endingSessionId, setEndingSessionId] = useState<number | null>(null);
@@ -90,12 +94,17 @@ export default function SessionsPage() {
       setCreateSessionError("Teams can't create with 0 teams");
       return;
     }
+    if (!Number.isFinite(breakDuration) || breakDuration < 30 || breakDuration > 3600) {
+      setBreakDurationError('Break duration must be between 30 and 3600 seconds.');
+      return;
+    }
     try {
       setCreating(true);
       setCreateSessionError('');
       const res = await api.post<NewSession>('/api/sessions', {
         quizId: Number(selectedQuiz),
         maxTeams,
+        breakDuration,
       });
       setCreatedSession(res.data);
       setShowCreate(false);
@@ -192,6 +201,12 @@ export default function SessionsPage() {
                   </span>
                   <span>•</span>
                   <span>Max: {session.maxTeams}</span>
+                  {Number.isFinite(Number(session.breakDuration)) ? (
+                    <>
+                      <span>•</span>
+                      <span>Break: {Math.round(Number(session.breakDuration))}s</span>
+                    </>
+                  ) : null}
                   <span>•</span>
                   <span>{new Date(session.createdAt).toLocaleString()}</span>
                 </div>
@@ -276,10 +291,50 @@ export default function SessionsPage() {
               <p className="mt-2 text-sm font-medium text-danger">{createSessionError}</p>
             ) : null}
           </div>
+          <div>
+            <label className="block text-sm font-medium text-foreground/70 mb-1">
+              Break Duration (seconds)
+            </label>
+            <input
+              type="number"
+              value={breakDuration}
+              onChange={(e) => {
+                const nextValue = Number(e.target.value);
+                setBreakDuration(nextValue);
+                if (Number.isFinite(nextValue) && nextValue >= 30 && nextValue <= 3600) {
+                  setBreakDurationError('');
+                } else {
+                  setBreakDurationError('Break duration must be between 30 and 3600 seconds.');
+                }
+              }}
+              min={30}
+              max={3600}
+              step={30}
+              className={`w-full bg-surface-light border rounded-lg px-4 py-2.5 text-foreground focus:outline-none focus:ring-2 ${
+                breakDurationError
+                  ? 'border-danger focus:ring-danger/40'
+                  : 'border-border focus:ring-primary/50'
+              }`}
+            />
+            <p className="mt-1 text-xs text-foreground/50">
+              How long the on-screen break timer runs (default 360s / 6 min).
+            </p>
+            {breakDurationError ? (
+              <p className="mt-2 text-sm font-medium text-danger">{breakDurationError}</p>
+            ) : null}
+          </div>
           <div className="flex gap-3 pt-2">
             <Button
               onClick={handleCreate}
-              disabled={!selectedQuiz || creating || !Number.isFinite(maxTeams) || maxTeams <= 0}
+              disabled={
+                !selectedQuiz ||
+                creating ||
+                !Number.isFinite(maxTeams) ||
+                maxTeams <= 0 ||
+                !Number.isFinite(breakDuration) ||
+                breakDuration < 30 ||
+                breakDuration > 3600
+              }
             >
               {creating ? 'Creating...' : 'Create Session'}
             </Button>

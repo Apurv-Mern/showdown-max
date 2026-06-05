@@ -10,7 +10,12 @@ const { initializeSocket } = require('./socket');
 const { success } = require('./utils/responseWrapper');
 const { buildHealthSnapshot } = require('./utils/healthSnapshot');
 const { testConnection, syncDatabase } = require('./models');
-const { getRedisClient, isRedisReady, getRedisMode, getSafeRedisTarget } = require('./config/redis');
+const {
+  getRedisClient,
+  isRedisReady,
+  getRedisMode,
+  getSafeRedisTarget,
+} = require('./config/redis');
 
 const authRoutes = require('./routes/authRoutes');
 const quizRoutes = require('./routes/quizRoutes');
@@ -138,13 +143,17 @@ const start = async () => {
 };
 
 start().catch((err) => {
-  logger.boundary('SERVER STARTUP FAILED', {
-    timestamp: new Date().toISOString(),
-    pid: process.pid,
-    env: env.NODE_ENV,
-    port: env.PORT,
-    error: err.message,
-  }, 'error');
+  logger.boundary(
+    'SERVER STARTUP FAILED',
+    {
+      timestamp: new Date().toISOString(),
+      pid: process.pid,
+      env: env.NODE_ENV,
+      port: env.PORT,
+      error: err.message,
+    },
+    'error',
+  );
   logger.error('Failed to start server', { error: err.message, stack: err.stack });
   process.exit(1);
 });

@@ -32,6 +32,13 @@ module.exports = (sequelize) => {
       allowNull: false,
       defaultValue: 50,
     },
+    breakDuration: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      defaultValue: 360,
+      validate: { min: 30, max: 3600 },
+      comment: 'Break duration in seconds (admin-configurable per session)',
+    },
     status: {
       type: DataTypes.ENUM('pending', 'active', 'completed'),
       allowNull: false,

@@ -9,7 +9,8 @@ const answerOptionSchema = z.object({
 const baseQuestionSchema = z.object({
   text: z.string().min(1).max(1000),
   options: z.array(answerOptionSchema).min(2).max(6),
-  category: z.string().max(100).optional(),
+  // `null` lets the admin clear an existing category; `undefined` (i.e. omitted) leaves it untouched on an update.
+  category: z.string().max(100).nullable().optional(),
   mediaUrl: z.string().max(500).optional(),
   mediaType: z.enum(['mp3', 'mp4', 'image']).optional(),
   roundId: z.number().int().positive().optional(),

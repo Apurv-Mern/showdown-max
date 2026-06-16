@@ -5,11 +5,12 @@
   "scripts": {
     "dev": "next dev -p 5003",
     "build": "next build",
-    "build:prod": "cross-env NODE_OPTIONS=--max-old-space-size=2048 next build --turbopack",
-    "build:prod:webpack": "cross-env NODE_OPTIONS=--max-old-space-size=4096 next build --webpack",
+    "build:prod": "next build --webpack",
+    "build:prod:turbo": "next build --turbopack",
+    "build:prod:webpack": "next build --webpack",
     "clean": "node -e \"require('fs').rmSync('.next',{recursive:true,force:true})\"",
     "start": "next start -p 5003",
-    "start:prod": "cross-env NODE_OPTIONS=--max-old-space-size=768 next start -p 5003",
+    "start:prod": "next start -p 5003",
     "lint": "eslint"
   },
   "dependencies": {

@@ -1,4 +1,6 @@
 const { SOCKET_EVENTS } = require('shared/constants/socketEvents');
+const { ROUND_TYPES } = require('shared/constants/roundTypes');
+const { getEliminationPoints } = require('shared/constants/scoring');
 const timerManager = require('./game-engine/timerManager');
 const { getBreakRemainingSeconds } = require('../utils/breakWallClock');
 const redisStore = require('./redisSessionStore');
@@ -120,6 +122,10 @@ const buildSessionPayloadForPlayer = ({ pin, gameState, team, mySubmittedOptionI
                   team.id,
                   currentQuestion?.id,
                 ),
+                pointsForQuestion:
+                  currentRound?.type === ROUND_TYPES.ELIMINATION
+                    ? getEliminationPoints(gameState.currentQuestionIndex)
+                    : undefined,
               }
             : null,
           timerRemaining: timerManager.getReconnectTimerRemaining(pin, gameState),
@@ -210,6 +216,10 @@ const buildJoinReplayEvents = async ({ pin, gameState, team, mySubmittedOptionIn
         serverNow: Date.now(),
         roundType: round.type,
         lockedWagerAmount: getLockedWager(gameState, round, team.id, currentQuestion?.id),
+        pointsForQuestion:
+          round.type === ROUND_TYPES.ELIMINATION
+            ? getEliminationPoints(gameState.currentQuestionIndex)
+            : undefined,
         mySubmittedOptionIndex,
         eliminatedTeamIds: eliminatedTeamIdsForPayload,
       },
@@ -299,13 +309,7 @@ const buildJoinReplayEvents = async ({ pin, gameState, team, mySubmittedOptionIn
 
   if (gameState.activeMiniGame) {
     const mgsJoin = gameState.miniGameState;
-    const pickDeadlineMs = mgsJoin?.pickDeadlineAt != null ? Number(mgsJoin.pickDeadlineAt) : NaN;
-    const hasPickDeadline =
-      mgsJoin?.pickDeadlineAt != null && Number.isFinite(pickDeadlineMs) && pickDeadlineMs > 0;
-    const kangarooPickPhase =
-      mgsJoin?.game === 'kangaroo_race' &&
-      !mgsJoin?.revealed &&
-      (Boolean(mgsJoin?.gameStarted) || hasPickDeadline);
+    const kangarooPickPhase = mgsJoin?.game === 'kangaroo_race' && !mgsJoin?.revealed;
     const cardPickPhase =
       mgsJoin?.game === 'card_shuffle' &&
       mgsJoin?.gameStarted &&

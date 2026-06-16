@@ -1,7 +1,7 @@
 const { GAME_STATES } = require('shared/constants/gameStates');
 const { QUESTION_STATES } = require('shared/constants/questionStates');
 const { ROUND_TYPES } = require('shared/constants/roundTypes');
-const { SCORING } = require('shared/constants/scoring');
+const { SCORING, getEliminationPoints } = require('shared/constants/scoring');
 const { SOCKET_EVENTS } = require('shared/constants/socketEvents');
 const {
   DEFAULT_KANGAROO_NAMES,
@@ -1275,19 +1275,15 @@ const executePlayerDisconnectPurge = async (io, pin, teamId, options = {}) => {
     es.activeTeamIds = (es.activeTeamIds || []).map(Number).filter((id) => id !== teamId);
   }
 
-  // If we're collecting wagers and the leaver had locked one, drop their entry from the bucket
-  // and re-emit the counter so host/venue progress doesn't stay stuck on the old denominator.
+  // Wager locks survive a tab refresh: `purgeTeamFromLiveSession` already keeps
+  // `questionWagers` for passive disconnects so reconnecting players still read their
+  // locked amount from Redis. Do not delete entries here — that used to wipe locks on
+  // every refresh and also risked overwriting Redis with a stale pre-purge snapshot.
   if (gameState && gameState.state === GAME_STATES.WAGER_COLLECTION) {
-    const wagerQuestion = stateMachine.getCurrentQuestion(gameState);
-    const questionIdKey = wagerQuestion?.id != null ? String(wagerQuestion.id) : null;
-    if (questionIdKey && gameState.questionWagers?.[questionIdKey]) {
-      const teamKey = String(teamId);
-      if (gameState.questionWagers[questionIdKey][teamKey] !== undefined) {
-        delete gameState.questionWagers[questionIdKey][teamKey];
-        await redisStore.setGameState(pin, gameState);
-      }
+    const fresh = await redisStore.getGameState(pin);
+    if (fresh) {
+      emitWagerLockUpdate(io, pin, fresh);
     }
-    emitWagerLockUpdate(io, pin, gameState);
   }
 
   if (
@@ -1984,6 +1980,10 @@ const clientPayloadFromGameState = (gameState) => {
     },
     timerDuration: Number(cq.timerDuration ?? round.timerDuration ?? 30) || 30,
     roundType: round.type || '',
+    pointsForQuestion:
+      round.type === ROUND_TYPES.ELIMINATION
+        ? getEliminationPoints(gameState.currentQuestionIndex)
+        : undefined,
   };
   return base;
 };

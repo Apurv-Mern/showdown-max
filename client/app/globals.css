@@ -141,6 +141,180 @@ input[type='range']::-webkit-slider-thumb {
     0 0 40px rgba(0, 229, 255, 0.1);
 }
 
+/* ── Player question HUD frame (neon box behind every question) ── */
+.question-neon-frame {
+  position: relative;
+  width: 100%;
+  background: linear-gradient(180deg, #050818 0%, #02040c 100%);
+  border: 2px solid rgba(0, 229, 255, 0.95);
+  box-shadow:
+    0 0 16px rgba(0, 229, 255, 0.65),
+    0 0 36px rgba(0, 229, 255, 0.28),
+    inset 0 0 32px rgba(0, 229, 255, 0.09);
+}
+
+.question-neon-frame::before {
+  content: '';
+  position: absolute;
+  left: 1rem;
+  right: 1rem;
+  top: 50%;
+  height: 1px;
+  transform: translateY(-50%);
+  background: repeating-linear-gradient(
+    90deg,
+    rgba(0, 229, 255, 0.22) 0 5px,
+    transparent 5px 10px
+  );
+  pointer-events: none;
+  z-index: 0;
+}
+
+.question-neon-frame__content {
+  position: relative;
+  z-index: 1;
+  padding: 1rem 1.1rem;
+}
+
+@media (min-width: 640px) {
+  .question-neon-frame__content {
+    padding: 1.15rem 1.35rem;
+  }
+}
+
+@media (min-width: 768px) {
+  .question-neon-frame__content {
+    padding: 1.25rem 1.5rem;
+  }
+}
+
+.question-neon-frame__corner {
+  position: absolute;
+  width: 0.45rem;
+  height: 0.45rem;
+  background: #ffffff;
+  box-shadow:
+    0 0 6px rgba(255, 255, 255, 0.95),
+    0 0 14px rgba(0, 229, 255, 0.85);
+  z-index: 2;
+}
+
+.question-neon-frame__corner--tl {
+  top: -3px;
+  left: -3px;
+}
+.question-neon-frame__corner--tr {
+  top: -3px;
+  right: -3px;
+}
+.question-neon-frame__corner--bl {
+  bottom: -3px;
+  left: -3px;
+}
+.question-neon-frame__corner--br {
+  bottom: -3px;
+  right: -3px;
+}
+
+.question-neon-frame__tick {
+  position: absolute;
+  background: rgba(0, 229, 255, 0.95);
+  box-shadow: 0 0 8px rgba(0, 229, 255, 0.75);
+  z-index: 2;
+}
+
+.question-neon-frame__tick--top,
+.question-neon-frame__tick--bottom {
+  left: 50%;
+  width: 2.75rem;
+  height: 3px;
+  transform: translateX(-50%);
+}
+
+.question-neon-frame__tick--top {
+  top: -2px;
+}
+
+.question-neon-frame__tick--bottom {
+  bottom: -2px;
+}
+
+.question-neon-frame__tick--left,
+.question-neon-frame__tick--right {
+  top: 50%;
+  width: 3px;
+  height: 1.35rem;
+  transform: translateY(-50%);
+}
+
+.question-neon-frame__tick--left {
+  left: 0.55rem;
+}
+
+.question-neon-frame__tick--right {
+  right: 0.55rem;
+}
+
+/* ── Player question stage: purple HUD panel + neon question box ── */
+.question-stage-panel {
+  position: relative;
+  width: 100%;
+  overflow: hidden;
+  background: linear-gradient(180deg, #5b2da8 0%, #3d1a7a 38%, #24124f 72%, #160a34 100%);
+  border: 1px solid rgba(186, 140, 255, 0.28);
+  box-shadow:
+    0 10px 28px rgba(0, 0, 0, 0.38),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+.question-stage-panel__blobs {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.95;
+  background:
+    radial-gradient(ellipse 62% 48% at 14% 32%, rgba(150, 80, 230, 0.42) 0%, transparent 72%),
+    radial-gradient(ellipse 58% 44% at 86% 24%, rgba(110, 50, 190, 0.38) 0%, transparent 70%),
+    radial-gradient(ellipse 70% 52% at 48% 88%, rgba(80, 35, 160, 0.32) 0%, transparent 74%),
+    radial-gradient(ellipse 40% 36% at 72% 62%, rgba(130, 60, 210, 0.22) 0%, transparent 68%);
+}
+
+.question-stage-panel__inner {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  padding: 0.85rem 0.75rem 1rem;
+}
+
+@media (min-width: 640px) {
+  .question-stage-panel__inner {
+    gap: 1rem;
+    padding: 1rem 1rem 1.15rem;
+  }
+}
+
+.question-stage-panel__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0 0.15rem;
+}
+
+.question-stage-panel__counter {
+  font-size: clamp(1.15rem, 4.5vw, 1.75rem);
+  font-weight: 900;
+  line-height: 1;
+  color: #ffffff;
+  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.45);
+}
+
+.question-stage-panel__question-frame {
+  margin-top: 0.15rem;
+}
+
 /* ── Hexagonal option button shape ── */
 .hex-option {
   position: relative;

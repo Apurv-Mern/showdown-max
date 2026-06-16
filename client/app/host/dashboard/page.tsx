@@ -12,6 +12,7 @@ import { LoadingSpinner } from '@/components/shared/LoadingSpinner';
 import { clientLogger } from '@/lib/clientLogger';
 import { breakSecondsFromEndsAt, resolveBreakWallClock } from '@/lib/breakWallClock';
 import { cn } from '@/lib/utils';
+import { getRoundScoringLines } from '@/lib/roundIntroInstructions';
 import { useAuth } from '@/lib/auth';
 import { PUBLIC_API_URL } from '@/lib/env';
 
@@ -46,30 +47,6 @@ function normalizeRoundIntroTitle(name?: string, roundType?: string, roundIndex?
   return withoutPrefix;
 }
 
-function getRoundScoringLines(roundType?: string) {
-  const type = (roundType || '').toUpperCase();
-  if (type === 'WAGER') {
-    return {
-      positive: '+0 to +50 points for correct answers',
-      negative: '-0 to -50 points for incorrect answers',
-    };
-  }
-  if (type === 'FINAL_WAGER') {
-    return { positive: '+wagered percentage of score', negative: '-wagered percentage of score' };
-  }
-  if (type === 'MAJORITY_RULES') {
-    return {
-      positive: '+50 points for majority answers',
-      negative: '-50 points for minority answers',
-    };
-  }
-  return {
-    positive: '+10 points for correct answers',
-    negative: '-2 points for incorrect answers',
-  };
-}
-
-/** Shown on the leaderboard interstitial before advancing (player-facing tone). */
 function getNextRoundIntroBlurb(nextType?: string): string {
   const t = (nextType || '').toUpperCase();
   switch (t) {
@@ -189,7 +166,11 @@ interface RevealData {
   correctOptionIndex: number;
   correctText: string;
   scores: Record<string, number>;
-  responseDetails?: { teamId: number; selectedOptionIndex: number | number[]; responseTime?: number | null }[];
+  responseDetails?: {
+    teamId: number;
+    selectedOptionIndex: number | number[];
+    responseTime?: number | null;
+  }[];
   majorityOptionIndexes?: number[];
   voteCounts?: Record<string, number>;
   eliminations: number[];
@@ -1467,7 +1448,7 @@ function HostDashboardContent() {
       config: {
         holdScreen: true,
         status: 'finished',
-        message: 'Game Finished. Wait for the host to start the game.',
+        message: '',
       },
     });
   };
@@ -1656,7 +1637,7 @@ function HostDashboardContent() {
       config: {
         holdScreen: true,
         status: 'finished',
-        message: 'Game Finished. Wait for the host to start the game.',
+        message: '',
       },
     });
   };
@@ -2986,12 +2967,10 @@ function HostDashboardContent() {
                 </div>
               ) : state === 'BREAK' ? (
                 <div className="flex w-full max-w-[640px] flex-col items-center justify-center gap-2 py-4 animate-fadeIn">
-                  <h2 className="text-4xl font-black tracking-tight text-white drop-shadow-[0_0_12px_rgba(255,255,255,0.25)] sm:text-5xl">
-                    TAKE A BREAK !!
+                  <h2 className="text-2xl font-black tracking-tight text-white drop-shadow-[0_0_12px_rgba(255,255,255,0.25)] sm:text-3xl">
+                    WE'LL BE BACK RIGHT AFTER OUR FIRST OFFICIAL BREAK !!
                   </h2>
-                  <p className="text-base font-medium text-[#9de9ff] sm:text-lg">
-                    We&apos;ll be back shortly...
-                  </p>
+
                   <div className="relative mt-4 h-[260px] w-[260px] sm:h-[300px] sm:w-[300px]">
                     <svg className="absolute inset-0" viewBox="0 0 300 300">
                       <defs>
@@ -3044,8 +3023,7 @@ function HostDashboardContent() {
                 <div className="flex w-full max-w-[720px] flex-col items-center justify-center gap-6 py-8 text-center animate-fadeIn">
                   <div className="inline-flex items-center gap-3 rounded-full border border-[#41d9ff]/45 bg-[linear-gradient(180deg,rgba(20,42,89,0.95)_0%,rgba(11,20,46,0.95)_100%)] px-8 py-3 shadow-[0_0_22px_rgba(0,217,255,0.2)]">
                     <span className="text-sm font-semibold uppercase tracking-[0.22em] text-[#8cdfff]">
-                      Round{' '}
-                      {(roundEndInfo?.roundIndex ?? gameState?.currentRoundIndex ?? 0) + 1}{' '}
+                      Round {(roundEndInfo?.roundIndex ?? gameState?.currentRoundIndex ?? 0) + 1}{' '}
                       Complete
                     </span>
                   </div>
@@ -3167,72 +3145,75 @@ function HostDashboardContent() {
                 )}
 
                 {state !== 'WAGER_COLLECTION' && (
-                <div className="space-y-4">
-                  {[
-                    {
-                      label: isMajorityRulesLiveRound ? 'Majority' : 'Correct',
-                      value: liveResponses.correct,
-                      color: 'from-[#00ff00] to-[#008000]',
-                      track: 'bg-[#3d7a3d]/60',
-                      icon: isMajorityRulesLiveRound ? '+' : '✓',
-                      iconBg: 'bg-green-500',
-                    },
-                    {
-                      label: isMajorityRulesLiveRound ? 'Minority' : 'Incorrect',
-                      value: liveResponses.incorrect,
-                      color: 'from-[#ff0000] to-[#800000]',
-                      track: 'bg-[#7a3d3d]/60',
-                      icon: isMajorityRulesLiveRound ? '-' : '×',
-                      iconBg: 'bg-red-500',
-                    },
-                    {
-                      label: 'No Answer',
-                      value: liveResponses.noAnswer,
-                      color: 'from-[#3b82f6] to-[#1e3a8a]',
-                      track: 'bg-[#3d507a]/60',
-                      icon: '?',
-                      iconBg: 'bg-blue-500',
-                    },
-                  ].map((item) => {
-                    const total = liveResponseDenominator;
-                    const width = Math.max(
-                      0,
-                      Math.min(100, Math.round((item.value / total) * 100)),
-                    );
-                    return (
-                      <div key={item.label} className="flex flex-col gap-1.5">
-                        <div className="flex items-center justify-between text-[11px] font-bold uppercase tracking-wider text-white/70">
-                          <div className="flex items-center gap-2">
-                            <div
-                              className={cn(
-                                item.iconBg,
-                                'flex h-4 w-4 items-center justify-center rounded-full text-[10px] text-white border border-white/20',
-                              )}
-                            >
-                              {item.icon}
+                  <div className="space-y-4">
+                    {[
+                      {
+                        label: isMajorityRulesLiveRound ? 'Majority' : 'Correct',
+                        value: liveResponses.correct,
+                        color: 'from-[#00ff00] to-[#008000]',
+                        track: 'bg-[#3d7a3d]/60',
+                        icon: isMajorityRulesLiveRound ? '+' : '✓',
+                        iconBg: 'bg-green-500',
+                      },
+                      {
+                        label: isMajorityRulesLiveRound ? 'Minority' : 'Incorrect',
+                        value: liveResponses.incorrect,
+                        color: 'from-[#ff0000] to-[#800000]',
+                        track: 'bg-[#7a3d3d]/60',
+                        icon: isMajorityRulesLiveRound ? '-' : '×',
+                        iconBg: 'bg-red-500',
+                      },
+                      {
+                        label: 'No Answer',
+                        value: liveResponses.noAnswer,
+                        color: 'from-[#3b82f6] to-[#1e3a8a]',
+                        track: 'bg-[#3d507a]/60',
+                        icon: '?',
+                        iconBg: 'bg-blue-500',
+                      },
+                    ].map((item) => {
+                      const total = liveResponseDenominator;
+                      const width = Math.max(
+                        0,
+                        Math.min(100, Math.round((item.value / total) * 100)),
+                      );
+                      return (
+                        <div key={item.label} className="flex flex-col gap-1.5">
+                          <div className="flex items-center justify-between text-[11px] font-bold uppercase tracking-wider text-white/70">
+                            <div className="flex items-center gap-2">
+                              <div
+                                className={cn(
+                                  item.iconBg,
+                                  'flex h-4 w-4 items-center justify-center rounded-full text-[10px] text-white border border-white/20',
+                                )}
+                              >
+                                {item.icon}
+                              </div>
+                              <span>{item.label}</span>
                             </div>
-                            <span>{item.label}</span>
+                            <span className="text-[#00d9ff] italic text-sm">{item.value}</span>
                           </div>
-                          <span className="text-[#00d9ff] italic text-sm">{item.value}</span>
-                        </div>
-                        <div
-                          className={cn(
-                            'h-2.5 rounded-full overflow-hidden border border-white/10',
-                            item.track,
-                          )}
-                        >
                           <div
                             className={cn(
-                              'h-full rounded-full bg-linear-to-r shadow-[0_0_12px_rgba(255,255,255,0.2)] transition-all duration-500',
-                              item.color,
+                              'h-2.5 rounded-full overflow-hidden border border-white/10',
+                              item.track,
                             )}
-                            style={{ width: `${width}%`, minWidth: item.value > 0 ? '6px' : '0px' }}
-                          />
+                          >
+                            <div
+                              className={cn(
+                                'h-full rounded-full bg-linear-to-r shadow-[0_0_12px_rgba(255,255,255,0.2)] transition-all duration-500',
+                                item.color,
+                              )}
+                              style={{
+                                width: `${width}%`,
+                                minWidth: item.value > 0 ? '6px' : '0px',
+                              }}
+                            />
+                          </div>
                         </div>
-                      </div>
-                    );
-                  })}
-                </div>
+                      );
+                    })}
+                  </div>
                 )}
               </div>
             </section>

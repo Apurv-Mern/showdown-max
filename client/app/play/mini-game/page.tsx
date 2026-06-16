@@ -54,9 +54,8 @@ const CARD_ROUND_BONUS: Record<1 | 2 | 3 | 4, number> = {
   4: 50,
 };
 const CARD_FINISHED_MESSAGE = 'Host will Start the game shortly !!';
-const MINI_GAME_FINISHED_MESSAGE = 'Game Finished. Wait for the host to start the game.';
-/** Window the player has to lock a kangaroo once the host fires Start Race. */
-const KANGAROO_PICK_WINDOW_SECONDS = 20;
+const MINI_GAME_FINISHED_MESSAGE = '';
+const KANGAROO_VENUE_FOOTER = 'THIS RACE WILL BE SHOWN ON THE VENUE SCREENS';
 const CARD_IMAGE_FACE_DOWN = '/games/card-shuffle/facedowncard.png';
 const CARD_IMAGE_JOKER = '/games/card-shuffle/jokercard.png';
 const CARD_IMAGE_QUEEN = '/games/card-shuffle/queencard.png';
@@ -142,10 +141,6 @@ export default function MiniGamePage() {
   /** Short banner when host starts round 1 / advances to round 2+ */
   const [roundAnnouncement, setRoundAnnouncement] = useState<string | null>(null);
   const [miniGameEndMessage, setMiniGameEndMessage] = useState<string>(MINI_GAME_FINISHED_MESSAGE);
-  /** Epoch-ms deadline for the kangaroo pick window. `null` means no countdown. */
-  const [kangarooPickDeadline, setKangarooPickDeadline] = useState<number | null>(null);
-  /** Whole seconds remaining derived from the deadline; drives both the badge and disable. */
-  const [kangarooPickSecondsLeft, setKangarooPickSecondsLeft] = useState<number | null>(null);
   const sessionPinRef = useRef(session.pin);
   sessionPinRef.current = session.pin;
   const sessionTeamIdRef = useRef(session.teamId);
@@ -168,31 +163,6 @@ export default function MiniGamePage() {
       return;
     }
   }, [session, router]);
-
-  // Drive the kangaroo pick countdown off the absolute deadline so the badge stays
-  // accurate even if requestAnimationFrame / setInterval gets throttled (mobile
-  // background tab, etc.) and so a rejoin can simply restore the deadline value.
-  useEffect(() => {
-    if (kangarooPickDeadline == null) {
-      setKangarooPickSecondsLeft(null);
-      return;
-    }
-    // In browsers `setInterval` returns a number; avoid NodeJS.Timeout typing clashes.
-    let intervalId: number | null = null;
-    const tick = () => {
-      const remainingMs = kangarooPickDeadline - Date.now();
-      const seconds = remainingMs > 0 ? Math.ceil(remainingMs / 1000) : 0;
-      setKangarooPickSecondsLeft(seconds);
-      if (remainingMs <= 0 && intervalId != null) {
-        window.clearInterval(intervalId);
-      }
-    };
-    intervalId = window.setInterval(tick, 250);
-    tick();
-    return () => {
-      if (intervalId != null) window.clearInterval(intervalId);
-    };
-  }, [kangarooPickDeadline]);
 
   useEffect(() => {
     /** Singleton; read here so listeners always register (avoids first-paint `useSocket` null). */
@@ -230,8 +200,6 @@ export default function MiniGamePage() {
       setShuffleComplete(false);
       setActiveCardRound(null);
       setRoundAnnouncement(null);
-      setKangarooPickDeadline(null);
-      setKangarooPickSecondsLeft(null);
       router.replace('/play/game');
     };
 
@@ -292,11 +260,9 @@ export default function MiniGamePage() {
       setFinishRank(null);
       setPointsEarned(null);
       setFinishOrder([]);
-      setRoundOpen(false);
+      setRoundOpen(normalizeMiniGameId(data.game) === 'kangaroo_race');
       setActiveCardRound(null);
       setRoundAnnouncement(null);
-      setKangarooPickDeadline(null);
-      setKangarooPickSecondsLeft(null);
     };
 
     const onMiniGameCommand = (data: {
@@ -321,29 +287,12 @@ export default function MiniGamePage() {
               data.kangarooNames.slice(0, 6).map((name) => String(name || '').trim()),
             );
           }
-          lockedPickRef.current = null;
-          setSelectedChoice(null);
-          setResultPhase(null);
-          setWinningValue(null);
-          setFinishRank(null);
-          setPointsEarned(null);
-          setFinishOrder([]);
           setRoundOpen(true);
           setShuffleComplete(false);
-          // 20-second window starts the moment Start Race fires. Using a deadline (vs
-          // a per-second decrement) keeps the countdown accurate even if the tab is
-          // throttled by the browser, and lets the rejoin path resync on its own.
-          const deadline = Date.now() + KANGAROO_PICK_WINDOW_SECONDS * 1000;
-          setKangarooPickDeadline(deadline);
-          setKangarooPickSecondsLeft(KANGAROO_PICK_WINDOW_SECONDS);
-          setRoundAnnouncement('Race started - pick your kangaroo');
-          window.setTimeout(() => setRoundAnnouncement(null), 2800);
         }
         if (data.command === 'reveal_winner') {
           setRoundOpen(false);
-          setKangarooPickDeadline(null);
-          setKangarooPickSecondsLeft(null);
-          setRoundAnnouncement('Revealing winner...');
+          setRoundAnnouncement('REVEALING WINNER...');
           window.setTimeout(() => setRoundAnnouncement(null), 1800);
         }
         return;
@@ -405,8 +354,6 @@ export default function MiniGamePage() {
         setWinningValue(Number.isFinite(winning) ? winning : null);
         setRoundOpen(false);
         setRoundAnnouncement(null);
-        setKangarooPickDeadline(null);
-        setKangarooPickSecondsLeft(null);
         const pick = lockedPickRef.current ?? selectedChoiceRef.current;
         if (Number.isFinite(winning) && pick !== null) {
           setResultPhase(pick === winning ? 'winner' : 'loser');
@@ -458,8 +405,6 @@ export default function MiniGamePage() {
         setWinningValue(Number.isFinite(winning) ? winning : null);
         setRoundOpen(false);
         setRoundAnnouncement(null);
-        setKangarooPickDeadline(null);
-        setKangarooPickSecondsLeft(null);
 
         if (Number.isFinite(selected) && selected >= 1 && selected <= 6) {
           lockedPickRef.current = selected;
@@ -626,12 +571,8 @@ export default function MiniGamePage() {
         if (names?.length >= 6) {
           setKangarooNames(names.slice(0, 6).map((name: string) => String(name || '').trim()));
         }
-        // Pick window: prefer gameStarted, but also accept pickDeadlineAt so a refresh
-        // still restores if Redis ever desynced the flag (command already opened the UI).
-        const pickDeadlineMs = Number(mgs.pickDeadlineAt);
-        const hasPickDeadline =
-          mgs.pickDeadlineAt != null && Number.isFinite(pickDeadlineMs) && pickDeadlineMs > 0;
-        const racePickPhaseActive = !mgs.revealed && (Boolean(mgs.gameStarted) || hasPickDeadline);
+        // Pick as soon as the mini-game is on the venue — before the host starts the race.
+        const racePickPhaseActive = !mgs.revealed;
 
         if (racePickPhaseActive) {
           setGameType('kangaroo_race');
@@ -646,25 +587,10 @@ export default function MiniGamePage() {
               setSelectedChoice(pick);
             }
           }
-          // Restore the pick deadline timer from the server's absolute timestamp
-          if (mgs.pickDeadlineAt && Number.isFinite(Number(mgs.pickDeadlineAt))) {
-            const deadline = Number(mgs.pickDeadlineAt);
-            const remaining = deadline - Date.now();
-            if (remaining > 0) {
-              setKangarooPickDeadline(deadline);
-              setKangarooPickSecondsLeft(Math.ceil(remaining / 1000));
-            } else {
-              // Window expired — show 0 and disable buttons
-              setKangarooPickDeadline(deadline);
-              setKangarooPickSecondsLeft(0);
-            }
-          }
         }
         // If revealed, show results
         if (mgs.revealed && Array.isArray(mgs.finishOrder) && mgs.finishOrder.length > 0) {
           setRoundOpen(false);
-          setKangarooPickDeadline(null);
-          setKangarooPickSecondsLeft(null);
           // The reveal/result events will handle the result phase
         }
       }
@@ -800,16 +726,6 @@ export default function MiniGamePage() {
   const handleChoice = (choiceId: number) => {
     const socket = connectSocket();
     if (!roundOpen || lockedPickRef.current !== null) return;
-    // Block late picks for kangaroo race once the 20s window has expired (the
-    // selection grid is also visually disabled, but this guards keyboard /
-    // accessibility paths and any race conditions between tick and click).
-    if (
-      gameType === 'kangaroo_race' &&
-      kangarooPickSecondsLeft != null &&
-      kangarooPickSecondsLeft <= 0
-    ) {
-      return;
-    }
     lockedPickRef.current = choiceId;
     setSelectedChoice(choiceId);
     console.log('[play/mini-game][socket][out] mini_game_action', {
@@ -946,207 +862,72 @@ export default function MiniGamePage() {
         ) : null}
 
         {gameType === 'kangaroo_race' &&
-          (!roundOpen && resultPhase === null ? (
-            // Pre-race screen — shown after the host loads the race on the venue but
-            // before they click "Start Race". Player sees the kangaroo branding and a
-            // "Race is about to Start !!" pill instead of the (disabled) selection grid.
-            <div className="relative z-10 flex min-h-0 flex-1 flex-col px-5 pb-8 pt-10 sm:px-8">
-              <header className="shrink-0 text-center">
-                <h1 className="text-[clamp(1.75rem,6.4vw,2.35rem)] font-black uppercase leading-tight tracking-[0.06em] text-white drop-shadow-[0_2px_12px_rgba(0,0,0,0.45)]">
-                  Kangaroo Race !!
-                </h1>
-                <p className="mt-2 text-[1.1rem] font-extrabold leading-tight text-white sm:text-xl">
-                  Which Kangaroo will Win
-                </p>
-              </header>
+          resultPhase === null &&
+          (() => {
+            const buttonsDisabled = !roundOpen || selectedChoice !== null;
+            return (
+              <div className="relative z-10 flex min-h-0 flex-1 flex-col px-5 pb-8 pt-8 sm:px-8">
+                <header className="shrink-0 text-center">
+                  <h1 className="text-[clamp(1.65rem,6vw,2.2rem)] font-black uppercase leading-tight tracking-[0.06em] text-white drop-shadow-[0_2px_12px_rgba(0,0,0,0.45)]">
+                    Kangaroo Race !!
+                  </h1>
+                  <p className="mt-2 text-[1.05rem] font-extrabold leading-tight text-white sm:text-xl">
+                    Which Kangaroo will win
+                  </p>
+                  <p className="text-[1.05rem] font-extrabold leading-tight text-white sm:text-xl">
+                    Pick your Kangaroo
+                  </p>
+                </header>
 
-              <div className="flex flex-1 items-center justify-center py-4">
-                <div className="flex h-[clamp(220px,52vh,360px)] w-[clamp(220px,52vh,360px)] items-center justify-center">
+                <div className="mx-auto mt-4 flex h-[170px] w-[170px] items-center justify-center rounded-2xl">
                   <img
                     src="/KangarooPic.png"
                     alt="Kangaroo"
-                    className="h-full w-full object-contain drop-shadow-[0_12px_24px_rgba(0,0,0,0.45)]"
+                    className="h-full w-full object-contain"
                     onError={(e) => {
                       const el = e.currentTarget;
                       el.style.display = 'none';
                     }}
                   />
                 </div>
-              </div>
 
-              <div className="shrink-0 rounded-xl border border-[#00d8ff]/65 bg-[rgba(0,0,0,0.62)] px-4 py-3 text-center shadow-[0_0_12px_rgba(0,216,255,0.25)]">
-                <p className="text-base font-black text-white sm:text-lg">
-                  Race is about to Start on venue screen !!
-                </p>
-              </div>
-            </div>
-          ) : (
-            (() => {
-              const pickWindowActive =
-                kangarooPickSecondsLeft != null && kangarooPickSecondsLeft > 0;
-              const pickWindowExpired =
-                kangarooPickSecondsLeft != null && kangarooPickSecondsLeft <= 0;
-              const buttonsDisabled =
-                !roundOpen || selectedChoice !== null || resultPhase !== null || pickWindowExpired;
-              const timerWarning = pickWindowActive && (kangarooPickSecondsLeft as number) <= 5;
-              return (
-                <div className="relative z-10 flex min-h-0 flex-1 flex-col px-5 pb-8 pt-8 sm:px-8">
-                  <header className="shrink-0 text-center">
-                    <h1 className="text-[clamp(1.65rem,6vw,2.2rem)] font-black uppercase leading-tight tracking-[0.06em] text-white drop-shadow-[0_2px_12px_rgba(0,0,0,0.45)]">
-                      Kangaroo Race !!
-                    </h1>
-                    <p className="mt-2 text-[1.05rem] font-extrabold leading-tight text-white sm:text-xl">
-                      Which Kangaroo will win
-                    </p>
-                    <p className="text-[1.05rem] font-extrabold leading-tight text-white sm:text-xl">
-                      Pick your Kangaroo
-                    </p>
-                  </header>
-
-                  {kangarooPickSecondsLeft != null
-                    ? (() => {
-                        const totalSeconds = KANGAROO_PICK_WINDOW_SECONDS;
-                        const current = pickWindowExpired ? 0 : (kangarooPickSecondsLeft as number);
-                        const progress = totalSeconds > 0 ? current / totalSeconds : 0;
-                        const radius = 28;
-                        const circumference = 2 * Math.PI * radius;
-                        const strokeDashoffset = circumference * (1 - progress);
-                        const ringColor = pickWindowExpired
-                          ? '#6b7280'
-                          : timerWarning
-                            ? '#ff3055'
-                            : '#00d8ff';
-                        const glowColor = pickWindowExpired
-                          ? 'transparent'
-                          : timerWarning
-                            ? 'rgba(255,48,85,0.5)'
-                            : 'rgba(0,216,255,0.4)';
-                        return (
-                          <div
-                            className={cn(
-                              'mx-auto mt-4 mb-1 flex items-center justify-center transition-opacity',
-                              pickWindowExpired ? 'opacity-70' : 'opacity-100',
-                            )}
-                            role="timer"
-                            aria-live="polite"
-                            aria-label={
-                              pickWindowExpired
-                                ? "Time's up"
-                                : `${kangarooPickSecondsLeft} seconds left to pick a kangaroo`
-                            }
-                          >
-                            <div
-                              className="relative flex items-center justify-center"
-                              style={{
-                                width: 76,
-                                height: 76,
-                                filter: `drop-shadow(0 0 10px ${glowColor})`,
-                              }}
-                            >
-                              <svg
-                                viewBox="0 0 72 72"
-                                className="absolute inset-0 h-full w-full"
-                                style={{ transform: 'rotate(-90deg)' }}
-                              >
-                                {/* Background track */}
-                                <circle
-                                  cx="36"
-                                  cy="36"
-                                  r={radius}
-                                  fill="none"
-                                  stroke="rgba(255,255,255,0.1)"
-                                  strokeWidth="5"
-                                />
-                                {/* Animated progress arc */}
-                                <circle
-                                  cx="36"
-                                  cy="36"
-                                  r={radius}
-                                  fill="none"
-                                  stroke={ringColor}
-                                  strokeWidth="5"
-                                  strokeLinecap="round"
-                                  strokeDasharray={circumference}
-                                  strokeDashoffset={strokeDashoffset}
-                                  style={{
-                                    transition: 'stroke-dashoffset 0.3s ease, stroke 0.3s ease',
-                                  }}
-                                />
-                              </svg>
-                              <span
-                                className={cn(
-                                  'relative z-10 text-2xl font-black tabular-nums',
-                                  pickWindowExpired
-                                    ? 'text-gray-400'
-                                    : timerWarning
-                                      ? 'text-[#ff3055]'
-                                      : 'text-white',
-                                  timerWarning && !pickWindowExpired ? 'animate-pulse' : '',
-                                )}
-                              >
-                                {pickWindowExpired ? '0' : kangarooPickSecondsLeft}
-                              </span>
-                            </div>
-                          </div>
-                        );
-                      })()
-                    : null}
-
-                  <div className="mx-auto mt-4 flex h-[170px] w-[170px] items-center justify-center rounded-2xl">
-                    <img
-                      src="/KangarooPic.png"
-                      alt="Kangaroo"
-                      className="h-full w-full object-contain"
-                      onError={(e) => {
-                        const el = e.currentTarget;
-                        el.style.display = 'none';
-                      }}
-                    />
-                  </div>
-
-                  <div className="mt-4 grid grid-cols-2 gap-3">
-                    {HORSES.map((horse) => (
-                      <button
-                        key={horse.id}
-                        onClick={() => handleChoice(horse.id)}
-                        disabled={buttonsDisabled}
-                        className={cn(
-                          'rounded-xl py-4 text-center text-5xl font-black text-white transition-all duration-200 active:translate-y-0.5 active:shadow-none',
-                          horse.buttonClass,
-                          selectedChoice === horse.id
-                            ? 'ring-4 ring-white/55 scale-[1.02]'
-                            : buttonsDisabled
-                              ? 'opacity-40 saturate-75'
-                              : 'hover:brightness-110 hover:scale-[1.02]',
-                        )}
-                      >
-                        <div className="flex flex-col items-center">
-                          <span className="text-xl font-black">{horse.id}</span>
-                          <span className="text-[11px] font-semibold leading-tight">
-                            {kangarooNames[horse.id - 1] || `Kangaroo ${horse.id}`}
-                          </span>
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-
-                  <div className="mt-5 rounded-xl border border-[#00d8ff]/65 bg-[rgba(0,0,0,0.62)] px-4 py-3 text-center shadow-[0_0_12px_rgba(0,216,255,0.25)]">
-                    <p className="text-base font-black text-white">
-                      {resultPhase
-                        ? 'Waiting for the host to start the next race...'
-                        : selectedChoice
-                          ? 'Pick locked! Watch the race on the Venue screen !!'
-                          : pickWindowExpired
-                            ? "Time's up — watch the race on the Venue screen."
-                            : roundOpen
-                              ? 'Race started! Tap a number to lock your kangaroo and watch it on the Venue screen.'
-                              : 'Waiting for host to start race...'}
-                    </p>
-                  </div>
+                <div className="mt-4 grid grid-cols-2 gap-3">
+                  {HORSES.map((horse) => (
+                    <button
+                      key={horse.id}
+                      onClick={() => handleChoice(horse.id)}
+                      disabled={buttonsDisabled}
+                      className={cn(
+                        'rounded-xl py-4 text-center text-5xl font-black text-white transition-all duration-200 active:translate-y-0.5 active:shadow-none',
+                        horse.buttonClass,
+                        selectedChoice === horse.id
+                          ? 'ring-4 ring-white/55 scale-[1.02]'
+                          : buttonsDisabled
+                            ? 'opacity-40 saturate-75'
+                            : 'hover:brightness-110 hover:scale-[1.02]',
+                      )}
+                    >
+                      <div className="flex flex-col items-center">
+                        <span className="text-xl font-black">{horse.id}</span>
+                        <span className="text-[11px] font-semibold leading-tight">
+                          {kangarooNames[horse.id - 1] || `Kangaroo ${horse.id}`}
+                        </span>
+                      </div>
+                    </button>
+                  ))}
                 </div>
-              );
-            })()
-          ))}
+
+                <div className="mt-5 rounded-xl border border-[#00d8ff]/65 bg-[rgba(0,0,0,0.62)] px-4 py-3 text-center shadow-[0_0_12px_rgba(0,216,255,0.25)]">
+                  <p className="text-base font-black text-white">
+                    {selectedChoice ? 'PICK LOCKED !!' : KANGAROO_VENUE_FOOTER}
+                  </p>
+                  {selectedChoice ? (
+                    <p className="mt-1 text-sm font-bold text-white/80">{KANGAROO_VENUE_FOOTER}</p>
+                  ) : null}
+                </div>
+              </div>
+            );
+          })()}
 
         {gameType === 'card_shuffle' &&
           activeCardRound == null &&

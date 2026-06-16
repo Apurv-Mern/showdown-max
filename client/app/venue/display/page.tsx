@@ -9,7 +9,8 @@ import { useTimerSound } from '@/hooks/useTimerSound';
 import { useAudio } from '@/hooks/useAudio';
 import { clientLogger } from '@/lib/clientLogger';
 import { breakSecondsFromEndsAt, resolveBreakWallClock } from '@/lib/breakWallClock';
-import { cn } from '@/lib/utils';
+import { cn, toDisplayUpper } from '@/lib/utils';
+import { RoundIntroScoringLines } from '@/lib/roundIntroInstructions';
 import { QRCodeSVG } from 'qrcode.react';
 import DynamicUnityGame from '@/components/mini-games/DynamicUnityGame';
 import { PUBLIC_API_URL } from '@/lib/env';
@@ -121,40 +122,6 @@ const resolveMediaUrl = (mediaUrl?: string) => {
   return `${API_URL}/${venueSafeUrl}`;
 };
 
-const getRoundScoringLines = (roundType?: string) => {
-  const type = (roundType || '').toUpperCase();
-  if (type === 'WAGER') {
-    return {
-      positive: '+ Wagered points for a correct answer',
-      negative: '- Wagered points for a wrong answer',
-    };
-  }
-  if (type === 'MAJORITY_RULES') {
-    return {
-      positive: '+50 points if you side with the majority',
-      negative: '-50 points if you side with the minority',
-    };
-  }
-  if (type === 'ELIMINATION') {
-    // Mirror the player intro so both surfaces convey the knockout rule (10–120 points,
-    // wrong answer eliminates you for the round) instead of the default +10/-2 fallback.
-    return {
-      positive: '+10 to +120 points for correct answers',
-      negative: 'Wrong answer → knocked out until end of round',
-    };
-  }
-  if (type === 'FINAL_WAGER') {
-    return {
-      positive: '+ Wagered % of your score for a correct answer',
-      negative: '- Wagered % of your score for a wrong answer',
-    };
-  }
-  return {
-    positive: '+10 points for correct answers',
-    negative: '-2 points for incorrect answers',
-  };
-};
-
 function bootstrapLiveResponseStats(
   rosterCount: number,
   answered = 0,
@@ -225,21 +192,21 @@ const formatRoundTypeLabel = (roundType?: string) => {
   const type = (roundType || '').toUpperCase();
   switch (type) {
     case 'MULTIPLE_CHOICE':
-      return 'Multiple Choice';
+      return toDisplayUpper('Multiple Choice');
     case 'MUSIC':
-      return 'Music';
+      return toDisplayUpper('Music');
     case 'ELIMINATION':
-      return 'Elimination';
+      return toDisplayUpper('Elimination');
     case 'WAGER':
-      return 'Wager';
+      return toDisplayUpper('Wager');
     case 'FINAL_WAGER':
-      return 'Final Wager';
+      return toDisplayUpper('Final Wager');
     case 'MAJORITY_RULES':
-      return 'Majority Rules';
+      return toDisplayUpper('Majority Rules');
     case 'FINAL_MULTIPLE_CHOICE':
-      return 'Final Multiple Choice';
+      return toDisplayUpper('Final Multiple Choice');
     default:
-      return (roundType || 'Round').replace(/_/g, ' ');
+      return toDisplayUpper((roundType || 'Round').replace(/_/g, ' '));
   }
 };
 
@@ -384,23 +351,23 @@ function parseKangarooRoundResult(
 const normalizeRoundIntroTitle = (name?: string, roundType?: string, roundIndex?: number) => {
   const raw = (name || '').trim();
   const fallback = formatRoundTypeLabel(roundType);
-  if (!raw) return fallback || `Round ${(roundIndex || 0) + 1}`;
+  if (!raw) return toDisplayUpper(fallback || `Round ${(roundIndex || 0) + 1}`);
 
   const withoutPrefix = raw
     .replace(new RegExp(`^round\\s*${(roundIndex || 0) + 1}\\s*[-:–]*\\s*`, 'i'), '')
     .replace(/^round\s*\d+\s*[-:–]*\s*/i, '')
     .trim();
 
-  if (!withoutPrefix) return fallback || `Round ${(roundIndex || 0) + 1}`;
+  if (!withoutPrefix) return toDisplayUpper(fallback || `Round ${(roundIndex || 0) + 1}`);
 
   const normalizedRaw = withoutPrefix.replace(/\s+/g, ' ').toLowerCase();
   const normalizedFallback = fallback.replace(/\s+/g, ' ').toLowerCase();
 
   if (normalizedFallback && normalizedRaw.includes(normalizedFallback)) {
-    return fallback;
+    return toDisplayUpper(fallback);
   }
 
-  return withoutPrefix;
+  return toDisplayUpper(withoutPrefix);
 };
 
 function VenueDisplayContent() {
@@ -1164,11 +1131,11 @@ function VenueDisplayContent() {
       }
 
       setLiveResponses((prev) => {
-        const rosterCount = Array.isArray(data.activeTeamIds) 
-          ? data.activeTeamIds.length 
+        const rosterCount = Array.isArray(data.activeTeamIds)
+          ? data.activeTeamIds.length
           : (data.teams ? Object.keys(data.teams).length : 0) || Number(data.totalTeams || 0);
         const answered = Math.max(0, Number(data.responseCount ?? 0));
-        
+
         if (data.state === 'QUESTION' && data.questionState === 'ACTIVE') {
           if (answered === 0) {
             return bootstrapLiveResponseStats(rosterCount, 0);
@@ -1243,10 +1210,7 @@ function VenueDisplayContent() {
 
     const onTeamJoined = (team: Team) => {
       setTeams((prev) => {
-        const next = [
-          ...prev.filter((t) => !sameVenueTeamId(t.teamId, team.teamId)),
-          team,
-        ];
+        const next = [...prev.filter((t) => !sameVenueTeamId(t.teamId, team.teamId)), team];
         const n = next.length;
         setTotalTeams(n);
         setLiveResponses((lr) => ({ ...lr, total: n }));
@@ -1410,9 +1374,7 @@ function VenueDisplayContent() {
       stopMp3();
       const nextRound = payload?.nextRound;
       setRoundEndInfo({
-        roundIndex: Number(
-          payload?.roundIndex ?? roundInfoRef.current?.roundIndex ?? 0,
-        ),
+        roundIndex: Number(payload?.roundIndex ?? roundInfoRef.current?.roundIndex ?? 0),
         roundName: String(payload?.roundName || ''),
         roundType: String(payload?.roundType || ''),
         nextRound:
@@ -2018,7 +1980,9 @@ function VenueDisplayContent() {
                               {'\u2713'}
                             </div>
                             <div className="min-w-0 flex-1">
-                              <p className="font-bold text-white truncate">{team.teamName}</p>
+                              <p className="font-bold text-white truncate uppercase">
+                                {toDisplayUpper(team.teamName)}
+                              </p>
                               <p className="text-[9px] sm:text-[10px] text-[#66ffb2] font-semibold -mt-0.5">
                                 Ready
                               </p>
@@ -2054,7 +2018,7 @@ function VenueDisplayContent() {
                   <h1 className="text-[clamp(2.25rem,6vh,4.5rem)] leading-none font-black text-[#fff4c2] drop-shadow-[0_0_18px_rgba(255,225,120,0.65)]">
                     ROUND {(roundInfo.roundIndex || 0) + 1}
                   </h1>
-                  <p className="mt-2 text-[clamp(1.15rem,3vh,2.1rem)] leading-[1.05] font-extrabold text-[#25eaff] drop-shadow-[0_0_16px_rgba(37,234,255,0.55)]">
+                  <p className="mt-2 text-[clamp(1.15rem,3vh,2.1rem)] uppercase leading-[1.05] font-extrabold text-[#25eaff] drop-shadow-[0_0_16px_rgba(37,234,255,0.55)]">
                     {normalizeRoundIntroTitle(
                       roundInfo.round?.name,
                       roundInfo.round?.type,
@@ -2063,27 +2027,8 @@ function VenueDisplayContent() {
                   </p>
                 </div>
 
-                <div className="absolute left-1/2 top-[84%] flex w-[88%] -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-2 px-2 sm:gap-3">
-                  <div className="flex w-full items-center justify-center gap-2 sm:gap-3">
-                    <img
-                      src="/plus10.png"
-                      alt=""
-                      className="h-[clamp(1.4rem,2.6vh,2.25rem)] w-auto shrink-0"
-                    />
-                    <span className="text-pretty text-[clamp(0.95rem,2.3vh,1.75rem)] font-black leading-tight text-[#39ff14] drop-shadow-[0_0_8px_rgba(57,255,20,0.45)] wrap-anywhere">
-                      {getRoundScoringLines(roundInfo.round?.type).positive}
-                    </span>
-                  </div>
-                  <div className="flex w-full items-center justify-center gap-2 sm:gap-3">
-                    <img
-                      src="/minus2.png"
-                      alt=""
-                      className="h-[clamp(1.4rem,2.6vh,2.25rem)] w-auto shrink-0"
-                    />
-                    <span className="text-pretty text-[clamp(0.95rem,2.3vh,1.75rem)] font-black leading-tight text-[#ff3e3e] drop-shadow-[0_0_8px_rgba(255,62,62,0.45)] wrap-anywhere">
-                      {getRoundScoringLines(roundInfo.round?.type).negative}
-                    </span>
-                  </div>
+                <div className="absolute left-1/2 top-[84%] flex w-[88%] -translate-x-1/2 -translate-y-1/2 flex-col items-center px-2 sm:gap-3">
+                  <RoundIntroScoringLines roundType={roundInfo.round?.type} variant="venue" />
                 </div>
               </div>
             </div>
@@ -2105,7 +2050,7 @@ function VenueDisplayContent() {
                     Category
                   </span>
                   <span className="text-lg font-black uppercase tracking-[0.18em] text-[#00d9ff] sm:text-xl">
-                    {question.question.category}
+                    {toDisplayUpper(question.question.category)}
                   </span>
                 </div>
               ) : null}
@@ -2391,8 +2336,8 @@ function VenueDisplayContent() {
                 {/* Questions/Options Section */}
                 <div className="relative rounded-2xl border-t-2 border-t-white/50 flex-1 bg-linear-to-b from-[#100048] to-[#000000] z-20 pt-8 md:pt-9 lg:pt-10 px-3 md:px-4 lg:px-5 pb-3 md:pb-4">
                   <div className="mb-2 md:mb-3 lg:mb-4">
-                    <p className="text-lg md:text-xl lg:text-2xl font-bold text-white leading-tight">
-                      Q{(question.questionIndex || 0) + 1}. {question.question.text}
+                    <p className="text-lg md:text-xl lg:text-2xl font-bold uppercase text-white leading-tight">
+                      Q{(question.questionIndex || 0) + 1}. {toDisplayUpper(question.question.text)}
                     </p>
                   </div>
 
@@ -2406,7 +2351,7 @@ function VenueDisplayContent() {
                         )}
                       >
                         <span className="font-black mr-3">{OPTION_LETTERS[i]}.</span>
-                        <span className="truncate">{opt.text}</span>
+                        <span className="truncate uppercase">{toDisplayUpper(opt.text)}</span>
                       </div>
                     ))}
                   </div>
@@ -2608,8 +2553,8 @@ function VenueDisplayContent() {
                 {/* Questions/Options Section */}
                 <div className="relative rounded-2xl border-t-2 border-t-white/50 flex-1 bg-linear-to-b from-[#100048] to-[#000000] z-20 pt-4 sm:pt-6 md:pt-8 lg:pt-10 px-3 sm:px-4 md:px-5 pb-3 sm:pb-4 md:pb-5 overflow-y-auto">
                   <div className="mb-2 sm:mb-3 md:mb-4 lg:mb-5">
-                    <p className="text-xs sm:text-sm md:text-base lg:text-xl xl:text-2xl font-bold text-white leading-tight">
-                      Q{(question.questionIndex || 0) + 1}. {question.question.text}
+                    <p className="text-xs sm:text-sm md:text-base lg:text-xl xl:text-2xl font-bold uppercase text-white leading-tight">
+                      Q{(question.questionIndex || 0) + 1}. {toDisplayUpper(question.question.text)}
                     </p>
                   </div>
                   {question.question.isOrdering && revealData && (
@@ -2617,7 +2562,9 @@ function VenueDisplayContent() {
                       <span className="inline-block px-5 py-2 rounded-full bg-green-500/20 border border-green-500/50 text-green-400 font-bold text-sm sm:text-base md:text-xl uppercase tracking-wider shadow-[0_0_15px_rgba(57,255,74,0.2)]">
                         Correct Order:{' '}
                         {(revealData.correctOrderArray || [])
-                          .map((idx: number) => question.question.options[idx]?.text)
+                          .map((idx: number) =>
+                            toDisplayUpper(question.question.options[idx]?.text),
+                          )
                           .join(' → ')}
                       </span>
                     </div>
@@ -2661,7 +2608,9 @@ function VenueDisplayContent() {
                             <span className="font-black mr-1 sm:mr-2 md:mr-3 shrink-0">
                               {OPTION_LETTERS[i]}.
                             </span>
-                            <span className="truncate text-left flex-1">{opt.text}</span>
+                            <span className="truncate text-left flex-1 uppercase">
+                              {toDisplayUpper(opt.text)}
+                            </span>
                             {isRevealedWinner && !isMajorityRulesRound && (
                               <div className="ml-auto w-6 h-6 sm:w-7 h-7 md:w-8 h-8 rounded-full bg-green-500 flex items-center justify-center border-2 border-white shadow-lg shrink-0">
                                 <span className="text-white text-sm sm:text-base md:text-lg">
@@ -2686,32 +2635,32 @@ function VenueDisplayContent() {
             <div className="w-full max-w-3xl rounded-3xl border border-[#41d9ff]/50 bg-[linear-gradient(180deg,rgba(24,9,76,0.95)_0%,rgba(12,6,48,0.95)_100%)] shadow-[0_0_36px_rgba(0,217,255,0.28)] px-6 py-10 sm:px-10 sm:py-14 text-center">
               <div className="mx-auto inline-flex items-center gap-3 rounded-full border border-[#41d9ff]/55 bg-[linear-gradient(180deg,rgba(20,42,89,0.95)_0%,rgba(11,20,46,0.95)_100%)] px-7 py-2.5 shadow-[0_0_22px_rgba(0,217,255,0.25)]">
                 <span className="text-xs font-semibold uppercase tracking-[0.28em] text-[#8cdfff] sm:text-sm">
-                  Round{' '}
-                  {(roundEndInfo?.roundIndex ?? roundInfo?.roundIndex ?? 0) + 1} Complete
+                  Round {(roundEndInfo?.roundIndex ?? roundInfo?.roundIndex ?? 0) + 1} Complete
                 </span>
               </div>
-              <h2 className="mt-6 text-4xl font-black leading-tight text-white drop-shadow-[0_0_18px_rgba(123,194,255,0.45)] sm:text-6xl md:text-7xl">
-                {roundEndInfo?.roundName ||
-                  normalizeRoundIntroTitle(
-                    roundInfo?.round?.name,
-                    roundInfo?.round?.type,
-                    roundInfo?.roundIndex,
-                  )}{' '}
-                Over
+              <h2 className="mt-6 text-4xl font-black uppercase leading-tight text-white drop-shadow-[0_0_18px_rgba(123,194,255,0.45)] sm:text-6xl md:text-7xl">
+                {roundEndInfo?.roundName
+                  ? toDisplayUpper(roundEndInfo.roundName)
+                  : normalizeRoundIntroTitle(
+                      roundInfo?.round?.name,
+                      roundInfo?.round?.type,
+                      roundInfo?.roundIndex,
+                    )}{' '}
+                OVER
               </h2>
-              <p className="mt-6 text-lg text-[#9de9ff]/90 sm:text-2xl md:text-3xl">
-                {roundEndInfo?.isFinalRound
-                  ? 'All rounds are finished — the final results are coming up next!'
-                  : roundEndInfo?.nextRound
-                    ? (
-                        <>
-                          Coming up next:{' '}
-                          <span className="font-bold text-white">
-                            {formatRoundTypeLabel(roundEndInfo.nextRound.type)} Round
-                          </span>
-                        </>
-                      )
-                    : 'Get ready for the next round!'}
+              <p className="mt-6 text-lg uppercase text-[#9de9ff]/90 sm:text-2xl md:text-3xl">
+                {roundEndInfo?.isFinalRound ? (
+                  'All rounds are finished — the final results are coming up next!'
+                ) : roundEndInfo?.nextRound ? (
+                  <>
+                    Coming up next:{' '}
+                    <span className="font-bold text-white">
+                      {formatRoundTypeLabel(roundEndInfo.nextRound.type)} Round
+                    </span>
+                  </>
+                ) : (
+                  'Get ready for the next round!'
+                )}
               </p>
             </div>
           </div>
@@ -2759,7 +2708,7 @@ function VenueDisplayContent() {
                           team.isEliminated && 'line-through opacity-60',
                         )}
                       >
-                        {team.teamName}
+                        {toDisplayUpper(team.teamName)}
                       </div>
                       <div className="text-[#00f0ff] text-right">
                         {totalScore >= 0 ? '+' : ''}
@@ -2951,17 +2900,19 @@ function VenueDisplayContent() {
         {phase === 'game_end' && (
           <div className="w-full h-full flex flex-col items-center justify-center p-8 animate-fadeIn">
             <div className="text-7xl mb-4">🏆</div>
-            <h1 className="text-6xl font-black mb-2 text-glow-cyan">Thank You For Playing!</h1>
+            <h1 className="text-6xl font-black uppercase mb-2 text-glow-cyan">
+              Thank You For Playing!
+            </h1>
             {scoreboard.length > 0 && (
               <>
-                <p className="text-3xl text-neon-gold text-glow-gold font-bold mt-4 mb-8">
-                  Winner: {scoreboard[0]?.teamName}
+                <p className="text-3xl uppercase text-neon-gold text-glow-gold font-bold mt-4 mb-8">
+                  Winner: {toDisplayUpper(scoreboard[0]?.teamName)}
                 </p>
                 <div className="flex items-end gap-4 mb-8">
                   {scoreboard.length > 1 && (
                     <div className="text-center">
                       <p className="text-lg font-bold text-foreground/60 mb-2">
-                        {scoreboard[1]?.teamName}
+                        {toDisplayUpper(scoreboard[1]?.teamName)}
                       </p>
                       <div className="w-32 h-24 neon-border bg-surface/80 rounded-t-xl flex items-center justify-center">
                         <span className="text-2xl font-mono font-bold">{scoreboard[1]?.score}</span>
@@ -2971,7 +2922,7 @@ function VenueDisplayContent() {
                   )}
                   <div className="text-center">
                     <p className="text-xl font-black text-neon-gold text-glow-gold mb-2">
-                      {scoreboard[0]?.teamName}
+                      {toDisplayUpper(scoreboard[0]?.teamName)}
                     </p>
                     <div className="w-36 h-36 bg-neon-gold/10 border-2 border-neon-gold/40 rounded-t-xl flex items-center justify-center shadow-[0_0_30px_rgba(255,215,0,0.2)]">
                       <span className="text-3xl font-mono font-black text-neon-gold">
@@ -2985,7 +2936,7 @@ function VenueDisplayContent() {
                   {scoreboard.length > 2 && (
                     <div className="text-center">
                       <p className="text-lg font-bold text-orange-400/60 mb-2">
-                        {scoreboard[2]?.teamName}
+                        {toDisplayUpper(scoreboard[2]?.teamName)}
                       </p>
                       <div className="w-32 h-16 neon-border bg-surface/80 rounded-t-xl flex items-center justify-center">
                         <span className="text-2xl font-mono font-bold">{scoreboard[2]?.score}</span>
@@ -3085,11 +3036,9 @@ function BreakView({
       <div className="pointer-events-none absolute left-0 top-0 h-[280px] w-[280px] bg-[radial-gradient(circle_at_30%_20%,rgba(255,245,170,0.38),rgba(255,245,170,0.04)_38%,transparent_68%)] opacity-60" />
       <div className="pointer-events-none absolute right-0 top-0 h-[280px] w-[280px] bg-[radial-gradient(circle_at_70%_20%,rgba(255,245,170,0.38),rgba(255,245,170,0.04)_38%,transparent_68%)] opacity-60" />
 
-      <h2 className="text-[66px] leading-none font-black text-white drop-shadow-[0_0_14px_rgba(255,255,255,0.35)]">
-        TAKE A BREAK !!
+      <h2 className="text-[40px] mb-10 leading-none font-black text-white drop-shadow-[0_0_14px_rgba(255,255,255,0.35)]">
+        WE'LL BE BACK RIGHT AFTER OUR FIRST OFFICIAL BREAK !!
       </h2>
-      <p className="mt-2 text-[34px] font-semibold text-white/95">We'll be back shortly...</p>
-
       <div
         className="relative mt-8 h-[420px] w-[420px] rounded-full p-[10px] shadow-[0_0_30px_rgba(0,217,255,0.2)]"
         style={ringStyle}

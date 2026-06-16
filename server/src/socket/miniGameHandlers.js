@@ -729,9 +729,6 @@ const miniGameHandlers = (io, socket) => {
             kangarooNames: normalizedNames,
             finishOrder: [],
             resultsAwarded: false,
-            selections: {},
-            pickCounts: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0 },
-            pickDeadlineAt: Date.now() + 20 * 1000,
           }));
           if (!updated) {
             logger.error(
@@ -1052,7 +1049,7 @@ const miniGameHandlers = (io, socket) => {
 
         if (activeGame === 'kangaroo_race') {
           await hydrateHorseRaceState(eventPin, (state) => {
-            if (state.game !== 'kangaroo_race' || state.revealed || !state.gameStarted || !teamId) {
+            if (state.game !== 'kangaroo_race' || state.revealed || !teamId) {
               shouldRelayPlayerSelection = false;
               return state;
             }
@@ -1309,10 +1306,7 @@ const miniGameHandlers = (io, socket) => {
         // wiping the player's existing bet. session_state lets the
         // client restore roundOpen, the locked pick, and the correct
         // countdown from miniGameState.selections + pickDeadlineAt.
-        const pickDeadlineMs = Number(mgs.pickDeadlineAt);
-        const hasPickDeadline =
-          mgs.pickDeadlineAt != null && Number.isFinite(pickDeadlineMs) && pickDeadlineMs > 0;
-        const kangarooPickPhase = !mgs.revealed && (Boolean(mgs.gameStarted) || hasPickDeadline);
+        const kangarooPickPhase = !mgs.revealed;
         if (kangarooPickPhase) {
           socket.emit(SOCKET_EVENTS.SESSION_STATE, {
             ...gameState,

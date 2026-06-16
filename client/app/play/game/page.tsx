@@ -8,7 +8,9 @@ import { usePlayerSession } from '../playerSession';
 import { LoadingDots } from '../LoadingDots';
 import { clientLogger } from '@/lib/clientLogger';
 import { breakSecondsFromEndsAt, resolveBreakWallClock } from '@/lib/breakWallClock';
-import { cn } from '@/lib/utils';
+import { cn, toDisplayUpper } from '@/lib/utils';
+import { RoundIntroScoringLines } from '@/lib/roundIntroInstructions';
+import { QuestionStagePanel } from '@/components/shared/QuestionStagePanel';
 import { PUBLIC_API_URL } from '@/lib/env';
 import {
   appendSnapshotReplay,
@@ -192,11 +194,12 @@ function resolveUnlockedWagerAmount(
   teamId: number | undefined,
   questionId: number | string | null | undefined,
   roundType: string | undefined,
-): { amount: number; draftMeta: { amount: number | null; pendingLock: boolean } } {
+): { amount: number; draftMeta: { amount: number | null; pendingLock: boolean; locked: boolean } } {
   let nextAmount = initialWagerAmountForRoundType(roundType);
-  let draftMeta: { amount: number | null; pendingLock: boolean } = {
+  let draftMeta: { amount: number | null; pendingLock: boolean; locked: boolean } = {
     amount: null,
     pendingLock: false,
+    locked: false,
   };
   if (pin && teamId != null && questionId != null) {
     draftMeta = readWagerDraft(pin, Number(teamId), questionId);
@@ -222,20 +225,26 @@ function readWagerDraft(
   pin: string,
   teamId: number,
   questionId: number | string | undefined,
-): { amount: number | null; pendingLock: boolean } {
-  if (!pin || teamId == null || questionId == null) return { amount: null, pendingLock: false };
+): { amount: number | null; pendingLock: boolean; locked: boolean } {
+  if (!pin || teamId == null || questionId == null)
+    return { amount: null, pendingLock: false, locked: false };
   try {
     const raw = sessionStorage.getItem(wagerDraftStorageKey(pin, teamId));
-    if (!raw) return { amount: null, pendingLock: false };
-    const o = JSON.parse(raw) as { questionId?: unknown; amount?: unknown; pendingLock?: unknown };
+    if (!raw) return { amount: null, pendingLock: false, locked: false };
+    const o = JSON.parse(raw) as {
+      questionId?: unknown;
+      amount?: unknown;
+      pendingLock?: unknown;
+      locked?: unknown;
+    };
     if (String(o.questionId ?? '') !== String(questionId)) {
-      return { amount: null, pendingLock: false };
+      return { amount: null, pendingLock: false, locked: false };
     }
     const n = Number(o.amount);
     const amount = Number.isFinite(n) ? n : null;
-    return { amount, pendingLock: Boolean(o.pendingLock) };
+    return { amount, pendingLock: Boolean(o.pendingLock), locked: Boolean(o.locked) };
   } catch {
-    return { amount: null, pendingLock: false };
+    return { amount: null, pendingLock: false, locked: false };
   }
 }
 
@@ -244,16 +253,86 @@ function writeWagerDraft(
   teamId: number,
   questionId: number | string,
   amount: number,
-  opts?: { pendingLock?: boolean },
+  opts?: { pendingLock?: boolean; locked?: boolean },
 ) {
   try {
     sessionStorage.setItem(
       wagerDraftStorageKey(pin, teamId),
-      JSON.stringify({ questionId, amount, pendingLock: Boolean(opts?.pendingLock) }),
+      JSON.stringify({
+        questionId,
+        amount,
+        pendingLock: Boolean(opts?.pendingLock),
+        locked: Boolean(opts?.locked),
+      }),
     );
   } catch {
     /* quota / private mode */
   }
+}
+
+/** Remember a server-confirmed lock locally so a refresh still shows the selection instantly. */
+function persistWagerLockCache(
+  pin: string,
+  teamId: number,
+  questionId: number | string,
+  amount: number,
+) {
+  writeWagerDraft(pin, teamId, questionId, amount, { pendingLock: false, locked: true });
+}
+
+/**
+ * Merge Redis/server wager lock with a local sessionStorage mirror (written after a
+ * successful lock). Covers the gap between `submit_wager` and reconnect when Redis
+ * already has the lock, and gives instant UI on refresh before `join_session` returns.
+ */
+function resolveWagerLockForPlayer(
+  teamId: number | null | undefined,
+  roundId: number | string | null | undefined,
+  questionId: number | string | null | undefined,
+  roundType: string | undefined,
+  pin: string | undefined,
+  sources: {
+    currentQuestionLocked?: number | null;
+    topLevelLocked?: number | null;
+    roundWagers?: Record<string, Record<string, number>> | null;
+    questionWagers?: Record<string, Record<string, number>> | null;
+  },
+): {
+  amount: number | null;
+  hasLocked: boolean;
+  resubmitAmount: number | null;
+  fromLocalCache: boolean;
+} {
+  const fromServer = resolveLockedWagerFromPayload(teamId, roundId, questionId, sources);
+  if (fromServer.hasLocked) {
+    return {
+      amount: fromServer.amount,
+      hasLocked: true,
+      resubmitAmount: null,
+      fromLocalCache: false,
+    };
+  }
+  if (pin && teamId != null && questionId != null) {
+    const cached = readWagerDraft(pin, Number(teamId), questionId);
+    if (
+      cached.locked &&
+      cached.amount != null &&
+      isValidWagerDraftAmount(roundType, cached.amount)
+    ) {
+      return {
+        amount: cached.amount,
+        hasLocked: true,
+        resubmitAmount: cached.amount,
+        fromLocalCache: true,
+      };
+    }
+  }
+  return {
+    amount: fromServer.amount,
+    hasLocked: false,
+    resubmitAmount: null,
+    fromLocalCache: false,
+  };
 }
 
 function clearWagerDraft(pin: string, teamId: number) {
@@ -364,6 +443,34 @@ function hasSelectionIdx(idx: number | number[] | null | undefined): idx is numb
 /** Standard MC / music / final MC — must match shared/constants/scoring.js */
 const REVEAL_FIXED_CORRECT_PTS = 10;
 const REVEAL_FIXED_WRONG_PTS = -2;
+const ELIMINATION_POINTS_INCREMENT = 10;
+
+/** Trophy badge during a question: points at stake for *this* question, not the team's running total. */
+function formatQuestionPointsHeader(
+  question: QuestionData | null | undefined,
+  lockedWagerAmount?: number | null,
+): string {
+  if (!question) return '0';
+  const rt = (question.roundType || '').toUpperCase();
+  const idx = Number(question.questionIndex ?? 0);
+
+  if (rt === 'WAGER') {
+    const locked = lockedWagerAmount ?? question.lockedWagerAmount;
+    if (locked != null && Number.isFinite(Number(locked))) return String(Number(locked));
+    return '0-50';
+  }
+  if (rt === 'FINAL_WAGER') {
+    const locked = lockedWagerAmount ?? question.lockedWagerAmount;
+    if (locked != null && Number.isFinite(Number(locked))) return `${Number(locked)}%`;
+    return '0-100%';
+  }
+  if (rt === 'MAJORITY_RULES') return '50';
+  if (rt === 'ELIMINATION') {
+    const pts = question.pointsForQuestion ?? (idx + 1) * ELIMINATION_POINTS_INCREMENT;
+    return String(pts);
+  }
+  return String(REVEAL_FIXED_CORRECT_PTS);
+}
 
 function revealUsesServerPointsLabel(roundType: string | undefined): boolean {
   const rt = (roundType || '').toUpperCase();
@@ -652,83 +759,48 @@ const staggerItem = {
   animate: { opacity: 1, scale: 1 },
 };
 
-const getRoundScoringLines = (roundType?: string) => {
-  const type = (roundType || '').toUpperCase();
-  if (type === 'WAGER') {
-    return {
-      positive: '+ Wagered points for a correct answer',
-      negative: '- Wagered points for a wrong answer',
-    };
-  }
-  if (type === 'MAJORITY_RULES') {
-    return {
-      positive: '+50 points if you side with the majority',
-      negative: '-50 points if you side with the minority',
-    };
-  }
-  if (type === 'ELIMINATION') {
-    // Per project rule (max-showdown-trivia.mdc → Knockout): incremental 10–120 points across
-    // 12 questions, wrong answer eliminates you until the round ends, all-wrong question
-    // skips the knockout. The default `+10 / -2` line was misleading for this round.
-    return {
-      positive: '+10 to +120 points for correct answers',
-      negative: 'Wrong answer → knocked out until end of round',
-    };
-  }
-  if (type === 'FINAL_WAGER') {
-    return {
-      positive: '+ Wagered % of your score for a correct answer',
-      negative: '- Wagered % of your score for a wrong answer',
-    };
-  }
-  return {
-    positive: '+10 points for correct answers',
-    negative: '-2 points for incorrect answers',
-  };
-};
-
 const formatRoundTypeLabel = (roundType?: string) => {
   const type = (roundType || '').toUpperCase();
   switch (type) {
     case 'MULTIPLE_CHOICE':
-      return 'Multiple Choice';
+      return toDisplayUpper('Multiple Choice');
     case 'AUDIO_VIDEO':
-      return 'Audio/Video';
+      return toDisplayUpper('Audio/Video');
     case 'MUSIC':
-      return 'Music';
+      return toDisplayUpper('Music');
     case 'ELIMINATION':
-      return 'Elimination';
+      return toDisplayUpper('Elimination');
     case 'WAGER':
-      return 'Wager';
+      return toDisplayUpper('Wager');
     case 'FINAL_WAGER':
-      return 'Final Wager';
+      return toDisplayUpper('Final Wager');
     case 'MAJORITY_RULES':
-      return 'Majority Rules';
+      return toDisplayUpper('Majority Rules');
     default:
-      return (roundType || 'Round').replace(/_/g, ' ');
+      return toDisplayUpper((roundType || 'Round').replace(/_/g, ' '));
   }
 };
 
 const normalizeRoundIntroTitle = (name?: string, roundType?: string, roundIndex?: number) => {
   const raw = (name || '').trim();
   const fallback = formatRoundTypeLabel(roundType);
-  if (!raw) return fallback || `Round ${(roundIndex || 0) + 1}`;
+  if (!raw) return toDisplayUpper(fallback || `Round ${(roundIndex || 0) + 1}`);
 
   const withoutPrefix = raw
     .replace(new RegExp(`^round\\s*${(roundIndex || 0) + 1}\\s*[-:–]*\\s*`, 'i'), '')
     .replace(/^round\s*\d+\s*[-:–]*\s*/i, '')
     .trim();
 
-  if (!withoutPrefix) return fallback || `Round ${(roundIndex || 0) + 1}`;
+  if (!withoutPrefix) return toDisplayUpper(fallback || `Round ${(roundIndex || 0) + 1}`);
 
   const normalizedRaw = withoutPrefix.replace(/\s+/g, ' ').toLowerCase();
   const normalizedFallback = fallback.replace(/\s+/g, ' ').toLowerCase();
 
   if (normalizedFallback && normalizedRaw.includes(normalizedFallback)) {
-    return fallback;
+    return toDisplayUpper(fallback);
   }
 
-  return withoutPrefix;
+  return toDisplayUpper(withoutPrefix);
 };
 
 const toTimerEndsAt = (value: unknown): number | null => {
@@ -763,32 +835,6 @@ function coercePlayerTimerFromServer(
     return { remaining: fromWall, endsAt: syncEndsAt };
   }
   return { remaining: fromWall, endsAt: syncEndsAt };
-}
-
-function HeaderCapsule({
-  icon,
-  value,
-  className,
-}: {
-  icon: string;
-  value: string | number;
-  className?: string;
-}) {
-  return (
-    <div
-      className={cn(
-        'relative flex h-10 min-w-[6.5rem] items-center rounded-full border border-[#ff2b68] bg-[linear-gradient(180deg,#FF0000_0%,#801669_100%)] pl-9 pr-3 shadow-[0_4px_10px_rgba(0,0,0,0.3)] sm:h-11 sm:min-w-27.5 sm:pl-10 sm:pr-4',
-        className,
-      )}
-    >
-      <div className="absolute -left-2.5 top-1/2 flex h-11 w-11 -translate-y-1/2 items-center justify-center sm:-left-3 sm:h-14 sm:w-14">
-        <img src={icon} alt="" className="h-full w-full object-contain drop-shadow-md" />
-      </div>
-      <span className="w-full text-center text-base font-black leading-none text-white sm:text-lg md:text-xl">
-        {value}
-      </span>
-    </div>
-  );
 }
 
 export default function GamePage() {
@@ -1185,21 +1231,47 @@ export default function GamePage() {
               : null);
           const roundIdForLock = roundMetaForLock?.id;
           const questionIdForLock = gs.currentQuestion?.question?.id ?? null;
-          const { amount: lockedWagerAmount, hasLocked: hasLockedWager } =
-            resolveLockedWagerFromPayload(session.teamId, roundIdForLock, questionIdForLock, {
+          const {
+            amount: lockedWagerAmount,
+            hasLocked: hasLockedWager,
+            resubmitAmount,
+          } = resolveWagerLockForPlayer(
+            session.teamId,
+            roundIdForLock,
+            questionIdForLock,
+            gs.currentQuestion.roundType,
+            session.pin,
+            {
               currentQuestionLocked: gs.currentQuestion.lockedWagerAmount,
               topLevelLocked: gs.lockedWagerAmount,
               roundWagers: gs.roundWagers,
               questionWagers: gs.questionWagers,
-            });
+            },
+          );
           const isWagerQuestionRound = isWagerRoundType(gs.currentQuestion.roundType);
           wagerLockRequiredRef.current = isWagerQuestionRound && !hasLockedWager;
           if (isWagerQuestionRound) {
             if (hasLockedWager && lockedWagerAmount != null) {
               setWagerAmount(lockedWagerAmount);
               setWagerSubmitted(true);
-              if (session.pin && session.teamId != null) {
-                clearWagerDraft(session.pin, Number(session.teamId));
+              if (session.pin && session.teamId != null && questionIdForLock != null) {
+                persistWagerLockCache(
+                  session.pin,
+                  Number(session.teamId),
+                  questionIdForLock,
+                  lockedWagerAmount,
+                );
+              }
+              if (
+                resubmitAmount != null &&
+                socket &&
+                questionIdForLock != null &&
+                !wagerLockResubmitGuardRef.current.has(String(questionIdForLock))
+              ) {
+                wagerLockResubmitGuardRef.current.add(String(questionIdForLock));
+                window.requestAnimationFrame(() => {
+                  socket.emit('submit_wager', { amount: resubmitAmount });
+                });
               }
             } else {
               setWagerSubmitted(false);
@@ -1383,10 +1455,16 @@ export default function GamePage() {
           const wagerRoundType = roundMeta?.type ?? gs.rounds?.[wagerRoundIdx]?.type;
           const roundId = roundMeta?.id;
           const wagerQuestionId = gs.currentQuestion?.question?.id ?? null;
-          const { amount: lockedRaw, hasLocked: hasLockedWager } = resolveLockedWagerFromPayload(
+          const {
+            amount: lockedRaw,
+            hasLocked: hasLockedWager,
+            resubmitAmount: wagerResubmitAmount,
+          } = resolveWagerLockForPlayer(
             session.teamId,
             roundId,
             wagerQuestionId,
+            wagerRoundType,
+            session.pin,
             {
               currentQuestionLocked: gs.currentQuestion?.lockedWagerAmount,
               topLevelLocked: gs.lockedWagerAmount,
@@ -1397,8 +1475,24 @@ export default function GamePage() {
           if (hasLockedWager) {
             setWagerAmount(Number(lockedRaw));
             setWagerSubmitted(true);
-            if (session.pin && session.teamId != null) {
-              clearWagerDraft(session.pin, Number(session.teamId));
+            if (session.pin && session.teamId != null && wagerQuestionId != null) {
+              persistWagerLockCache(
+                session.pin,
+                Number(session.teamId),
+                wagerQuestionId,
+                Number(lockedRaw),
+              );
+            }
+            if (
+              wagerResubmitAmount != null &&
+              socket &&
+              wagerQuestionId != null &&
+              !wagerLockResubmitGuardRef.current.has(String(wagerQuestionId))
+            ) {
+              wagerLockResubmitGuardRef.current.add(String(wagerQuestionId));
+              window.requestAnimationFrame(() => {
+                socket.emit('submit_wager', { amount: wagerResubmitAmount });
+              });
             }
           } else {
             setWagerSubmitted(false);
@@ -2094,11 +2188,10 @@ export default function GamePage() {
     const tid = session.teamId;
     const qid = question?.question?.id;
     const rt = question?.roundType || roundInfo?.round?.type;
-    // Keep a sessionStorage draft until `session_state` shows the server-side lock. Clearing
-    // here used to wipe the only copy of the chosen amount on refresh if `submit_wager` was
-    // slow, failed, or the tab reloaded before Redis was read back on rejoin.
+    // Mirror the lock locally immediately so a refresh before Redis round-trips still
+    // shows the chosen amount as locked.
     if (pin && tid != null && qid != null && isValidWagerDraftAmount(rt, wagerAmount)) {
-      writeWagerDraft(pin, Number(tid), qid, wagerAmount, { pendingLock: true });
+      persistWagerLockCache(pin, Number(tid), qid, wagerAmount);
     }
     socket.emit('submit_wager', { amount: wagerAmount });
     setWagerSubmitted(true);
@@ -2243,7 +2336,7 @@ export default function GamePage() {
                       <p className="relative z-10 bg-linear-to-b from-[#FFFFFF] to-[#FFC870] bg-clip-text text-[clamp(1.65rem,5.2vw,2.65rem)] font-extrabold leading-[0.95] text-transparent md:text-[clamp(2rem,4vw,2.85rem)]">
                         ROUND {(roundInfo.roundIndex || 0) + 1}
                       </p>
-                      <p className="relative z-10 mt-1 max-w-[92%] text-[clamp(0.95rem,3.2vw,1.35rem)] font-bold leading-[1.15] text-[#00d8ff] sm:max-w-[90%] sm:text-lg md:text-xl">
+                      <p className="relative z-10 mt-1 max-w-[92%] uppercase text-[clamp(0.95rem,3.2vw,1.35rem)] font-bold leading-[1.15] text-[#00d8ff] sm:max-w-[90%] sm:text-lg md:text-xl">
                         {normalizeRoundIntroTitle(
                           roundInfo.round?.name,
                           roundInfo.round?.type,
@@ -2252,31 +2345,8 @@ export default function GamePage() {
                       </p>
                     </div>
 
-                    <div className="absolute left-1/2 top-[76%] flex w-[calc(100%-1.25rem)] max-w-xl -translate-x-1/2 flex-col items-center gap-2 px-2 sm:top-[76%] sm:w-[min(92%,36rem)] sm:gap-2.5 sm:px-3 md:max-w-2xl md:px-4">
-                      <div className="flex w-full justify-center">
-                        <div className="inline-flex max-w-full min-w-0 items-center gap-1.5 sm:gap-2">
-                          <img
-                            src="/plus10.png"
-                            alt=""
-                            className="h-6 w-6 shrink-0 sm:h-7 sm:w-7 md:h-8 md:w-8"
-                          />
-                          <span className="min-w-0 max-w-[min(100%,22rem)] text-left text-pretty text-[clamp(0.8rem,2.8vw+0.4rem,1.35rem)] font-bold leading-snug text-[#55f30c] wrap-anywhere sm:max-w-[min(100%,26rem)] sm:text-[clamp(0.85rem,1.9vw+0.35rem,1.5rem)] md:text-lg md:leading-tight lg:text-xl">
-                            {getRoundScoringLines(roundInfo.round?.type).positive}
-                          </span>
-                        </div>
-                      </div>
-                      <div className="flex w-full justify-center">
-                        <div className="inline-flex max-w-full min-w-0 items-center gap-1.5 sm:gap-2">
-                          <img
-                            src="/minus2.png"
-                            alt=""
-                            className="h-6 w-6 shrink-0 sm:h-7 sm:w-7 md:h-8 md:w-8"
-                          />
-                          <span className="min-w-0 max-w-[min(100%,22rem)] text-left text-pretty text-[clamp(0.8rem,2.8vw+0.4rem,1.35rem)] font-bold leading-snug text-[#ff0037] wrap-anywhere sm:max-w-[min(100%,26rem)] sm:text-[clamp(0.85rem,1.9vw+0.35rem,1.5rem)] md:text-lg md:leading-tight lg:text-xl">
-                            {getRoundScoringLines(roundInfo.round?.type).negative}
-                          </span>
-                        </div>
-                      </div>
+                    <div className="absolute left-1/2 top-[76%] flex w-[calc(100%-1.25rem)] max-w-xl -translate-x-1/2 flex-col items-center px-2 sm:top-[76%] sm:w-[min(92%,36rem)] sm:px-3 md:max-w-2xl md:px-4">
+                      <RoundIntroScoringLines roundType={roundInfo.round?.type} variant="player" />
                     </div>
                   </div>
                 </motion.div>
@@ -2326,12 +2396,12 @@ export default function GamePage() {
                       </svg>
                     </div>
 
-                    <h2 className="text-[clamp(2rem,7vw,3.4rem)] font-extrabold leading-[0.95] text-white sm:text-[clamp(2.25rem,5.5vw,3.5rem)] md:text-6xl">
+                    <h2 className="text-[clamp(2rem,7vw,3.4rem)] font-extrabold uppercase leading-[0.95] text-white sm:text-[clamp(2.25rem,5.5vw,3.5rem)] md:text-6xl">
                       Waiting for game
                       <br />
                       to start
                     </h2>
-                    <p className="mt-3 text-base leading-tight text-white/70 sm:text-lg md:text-xl">
+                    <p className="mt-3 text-base uppercase leading-tight text-white/70 sm:text-lg md:text-xl">
                       The host will start the game shortly
                     </p>
 
@@ -2377,9 +2447,9 @@ export default function GamePage() {
                   <motion.h2
                     initial={{ opacity: 0, y: -10 }}
                     animate={{ opacity: 1, y: 0 }}
-                    className="text-xl font-bold mb-4 text-glow-cyan"
+                    className="text-xl font-bold mb-4 uppercase text-glow-cyan"
                   >
-                    Place Your Wager
+                    PLACE YOUR WAGER
                   </motion.h2>
                   {question?.question?.category ? (
                     <motion.div
@@ -2392,7 +2462,7 @@ export default function GamePage() {
                         Category
                       </span>
                       <span className="text-sm font-bold uppercase tracking-[0.14em] text-[#00d9ff]">
-                        {question.question.category}
+                        {toDisplayUpper(question.question.category)}
                       </span>
                     </motion.div>
                   ) : null}
@@ -2409,11 +2479,11 @@ export default function GamePage() {
                     </p>
                   </motion.div> */}
                   {isFinalWagerRound ? (
-                    <p className="text-foreground/40 text-sm mb-6">
+                    <p className="text-foreground/40 text-sm mb-6 uppercase">
                       Wager 0%–100% of your current score on the final question.
                     </p>
                   ) : (
-                    <div className="mb-6 space-y-2 rounded-xl border border-white/10 bg-black/25 px-4 py-3 text-left text-sm leading-snug text-white/75 sm:text-center">
+                    <div className="mb-6 space-y-2 rounded-xl border border-white/10 bg-black/25 px-4 py-3 text-left text-sm uppercase leading-snug text-white/75 sm:text-center">
                       <p>
                         Choose a fixed wager: 0, 10, 20, 30, 40, or 50 points before the question is
                         revealed.
@@ -2491,25 +2561,17 @@ export default function GamePage() {
                 {...pageTransition}
                 className="mt-2 flex flex-1 flex-col px-3 pb-4 pt-2 sm:mt-4 sm:px-4 sm:pb-6 md:px-6"
               >
-                {/* Header: Timer, Q Index, Score */}
-                <div className="mb-4 flex items-center justify-between gap-2 px-0.5 sm:mb-5 sm:px-1">
-                  <HeaderCapsule
-                    icon="/Clock.png"
-                    value={timerRemaining.toString().padStart(2, '0')}
-                  />
-                  <div className="flex flex-col items-center">
-                    <span className="text-xl font-black text-white drop-shadow-lg sm:text-2xl md:text-3xl">
-                      {(question.questionIndex || 0) + 1}/{question.totalQuestions}
-                    </span>
-                  </div>
-                  <HeaderCapsule icon="/trophy.png" value={session.score} />
-                </div>
-
-                <div className="mb-3 sm:mb-4">
-                  <h2 className="text-center text-[clamp(1rem,3.8vw,1.35rem)] font-black leading-snug text-white drop-shadow-md sm:text-lg md:text-xl">
-                    {question.question.text}
-                  </h2>
-                </div>
+                <QuestionStagePanel
+                  className="mb-3 sm:mb-4"
+                  timerDisplay={timerRemaining.toString().padStart(2, '0')}
+                  questionIndex={question.questionIndex || 0}
+                  totalQuestions={question.totalQuestions}
+                  pointsDisplay={formatQuestionPointsHeader(
+                    question,
+                    wagerSubmitted ? wagerAmount : question.lockedWagerAmount,
+                  )}
+                  questionText={question.question.text}
+                />
 
                 <div className="flex flex-col gap-3 sm:gap-4">
                   <QuestionMediaVisual question={question} musicBanner={questionMusicBanner} />
@@ -2546,7 +2608,7 @@ export default function GamePage() {
                                     <span className="w-7 h-7 flex items-center justify-center bg-black/40 rounded-full text-sm shrink-0 shadow-inner">
                                       {index + 1}
                                     </span>
-                                    {opt.text}
+                                    {toDisplayUpper(opt.text)}
                                   </span>
                                   {!isLocked && (
                                     <div className="flex flex-col gap-1">
@@ -2619,7 +2681,7 @@ export default function GamePage() {
                             )}
                           >
                             <span className="text-left text-base font-black leading-tight drop-shadow-md sm:text-lg md:text-xl">
-                              {OPTION_LETTERS[i]}. {opt.text}
+                              {OPTION_LETTERS[i]}. {toDisplayUpper(opt.text)}
                             </span>
                           </motion.button>
                         );
@@ -2635,7 +2697,7 @@ export default function GamePage() {
                     className="text-center mt-6"
                   >
                     <p className="text-2xl font-black leading-none text-[#ff5252] drop-shadow-[0_0_10px_rgba(255,82,82,0.6)] sm:text-3xl md:text-4xl">
-                      Time is over
+                      TIME IS OVER
                     </p>
                   </motion.div>
                 )}
@@ -2647,7 +2709,7 @@ export default function GamePage() {
                     className="text-center mt-6"
                   >
                     <p className="text-2xl font-black leading-none text-[#00D9FF] drop-shadow-[0_0_10px_rgba(255,255,255,0.4)] sm:text-3xl md:text-4xl">
-                      Answer Submitted !!
+                      ANSWER LOCKED IN !!
                     </p>
                   </motion.div>
                 )}
@@ -2661,22 +2723,17 @@ export default function GamePage() {
                 {...pageTransition}
                 className="mt-2 flex flex-1 flex-col px-3 pb-4 pt-2 sm:mt-4 sm:px-4 sm:pb-6 md:px-6"
               >
-                {/* Header: Timer, Q Index, Score */}
-                <div className="mb-4 flex items-center justify-between gap-2 px-0.5 sm:mb-5 sm:px-1">
-                  <HeaderCapsule icon="/Clock.png" value="00:00" />
-                  <div className="flex flex-col items-center">
-                    <span className="text-xl font-black text-white drop-shadow-lg sm:text-2xl md:text-3xl">
-                      {(question.questionIndex || 0) + 1}/{question.totalQuestions}
-                    </span>
-                  </div>
-                  <HeaderCapsule icon="/trophy.png" value={session.score} />
-                </div>
-
-                <div className="mb-3 sm:mb-4">
-                  <h2 className="text-center text-[clamp(1rem,3.8vw,1.35rem)] font-black leading-snug text-white drop-shadow-md sm:text-lg md:text-xl">
-                    {question.question.text}
-                  </h2>
-                </div>
+                <QuestionStagePanel
+                  className="mb-3 sm:mb-4"
+                  timerDisplay="00:00"
+                  questionIndex={question.questionIndex || 0}
+                  totalQuestions={question.totalQuestions}
+                  pointsDisplay={formatQuestionPointsHeader(
+                    question,
+                    wagerSubmitted ? wagerAmount : question.lockedWagerAmount,
+                  )}
+                  questionText={question.question.text}
+                />
 
                 <div className="flex flex-col gap-3 sm:gap-4">
                   <QuestionMediaVisual question={question} musicBanner={questionMusicBanner} />
@@ -2696,7 +2753,9 @@ export default function GamePage() {
                               <span className="inline-block px-4 py-2 rounded-lg bg-black/40 border border-green-500/50 text-green-400 font-bold text-sm sm:text-base md:text-lg uppercase tracking-wider shadow-inner">
                                 Correct Order:{' '}
                                 {(revealData.correctOrderArray || [])
-                                  .map((idx: number) => question.question.options[idx]?.text)
+                                  .map((idx: number) =>
+                                    toDisplayUpper(question.question.options[idx]?.text),
+                                  )
                                   .join(' → ')}
                               </span>
                             </div>
@@ -2728,7 +2787,7 @@ export default function GamePage() {
                                       <span className="w-7 h-7 flex items-center justify-center bg-black/40 rounded-full text-sm shrink-0 shadow-inner">
                                         {userPos + 1}
                                       </span>
-                                      {opt.text}
+                                      {toDisplayUpper(opt.text)}
                                     </span>
                                     <span
                                       className={cn(
@@ -2806,7 +2865,7 @@ export default function GamePage() {
                             )}
                           >
                             <span className="min-w-0 flex-1 text-left text-base font-black leading-tight drop-shadow-md sm:text-lg md:text-xl">
-                              {OPTION_LETTERS[i]}. {opt.text}
+                              {OPTION_LETTERS[i]}. {toDisplayUpper(opt.text)}
                             </span>
                             {showCorrectIcon && <RevealOptionStatusIcon variant="correct" />}
                             {showWrongIcon && <RevealOptionStatusIcon variant="wrong" />}
@@ -2895,16 +2954,16 @@ export default function GamePage() {
                           )}
                         >
                           {!didSubmitOnReveal
-                            ? 'No Answer Submitted !! (0)'
+                            ? 'NO ANSWER SUBMITTED !! (0)'
                             : isCorrect
-                              ? `That's Correct !! (+${
+                              ? `THAT'S CORRECT !! (+${
                                   usesServerPtsLabel
                                     ? Math.max(pointsGained ?? 0, 0)
                                     : usesFixedTenTwo
                                       ? REVEAL_FIXED_CORRECT_PTS
                                       : Math.max(pointsGained ?? 0, 0)
                                 })`
-                              : `Oops Wrong Answer !! (${
+                              : `OOPS - WRONG ANSWER !! (${
                                   usesServerPtsLabel
                                     ? (pointsGained ?? 0)
                                     : usesFixedTenTwo
@@ -2928,10 +2987,10 @@ export default function GamePage() {
                           )}
                         >
                           {!didSubmitOnReveal
-                            ? 'No Answer Submitted !! (0)'
+                            ? 'NO ANSWER SUBMITTED !! (0)'
                             : answeredCorrectly
-                              ? `That's Correct !! (+${correctPointsDisplay})`
-                              : `Oops Wrong Answer !! (${incorrectPointsDisplay})`}
+                              ? `THAT'S CORRECT !! (+${correctPointsDisplay})`
+                              : `OOPS - WRONG ANSWER !! (${incorrectPointsDisplay})`}
                         </p>
                       );
                     }
@@ -2948,10 +3007,10 @@ export default function GamePage() {
                         )}
                       >
                         {!didSubmitOnReveal
-                          ? 'No Vote Submitted !! (0)'
+                          ? 'NO VOTE SUBMITTED !! (0)'
                           : (pointsGained ?? 0) > 0
-                            ? `Majority Vote !! (+${Math.max(pointsGained ?? 0, 0)})`
-                            : `Minority Vote !! (${pointsGained ?? -50})`}
+                            ? `MAJORITY VOTE !! (+${Math.max(pointsGained ?? 0, 0)})`
+                            : `MINORITY VOTE !! (${pointsGained ?? -50})`}
                       </p>
                     );
                   })()}
@@ -2975,10 +3034,10 @@ export default function GamePage() {
                   >
                     💀
                   </motion.div>
-                  <h2 className="text-2xl font-bold text-neon-red text-glow-red mb-2">
+                  <h2 className="text-2xl font-bold uppercase text-neon-red text-glow-red mb-2">
                     Knocked Out!
                   </h2>
-                  <p className="text-foreground/50 text-sm max-w-xs">
+                  <p className="text-foreground/50 text-sm uppercase max-w-xs">
                     You are knocked out for this round. You can play in the next round.
                   </p>
                   <div className="neon-border rounded-xl p-4 mt-6 bg-surface/80">
@@ -3000,32 +3059,32 @@ export default function GamePage() {
               >
                 <div className="inline-flex items-center gap-3 rounded-full border border-[#41d9ff]/55 bg-[linear-gradient(180deg,rgba(20,42,89,0.95)_0%,rgba(11,20,46,0.95)_100%)] px-6 py-2 shadow-[0_0_22px_rgba(0,217,255,0.25)]">
                   <span className="text-xs font-semibold uppercase tracking-[0.22em] text-[#8cdfff]">
-                    Round {(roundEndInfo?.roundIndex ?? roundInfo?.roundIndex ?? 0) + 1}{' '}
-                    Complete
+                    Round {(roundEndInfo?.roundIndex ?? roundInfo?.roundIndex ?? 0) + 1} Complete
                   </span>
                 </div>
-                <h2 className="mt-6 text-[clamp(2rem,8vw,3.5rem)] font-black leading-tight text-white drop-shadow-[0_0_18px_rgba(123,194,255,0.45)]">
-                  {roundEndInfo?.roundName ||
-                    normalizeRoundIntroTitle(
-                      roundInfo?.round?.name,
-                      roundInfo?.round?.type,
-                      roundInfo?.roundIndex,
-                    )}{' '}
-                  Over
+                <h2 className="mt-6 text-[clamp(2rem,8vw,3.5rem)] font-black uppercase leading-tight text-white drop-shadow-[0_0_18px_rgba(123,194,255,0.45)]">
+                  {roundEndInfo?.roundName
+                    ? toDisplayUpper(roundEndInfo.roundName)
+                    : normalizeRoundIntroTitle(
+                        roundInfo?.round?.name,
+                        roundInfo?.round?.type,
+                        roundInfo?.roundIndex,
+                      )}{' '}
+                  OVER
                 </h2>
-                <p className="mt-5 max-w-xs text-base text-[#9de9ff]/90 sm:text-lg">
-                  {roundEndInfo?.isFinalRound
-                    ? 'All rounds are finished. The final results are coming up next.'
-                    : roundEndInfo?.nextRound
-                      ? (
-                          <>
-                            Coming up next:{' '}
-                            <span className="font-bold text-white">
-                              {formatRoundTypeLabel(roundEndInfo.nextRound.type)} Round
-                            </span>
-                          </>
-                        )
-                      : 'Get ready for the next round!'}
+                <p className="mt-5 max-w-xs text-base uppercase text-[#9de9ff]/90 sm:text-lg">
+                  {roundEndInfo?.isFinalRound ? (
+                    'All rounds are finished. The final results are coming up next.'
+                  ) : roundEndInfo?.nextRound ? (
+                    <>
+                      Coming up next:{' '}
+                      <span className="font-bold text-white">
+                        {formatRoundTypeLabel(roundEndInfo.nextRound.type)} Round
+                      </span>
+                    </>
+                  ) : (
+                    'Get ready for the next round!'
+                  )}
                 </p>
                 <div className="mt-6 flex items-center gap-2 text-[#9de9ff]/70">
                   <div className="h-2 w-2 rounded-full bg-[#00d9ff] animate-pulse" />
@@ -3063,7 +3122,7 @@ export default function GamePage() {
                   variants={staggerContainer}
                   initial="initial"
                   animate="animate"
-                  className="flex-1 space-y-3 overflow-y-auto pr-1"
+                  className="flex-1 space-y-3"
                 >
                   {scoreboard.map((team, idx) => {
                     const isMe = team.teamId === session.teamId;
@@ -3103,18 +3162,16 @@ export default function GamePage() {
                           <span
                             className={cn(
                               'truncate text-xl font-bold text-white sm:text-2xl md:text-3xl',
-                              isMe &&
-                                'text-[#bff8ff] drop-shadow-[0_0_8px_rgba(53,246,255,0.85)]',
+                              isMe && 'text-[#bff8ff] drop-shadow-[0_0_8px_rgba(53,246,255,0.85)]',
                             )}
                           >
-                            {team.teamName}
+                            {toDisplayUpper(team.teamName)}
                           </span>
                         </div>
                         <span
                           className={cn(
                             'shrink-0 pl-2 text-2xl font-extrabold leading-none text-white sm:text-3xl md:text-4xl',
-                            isMe &&
-                              'text-[#bff8ff] drop-shadow-[0_0_8px_rgba(53,246,255,0.85)]',
+                            isMe && 'text-[#bff8ff] drop-shadow-[0_0_8px_rgba(53,246,255,0.85)]',
                           )}
                         >
                           {team.score >= 0 ? '+' : ''}
@@ -3137,13 +3194,9 @@ export default function GamePage() {
                 <div className="absolute inset-0 opacity-25 bg-[radial-gradient(circle_at_22%_16%,rgba(145,105,255,0.36)_0_4px,transparent_4px)] [background-size:110px_110px]" />
 
                 <div className="relative z-10 flex h-full w-full flex-col items-center justify-center px-4 text-center sm:px-6">
-                  <h2 className="text-[clamp(2rem,7vw,3.4rem)] font-extrabold leading-none text-white sm:text-[clamp(2.25rem,5vw,3.5rem)]">
-                    TAKE A BREAK !!
+                  <h2 className="text-[clamp(2rem,7vw,3.4rem)] font-extrabold leading-none text-white sm:text-[clamp(1.25rem,2vw,3rem)]">
+                    WE'LL BE BACK RIGHT AFTER OUR FIRST OFFICIAL BREAK !!
                   </h2>
-                  <p className="mt-2 text-lg font-semibold text-white sm:mt-3 sm:text-2xl md:text-3xl">
-                    {"We'll be back shortly..."}
-                  </p>
-
                   <div className="relative mx-auto mt-6 aspect-square w-[min(88vw,320px)] max-w-[360px] sm:mt-8 sm:w-[min(82vw,340px)] md:mt-10 md:max-w-[400px]">
                     <svg className="absolute inset-0" viewBox="0 0 300 300">
                       <defs>
@@ -3275,7 +3328,9 @@ export default function GamePage() {
                       >
                         <div className="flex items-center gap-2">
                           <span className="text-sm font-bold text-foreground/40">{idx + 1}</span>
-                          <span className="text-sm font-medium">{team.teamName}</span>
+                          <span className="text-sm font-medium uppercase">
+                            {toDisplayUpper(team.teamName)}
+                          </span>
                         </div>
                         <span className="font-mono text-sm font-bold text-neon-cyan">
                           {team.score}

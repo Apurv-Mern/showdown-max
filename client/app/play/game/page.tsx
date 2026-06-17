@@ -10,10 +10,18 @@ import { clientLogger } from '@/lib/clientLogger';
 import { breakSecondsFromEndsAt, resolveBreakWallClock } from '@/lib/breakWallClock';
 import { cn, toDisplayUpper } from '@/lib/utils';
 import { RoundIntroScoringLines } from '@/lib/roundIntroInstructions';
+import {
+  formatQuestionPointsAtStake,
+  getStandardRoundCorrectPoints,
+  QUESTION_STAKE_POINTS,
+} from '@/lib/questionPointsDisplay';
 import { QuestionStagePanel } from '@/components/shared/QuestionStagePanel';
 import { BreakTimerDisplay } from '@/components/shared/BreakTimerDisplay';
 import { BreakScreenHeading } from '@/components/shared/BreakScreenHeading';
-import { resolveBreakUpNextLabel, resolveBreakUpNextLabelFromBreakStart } from '@/lib/breakScreenCopy';
+import {
+  resolveBreakUpNextLabel,
+  resolveBreakUpNextLabelFromBreakStart,
+} from '@/lib/breakScreenCopy';
 import { PUBLIC_API_URL } from '@/lib/env';
 import {
   appendSnapshotReplay,
@@ -443,36 +451,20 @@ function hasSelectionIdx(idx: number | number[] | null | undefined): idx is numb
   return Number.isFinite(Number(idx)) && Number(idx) >= 0;
 }
 
-/** Standard MC / music / final MC — must match shared/constants/scoring.js */
-const REVEAL_FIXED_CORRECT_PTS = 10;
-const REVEAL_FIXED_WRONG_PTS = -2;
-const ELIMINATION_POINTS_INCREMENT = 10;
+/** Reveal fallback when server score is missing — must match shared/constants/scoring.js */
+const REVEAL_FIXED_WRONG_PTS = QUESTION_STAKE_POINTS.INCORRECT;
 
-/** Trophy badge during a question: points at stake for *this* question, not the team's running total. */
+/** Trophy badge during a question: points at stake for *this* question. */
 function formatQuestionPointsHeader(
   question: QuestionData | null | undefined,
   lockedWagerAmount?: number | null,
 ): string {
-  if (!question) return '0';
-  const rt = (question.roundType || '').toUpperCase();
-  const idx = Number(question.questionIndex ?? 0);
-
-  if (rt === 'WAGER') {
-    const locked = lockedWagerAmount ?? question.lockedWagerAmount;
-    if (locked != null && Number.isFinite(Number(locked))) return String(Number(locked));
-    return '0-50';
-  }
-  if (rt === 'FINAL_WAGER') {
-    const locked = lockedWagerAmount ?? question.lockedWagerAmount;
-    if (locked != null && Number.isFinite(Number(locked))) return `${Number(locked)}%`;
-    return '0-100%';
-  }
-  if (rt === 'MAJORITY_RULES') return '50';
-  if (rt === 'ELIMINATION') {
-    const pts = question.pointsForQuestion ?? (idx + 1) * ELIMINATION_POINTS_INCREMENT;
-    return String(pts);
-  }
-  return String(REVEAL_FIXED_CORRECT_PTS);
+  return formatQuestionPointsAtStake({
+    roundType: question?.roundType,
+    questionIndex: question?.questionIndex,
+    pointsForQuestion: question?.pointsForQuestion,
+    lockedWagerAmount: lockedWagerAmount ?? question?.lockedWagerAmount,
+  });
 }
 
 function revealUsesServerPointsLabel(roundType: string | undefined): boolean {
@@ -480,7 +472,7 @@ function revealUsesServerPointsLabel(roundType: string | undefined): boolean {
   return rt === 'WAGER' || rt === 'FINAL_WAGER' || rt === 'ELIMINATION' || rt === 'MAJORITY_RULES';
 }
 
-/** +10 / −2 reveal copy (includes empty roundType when payload omits it). */
+/** Fixed MC/music reveal copy (includes empty roundType when payload omits it). */
 function revealUsesFixedTenTwoLabel(
   roundType: string | undefined,
   isMajorityRulesRound: boolean,
@@ -2356,13 +2348,15 @@ export default function GamePage() {
                       <p className="relative z-10 bg-linear-to-b from-[#FFFFFF] to-[#FFC870] bg-clip-text text-[clamp(1.65rem,5.2vw,2.65rem)] font-extrabold leading-[0.95] text-transparent md:text-[clamp(2rem,4vw,2.85rem)]">
                         ROUND {(roundInfo.roundIndex || 0) + 1}
                       </p>
-                      <p className="relative z-10 mt-1 max-w-[92%] uppercase text-[clamp(0.95rem,3.2vw,1.35rem)] font-bold leading-[1.15] text-[#00d8ff] sm:max-w-[90%] sm:text-lg md:text-xl">
-                        {normalizeRoundIntroTitle(
-                          roundInfo.round?.name,
-                          roundInfo.round?.type,
-                          roundInfo.roundIndex,
-                        )}
-                      </p>
+                      {(roundInfo.roundIndex || 0) !== 0 ? (
+                        <p className="relative z-10 mt-1 max-w-[92%] uppercase text-[clamp(0.95rem,3.2vw,1.35rem)] font-bold leading-[1.15] text-[#00d8ff] sm:max-w-[90%] sm:text-lg md:text-xl">
+                          {normalizeRoundIntroTitle(
+                            roundInfo.round?.name,
+                            roundInfo.round?.type,
+                            roundInfo.roundIndex,
+                          )}
+                        </p>
+                      ) : null}
                     </div>
 
                     <div className="absolute left-1/2 top-[76%] flex w-[calc(100%-1.25rem)] max-w-xl -translate-x-1/2 flex-col items-center px-2 sm:top-[76%] sm:w-[min(92%,36rem)] sm:px-3 md:max-w-2xl md:px-4">
@@ -2938,15 +2932,16 @@ export default function GamePage() {
                         ? resolvedSelectedOption === correctIdxReveal
                         : Number(pointsGained ?? 0) > 0
                       : false;
+                    const fixedCorrectFallback = getStandardRoundCorrectPoints(question.roundType);
                     const correctPointsDisplay = usesServerPtsLabel
                       ? Math.max(Number(pointsGained ?? 0), 0)
                       : usesFixedTenTwo && answeredCorrectly
-                        ? REVEAL_FIXED_CORRECT_PTS
+                        ? Math.max(Number(pointsGained ?? fixedCorrectFallback), 0)
                         : Math.max(Number(pointsGained ?? 0), 0);
                     const incorrectPointsDisplay = usesServerPtsLabel
                       ? Number(pointsGained ?? 0)
                       : usesFixedTenTwo
-                        ? REVEAL_FIXED_WRONG_PTS
+                        ? Number(pointsGained ?? REVEAL_FIXED_WRONG_PTS)
                         : Number(pointsGained ?? 0);
                     if (isOrdering) {
                       const ordSel = Array.isArray(selectedOption)
@@ -2976,20 +2971,8 @@ export default function GamePage() {
                           {!didSubmitOnReveal
                             ? 'NO ANSWER SUBMITTED !! (0)'
                             : isCorrect
-                              ? `THAT'S CORRECT !! (+${
-                                  usesServerPtsLabel
-                                    ? Math.max(pointsGained ?? 0, 0)
-                                    : usesFixedTenTwo
-                                      ? REVEAL_FIXED_CORRECT_PTS
-                                      : Math.max(pointsGained ?? 0, 0)
-                                })`
-                              : `OOPS - WRONG ANSWER !! (${
-                                  usesServerPtsLabel
-                                    ? (pointsGained ?? 0)
-                                    : usesFixedTenTwo
-                                      ? REVEAL_FIXED_WRONG_PTS
-                                      : (pointsGained ?? 0)
-                                })`}
+                              ? `CORRECT ANSWER !!`
+                              : `OOPS - WRONG ANSWER !!`}
                         </p>
                       );
                     }
@@ -3007,10 +2990,10 @@ export default function GamePage() {
                           )}
                         >
                           {!didSubmitOnReveal
-                            ? 'NO ANSWER SUBMITTED !! (0)'
+                            ? 'NO ANSWER SUBMITTED !!'
                             : answeredCorrectly
-                              ? `THAT'S CORRECT !! (+${correctPointsDisplay})`
-                              : `OOPS - WRONG ANSWER !! (${incorrectPointsDisplay})`}
+                              ? `CORRECT ANSWER !!`
+                              : `OOPS - WRONG ANSWER !!`}
                         </p>
                       );
                     }
@@ -3027,10 +3010,10 @@ export default function GamePage() {
                         )}
                       >
                         {!didSubmitOnReveal
-                          ? 'NO VOTE SUBMITTED !! (0)'
+                          ? 'NO ANSWER SUBMITTED !!'
                           : (pointsGained ?? 0) > 0
-                            ? `MAJORITY VOTE !! (+${Math.max(pointsGained ?? 0, 0)})`
-                            : `MINORITY VOTE !! (${pointsGained ?? -50})`}
+                            ? `CORRECT ANSWER !!`
+                            : `OOPS - WRONG ANSWER !!`}
                       </p>
                     );
                   })()}
@@ -3046,14 +3029,14 @@ export default function GamePage() {
                 className="flex-1 flex items-center justify-center p-6 text-center"
               >
                 <div>
-                  <motion.div
+                  {/* <motion.div
                     initial={{ scale: 0 }}
                     animate={{ scale: 1 }}
                     transition={{ type: 'spring', stiffness: 200 }}
                     className="text-5xl mb-4"
                   >
                     💀
-                  </motion.div>
+                  </motion.div> */}
                   <h2 className="text-2xl font-bold uppercase text-neon-red text-glow-red mb-2">
                     Knocked Out!
                   </h2>

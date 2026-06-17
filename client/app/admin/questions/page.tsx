@@ -65,7 +65,7 @@ const ROUND_TYPE_LABELS: Record<string, string> = {
 };
 
 const ROUND_TYPE_SCORING: Record<string, string> = {
-  MULTIPLE_CHOICE: '+10 correct, −2 incorrect',
+  MULTIPLE_CHOICE: '+20 correct, −2 incorrect',
   WAGER: '0–50 pts wager',
   MUSIC: '+10 correct, −2 incorrect',
   ELIMINATION: 'Incremental 10–120, knockout',

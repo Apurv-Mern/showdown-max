@@ -2892,13 +2892,15 @@ function HostDashboardContent() {
                           <h2 className="text-4xl leading-[0.95] font-black text-[#fff4c2] drop-shadow-[0_0_18px_rgba(255,225,120,0.65)] sm:text-5xl md:text-6xl lg:text-[35px]">
                             ROUND {(gameState?.currentRoundIndex || 0) + 1}
                           </h2>
-                          <p className="mt-1 text-lg leading-[1.02] font-extrabold text-[#25eaff] drop-shadow-[0_0_16px_rgba(37,234,255,0.55)] sm:text-xl md:text-2xl lg:text-[28px]">
-                            {normalizeRoundIntroTitle(
-                              currentRound?.name,
-                              currentRound?.type,
-                              gameState?.currentRoundIndex,
-                            )}
-                          </p>
+                          {(gameState?.currentRoundIndex ?? 0) !== 0 ? (
+                            <p className="mt-1 text-lg leading-[1.02] font-extrabold text-[#25eaff] drop-shadow-[0_0_16px_rgba(37,234,255,0.55)] sm:text-xl md:text-2xl lg:text-[28px]">
+                              {normalizeRoundIntroTitle(
+                                currentRound?.name,
+                                currentRound?.type,
+                                gameState?.currentRoundIndex,
+                              )}
+                            </p>
+                          ) : null}
                         </div>
 
                         <p className="absolute left-1/2 top-[79.8%] w-[88%] -translate-x-1/2 -translate-y-1/2 px-2 text-xs font-black leading-[0.98] text-[#39ff14] drop-shadow-[0_0_8px_rgba(57,255,20,0.45)] sm:top-[77.8%] sm:w-[74%] sm:px-0 sm:text-xl md:text-2xl lg:text-[18px]">
@@ -3532,13 +3534,15 @@ function HostDashboardContent() {
                         <h2 className="text-[55px] leading-none font-black text-[#fff4c2] drop-shadow-[0_0_18px_rgba(255,225,120,0.65)]">
                           ROUND {(gameState?.currentRoundIndex ?? 0) + 1}
                         </h2>
-                        <p className="mt-2 text-[34px] leading-[1.05] font-extrabold text-[#25eaff] drop-shadow-[0_0_16px_rgba(37,234,255,0.55)]">
-                          {normalizeRoundIntroTitle(
-                            currentRound?.name,
-                            currentRound?.type,
-                            gameState?.currentRoundIndex,
-                          )}
-                        </p>
+                        {(gameState?.currentRoundIndex ?? 0) !== 0 ? (
+                          <p className="mt-2 text-[34px] leading-[1.05] font-extrabold text-[#25eaff] drop-shadow-[0_0_16px_rgba(37,234,255,0.55)]">
+                            {normalizeRoundIntroTitle(
+                              currentRound?.name,
+                              currentRound?.type,
+                              gameState?.currentRoundIndex,
+                            )}
+                          </p>
+                        ) : null}
                       </div>
 
                       <div className="absolute left-1/2 top-[79.5%] w-[74%] -translate-x-1/2 -translate-y-1/2">

@@ -1,6 +1,6 @@
 const SCORING = Object.freeze({
   MULTIPLE_CHOICE: {
-    CORRECT: 10,
+    CORRECT: 20,
     INCORRECT: -2,
   },
   FINAL_MULTIPLE_CHOICE: {

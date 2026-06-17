@@ -11,6 +11,7 @@ import { clientLogger } from '@/lib/clientLogger';
 import { breakSecondsFromEndsAt, resolveBreakWallClock } from '@/lib/breakWallClock';
 import { cn, toDisplayUpper } from '@/lib/utils';
 import { RoundIntroScoringLines } from '@/lib/roundIntroInstructions';
+import { formatQuestionPointsAtStake } from '@/lib/questionPointsDisplay';
 import { QRCodeSVG } from 'qrcode.react';
 import DynamicUnityGame from '@/components/mini-games/DynamicUnityGame';
 import { BreakTimerDisplay } from '@/components/shared/BreakTimerDisplay';
@@ -1807,14 +1808,11 @@ function VenueDisplayContent() {
   /** Roster length is authoritative — do not use max(teams, totalTeams); totalTeams can lag after remove. */
   const rosterTeamCount = teams.length;
   const liveTotalTeams = rosterTeamCount;
-  const liveQuestionPoints = (() => {
-    const roundType = (question?.roundType || '').toUpperCase();
-    if (roundType === 'WAGER') return '0-50';
-    if (roundType === 'FINAL_WAGER') return '0-100%';
-    if (roundType === 'MAJORITY_RULES') return '50';
-    if (roundType === 'ELIMINATION') return String(question?.pointsForQuestion ?? 10);
-    return String(question?.pointsForQuestion ?? 10);
-  })();
+  const liveQuestionPoints = formatQuestionPointsAtStake({
+    roundType: question?.roundType,
+    questionIndex: question?.questionIndex,
+    pointsForQuestion: question?.pointsForQuestion,
+  });
 
   if (!isPinReady || !sessionPin) {
     return (
@@ -2023,13 +2021,15 @@ function VenueDisplayContent() {
                   <h1 className="text-[clamp(2.25rem,6vh,4.5rem)] leading-none font-black text-[#fff4c2] drop-shadow-[0_0_18px_rgba(255,225,120,0.65)]">
                     ROUND {(roundInfo.roundIndex || 0) + 1}
                   </h1>
-                  <p className="mt-2 text-[clamp(1.15rem,3vh,2.1rem)] uppercase leading-[1.05] font-extrabold text-[#25eaff] drop-shadow-[0_0_16px_rgba(37,234,255,0.55)]">
-                    {normalizeRoundIntroTitle(
-                      roundInfo.round?.name,
-                      roundInfo.round?.type,
-                      roundInfo.roundIndex,
-                    )}
-                  </p>
+                  {(roundInfo.roundIndex || 0) !== 0 ? (
+                    <p className="mt-2 text-[clamp(1.15rem,3vh,2.1rem)] uppercase leading-[1.05] font-extrabold text-[#25eaff] drop-shadow-[0_0_16px_rgba(37,234,255,0.55)]">
+                      {normalizeRoundIntroTitle(
+                        roundInfo.round?.name,
+                        roundInfo.round?.type,
+                        roundInfo.roundIndex,
+                      )}
+                    </p>
+                  ) : null}
                 </div>
 
                 <div className="absolute left-1/2 top-[84%] flex w-[88%] -translate-x-1/2 -translate-y-1/2 flex-col items-center px-2 sm:gap-3">

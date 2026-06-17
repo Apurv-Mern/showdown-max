@@ -86,23 +86,13 @@ export default function LobbyPage() {
               initial={{ opacity: 0, scale: 0.85 }}
               animate={{ opacity: 1, scale: 1 }}
               transition={{ delay: 0.2, duration: 0.35 }}
-              className="mb-5 flex h-20 w-20 items-center justify-center rounded-full border-2 border-[#00d8ff] bg-[rgba(5,14,34,0.75)] shadow-[0_0_18px_rgba(0,216,255,0.35)] sm:mb-6 sm:h-[86px] sm:w-[86px]"
+              className=""
             >
-              <svg
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="#00d8ff"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                className="h-10 w-10 drop-shadow-[0_0_8px_rgba(0,216,255,0.55)] sm:h-[42px] sm:w-[42px]"
-                aria-hidden
-              >
-                <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
-                <circle cx="9" cy="7" r="3" />
-                <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
-                <path d="M16 3.13a3 3 0 0 1 0 5.74" />
-              </svg>
+              <img
+                src={'/greentick.png'}
+                alt="Wizard Hat"
+                className="object-cover w-25 h-25 mb-5"
+              />
             </motion.div>
 
             <motion.h1
@@ -123,7 +113,15 @@ export default function LobbyPage() {
               <p className="mt-0.5 text-base font-medium leading-[1.2] text-white/70 sm:text-lg md:text-xl">
                 The host will start the game shortly
               </p> */}
-              Waiting for the host to start the game...
+              You are in
+              <motion.p
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.38 }}
+                className="mt-2 text-base font-medium leading-[1.2] text-white/70 sm:text-lg md:text-xl"
+              >
+                The host will start the game shortly
+              </motion.p>
             </motion.p>
 
             <LoadingDots className="mt-6 sm:mt-8" />

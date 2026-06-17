@@ -1,7 +1,7 @@
 const { SCORING } = require('shared/constants/scoring');
 
 /**
- * Multiple Choice: +10 correct, -2 incorrect
+ * Multiple Choice: +20 correct, -2 incorrect
  */
 const calculate = ({ question, responses }) => {
   const scores = {};

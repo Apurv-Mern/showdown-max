@@ -65,7 +65,7 @@ const ROUND_TYPE_LABELS: Record<string, string> = {
 };
 
 const ROUND_TYPE_SCORING: Record<string, string> = {
-  MULTIPLE_CHOICE: '+10 correct, -2 incorrect',
+  MULTIPLE_CHOICE: '+20 correct, -2 incorrect',
   WAGER: '0-50 pts wager',
   MUSIC: '+10 correct, -2 incorrect',
   ELIMINATION: 'Incremental 10-120, knockout',
@@ -76,7 +76,7 @@ const ROUND_TYPE_SCORING: Record<string, string> = {
 
 /** One-line preview for Round Configuration card (Figma-style) */
 const ROUND_POINTS_PREVIEW: Record<string, string> = {
-  MULTIPLE_CHOICE: 'Correct answer: +10 pts · Incorrect: −2 pts',
+  MULTIPLE_CHOICE: 'Correct answer: +20 pts · Incorrect: −2 pts',
   WAGER: 'Wager 0–50 pts · Win/lose wager amount',
   MUSIC: 'Correct answer: +10 pts · Incorrect: −2 pts',
   ELIMINATION: '10–120 pts ladder · Wrong answer = knockout',

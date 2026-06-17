@@ -37,11 +37,11 @@ export function getRoundIntroInstructions(roundType?: string): RoundIntroInstruc
   ) {
     return {
       positive: [
-        part('Correct answer: '),
+        part('Correct answer : '),
         part('20 points', 'green'),
       ],
       negative: [
-        part('Incorrect answer: '),
+        part('Incorrect answer : '),
         part('-2 points', 'red'),
       ],
     };
@@ -99,8 +99,8 @@ export function getRoundIntroInstructions(roundType?: string): RoundIntroInstruc
 
   // Unknown round types — same as Round 1.
   return {
-    positive: [part('Correct answer: '), part('20 points', 'green')],
-    negative: [part('Incorrect answer: '), part('-2 points', 'red')],
+    positive: [part('Correct answer : '), part('20 points', 'green')],
+    negative: [part('Incorrect answer : '), part('-2 points', 'red')],
   };
 }
 
@@ -121,6 +121,10 @@ function toneClass(
       : RED;
 }
 
+function toInstructionUpper(text: string): string {
+  return text ? String(text).toUpperCase() : '';
+}
+
 function InstructionLine({
   parts,
   variant,
@@ -136,7 +140,7 @@ function InstructionLine({
     <span className={className}>
       {parts.map((p, i) => (
         <span key={i} className={toneClass(p.tone, variant, row)}>
-          {toDisplayUpper(p.text)}
+          {toInstructionUpper(p.text)}
         </span>
       ))}
     </span>
@@ -221,7 +225,6 @@ export function RoundIntroScoringLines({
 /** @deprecated Use getRoundIntroInstructions — kept for any plain-string consumers. */
 export function getRoundScoringLines(roundType?: string): { positive: string; negative: string } {
   const { positive, negative } = getRoundIntroInstructions(roundType);
-  const join = (parts: InstructionPart[]) =>
-    toDisplayUpper(parts.map((p) => p.text).join(''));
+  const join = (parts: InstructionPart[]) => toInstructionUpper(parts.map((p) => p.text).join(''));
   return { positive: join(positive), negative: join(negative) };
 }

@@ -15,6 +15,7 @@ import { formatQuestionPointsAtStake } from '@/lib/questionPointsDisplay';
 import { QRCodeSVG } from 'qrcode.react';
 import DynamicUnityGame from '@/components/mini-games/DynamicUnityGame';
 import { BreakTimerDisplay } from '@/components/shared/BreakTimerDisplay';
+import { QuestionTimerArch } from '@/components/shared/QuestionTimerArch';
 import { BreakScreenHeading } from '@/components/shared/BreakScreenHeading';
 import {
   resolveBreakUpNextLabel,
@@ -205,7 +206,7 @@ const formatRoundTypeLabel = (roundType?: string) => {
     case 'MUSIC':
       return toDisplayUpper('Music');
     case 'ELIMINATION':
-      return toDisplayUpper('Elimination');
+      return toDisplayUpper('Elimination Round');
     case 'WAGER':
       return toDisplayUpper('Wager');
     case 'FINAL_WAGER':
@@ -372,7 +373,10 @@ const normalizeRoundIntroTitle = (name?: string, roundType?: string, roundIndex?
   const normalizedRaw = withoutPrefix.replace(/\s+/g, ' ').toLowerCase();
   const normalizedFallback = fallback.replace(/\s+/g, ' ').toLowerCase();
 
-  if (normalizedFallback && normalizedRaw.includes(normalizedFallback)) {
+  if (
+    normalizedFallback &&
+    (normalizedRaw.includes(normalizedFallback) || normalizedFallback.includes(normalizedRaw))
+  ) {
     return toDisplayUpper(fallback);
   }
 
@@ -2190,24 +2194,11 @@ function VenueDisplayContent() {
                       </div>
                     )} */}
 
-                  {/* Timer Arch - Pulled down to overlap the section below */}
-                  <div className="absolute left-1/2 -translate-x-1/2 bottom-px z-30 w-48 h-24 md:w-56 md:h-28 lg:w-64 lg:h-32 overflow-hidden">
-                    <div className="absolute top-6 left-0 w-50 h-50 rounded-full p-2 bg-linear-to-r from-[#ff0000] via-[#ddff00] via-[#ffaa00] to-[#00ff00] shadow-[0_0_20px_rgba(0,0,0,0.6)]">
-                      <div className="relative w-full h-full rounded-full bg-[#030818] border border-white/10 flex justify-center overflow-hidden">
-                        <div
-                          className="absolute inset-0 opacity-20 pointer-events-none"
-                          style={{
-                            backgroundImage:
-                              'radial-gradient(circle, #ffffff 1px, transparent 1px)',
-                            backgroundSize: '8px 8px',
-                          }}
-                        />
-                        <span className="mt-4 md:mt-5 lg:mt-6 text-4xl md:text-5xl lg:text-6xl font-black text-white relative z-10 tracking-tighter drop-shadow-[0_0_10px_rgba(255,255,255,0.3)]">
-                          {timerRemaining}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
+                  <QuestionTimerArch
+                    remainingSeconds={timerRemaining}
+                    totalSeconds={timerDuration}
+                    size="venue"
+                  />
                 </div>
 
                 {/* Questions/Options Section */}
@@ -2344,16 +2335,11 @@ function VenueDisplayContent() {
                     )}
                   </div>
 
-                  {/* Timer Arch - Responsive sizing */}
-                  <div className="absolute left-1/2 -translate-x-1/2 bottom-px z-30 w-40 h-20 sm:w-48 h-24 md:w-56 h-28 lg:w-64 h-32 overflow-hidden">
-                    <div className="absolute top-3 sm:top-4 md:top-5 lg:top-6 left-0 rounded-full p-1 sm:p-1.5 md:p-2 bg-linear-to-r from-green-500 to-green-700 shadow-[0_0_20px_rgba(34,197,94,0.6)]">
-                      <div className="relative w-32 h-32 sm:w-40 h-40 md:w-48 h-48 lg:w-56 h-56 rounded-full bg-[#030818] border border-white/10 flex justify-center overflow-hidden">
-                        <span className="mt-3 sm:mt-4 md:mt-6 lg:mt-8 text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-black text-white relative z-10 tracking-tighter drop-shadow-[0_0_10px_rgba(255,255,255,0.3)]">
-                          0
-                        </span>
-                      </div>
-                    </div>
-                  </div>
+                  <QuestionTimerArch
+                    remainingSeconds={timerRemaining}
+                    totalSeconds={timerDuration}
+                    size="venue"
+                  />
                 </div>
 
                 {/* Questions/Options Section */}

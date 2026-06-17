@@ -9,6 +9,7 @@ import { useSocket } from '@/hooks/useSocket';
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner';
 import { BreakTimerDisplay } from '@/components/shared/BreakTimerDisplay';
+import { QuestionTimerArch } from '@/components/shared/QuestionTimerArch';
 import { BreakScreenHeading } from '@/components/shared/BreakScreenHeading';
 import { resolveBreakUpNextLabel } from '@/lib/breakScreenCopy';
 import { clientLogger } from '@/lib/clientLogger';
@@ -29,7 +30,10 @@ function formatRoundTypeLabel(type?: string): string {
 
 function normalizeRoundIntroTitle(name?: string, roundType?: string, roundIndex?: number): string {
   const raw = (name || '').trim();
-  const fallback = formatRoundTypeLabel(roundType);
+  const fallback =
+    (roundType || '').toUpperCase() === 'ELIMINATION'
+      ? 'Elimination Round'
+      : formatRoundTypeLabel(roundType);
   if (!raw) return fallback || `Round ${(roundIndex || 0) + 1}`;
 
   const withoutPrefix = raw
@@ -42,7 +46,10 @@ function normalizeRoundIntroTitle(name?: string, roundType?: string, roundIndex?
   const normalizedRaw = withoutPrefix.replace(/\s+/g, ' ').toLowerCase();
   const normalizedFallback = fallback.replace(/\s+/g, ' ').toLowerCase();
 
-  if (normalizedFallback && normalizedRaw.includes(normalizedFallback)) {
+  if (
+    normalizedFallback &&
+    (normalizedRaw.includes(normalizedFallback) || normalizedFallback.includes(normalizedRaw))
+  ) {
     return fallback;
   }
 
@@ -600,9 +607,7 @@ function HostDashboardContent() {
           setHostBreakDuration(w.duration);
           setHostBreakRemaining(w.remaining);
         }
-        setIsScoreboardVisible(
-          data.state === 'SCOREBOARD' || Boolean(data.scoreboardVisible),
-        );
+        setIsScoreboardVisible(data.state === 'SCOREBOARD' || Boolean(data.scoreboardVisible));
         // The round-over transition is only meaningful while the server keeps us in
         // ROUND_END; once we move on (scoreboard, next intro, break, etc.) drop the info.
         if (data.state !== 'ROUND_END') {
@@ -880,8 +885,7 @@ function HostDashboardContent() {
       setIsScoreboardVisible(true);
       setGameState((prev) => {
         if (!prev) return prev;
-        const fromRoundEnd =
-          payload?.source === 'round_end' || prev.state === 'SCOREBOARD';
+        const fromRoundEnd = payload?.source === 'round_end' || prev.state === 'SCOREBOARD';
         if (prev.state !== 'SCOREBOARD') {
           previousStateBeforeScoreboardRef.current = {
             state: prev.state,
@@ -2762,27 +2766,22 @@ function HostDashboardContent() {
                           className="h-full w-full object-cover opacity-60"
                           alt="placeholder"
                         />
-                        {!currentQuestion.question.mediaUrl && (
+                        {/* {!currentQuestion.question.mediaUrl && (
                           <div className="absolute inset-0 flex items-center justify-center">
                             <span className="text-[120px] font-black text-white/5 opacity-40">
                               ?
                             </span>
                           </div>
-                        )}
+                        )} */}
                       </div>
                     )}
                   </div>
 
-                  {/* Circular Timer Overlay */}
-                  <div className="pointer-events-none absolute bottom-0 left-1/2 z-30 h-24 w-48 -translate-x-1/2 overflow-hidden">
-                    <div className="absolute left-0 top-0 h-48 w-48 rounded-full p-1.5 shadow-[0_4px_24px_rgba(0,0,0,0.6)] bg-linear-to-r from-[#ff0000] via-[#ddff00] via-[#ffaa00] to-[#00ff00]">
-                      <div className="relative flex h-full w-full overflow-hidden rounded-full border border-white/10 bg-[#030818] justify-center pt-6">
-                        <span className="relative z-10 text-5xl font-black tracking-tighter text-white drop-shadow-[0_0_10px_rgba(255,255,255,0.4)]">
-                          {timerRemaining}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
+                  <QuestionTimerArch
+                    remainingSeconds={timerRemaining}
+                    totalSeconds={timerDuration}
+                    size="host"
+                  />
                 </div>
 
                 {/* Content Section */}
@@ -2915,10 +2914,7 @@ function HostDashboardContent() {
                         </div>
 
                         <div className="absolute inset-x-[6%] top-[69%] bottom-[6%] flex flex-col items-stretch justify-center overflow-hidden">
-                          <RoundIntroScoringLines
-                            roundType={currentRound?.type}
-                            variant="host"
-                          />
+                          <RoundIntroScoringLines roundType={currentRound?.type} variant="host" />
                         </div>
 
                         {isCurrentRoundEmpty ? (
@@ -3332,8 +3328,8 @@ function HostDashboardContent() {
             </HostFooterBtn>
           </div>
           <p className="mt-2 text-center text-[10px] text-white/30">
-            Space=Next · T=Timer · P=Pause · S=Leaderboard — Music: Start Timer / T
-            begins countdown + media; Stop Timer / P pauses both
+            Space=Next · T=Timer · P=Pause · S=Leaderboard — Music: Start Timer / T begins countdown
+            + media; Stop Timer / P pauses both
           </p>
         </footer>
       ) : null}

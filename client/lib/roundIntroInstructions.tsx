@@ -10,6 +10,8 @@ export type InstructionPart = {
 export type RoundIntroInstructions = {
   /** Optional headline above the +/- rows (e.g. Final Wager risk question). */
   banner?: InstructionPart[];
+  /** Multi-line banner when a single `banner` string wraps poorly in the intro box. */
+  bannerLines?: InstructionPart[][];
   /** Single-line fallback when `positiveLines` is omitted. */
   positive: InstructionPart[];
   /** Single-line fallback when `negativeLines` is omitted. */
@@ -49,10 +51,8 @@ export function getRoundIntroInstructions(roundType?: string): RoundIntroInstruc
 
   if (type === 'WAGER') {
     return {
-      positive: [part('Correct answer : score selected points', 'green')],
-      negative: [part('Incorrect answer : lose selected points', 'red')],
-      positiveLines: [[part('Correct answer :')], [part('score selected points', 'green')]],
-      negativeLines: [[part('Incorrect answer :')], [part('lose selected points', 'red')]],
+      positive: [part('Correct answer : '), part('score selected points', 'green')],
+      negative: [part('Incorrect answer : '), part('lose selected points', 'red')],
     };
   }
 
@@ -68,7 +68,7 @@ export function getRoundIntroInstructions(roundType?: string): RoundIntroInstruc
       ],
       negative: [
         part('Incorrect answer : '),
-        part('knocked out', 'red'),
+        part('knocked out', 'default'),
         part(' until the end of the round'),
       ],
       positiveLines: [
@@ -77,7 +77,7 @@ export function getRoundIntroInstructions(roundType?: string): RoundIntroInstruc
         [part('next question')],
       ],
       negativeLines: [
-        [part('Incorrect answer : '), part('knocked out', 'red')],
+        [part('Incorrect answer : '), part('knocked out')],
         [part('until the end of the round')],
       ],
     };
@@ -95,11 +95,9 @@ export function getRoundIntroInstructions(roundType?: string): RoundIntroInstruc
   if (type === 'FINAL_WAGER') {
     return {
       density: 'compact',
-      banner: [part('How much of our overall score are we risking?')],
-      positive: [part('Correct answer : score selected bet', 'green')],
-      negative: [part('Incorrect answer : lose selected bet', 'red')],
-      positiveLines: [[part('Correct answer :')], [part('score selected bet', 'green')]],
-      negativeLines: [[part('Incorrect answer :')], [part('lose selected bet', 'red')]],
+      bannerLines: [[part('How much of our overall')], [part('score are we risking?')]],
+      positive: [part('Correct answer : '), part('score selected bet', 'green')],
+      negative: [part('Incorrect answer : '), part('lose selected bet', 'red')],
     };
   }
 
@@ -116,16 +114,21 @@ function toneClass(
   variant: RoundIntroVariant,
   row: 'positive' | 'negative' | 'banner',
 ): string {
-  if (tone === 'green') return variant === 'player' ? PLAYER_GREEN : GREEN;
-  if (tone === 'red') return variant === 'player' ? PLAYER_RED : RED;
+  const isWide = variant === 'venue' || variant === 'host';
+  if (tone === 'green') {
+    return cn(
+      variant === 'player' ? PLAYER_GREEN : GREEN,
+      isWide && 'drop-shadow-[0_0_8px_rgba(57,255,20,0.45)]',
+    );
+  }
+  if (tone === 'red') {
+    return cn(
+      variant === 'player' ? PLAYER_RED : RED,
+      isWide && 'drop-shadow-[0_0_8px_rgba(255,62,62,0.45)]',
+    );
+  }
   if (row === 'banner') return 'text-white/90';
-  return row === 'positive'
-    ? variant === 'player'
-      ? PLAYER_GREEN
-      : GREEN
-    : variant === 'player'
-      ? PLAYER_RED
-      : RED;
+  return 'text-white';
 }
 
 function toInstructionUpper(text: string): string {
@@ -200,8 +203,6 @@ function InstructionBlock({
           : isCompact
             ? 'text-[clamp(0.72rem,1.65vh,1.2rem)] font-black'
             : 'text-[clamp(0.9rem,2.1vh,1.55rem)] font-black',
-    isWide && row === 'positive' && 'drop-shadow-[0_0_8px_rgba(57,255,20,0.45)]',
-    isWide && row === 'negative' && 'drop-shadow-[0_0_8px_rgba(255,62,62,0.45)]',
   );
 
   const lineGap =
@@ -248,15 +249,19 @@ export function RoundIntroScoringLines({
 }) {
   const instructions = getRoundIntroInstructions(roundType);
   const isPlayer = variant === 'player';
+  const isHost = variant === 'host';
   const isWide = variant === 'venue' || variant === 'host';
   const isLargeVenue = variant === 'venue';
   const density = instructions.density ?? 'normal';
-  const isCompact = density === 'compact';
-  const isRelaxed = density === 'relaxed';
+  const isFinalWager = (roundType || '').toUpperCase() === 'FINAL_WAGER';
+  /** Final Wager uses compact typography on host only — venue/player keep normal sizing. */
+  const effectiveDensity = isFinalWager && density === 'compact' && !isHost ? 'normal' : density;
+  const isCompact = effectiveDensity === 'compact';
+  const isRelaxed = effectiveDensity === 'relaxed';
 
   const bannerClass = isPlayer
     ? cn(
-        'w-full text-pretty text-center font-bold uppercase leading-snug text-white/85 wrap-anywhere',
+        'block w-full text-pretty text-center font-bold uppercase leading-[1.15] text-white/85 wrap-anywhere',
         isRelaxed
           ? 'text-[clamp(0.62rem,2.5vw+0.2rem,0.92rem)] sm:text-[clamp(0.68rem,2vw+0.25rem,1rem)]'
           : isCompact
@@ -264,19 +269,25 @@ export function RoundIntroScoringLines({
             : 'text-[clamp(0.65rem,2.4vw+0.2rem,0.9rem)]',
       )
     : cn(
-        'w-full text-pretty text-center font-bold uppercase leading-snug text-white/90 wrap-anywhere',
+        'block w-full text-pretty text-center font-bold uppercase leading-[1.15] text-white/90 wrap-anywhere',
         isLargeVenue
           ? isRelaxed
             ? 'text-[clamp(0.95rem,2.2vh,1.35rem)]'
             : isCompact
-              ? 'text-[clamp(0.85rem,2vh,1.2rem)]'
+              ? 'text-[clamp(0.78rem,1.75vh,1.05rem)]'
               : 'text-[clamp(1rem,2.35vh,1.5rem)]'
           : isRelaxed
             ? 'text-[clamp(0.75rem,1.65vh,1.08rem)]'
             : isCompact
-              ? 'text-[clamp(0.65rem,1.45vh,0.95rem)]'
+              ? 'text-[clamp(0.62rem,1.35vh,0.88rem)]'
               : 'text-[clamp(0.8rem,1.85vh,1.2rem)]',
       );
+
+  const bannerLines = instructions.bannerLines?.length
+    ? instructions.bannerLines
+    : instructions.banner?.length
+      ? [instructions.banner]
+      : [];
 
   const positiveLines = resolveLines(instructions.positiveLines, instructions.positive);
   const negativeLines = resolveLines(instructions.negativeLines, instructions.negative);
@@ -298,15 +309,26 @@ export function RoundIntroScoringLines({
       className={cn(
         'flex w-full max-w-full flex-col items-stretch',
         blockGap,
+        isPlayer && 'mt-[15px]',
       )}
     >
-      {instructions.banner?.length ? (
-        <InstructionLine
-          parts={instructions.banner}
-          variant={variant}
-          row="banner"
-          className={bannerClass}
-        />
+      {bannerLines.length ? (
+        <div
+          className={cn(
+            'flex w-full flex-col items-center',
+            isCompact ? 'gap-px sm:gap-0.5' : 'gap-0.5 sm:gap-1',
+          )}
+        >
+          {bannerLines.map((lineParts, lineIdx) => (
+            <InstructionLine
+              key={`banner-${lineIdx}`}
+              parts={lineParts}
+              variant={variant}
+              row="banner"
+              className={bannerClass}
+            />
+          ))}
+        </div>
       ) : null}
 
       <InstructionBlock
@@ -314,7 +336,7 @@ export function RoundIntroScoringLines({
         iconSrc="/plus10.png"
         variant={variant}
         row="positive"
-        density={density}
+        density={effectiveDensity}
       />
 
       <InstructionBlock
@@ -322,7 +344,7 @@ export function RoundIntroScoringLines({
         iconSrc="/minus2.png"
         variant={variant}
         row="negative"
-        density={density}
+        density={effectiveDensity}
       />
     </div>
   );

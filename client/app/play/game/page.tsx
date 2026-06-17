@@ -461,6 +461,9 @@ function formatQuestionPointsHeader(
   question: QuestionData | null | undefined,
   lockedWagerAmount?: number | null,
 ): string {
+  const rt = (question?.roundType || '').toUpperCase();
+  if (rt === 'WAGER' || rt === 'FINAL_WAGER') return '?';
+
   return formatQuestionPointsAtStake({
     roundType: question?.roundType,
     questionIndex: question?.questionIndex,
@@ -729,7 +732,7 @@ const formatRoundTypeLabel = (roundType?: string) => {
     case 'MUSIC':
       return toDisplayUpper('Music');
     case 'ELIMINATION':
-      return toDisplayUpper('Elimination');
+      return toDisplayUpper('Elimination Round');
     case 'WAGER':
       return toDisplayUpper('Wager');
     case 'FINAL_WAGER':
@@ -756,7 +759,10 @@ const normalizeRoundIntroTitle = (name?: string, roundType?: string, roundIndex?
   const normalizedRaw = withoutPrefix.replace(/\s+/g, ' ').toLowerCase();
   const normalizedFallback = fallback.replace(/\s+/g, ' ').toLowerCase();
 
-  if (normalizedFallback && normalizedRaw.includes(normalizedFallback)) {
+  if (
+    normalizedFallback &&
+    (normalizedRaw.includes(normalizedFallback) || normalizedFallback.includes(normalizedRaw))
+  ) {
     return toDisplayUpper(fallback);
   }
 

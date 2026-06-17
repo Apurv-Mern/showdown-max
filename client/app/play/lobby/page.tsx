@@ -113,14 +113,14 @@ export default function LobbyPage() {
               <p className="mt-0.5 text-base font-medium leading-[1.2] text-white/70 sm:text-lg md:text-xl">
                 The host will start the game shortly
               </p> */}
-              You are in
+              YOU ARE IN
               <motion.p
                 initial={{ opacity: 0, y: 8 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: 0.38 }}
                 className="mt-2 text-base font-medium leading-[1.2] text-white/70 sm:text-lg md:text-xl"
               >
-                The host will start the game shortly
+                THE HOST WILL START THE GAME SHORTLY
               </motion.p>
             </motion.p>
 

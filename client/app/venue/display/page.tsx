@@ -2641,7 +2641,16 @@ function VenueDisplayContent() {
         {phase === 'round_end' && (
           <div className="w-full h-full flex items-center justify-center px-4 sm:px-6 md:px-10 animate-fadeIn">
             <div className="flex w-full max-w-4xl h-[385px] items-center justify-center rounded-3xl border border-[#41d9ff]/50 bg-[linear-gradient(180deg,rgba(24,9,76,0.95)_0%,rgba(12,6,48,0.95)_100%)] shadow-[0_0_36px_rgba(0,217,255,0.28)] px-6 py-10 sm:px-10 sm:py-14 text-center">
-              <h2 className="whitespace-nowrap text-4xl font-black uppercase leading-tight text-white drop-shadow-[0_0_18px_rgba(123,194,255,0.45)] sm:text-6xl md:text-7xl">
+              <h2
+                className="whitespace-nowrap text-4xl font-black uppercase leading-tight sm:text-6xl md:text-7xl"
+                style={{
+                  background:
+                    'linear-gradient(180deg, #4EDDFE 0%, #00D9FF 20%, #6BF8FF 40%, #4FDBFE 60%, #3AC1FF 80%, #097FFF 100%)',
+                  WebkitBackgroundClip: 'text',
+                  WebkitTextFillColor: 'transparent',
+                  backgroundClip: 'text',
+                }}
+              >
                 END OF ROUND {(roundEndInfo?.roundIndex ?? roundInfo?.roundIndex ?? 0) + 1}
               </h2>
             </div>

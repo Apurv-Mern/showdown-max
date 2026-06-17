@@ -1765,7 +1765,7 @@ function HostDashboardContent() {
     t: handleStartTimer,
     p: handlePauseTimer,
     s: handleShowScoreboard,
-    // r: handleRevealAnswer, // Reveal Answer disabled for now
+    r: handleRevealAnswer,
   });
 
   useEffect(() => {
@@ -3223,28 +3223,7 @@ function HostDashboardContent() {
                     ? 'Start Question'
                     : 'Start Round'}
             </HostFooterBtn>
-            {/* Reveal Answer disabled for now — Next Question only after reveal */}
-            {showNextQuestionAction ? (
-              <HostFooterBtn
-                emphasis={showNextQuestionAction}
-                icon={
-                  <svg viewBox="0 0 24 24" fill="currentColor" className="text-[#00d9ff]">
-                    <path d="M6 18l8.5-6L6 6v12zm8-12v12h2V6h-2z" />
-                  </svg>
-                }
-                disabled={
-                  miniGameLive ||
-                  revealOnLastQuestionOfRound ||
-                  activeMiniGameLocal != null ||
-                  miniGameLoading ||
-                  cardShuffleFinishedHold
-                }
-                onClick={handleNextQuestion}
-              >
-                Next Question
-              </HostFooterBtn>
-            ) : null}
-            {/* <HostFooterBtn
+            <HostFooterBtn
               emphasis={showRevealAnswerAction || showNextQuestionAction}
               icon={
                 <svg viewBox="0 0 24 24" fill="currentColor" className="text-[#00d9ff]">
@@ -3266,7 +3245,7 @@ function HostDashboardContent() {
               onClick={showNextQuestionAction ? handleNextQuestion : handleRevealAnswer}
             >
               {showRevealAnswerAction ? 'Reveal Answer' : 'Next Question'}
-            </HostFooterBtn> */}
+            </HostFooterBtn>
             {musicRoundAwaitingHostTimerStart ? (
               <HostFooterBtn
                 emphasis

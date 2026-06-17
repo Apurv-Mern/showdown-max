@@ -235,12 +235,12 @@ function JoinContent() {
 
               <div>
                 <label className="mb-2 block text-base font-semibold leading-none text-white sm:text-lg">
-                  Enter Session PIN
+                  ENTER SESSION PIN
                 </label>
                 <input
                   type="text"
                   inputMode="numeric"
-                  placeholder="Enter Session PIN"
+                  placeholder="ENTER SESSION PIN"
                   value={pin}
                   onChange={(e) => {
                     const next = e.target.value.replace(/\D/g, '').slice(0, 6);
@@ -259,11 +259,11 @@ function JoinContent() {
 
               <div>
                 <label className="mb-2 block text-base font-semibold leading-none text-white sm:text-lg">
-                  Enter your Team Name
+                  ENTER TEAM NAME
                 </label>
                 <input
                   type="text"
-                  placeholder="Enter Team Name"
+                  placeholder="ENTER TEAM NAME"
                   value={teamName}
                   onChange={(e) =>
                     setTeamName(

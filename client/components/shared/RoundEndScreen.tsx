@@ -9,10 +9,10 @@ const SIZE_CONFIG: Record<
   { line: string; wrapper: string; logo: string; logoBottom: string }
 > = {
   player: {
-    line: 'text-[clamp(2rem,10vw,3.5rem)] font-black uppercase leading-[0.95] tracking-[0.04em]',
+    line: 'text-[clamp(3rem,14vw,5.5rem)] font-black uppercase leading-[0.95] tracking-[0.04em]',
     wrapper: 'px-4',
     logo: 'h-auto w-[min(72vw,280px)] max-w-[300px] sm:w-[min(56vw,300px)] sm:max-w-[340px]',
-    logoBottom: 'bottom-0 pb-0',
+    logoBottom: 'bottom-10 pb-0',
   },
   host: {
     line: 'text-[clamp(2rem,5vw,3.5rem)] font-black uppercase leading-[0.95] tracking-[0.05em]',
@@ -35,11 +35,7 @@ export interface RoundEndScreenProps {
 }
 
 /** End-of-round transition — "END OF ROUND N" with logo anchored on the dot pattern. */
-export function RoundEndScreen({
-  roundIndex,
-  size = 'player',
-  className,
-}: RoundEndScreenProps) {
+export function RoundEndScreen({ roundIndex, size = 'player', className }: RoundEndScreenProps) {
   const cfg = SIZE_CONFIG[size];
   const roundNumber = Math.max(1, roundIndex + 1);
 
@@ -53,18 +49,26 @@ export function RoundEndScreen({
       >
         <div className="text-center">
           <p
-            className={cn(
-              'text-[#00e8ff] drop-shadow-[0_0_22px_rgba(0,232,255,0.8)]',
-              cfg.line,
-            )}
+            className={cn('text-[#00e8ff]', cfg.line)}
+            style={{
+              background:
+                'linear-gradient(180deg, #4EDDFE 0%, #00D9FF 20%, #6BF8FF 40%, #4FDBFE 60%, #3AC1FF 80%, #097FFF 100%)',
+              WebkitBackgroundClip: 'text',
+              WebkitTextFillColor: 'transparent',
+              backgroundClip: 'text',
+            }}
           >
             END OF
           </p>
           <p
-            className={cn(
-              'mt-1 text-[#00e8ff] drop-shadow-[0_0_22px_rgba(0,232,255,0.8)] sm:mt-2',
-              cfg.line,
-            )}
+            className={cn('mt-1 text-[#00e8ff] sm:mt-2', cfg.line)}
+            style={{
+              background:
+                'linear-gradient(180deg, #4EDDFE 0%, #00D9FF 20%, #6BF8FF 40%, #4FDBFE 60%, #3AC1FF 80%, #097FFF 100%)',
+              WebkitBackgroundClip: 'text',
+              WebkitTextFillColor: 'transparent',
+              backgroundClip: 'text',
+            }}
           >
             ROUND {roundNumber}
           </p>
@@ -80,7 +84,7 @@ export function RoundEndScreen({
         <img
           src="/logo.png"
           alt="Max Showdown Trivia"
-          className={cn('object-contain drop-shadow-[0_8px_32px_rgba(0,0,0,0.45)]', cfg.logo)}
+          className={cn('object-contain  ', cfg.logo)}
         />
       </div>
     </div>

@@ -19,6 +19,7 @@ const { Team, Session } = require('../../models');
 const logger = require('../../utils/logger');
 const { getBreakRemainingSeconds, getBreakUpNextRoundPayload } = require('../../utils/breakWallClock');
 const { normalizeTeamName } = require('../../utils/teamName');
+const { mapClientQuestionPayload } = require('../../utils/clientQuestionPayload');
 
 const eliminationStates = new Map();
 
@@ -612,15 +613,7 @@ const nextQuestion = async (io, pin) => {
   io.to(`session:${pin}`).emit(SOCKET_EVENTS.QUESTION_ACTIVE, {
     questionIndex: gameState.currentQuestionIndex,
     totalQuestions: round.questions.length,
-    question: {
-      id: question.id,
-      text: question.text,
-      options: question.options.map((o) => ({ text: o.text })),
-      mediaUrl: question.mediaUrl,
-      mediaType: question.mediaType,
-      category: question.category || null,
-      isOrdering: question.options.some((o) => o.correctOrder !== undefined),
-    },
+    question: mapClientQuestionPayload(question),
     timerDuration: effectiveTimer,
     timerRemaining: trForEmit,
     timerRunning: Boolean(gsForQuestionActive?.timerRunning),
@@ -1385,6 +1378,18 @@ const startBreak = async (io, pin) => {
   if (!gameState) return;
   if (gameState.state === GAME_STATES.BREAK) return;
 
+  // Break may only start between rounds (after round-end / on scoreboard), not mid-question.
+  if (
+    gameState.state !== GAME_STATES.SCOREBOARD &&
+    gameState.state !== GAME_STATES.ROUND_END
+  ) {
+    logger.warn('startBreak rejected — round not over', {
+      pin,
+      state: gameState.state,
+    });
+    return;
+  }
+
   const timerState = timerManager.getTimerState(pin);
   const shouldPauseTimer =
     gameState.state === GAME_STATES.QUESTION &&
@@ -1554,15 +1559,7 @@ const endBreak = async (io, pin) => {
           io.to(`session:${pin}`).emit(SOCKET_EVENTS.QUESTION_ACTIVE, {
             questionIndex: gameState.currentQuestionIndex,
             totalQuestions: round.questions.length,
-            question: {
-              id: question.id,
-              text: question.text,
-              options: question.options.map((o) => ({ text: o.text })),
-              mediaUrl: question.mediaUrl,
-              mediaType: question.mediaType,
-              category: question.category || null,
-              isOrdering: question.options.some((o) => o.correctOrder !== undefined),
-            },
+            question: mapClientQuestionPayload(question),
             timerDuration: effectiveTimer,
             timerRemaining: timerRemainingForEmit,
             timerRunning: Boolean(gameState.timerRunning),
@@ -1973,14 +1970,7 @@ const clientPayloadFromGameState = (gameState) => {
   base.currentQuestion = {
     questionIndex: gameState.currentQuestionIndex,
     totalQuestions: round.questions.length,
-    question: {
-      id: cq.id,
-      text: cq.text,
-      options: (cq.options || []).map((o) => ({ text: o.text })),
-      mediaUrl: cq.mediaUrl,
-      mediaType: cq.mediaType,
-      category: cq.category || null,
-    },
+    question: mapClientQuestionPayload(cq),
     timerDuration: Number(cq.timerDuration ?? round.timerDuration ?? 30) || 30,
     roundType: round.type || '',
     pointsForQuestion:

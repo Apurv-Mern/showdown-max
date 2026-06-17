@@ -8,6 +8,7 @@ const { buildRevealSnapshot } = require('./revealSnapshot');
 const { Team } = require('../models');
 const sessionService = require('./sessionService');
 const { normalizeTeamName } = require('../utils/teamName');
+const { mapClientQuestionPayload } = require('../utils/clientQuestionPayload');
 
 /** `Number(null) === 0` would falsely mark the timer as expired — only positive epoch ms are valid. */
 const safeClientTimerEndsAt = (raw) => {
@@ -105,14 +106,7 @@ const buildSessionPayloadForPlayer = ({ pin, gameState, team, mySubmittedOptionI
             ? {
                 questionIndex: gameState.currentQuestionIndex,
                 totalQuestions: currentRound?.questions?.length || 0,
-                question: {
-                  id: currentQuestion.id,
-                  text: currentQuestion.text,
-                  options: (currentQuestion.options || []).map((o) => ({ text: o.text })),
-                  mediaUrl: currentQuestion.mediaUrl,
-                  mediaType: currentQuestion.mediaType,
-                  category: currentQuestion.category || null,
-                },
+                question: mapClientQuestionPayload(currentQuestion),
                 timerDuration:
                   Number(currentQuestion.timerDuration ?? currentRound?.timerDuration ?? 30) || 30,
                 roundType: currentRound?.type || '',
@@ -201,14 +195,7 @@ const buildJoinReplayEvents = async ({ pin, gameState, team, mySubmittedOptionIn
       data: {
         questionIndex: gameState.currentQuestionIndex,
         totalQuestions: round.questions.length,
-        question: {
-          id: currentQuestion.id,
-          text: currentQuestion.text,
-          options: (currentQuestion.options || []).map((o) => ({ text: o.text })),
-          mediaUrl: currentQuestion.mediaUrl,
-          mediaType: currentQuestion.mediaType,
-          category: currentQuestion.category || null,
-        },
+        question: mapClientQuestionPayload(currentQuestion),
         timerDuration: Number(currentQuestion.timerDuration ?? round.timerDuration ?? 30) || 30,
         timerRemaining: timerManager.getReconnectTimerRemaining(pin, gameState),
         timerRunning: Boolean(gameState.timerRunning),

@@ -7,6 +7,7 @@ const timerManager = require('../services/game-engine/timerManager');
 const { getBreakRemainingSeconds } = require('../utils/breakWallClock');
 const { buildRevealSnapshot } = require('../services/revealSnapshot');
 const { Session } = require('../models');
+const { mapClientQuestionPayload } = require('../utils/clientQuestionPayload');
 
 const normalizeMiniGameId = (game) =>
   game == null || game === '' ? '' : String(game).toLowerCase().replace(/-/g, '_');
@@ -303,14 +304,7 @@ const buildFullStatePayload = async (gameState, pin) => {
       ? {
           questionIndex: gameState.currentQuestionIndex,
           totalQuestions: currentRound?.questions?.length || 0,
-          question: {
-            id: currentQuestion.id,
-            text: currentQuestion.text,
-            options: currentQuestion.options || [],
-            mediaUrl: currentQuestion.mediaUrl,
-            mediaType: currentQuestion.mediaType,
-            category: currentQuestion.category || null,
-          },
+          question: mapClientQuestionPayload(currentQuestion),
           timerDuration:
             currentQuestion?.timerDuration ??
             currentRound?.timerDuration ??

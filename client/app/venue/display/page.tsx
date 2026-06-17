@@ -16,7 +16,10 @@ import { QRCodeSVG } from 'qrcode.react';
 import DynamicUnityGame from '@/components/mini-games/DynamicUnityGame';
 import { BreakTimerDisplay } from '@/components/shared/BreakTimerDisplay';
 import { BreakScreenHeading } from '@/components/shared/BreakScreenHeading';
-import { resolveBreakUpNextLabel, resolveBreakUpNextLabelFromBreakStart } from '@/lib/breakScreenCopy';
+import {
+  resolveBreakUpNextLabel,
+  resolveBreakUpNextLabelFromBreakStart,
+} from '@/lib/breakScreenCopy';
 import { PUBLIC_API_URL } from '@/lib/env';
 
 const API_URL = PUBLIC_API_URL;
@@ -2637,36 +2640,10 @@ function VenueDisplayContent() {
         {/* Round Over (audience-facing transition screen between the last reveal and scoreboard) */}
         {phase === 'round_end' && (
           <div className="w-full h-full flex items-center justify-center px-4 sm:px-6 md:px-10 animate-fadeIn">
-            <div className="w-full max-w-3xl rounded-3xl border border-[#41d9ff]/50 bg-[linear-gradient(180deg,rgba(24,9,76,0.95)_0%,rgba(12,6,48,0.95)_100%)] shadow-[0_0_36px_rgba(0,217,255,0.28)] px-6 py-10 sm:px-10 sm:py-14 text-center">
-              <div className="mx-auto inline-flex items-center gap-3 rounded-full border border-[#41d9ff]/55 bg-[linear-gradient(180deg,rgba(20,42,89,0.95)_0%,rgba(11,20,46,0.95)_100%)] px-7 py-2.5 shadow-[0_0_22px_rgba(0,217,255,0.25)]">
-                <span className="text-xs font-semibold uppercase tracking-[0.28em] text-[#8cdfff] sm:text-sm">
-                  Round {(roundEndInfo?.roundIndex ?? roundInfo?.roundIndex ?? 0) + 1} Complete
-                </span>
-              </div>
-              <h2 className="mt-6 text-4xl font-black uppercase leading-tight text-white drop-shadow-[0_0_18px_rgba(123,194,255,0.45)] sm:text-6xl md:text-7xl">
-                {roundEndInfo?.roundName
-                  ? toDisplayUpper(roundEndInfo.roundName)
-                  : normalizeRoundIntroTitle(
-                      roundInfo?.round?.name,
-                      roundInfo?.round?.type,
-                      roundInfo?.roundIndex,
-                    )}{' '}
-                OVER
+            <div className="flex w-full max-w-4xl h-[385px] items-center justify-center rounded-3xl border border-[#41d9ff]/50 bg-[linear-gradient(180deg,rgba(24,9,76,0.95)_0%,rgba(12,6,48,0.95)_100%)] shadow-[0_0_36px_rgba(0,217,255,0.28)] px-6 py-10 sm:px-10 sm:py-14 text-center">
+              <h2 className="whitespace-nowrap text-4xl font-black uppercase leading-tight text-white drop-shadow-[0_0_18px_rgba(123,194,255,0.45)] sm:text-6xl md:text-7xl">
+                END OF ROUND {(roundEndInfo?.roundIndex ?? roundInfo?.roundIndex ?? 0) + 1}
               </h2>
-              <p className="mt-6 text-lg uppercase text-[#9de9ff]/90 sm:text-2xl md:text-3xl">
-                {roundEndInfo?.isFinalRound ? (
-                  'All rounds are finished — the final results are coming up next!'
-                ) : roundEndInfo?.nextRound ? (
-                  <>
-                    Coming up next:{' '}
-                    <span className="font-bold text-white">
-                      {formatRoundTypeLabel(roundEndInfo.nextRound.type)} Round
-                    </span>
-                  </>
-                ) : (
-                  'Get ready for the next round!'
-                )}
-              </p>
             </div>
           </div>
         )}
@@ -3022,11 +2999,7 @@ function BreakView({
       <div className="pointer-events-none absolute right-0 top-0 h-[280px] w-[280px] bg-[radial-gradient(circle_at_70%_20%,rgba(255,245,170,0.38),rgba(255,245,170,0.04)_38%,transparent_68%)] opacity-60" />
 
       <BreakScreenHeading size="venue" upNextLabel={upNextLabel} className="mb-10" />
-      <BreakTimerDisplay
-        remainingSeconds={remaining}
-        totalSeconds={totalSeconds}
-        size="venue"
-      />
+      <BreakTimerDisplay remainingSeconds={remaining} totalSeconds={totalSeconds} size="venue" />
 
       <div className="relative z-10 mt-10 flex w-full justify-center px-6">
         <img

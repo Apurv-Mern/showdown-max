@@ -201,7 +201,7 @@ function JoinContent() {
                 LIVE TRIVIA EXPERIENCE
               </h1>
               <p className="mt-2 text-[clamp(1.1rem,4.2vw,1.7rem)] font-semibold leading-[1.15] text-white sm:text-2xl md:text-3xl">
-                Get ready-the game is about to begin
+                GET READY-THE GAME IS ABOUT TO BEGIN
               </p>
             </div>
           </motion.div>

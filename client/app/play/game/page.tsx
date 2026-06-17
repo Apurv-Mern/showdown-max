@@ -18,6 +18,7 @@ import {
 import { QuestionStagePanel } from '@/components/shared/QuestionStagePanel';
 import { BreakTimerDisplay } from '@/components/shared/BreakTimerDisplay';
 import { BreakScreenHeading } from '@/components/shared/BreakScreenHeading';
+import { RoundEndScreen } from '@/components/shared/RoundEndScreen';
 import {
   resolveBreakUpNextLabel,
   resolveBreakUpNextLabelFromBreakStart,
@@ -491,48 +492,16 @@ function sameTeamId(a: unknown, b: unknown): boolean {
 }
 
 function RevealOptionStatusIcon({ variant }: { variant: 'correct' | 'wrong' }) {
-  if (variant === 'correct') {
-    return (
-      <span
-        className="flex border h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#22c55e] shadow-[0_2px_8px_rgba(34,197,94,0.55)] sm:h-10 sm:w-10"
-        aria-hidden
-      >
-        <svg
-          className="h-5 w-5 text-white"
-          viewBox="0 0 24 24"
-          fill="none"
-          xmlns="http://www.w3.org/2000/svg"
-        >
-          <path
-            d="M6 12.5l3.5 3.5L18 7"
-            stroke="currentColor"
-            strokeWidth="2.75"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-        </svg>
-      </span>
-    );
-  }
+  const src = variant === 'correct' ? '/rightAnswer.png' : '/wrongAnswer.png';
+  const alt = variant === 'correct' ? 'Correct answer' : 'Wrong answer';
+
   return (
-    <span
-      className="flex border h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#ef4444] shadow-[0_2px_8px_rgba(239,68,68,0.55)] sm:h-10 sm:w-10"
+    <img
+      src={src}
+      alt={alt}
+      className="h-9 w-9 shrink-0 object-contain drop-shadow-[0_2px_8px_rgba(0,0,0,0.35)] sm:h-10 sm:w-10"
       aria-hidden
-    >
-      <svg
-        className="h-5 w-5 text-white"
-        viewBox="0 0 24 24"
-        fill="none"
-        xmlns="http://www.w3.org/2000/svg"
-      >
-        <path
-          d="M7 7l10 10M17 7L7 17"
-          stroke="currentColor"
-          strokeWidth="2.75"
-          strokeLinecap="round"
-        />
-      </svg>
-    </span>
+    />
   );
 }
 
@@ -853,6 +822,7 @@ export default function GamePage() {
   const [timerDuration, setTimerDuration] = useState(30);
   const [selectedOption, setSelectedOption] = useState<number | number[] | null>(null);
   const [orderingSelection, setOrderingSelection] = useState<number[]>([]);
+  const [orderingDragIndex, setOrderingDragIndex] = useState<number | null>(null);
   const [wagerAmount, setWagerAmount] = useState(0);
   const [wagerSubmitted, setWagerSubmitted] = useState(false);
   const [revealData, setRevealData] = useState<RevealData | null>(null);
@@ -2171,6 +2141,16 @@ export default function GamePage() {
     ],
   );
 
+  const reorderOrdering = useCallback((fromIndex: number, toIndex: number) => {
+    if (fromIndex === toIndex) return;
+    setOrderingSelection((prev) => {
+      const next = [...prev];
+      const [moved] = next.splice(fromIndex, 1);
+      next.splice(toIndex, 0, moved);
+      return next;
+    });
+  }, []);
+
   const handleLockOrdering = useCallback(() => {
     if (selectedOption !== null || !socket || isEliminatedRef.current || timerRemaining <= 0)
       return;
@@ -2601,8 +2581,8 @@ export default function GamePage() {
                       if (question.question.isOrdering) {
                         return (
                           <div className="flex flex-col gap-3">
-                            <div className="flex items-center justify-center gap-2 mb-1 text-[#00e5ff] font-bold text-sm sm:text-base drop-shadow-[0_0_5px_rgba(0,229,255,0.5)]">
-                              <span>↕</span>
+                            <div className="mb-1 flex items-center justify-center gap-2 text-sm font-bold text-[#00e5ff] drop-shadow-[0_0_5px_rgba(0,229,255,0.5)] sm:text-base">
+                              <span aria-hidden>☰</span>
                               <span>Drag tiles or use arrows to reorder</span>
                             </div>
                             {orderingSelection.map((optIdx, index) => {
@@ -2611,47 +2591,65 @@ export default function GamePage() {
                               const isLocked = isAnswerSelectionLocked;
                               return (
                                 <div
-                                  key={optIdx}
+                                  key={`${optIdx}-${index}`}
+                                  draggable={!isLocked}
+                                  onDragStart={(e) => {
+                                    if (isLocked) return;
+                                    setOrderingDragIndex(index);
+                                    e.dataTransfer.effectAllowed = 'move';
+                                    e.dataTransfer.setData('text/plain', String(index));
+                                  }}
+                                  onDragEnd={() => setOrderingDragIndex(null)}
+                                  onDragOver={(e) => {
+                                    if (isLocked) return;
+                                    e.preventDefault();
+                                    e.dataTransfer.dropEffect = 'move';
+                                  }}
+                                  onDrop={(e) => {
+                                    if (isLocked) return;
+                                    e.preventDefault();
+                                    const from = Number(e.dataTransfer.getData('text/plain'));
+                                    if (Number.isFinite(from)) reorderOrdering(from, index);
+                                    setOrderingDragIndex(null);
+                                  }}
                                   className={cn(
-                                    'flex min-h-14 w-full items-center justify-between rounded-xl px-4 py-3 text-white font-bold shadow-[0_4px_10px_rgba(0,0,0,0.5),inset_0_1px_1px_rgba(255,255,255,0.2)] sm:min-h-16 sm:px-6 sm:py-4 md:min-h-[4.75rem]',
+                                    'flex min-h-14 w-full items-center justify-between rounded-xl px-3 py-3 text-white font-bold shadow-[0_4px_10px_rgba(0,0,0,0.5),inset_0_1px_1px_rgba(255,255,255,0.2)] sm:min-h-16 sm:px-4 sm:py-4 md:min-h-[4.75rem]',
                                     OPTION_BG[optIdx] || 'bg-[#1565c0]',
                                     isLocked && 'opacity-60 grayscale-[0.3] cursor-not-allowed',
+                                    !isLocked && 'cursor-grab active:cursor-grabbing',
+                                    orderingDragIndex === index && 'ring-2 ring-white/80',
                                   )}
                                 >
-                                  <span className="text-left text-base font-black leading-tight drop-shadow-md sm:text-lg md:text-xl flex items-center gap-2">
-                                    <span className="w-7 h-7 flex items-center justify-center bg-black/40 rounded-full text-sm shrink-0 shadow-inner">
+                                  <span className="flex min-w-0 flex-1 items-center gap-2 text-left text-base font-black leading-tight drop-shadow-md sm:gap-3 sm:text-lg md:text-xl">
+                                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-black/40 text-sm shadow-inner">
                                       {index + 1}
                                     </span>
-                                    {toDisplayUpper(opt.text)}
+                                    <span className="min-w-0 flex-1">
+                                      {toDisplayUpper(opt.text)}
+                                    </span>
                                   </span>
                                   {!isLocked && (
-                                    <div className="flex flex-col gap-1">
+                                    <div className="ml-2 flex shrink-0 flex-col gap-1">
                                       <button
-                                        className="bg-black/30 hover:bg-black/50 active:bg-white/20 rounded px-3 py-1.5 text-xs transition"
+                                        type="button"
+                                        aria-label="Move up"
+                                        className="rounded bg-black/30 px-3 py-1.5 text-xs transition hover:bg-black/50 active:bg-white/20"
                                         onClick={(e) => {
                                           e.stopPropagation();
                                           if (index === 0) return;
-                                          const newArr = [...orderingSelection];
-                                          [newArr[index - 1], newArr[index]] = [
-                                            newArr[index],
-                                            newArr[index - 1],
-                                          ];
-                                          setOrderingSelection(newArr);
+                                          reorderOrdering(index, index - 1);
                                         }}
                                       >
                                         ▲
                                       </button>
                                       <button
-                                        className="bg-black/30 hover:bg-black/50 active:bg-white/20 rounded px-3 py-1.5 text-xs transition"
+                                        type="button"
+                                        aria-label="Move down"
+                                        className="rounded bg-black/30 px-3 py-1.5 text-xs transition hover:bg-black/50 active:bg-white/20"
                                         onClick={(e) => {
                                           e.stopPropagation();
                                           if (index === orderingSelection.length - 1) return;
-                                          const newArr = [...orderingSelection];
-                                          [newArr[index + 1], newArr[index]] = [
-                                            newArr[index],
-                                            newArr[index + 1],
-                                          ];
-                                          setOrderingSelection(newArr);
+                                          reorderOrdering(index, index + 1);
                                         }}
                                       >
                                         ▼
@@ -2803,14 +2801,14 @@ export default function GamePage() {
                                       </span>
                                       {toDisplayUpper(opt.text)}
                                     </span>
-                                    <span
+                                    {/* <span
                                       className={cn(
                                         'text-xs font-bold px-2 py-1.5 rounded-md bg-black/40 shadow-inner whitespace-nowrap',
                                         isCorrectPos ? 'text-[#39ff14]' : 'text-[#ff2525]',
                                       )}
                                     >
                                       Correct Pos: {expectedPos >= 0 ? expectedPos + 1 : '-'}
-                                    </span>
+                                    </span> */}
                                   </motion.div>
                                 );
                               });
@@ -3058,48 +3056,12 @@ export default function GamePage() {
               <motion.div
                 key="round-end"
                 {...pageTransition}
-                className="flex flex-1 flex-col items-center justify-center px-5 pb-10 pt-8 text-center sm:px-8"
+                className="flex min-h-0 flex-1 flex-col"
               >
-                <div className="inline-flex items-center gap-3 rounded-full border border-[#41d9ff]/55 bg-[linear-gradient(180deg,rgba(20,42,89,0.95)_0%,rgba(11,20,46,0.95)_100%)] px-6 py-2 shadow-[0_0_22px_rgba(0,217,255,0.25)]">
-                  <span className="text-xs font-semibold uppercase tracking-[0.22em] text-[#8cdfff]">
-                    Round {(roundEndInfo?.roundIndex ?? roundInfo?.roundIndex ?? 0) + 1} Complete
-                  </span>
-                </div>
-                <h2 className="mt-6 text-[clamp(2rem,8vw,3.5rem)] font-black uppercase leading-tight text-white drop-shadow-[0_0_18px_rgba(123,194,255,0.45)]">
-                  {roundEndInfo?.roundName
-                    ? toDisplayUpper(roundEndInfo.roundName)
-                    : normalizeRoundIntroTitle(
-                        roundInfo?.round?.name,
-                        roundInfo?.round?.type,
-                        roundInfo?.roundIndex,
-                      )}{' '}
-                  OVER
-                </h2>
-                <p className="mt-5 max-w-xs text-base uppercase text-[#9de9ff]/90 sm:text-lg">
-                  {roundEndInfo?.isFinalRound ? (
-                    'All rounds are finished. The final results are coming up next.'
-                  ) : roundEndInfo?.nextRound ? (
-                    <>
-                      Coming up next:{' '}
-                      <span className="font-bold text-white">
-                        {formatRoundTypeLabel(roundEndInfo.nextRound.type)} Round
-                      </span>
-                    </>
-                  ) : (
-                    'Get ready for the next round!'
-                  )}
-                </p>
-                <div className="mt-6 flex items-center gap-2 text-[#9de9ff]/70">
-                  <div className="h-2 w-2 rounded-full bg-[#00d9ff] animate-pulse" />
-                  <div
-                    className="h-2 w-2 rounded-full bg-[#00d9ff] animate-pulse"
-                    style={{ animationDelay: '0.3s' }}
-                  />
-                  <div
-                    className="h-2 w-2 rounded-full bg-[#00d9ff] animate-pulse"
-                    style={{ animationDelay: '0.6s' }}
-                  />
-                </div>
+                <RoundEndScreen
+                  roundIndex={roundEndInfo?.roundIndex ?? roundInfo?.roundIndex ?? 0}
+                  size="player"
+                />
               </motion.div>
             )}
 

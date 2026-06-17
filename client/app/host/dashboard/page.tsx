@@ -1387,11 +1387,7 @@ function HostDashboardContent() {
   };
   const handleAdvanceRound = () => emit('advance_round');
   const handleStartBreak = () => {
-    const canToggleBreak =
-      state === 'BREAK' ||
-      state === 'SCOREBOARD' ||
-      (state === 'QUESTION' && questionState === 'REVEALED');
-    if (!canToggleBreak) return;
+    if (state !== 'SCOREBOARD' && state !== 'ROUND_END') return;
     emit('start_break');
   };
   const handleEndBreak = () => emit('end_break');
@@ -1769,7 +1765,7 @@ function HostDashboardContent() {
     t: handleStartTimer,
     p: handlePauseTimer,
     s: handleShowScoreboard,
-    r: handleRevealAnswer,
+    // r: handleRevealAnswer, // Reveal Answer disabled for now
   });
 
   useEffect(() => {
@@ -1960,10 +1956,8 @@ function HostDashboardContent() {
       (state === 'QUESTION' && questionState === 'REVEALED' && isLastQuestionOfRound));
   const canOpenScoreboard =
     state === 'SCOREBOARD' || (state === 'QUESTION' && questionState === 'REVEALED');
-  const canToggleBreak =
-    state === 'BREAK' ||
-    state === 'SCOREBOARD' ||
-    (state === 'QUESTION' && questionState === 'REVEALED');
+  const canStartBreak = state === 'SCOREBOARD' || state === 'ROUND_END';
+  const canToggleBreak = state === 'BREAK' || canStartBreak;
 
   if (!pin) {
     return (
@@ -2971,15 +2965,10 @@ function HostDashboardContent() {
                       Complete
                     </span>
                   </div>
-                  <h2 className="text-4xl font-black leading-tight text-white drop-shadow-[0_0_14px_rgba(123,194,255,0.35)] sm:text-5xl">
-                    {roundEndInfo?.roundName ||
-                      (currentRound
-                        ? normalizeRoundIntroTitle(
-                            currentRound.name,
-                            currentRound.type,
-                            gameState?.currentRoundIndex,
-                          )
-                        : 'Round Over')}
+                  <h2 className="text-4xl font-black uppercase leading-tight text-white drop-shadow-[0_0_14px_rgba(123,194,255,0.35)] sm:text-5xl">
+                    END OF
+                    <br />
+                    ROUND {(roundEndInfo?.roundIndex ?? gameState?.currentRoundIndex ?? 0) + 1}
                   </h2>
                   <p className="max-w-md text-base text-[#9de9ff]/90 sm:text-lg">
                     That round is over.{' '}
@@ -3234,7 +3223,28 @@ function HostDashboardContent() {
                     ? 'Start Question'
                     : 'Start Round'}
             </HostFooterBtn>
-            <HostFooterBtn
+            {/* Reveal Answer disabled for now — Next Question only after reveal */}
+            {showNextQuestionAction ? (
+              <HostFooterBtn
+                emphasis={showNextQuestionAction}
+                icon={
+                  <svg viewBox="0 0 24 24" fill="currentColor" className="text-[#00d9ff]">
+                    <path d="M6 18l8.5-6L6 6v12zm8-12v12h2V6h-2z" />
+                  </svg>
+                }
+                disabled={
+                  miniGameLive ||
+                  revealOnLastQuestionOfRound ||
+                  activeMiniGameLocal != null ||
+                  miniGameLoading ||
+                  cardShuffleFinishedHold
+                }
+                onClick={handleNextQuestion}
+              >
+                Next Question
+              </HostFooterBtn>
+            ) : null}
+            {/* <HostFooterBtn
               emphasis={showRevealAnswerAction || showNextQuestionAction}
               icon={
                 <svg viewBox="0 0 24 24" fill="currentColor" className="text-[#00d9ff]">
@@ -3256,7 +3266,7 @@ function HostDashboardContent() {
               onClick={showNextQuestionAction ? handleNextQuestion : handleRevealAnswer}
             >
               {showRevealAnswerAction ? 'Reveal Answer' : 'Next Question'}
-            </HostFooterBtn>
+            </HostFooterBtn> */}
             {musicRoundAwaitingHostTimerStart ? (
               <HostFooterBtn
                 emphasis
@@ -3334,7 +3344,7 @@ function HostDashboardContent() {
             </HostFooterBtn>
           </div>
           <p className="mt-2 text-center text-[10px] text-white/30">
-            Space=Next · T=Timer · P=Pause · R=Reveal · S=Leaderboard — Music: Start Timer / T
+            Space=Next · T=Timer · P=Pause · S=Leaderboard — Music: Start Timer / T
             begins countdown + media; Stop Timer / P pauses both
           </p>
         </footer>

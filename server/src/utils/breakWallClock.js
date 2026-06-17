@@ -22,4 +22,22 @@ const getBreakRemainingSeconds = (gameState) => {
   return 0;
 };
 
-module.exports = { getBreakRemainingSeconds };
+/** Next round shown on break screens (player / venue / host). */
+const getBreakUpNextRoundPayload = (gameState) => {
+  if (!gameState || !Array.isArray(gameState.rounds) || gameState.rounds.length === 0) {
+    return null;
+  }
+  const idx = Math.max(0, Number(gameState.currentRoundIndex ?? 0));
+  const resumeState = gameState.breakResumeState?.state;
+  const pickIndex =
+    resumeState === GAME_STATES.ROUND_INTRO || resumeState === 'ROUND_INTRO' ? idx : idx + 1;
+  const round = gameState.rounds[pickIndex];
+  if (!round) return null;
+  return {
+    name: round.name || '',
+    type: round.type || '',
+    index: pickIndex,
+  };
+};
+
+module.exports = { getBreakRemainingSeconds, getBreakUpNextRoundPayload };

@@ -17,7 +17,7 @@ const { buildRevealSnapshot } = require('../revealSnapshot');
 const { purgeTeamFromLiveSession } = require('../purgeTeamFromLiveSession');
 const { Team, Session } = require('../../models');
 const logger = require('../../utils/logger');
-const { getBreakRemainingSeconds } = require('../../utils/breakWallClock');
+const { getBreakRemainingSeconds, getBreakUpNextRoundPayload } = require('../../utils/breakWallClock');
 const { normalizeTeamName } = require('../../utils/teamName');
 
 const eliminationStates = new Map();
@@ -1431,12 +1431,15 @@ const startBreak = async (io, pin) => {
     serverNow,
   });
   const breakRem = getBreakRemainingSeconds(result.gameState);
+  const upNextRound = getBreakUpNextRoundPayload(result.gameState);
   io.to(`session:${pin}`).emit(SOCKET_EVENTS.BREAK_START, {
     duration: breakRem,
     breakDuration: bd,
     breakRemaining: breakRem,
     breakEndsAt: result.gameState.breakEndsAt,
     serverNow,
+    currentRoundIndex: Number(result.gameState.currentRoundIndex ?? 0),
+    upNextRound,
   });
   logger.info('Break started', {
     pin,

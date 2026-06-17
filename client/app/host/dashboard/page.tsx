@@ -7,8 +7,10 @@ import { Montserrat } from 'next/font/google';
 import toast from 'react-hot-toast';
 import { useSocket } from '@/hooks/useSocket';
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
-import { useTimerSound } from '@/hooks/useTimerSound';
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner';
+import { BreakTimerDisplay } from '@/components/shared/BreakTimerDisplay';
+import { BreakScreenHeading } from '@/components/shared/BreakScreenHeading';
+import { resolveBreakUpNextLabel } from '@/lib/breakScreenCopy';
 import { clientLogger } from '@/lib/clientLogger';
 import { breakSecondsFromEndsAt, resolveBreakWallClock } from '@/lib/breakWallClock';
 import { cn } from '@/lib/utils';
@@ -550,23 +552,10 @@ function HostDashboardContent() {
   // server keeps the underlying question timer ticking (so the host can resume
   // mid-question once the mini-game ends), but the audible tick during a
   // Kangaroo Race / Card Shuffle is jarring and competes with the mini-game.
-  const { playTick, playBuzz } = useTimerSound({
-    enabled: true,
-    muted: isMusicRound || activeMiniGameLocal != null,
-  });
   const hasPlayableAudio = isAudioMedia(
     currentQuestion?.question?.mediaType,
     currentQuestion?.question?.mediaUrl,
   );
-  const prevTimerRef = useRef(0);
-
-  useEffect(() => {
-    if (timerRemaining > 0 && timerRemaining !== prevTimerRef.current && !timerPaused) {
-      playTick(timerRemaining <= 5);
-    }
-    if (prevTimerRef.current > 0 && timerRemaining === 0) playBuzz();
-    prevTimerRef.current = timerRemaining;
-  }, [timerRemaining, timerPaused, playTick, playBuzz]);
 
   useEffect(() => {
     if (!socket || !pin) return;
@@ -1830,6 +1819,10 @@ function HostDashboardContent() {
 
   const currentRound = gameState?.rounds?.[gameState.currentRoundIndex];
   const nextRound = gameState?.rounds?.[(gameState.currentRoundIndex ?? 0) + 1];
+  const hostBreakUpNextLabel = resolveBreakUpNextLabel(
+    gameState?.rounds,
+    gameState?.currentRoundIndex,
+  );
   const isMajorityRulesLiveRound =
     (currentQuestion?.roundType || currentRound?.type || '').toUpperCase() === 'MAJORITY_RULES';
   const isCurrentRoundWagerLockRound =
@@ -1860,14 +1853,6 @@ function HostDashboardContent() {
     state === 'QUESTION' && questionState === 'ACTIVE'
       ? liveResponseDenominator
       : Math.max(1, rosterTeamCount);
-  const hostBreakProgress =
-    hostBreakDuration > 0 ? Math.max(0, Math.min(1, hostBreakRemaining / hostBreakDuration)) : 0;
-  const hostBreakRadius = 90;
-  const hostBreakCircumference = 2 * Math.PI * hostBreakRadius;
-  /** Remaining arc; with rotate(-90) the stroke runs clockwise from 12 o'clock. */
-  const hostBreakArcLength = hostBreakCircumference * hostBreakProgress;
-  const hostBreakMinutes = Math.floor(hostBreakRemaining / 60);
-  const hostBreakSeconds = hostBreakRemaining % 60;
   const responsePct =
     gameState && liveResponseDenominator > 0
       ? Math.min(100, ((gameState.responseCount || 0) / liveResponseDenominator) * 100)
@@ -2967,57 +2952,14 @@ function HostDashboardContent() {
                 </div>
               ) : state === 'BREAK' ? (
                 <div className="flex w-full max-w-[640px] flex-col items-center justify-center gap-2 py-4 animate-fadeIn">
-                  <h2 className="text-2xl font-black tracking-tight text-white drop-shadow-[0_0_12px_rgba(255,255,255,0.25)] sm:text-3xl">
-                    WE'LL BE BACK RIGHT AFTER OUR FIRST OFFICIAL BREAK !!
-                  </h2>
+                  <BreakScreenHeading size="host" upNextLabel={hostBreakUpNextLabel} />
 
-                  <div className="relative mt-4 h-[260px] w-[260px] sm:h-[300px] sm:w-[300px]">
-                    <svg className="absolute inset-0" viewBox="0 0 300 300">
-                      <defs>
-                        <linearGradient
-                          id="hostBreakRingGradient"
-                          x1="0%"
-                          y1="0%"
-                          x2="100%"
-                          y2="100%"
-                        >
-                          <stop offset="0%" stopColor="#ff0f0f" />
-                          <stop offset="46%" stopColor="#ffffff" />
-                          <stop offset="100%" stopColor="#83ff00" />
-                        </linearGradient>
-                      </defs>
-                      <circle
-                        cx="150"
-                        cy="150"
-                        r={hostBreakRadius}
-                        stroke="rgba(255,255,255,0.22)"
-                        strokeWidth="10"
-                        fill="none"
-                      />
-                      <g transform="rotate(-90 150 150)">
-                        <circle
-                          cx="150"
-                          cy="150"
-                          r={hostBreakRadius}
-                          stroke="url(#hostBreakRingGradient)"
-                          strokeWidth="10"
-                          fill="none"
-                          strokeLinecap="round"
-                          strokeDasharray={`${hostBreakArcLength} ${hostBreakCircumference}`}
-                          strokeDashoffset={0}
-                          style={{ filter: 'drop-shadow(0 0 10px rgba(0,229,255,0.35))' }}
-                        />
-                      </g>
-                    </svg>
-                    <div className="absolute inset-[22px] rounded-full bg-[radial-gradient(circle_at_50%_35%,rgba(44,23,101,0.92)_0%,rgba(10,7,40,0.96)_100%)] border border-[#00d8ff]/25 flex flex-col items-center justify-center sm:inset-[26px]">
-                      <p className="text-5xl font-black leading-none text-white font-mono sm:text-6xl">
-                        {String(hostBreakMinutes)}:{String(hostBreakSeconds).padStart(2, '0')}
-                      </p>
-                      <p className="mt-2 text-sm font-extrabold tracking-[0.12em] text-[#00e8ff] sm:text-base">
-                        TIME REMAINING
-                      </p>
-                    </div>
-                  </div>
+                  <BreakTimerDisplay
+                    remainingSeconds={hostBreakRemaining}
+                    totalSeconds={hostBreakDuration}
+                    size="host"
+                    className="mt-4"
+                  />
                 </div>
               ) : state === 'ROUND_END' ? (
                 <div className="flex w-full max-w-[720px] flex-col items-center justify-center gap-6 py-8 text-center animate-fadeIn">

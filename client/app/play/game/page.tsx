@@ -11,6 +11,9 @@ import { breakSecondsFromEndsAt, resolveBreakWallClock } from '@/lib/breakWallCl
 import { cn, toDisplayUpper } from '@/lib/utils';
 import { RoundIntroScoringLines } from '@/lib/roundIntroInstructions';
 import { QuestionStagePanel } from '@/components/shared/QuestionStagePanel';
+import { BreakTimerDisplay } from '@/components/shared/BreakTimerDisplay';
+import { BreakScreenHeading } from '@/components/shared/BreakScreenHeading';
+import { resolveBreakUpNextLabel, resolveBreakUpNextLabelFromBreakStart } from '@/lib/breakScreenCopy';
 import { PUBLIC_API_URL } from '@/lib/env';
 import {
   appendSnapshotReplay,
@@ -870,6 +873,7 @@ export default function GamePage() {
   const [breakRemaining, setBreakRemaining] = useState(300);
   const [breakEndsAtMs, setBreakEndsAtMs] = useState<number | null>(null);
   const [breakSkewMs, setBreakSkewMs] = useState(0);
+  const [breakUpNextLabel, setBreakUpNextLabel] = useState<string | null>(null);
   const [timerRunning, setTimerRunning] = useState(false);
   /** MUSIC round: host has started the venue timer at least once this question (incl. after pause). */
   const [musicVenuePlaybackStarted, setMusicVenuePlaybackStarted] = useState(false);
@@ -894,6 +898,8 @@ export default function GamePage() {
   const wagerLockResubmitGuardRef = useRef<Set<string>>(new Set());
   /** Set synchronously in session_state so answer_reveal replays cannot flash reveal before React commits. */
   const wagerLockRequiredRef = useRef(false);
+  const quizRoundsRef = useRef<Array<{ name?: string; type?: string }>>([]);
+  const quizRoundIndexRef = useRef(0);
   const questionStateRef = useRef<string>('');
   const ensureRevealAfterWagerLockRef = useRef<(() => void) | null>(null);
   /** Same pin+team: run local + HTTP restore only once per mount cycle (socket effect may re-run). */
@@ -1126,6 +1132,13 @@ export default function GamePage() {
           setSession({ score: myTeam.score });
         }
         setIsEliminated(currentlyEliminated);
+
+        if (Array.isArray(gs.rounds)) {
+          quizRoundsRef.current = gs.rounds;
+        }
+        if (gs.currentRoundIndex !== undefined && gs.currentRoundIndex !== null) {
+          quizRoundIndexRef.current = Number(gs.currentRoundIndex);
+        }
 
         if (gs.activeMiniGame) {
           router.push(`/play/mini-game?game=${gs.activeMiniGame}`);
@@ -1550,6 +1563,13 @@ export default function GamePage() {
           setBreakSkewMs(w.skewMs);
           setBreakEndsAtMs(w.endsAt);
           setBreakRemaining(w.remaining);
+          setBreakUpNextLabel(
+            resolveBreakUpNextLabelFromBreakStart({
+              upNextRound: gs.upNextRound,
+              rounds: gs.rounds ?? quizRoundsRef.current,
+              currentRoundIndex: gs.currentRoundIndex ?? quizRoundIndexRef.current,
+            }),
+          );
           setTimerRunning(false);
           setPhase('break');
         } else if (gs.state === 'FINAL_RESULTS') {
@@ -1918,6 +1938,8 @@ export default function GamePage() {
       breakRemaining?: number;
       breakEndsAt?: number;
       serverNow?: number;
+      currentRoundIndex?: number;
+      upNextRound?: { name?: string; type?: string; index?: number } | null;
     }) => {
       setHasInitialState(true);
       const w = resolveBreakWallClock({
@@ -1930,6 +1952,13 @@ export default function GamePage() {
       setBreakSkewMs(w.skewMs);
       setBreakEndsAtMs(w.endsAt);
       setBreakRemaining(w.remaining);
+      setBreakUpNextLabel(
+        resolveBreakUpNextLabelFromBreakStart({
+          upNextRound: data?.upNextRound,
+          rounds: quizRoundsRef.current,
+          currentRoundIndex: data?.currentRoundIndex ?? quizRoundIndexRef.current,
+        }),
+      );
       setTimerRunning(false);
       setPhase('break');
       if (session.pin && session.teamId != null) {
@@ -2259,15 +2288,6 @@ export default function GamePage() {
   }, [phase, wagerSubmitted, roundInfo?.round?.type, wagerAmount]);
 
   const myRank = scoreboard.findIndex((t) => t.teamId === session.teamId) + 1;
-  const breakProgress =
-    breakDuration > 0 ? Math.max(0, Math.min(1, breakRemaining / breakDuration)) : 0;
-  const breakRadius = 134;
-  const breakCircumference = 2 * Math.PI * breakRadius;
-  /** Elapsed = gap from 12 o'clock clockwise; remaining = colored arc after (matches host / design ref). */
-  const breakElapsedLength = breakCircumference * (1 - breakProgress);
-  const breakRemainingLength = breakCircumference * breakProgress;
-  const breakMinutes = Math.floor(breakRemaining / 60);
-  const breakSeconds = breakRemaining % 60;
   const isMusicQuestion = (question?.roundType || '').toUpperCase() === 'MUSIC';
   const isAnswerSelectionLocked =
     selectedOption !== null ||
@@ -3189,62 +3209,26 @@ export default function GamePage() {
               <motion.div
                 key="break"
                 {...pageTransition}
-                className="flex-1 relative overflow-hidden mobile-play-bg"
+                className="relative min-h-0 flex-1 overflow-hidden mobile-play-bg"
               >
                 <div className="absolute inset-0 opacity-25 bg-[radial-gradient(circle_at_22%_16%,rgba(145,105,255,0.36)_0_4px,transparent_4px)] [background-size:110px_110px]" />
 
-                <div className="relative z-10 flex h-full w-full flex-col items-center justify-center px-4 text-center sm:px-6">
-                  <h2 className="text-[clamp(2rem,7vw,3.4rem)] font-extrabold leading-none text-white sm:text-[clamp(1.25rem,2vw,3rem)]">
-                    WE'LL BE BACK RIGHT AFTER OUR FIRST OFFICIAL BREAK !!
-                  </h2>
-                  <div className="relative mx-auto mt-6 aspect-square w-[min(88vw,320px)] max-w-[360px] sm:mt-8 sm:w-[min(82vw,340px)] md:mt-10 md:max-w-[400px]">
-                    <svg className="absolute inset-0" viewBox="0 0 300 300">
-                      <defs>
-                        <linearGradient id="breakRingGradient" x1="0%" y1="0%" x2="100%" y2="100%">
-                          <stop offset="0%" stopColor="#ff0f0f" />
-                          <stop offset="46%" stopColor="#ffffff" />
-                          <stop offset="100%" stopColor="#83ff00" />
-                        </linearGradient>
-                      </defs>
-                      <circle
-                        cx="150"
-                        cy="150"
-                        r={breakRadius}
-                        stroke="rgba(255,255,255,0.22)"
-                        strokeWidth="10"
-                        fill="none"
-                      />
-                      <g transform="rotate(-90 150 150)">
-                        <circle
-                          cx="150"
-                          cy="150"
-                          r={breakRadius}
-                          stroke="url(#breakRingGradient)"
-                          strokeWidth="10"
-                          fill="none"
-                          strokeLinecap="round"
-                          strokeDasharray={`0 ${breakElapsedLength} ${breakRemainingLength} 0`}
-                          strokeDashoffset={0}
-                          style={{ filter: 'drop-shadow(0 0 10px rgba(0,229,255,0.35))' }}
-                        />
-                      </g>
-                    </svg>
+                <div className="absolute inset-0 z-10 flex items-center justify-center overflow-y-auto px-4 py-4 text-center sm:px-6 sm:py-6">
+                  <div className="flex w-full max-w-md flex-col items-center">
+                    <BreakScreenHeading size="player" upNextLabel={breakUpNextLabel} />
+                    <BreakTimerDisplay
+                      remainingSeconds={breakRemaining}
+                      totalSeconds={breakDuration}
+                      size="player"
+                      className="mt-4 shrink-0 sm:mt-6"
+                    />
 
-                    <div className="absolute inset-[8%] flex flex-col items-center justify-center rounded-full border border-[#00d8ff]/25 bg-[radial-gradient(circle_at_50%_35%,rgba(44,23,101,0.92)_0%,rgba(10,7,40,0.96)_100%)] sm:inset-[9%]">
-                      <p className="font-mono text-[clamp(2.5rem,11vw,4.5rem)] font-black leading-none text-white">
-                        {String(breakMinutes)}:{String(breakSeconds).padStart(2, '0')}
-                      </p>
-                      <p className="mt-1 text-sm font-extrabold tracking-[0.06em] text-[#00e8ff] sm:mt-2 sm:text-base md:text-lg lg:text-xl">
-                        TIME REMAINING
-                      </p>
-                    </div>
+                    <img
+                      src="/logo.png"
+                      alt="Max Showdown Trivia"
+                      className="relative z-10 mt-4 h-auto w-[min(68vw,220px)] max-w-[260px] shrink-0 object-contain drop-shadow-[0_6px_24px_rgba(0,0,0,0.4)] sm:mt-6 sm:w-[min(48vw,240px)] sm:max-w-[320px]"
+                    />
                   </div>
-
-                  <img
-                    src="/logo.png"
-                    alt="Max Showdown Trivia"
-                    className="relative z-10 mt-8 h-auto  max-w-[360px] object-contain drop-shadow-[0_6px_24px_rgba(0,0,0,0.4)] sm:mt-10 sm:w-[min(48vw,240px)]"
-                  />
                 </div>
               </motion.div>
             )}

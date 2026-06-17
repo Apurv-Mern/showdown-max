@@ -2,7 +2,7 @@ const { SOCKET_EVENTS } = require('shared/constants/socketEvents');
 const { ROUND_TYPES } = require('shared/constants/roundTypes');
 const { getEliminationPoints } = require('shared/constants/scoring');
 const timerManager = require('./game-engine/timerManager');
-const { getBreakRemainingSeconds } = require('../utils/breakWallClock');
+const { getBreakRemainingSeconds, getBreakUpNextRoundPayload } = require('../utils/breakWallClock');
 const redisStore = require('./redisSessionStore');
 const { buildRevealSnapshot } = require('./revealSnapshot');
 const { Team } = require('../models');
@@ -303,6 +303,8 @@ const buildJoinReplayEvents = async ({ pin, gameState, team, mySubmittedOptionIn
             ? Number(gameState.breakEndsAt)
             : undefined,
         serverNow,
+        currentRoundIndex: Number(gameState.currentRoundIndex ?? 0),
+        upNextRound: getBreakUpNextRoundPayload(gameState),
       },
     });
   }

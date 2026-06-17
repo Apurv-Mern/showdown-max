@@ -161,11 +161,7 @@ input[type='range']::-webkit-slider-thumb {
   top: 50%;
   height: 1px;
   transform: translateY(-50%);
-  background: repeating-linear-gradient(
-    90deg,
-    rgba(0, 229, 255, 0.22) 0 5px,
-    transparent 5px 10px
-  );
+  background: repeating-linear-gradient(90deg, rgba(0, 229, 255, 0.22) 0 5px, transparent 5px 10px);
   pointer-events: none;
   z-index: 0;
 }
@@ -260,11 +256,11 @@ input[type='range']::-webkit-slider-thumb {
   position: relative;
   width: 100%;
   overflow: hidden;
-  background: linear-gradient(180deg, #5b2da8 0%, #3d1a7a 38%, #24124f 72%, #160a34 100%);
-  border: 1px solid rgba(186, 140, 255, 0.28);
-  box-shadow:
+  /* background: linear-gradient(180deg, #5b2da8 0%, #3d1a7a 38%, #24124f 72%, #160a34 100%); */
+  /* border: 1px solid rgba(186, 140, 255, 0.28); */
+  /* box-shadow:
     0 10px 28px rgba(0, 0, 0, 0.38),
-    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+    inset 0 1px 0 rgba(255, 255, 255, 0.06); */
 }
 
 .question-stage-panel__blobs {

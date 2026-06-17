@@ -41,6 +41,19 @@ interface NewSession {
   breakDuration?: number;
 }
 
+const DEFAULT_BREAK_MINUTES = 6;
+const BREAK_MIN_MINUTES = 1;
+const BREAK_MAX_MINUTES = 60;
+
+function breakSecondsToMinutes(seconds: number): number {
+  return Math.max(1, Math.round(Number(seconds) / 60));
+}
+
+function formatBreakDurationLabel(seconds: number): string {
+  const mins = breakSecondsToMinutes(seconds);
+  return `${mins} min`;
+}
+
 export default function SessionsPage() {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [quizzes, setQuizzes] = useState<Quiz[]>([]);
@@ -48,7 +61,7 @@ export default function SessionsPage() {
   const [showCreate, setShowCreate] = useState(false);
   const [selectedQuiz, setSelectedQuiz] = useState<number | ''>('');
   const [maxTeams, setMaxTeams] = useState(50);
-  const [breakDuration, setBreakDuration] = useState(360);
+  const [breakDurationMinutes, setBreakDurationMinutes] = useState(DEFAULT_BREAK_MINUTES);
   const [creating, setCreating] = useState(false);
   const [createSessionError, setCreateSessionError] = useState('');
   const [breakDurationError, setBreakDurationError] = useState('');
@@ -94,8 +107,14 @@ export default function SessionsPage() {
       setCreateSessionError("Teams can't create with 0 teams");
       return;
     }
-    if (!Number.isFinite(breakDuration) || breakDuration < 30 || breakDuration > 3600) {
-      setBreakDurationError('Break duration must be between 30 and 3600 seconds.');
+    if (
+      !Number.isFinite(breakDurationMinutes) ||
+      breakDurationMinutes < BREAK_MIN_MINUTES ||
+      breakDurationMinutes > BREAK_MAX_MINUTES
+    ) {
+      setBreakDurationError(
+        `Break duration must be between ${BREAK_MIN_MINUTES} and ${BREAK_MAX_MINUTES} minutes.`,
+      );
       return;
     }
     try {
@@ -104,12 +123,13 @@ export default function SessionsPage() {
       const res = await api.post<NewSession>('/api/sessions', {
         quizId: Number(selectedQuiz),
         maxTeams,
-        breakDuration,
+        breakDuration: breakDurationMinutes * 60,
       });
       setCreatedSession(res.data);
       setShowCreate(false);
       setSelectedQuiz('');
       setMaxTeams(50);
+      setBreakDurationMinutes(DEFAULT_BREAK_MINUTES);
       fetchSessions();
       toast.success('Session created');
     } catch (err: any) {
@@ -204,7 +224,7 @@ export default function SessionsPage() {
                   {Number.isFinite(Number(session.breakDuration)) ? (
                     <>
                       <span>•</span>
-                      <span>Break: {Math.round(Number(session.breakDuration))}s</span>
+                      <span>Break: {formatBreakDurationLabel(Number(session.breakDuration))}</span>
                     </>
                   ) : null}
                   <span>•</span>
@@ -293,23 +313,29 @@ export default function SessionsPage() {
           </div>
           <div>
             <label className="block text-sm font-medium text-foreground/70 mb-1">
-              Break Duration (seconds)
+              Break Duration (minutes)
             </label>
             <input
               type="number"
-              value={breakDuration}
+              value={breakDurationMinutes}
               onChange={(e) => {
                 const nextValue = Number(e.target.value);
-                setBreakDuration(nextValue);
-                if (Number.isFinite(nextValue) && nextValue >= 30 && nextValue <= 3600) {
+                setBreakDurationMinutes(nextValue);
+                if (
+                  Number.isFinite(nextValue) &&
+                  nextValue >= BREAK_MIN_MINUTES &&
+                  nextValue <= BREAK_MAX_MINUTES
+                ) {
                   setBreakDurationError('');
                 } else {
-                  setBreakDurationError('Break duration must be between 30 and 3600 seconds.');
+                  setBreakDurationError(
+                    `Break duration must be between ${BREAK_MIN_MINUTES} and ${BREAK_MAX_MINUTES} minutes.`,
+                  );
                 }
               }}
-              min={30}
-              max={3600}
-              step={30}
+              min={BREAK_MIN_MINUTES}
+              max={BREAK_MAX_MINUTES}
+              step={1}
               className={`w-full bg-surface-light border rounded-lg px-4 py-2.5 text-foreground focus:outline-none focus:ring-2 ${
                 breakDurationError
                   ? 'border-danger focus:ring-danger/40'
@@ -317,7 +343,7 @@ export default function SessionsPage() {
               }`}
             />
             <p className="mt-1 text-xs text-foreground/50">
-              How long the on-screen break timer runs (default 360s / 6 min).
+              How long the on-screen break timer runs (default {DEFAULT_BREAK_MINUTES} min).
             </p>
             {breakDurationError ? (
               <p className="mt-2 text-sm font-medium text-danger">{breakDurationError}</p>
@@ -331,9 +357,9 @@ export default function SessionsPage() {
                 creating ||
                 !Number.isFinite(maxTeams) ||
                 maxTeams <= 0 ||
-                !Number.isFinite(breakDuration) ||
-                breakDuration < 30 ||
-                breakDuration > 3600
+                !Number.isFinite(breakDurationMinutes) ||
+                breakDurationMinutes < BREAK_MIN_MINUTES ||
+                breakDurationMinutes > BREAK_MAX_MINUTES
               }
             >
               {creating ? 'Creating...' : 'Create Session'}

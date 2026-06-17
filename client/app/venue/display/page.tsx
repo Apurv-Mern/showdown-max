@@ -13,6 +13,9 @@ import { cn, toDisplayUpper } from '@/lib/utils';
 import { RoundIntroScoringLines } from '@/lib/roundIntroInstructions';
 import { QRCodeSVG } from 'qrcode.react';
 import DynamicUnityGame from '@/components/mini-games/DynamicUnityGame';
+import { BreakTimerDisplay } from '@/components/shared/BreakTimerDisplay';
+import { BreakScreenHeading } from '@/components/shared/BreakScreenHeading';
+import { resolveBreakUpNextLabel, resolveBreakUpNextLabelFromBreakStart } from '@/lib/breakScreenCopy';
 import { PUBLIC_API_URL } from '@/lib/env';
 
 const API_URL = PUBLIC_API_URL;
@@ -416,6 +419,7 @@ function VenueDisplayContent() {
   /** Wall-clock end of break (epoch ms); drives synced countdown across tabs/devices. */
   const [venueBreakEndsAtMs, setVenueBreakEndsAtMs] = useState<number | null>(null);
   const [venueBreakSkewMs, setVenueBreakSkewMs] = useState(0);
+  const [breakUpNextLabel, setBreakUpNextLabel] = useState<string | null>(null);
   const [miniGameType, setMiniGameType] = useState<VenueMiniGameType | null>(null);
   /** Bumped on venue reload / mini_game_start so Unity remounts after a browser refresh. */
   const [unityMountKey, setUnityMountKey] = useState(0);
@@ -486,9 +490,12 @@ function VenueDisplayContent() {
   // Mute the question-timer tick/buzz while a mini-game is on the venue, so the
   // host launching Kangaroo Race / Card Shuffle mid-question doesn't have the
   // ticking competing with the mini-game audio/UI on the projector.
-  const { playTick, playBuzz } = useTimerSound({
-    enabled: true,
+  useTimerSound({
+    enabled: phase === 'question',
     muted: isMusicRound || phase === 'mini_game' || phase === 'mini_game_result',
+    timerRemaining,
+    timerDuration,
+    timerRunning,
   });
   const {
     play: playMp3,
@@ -496,8 +503,6 @@ function VenueDisplayContent() {
     stop: stopMp3,
     setSource: setMp3Source,
   } = useAudio({ loop: false, volume: 0.8 });
-  const prevTimerRef = useRef(0);
-
   useEffect(() => {
     phaseRef.current = phase;
     // Drop the cached round-end payload once we leave the dedicated round_end phase
@@ -662,16 +667,6 @@ function VenueDisplayContent() {
       window.removeEventListener('focus', onFocus);
     };
   }, [sessionPin, isPinReady, router]);
-
-  useEffect(() => {
-    if (timerRemaining > 0 && timerRemaining !== prevTimerRef.current) {
-      playTick(timerRemaining <= 5);
-    }
-    if (prevTimerRef.current > 0 && timerRemaining === 0) {
-      playBuzz();
-    }
-    prevTimerRef.current = timerRemaining;
-  }, [timerRemaining, playTick, playBuzz]);
 
   // Start the 5s logo splash only once the PIN gate has cleared; then the green
   // welcome screen stays until the operator clicks Continue.
@@ -1175,6 +1170,13 @@ function VenueDisplayContent() {
         setBreakDuration(w.duration);
         setVenueBreakEndsAtMs(w.endsAt);
         setVenueBreakSkewMs(w.skewMs);
+        setBreakUpNextLabel(
+          resolveBreakUpNextLabelFromBreakStart({
+            upNextRound: data.upNextRound,
+            rounds: data.rounds,
+            currentRoundIndex: data.currentRoundIndex,
+          }),
+        );
         applyVenuePhaseFromSession('break');
       } else if (data.state && stateToPhase[data.state]) {
         applyVenuePhaseFromSession(stateToPhase[data.state]);
@@ -1396,6 +1398,8 @@ function VenueDisplayContent() {
       breakRemaining?: number;
       breakEndsAt?: number;
       serverNow?: number;
+      currentRoundIndex?: number;
+      upNextRound?: { name?: string; type?: string; index?: number } | null;
     }) => {
       const w = resolveBreakWallClock({
         breakEndsAt: data.breakEndsAt,
@@ -1406,6 +1410,7 @@ function VenueDisplayContent() {
       setBreakDuration(w.duration);
       setVenueBreakEndsAtMs(w.endsAt);
       setVenueBreakSkewMs(w.skewMs);
+      setBreakUpNextLabel(resolveBreakUpNextLabelFromBreakStart(data));
       setPhase('break');
     };
 
@@ -2729,6 +2734,7 @@ function VenueDisplayContent() {
             totalSeconds={breakDuration}
             breakEndsAtMs={venueBreakEndsAtMs}
             clockSkewMs={venueBreakSkewMs}
+            upNextLabel={breakUpNextLabel}
             pin={sessionPin}
             qrCodeData={qrCodeData}
           />
@@ -2971,12 +2977,14 @@ function BreakView({
   totalSeconds,
   breakEndsAtMs,
   clockSkewMs,
+  upNextLabel,
   pin,
   qrCodeData,
 }: {
   totalSeconds: number;
   breakEndsAtMs: number | null;
   clockSkewMs: number;
+  upNextLabel?: string | null;
   pin: string;
   qrCodeData: string;
 }) {
@@ -3008,53 +3016,17 @@ function BreakView({
     };
   }, [breakEndsAtMs, clockSkewMs, totalSeconds]);
 
-  const minutes = Math.floor(remaining / 60);
-  const seconds = remaining % 60;
-  const total = Math.max(1, totalSeconds);
-  /** Elapsed wedge grows clockwise from 12 o'clock; remaining arc keeps the spectrum. */
-  const elapsedDeg = Math.max(0, Math.min(360, ((total - remaining) / total) * 360));
-  const span = Math.max(0, 360 - elapsedDeg);
-  const s1 = elapsedDeg + span * 0.22;
-  const s2 = elapsedDeg + span * 0.44;
-  const s3 = elapsedDeg + span * 0.66;
-  const s4 = elapsedDeg + span * 0.88;
-  const ringStyle = {
-    background: `conic-gradient(
-      #141a33 0deg,
-      #141a33 ${elapsedDeg}deg,
-      #ff2424 ${elapsedDeg}deg,
-      #ff9b00 ${s1}deg,
-      #fff100 ${s2}deg,
-      #b7ff00 ${s3}deg,
-      #78ff00 ${s4}deg,
-      #78ff00 360deg
-    )`,
-  } as const;
-
   return (
     <div className="relative w-full h-full flex flex-col items-center justify-center text-center animate-fadeIn overflow-hidden">
       <div className="pointer-events-none absolute left-0 top-0 h-[280px] w-[280px] bg-[radial-gradient(circle_at_30%_20%,rgba(255,245,170,0.38),rgba(255,245,170,0.04)_38%,transparent_68%)] opacity-60" />
       <div className="pointer-events-none absolute right-0 top-0 h-[280px] w-[280px] bg-[radial-gradient(circle_at_70%_20%,rgba(255,245,170,0.38),rgba(255,245,170,0.04)_38%,transparent_68%)] opacity-60" />
 
-      <h2 className="text-[40px] mb-10 leading-none font-black text-white drop-shadow-[0_0_14px_rgba(255,255,255,0.35)]">
-        WE'LL BE BACK RIGHT AFTER OUR FIRST OFFICIAL BREAK !!
-      </h2>
-      <div
-        className="relative mt-8 h-[420px] w-[420px] rounded-full p-[10px] shadow-[0_0_30px_rgba(0,217,255,0.2)]"
-        style={ringStyle}
-      >
-        <div className="relative h-full w-full rounded-full border border-white/15 bg-[linear-gradient(180deg,rgba(25,16,73,0.95)_0%,rgba(7,7,28,0.96)_100%)]">
-          <div className="absolute inset-0 rounded-full opacity-25 bg-[radial-gradient(circle_at_center,rgba(255,255,255,0.25)_2px,transparent_2px)] [background-size:16px_16px]" />
-          <div className="absolute inset-0 flex flex-col items-center justify-center">
-            <p className="text-[106px] leading-none font-black text-white drop-shadow-[0_0_12px_rgba(255,255,255,0.3)]">
-              {String(minutes).padStart(2, '0')}:{String(seconds).padStart(2, '0')}
-            </p>
-            <p className="mt-2 text-[34px] font-black tracking-[0.12em] text-[#1ee6ff] drop-shadow-[0_0_8px_rgba(30,230,255,0.55)]">
-              TIME REMAINING
-            </p>
-          </div>
-        </div>
-      </div>
+      <BreakScreenHeading size="venue" upNextLabel={upNextLabel} className="mb-10" />
+      <BreakTimerDisplay
+        remainingSeconds={remaining}
+        totalSeconds={totalSeconds}
+        size="venue"
+      />
 
       <div className="relative z-10 mt-10 flex w-full justify-center px-6">
         <img

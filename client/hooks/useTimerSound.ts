@@ -1,91 +1,105 @@
 'use client';
 
-import { useCallback, useRef, useEffect } from 'react';
+import { useEffect, useRef } from 'react';
+
+export const TIMER_COUNTDOWN_SOUND_SRC = '/sounds/Countdown Track 2.mp3';
 
 interface UseTimerSoundOptions {
   enabled?: boolean;
-  /** Mute during music rounds */
+  /** Mute during music rounds and mini-games */
   muted?: boolean;
+  timerRemaining?: number;
+  timerDuration?: number;
+  /** True while the server countdown is actively ticking */
+  timerRunning?: boolean;
 }
 
 /**
- * Generates timer tick/urgency sounds using Web Audio API.
- * - Normal tick every second (subtle)
- * - Urgent tick below 5 seconds (louder, higher pitch)
- * - No external audio files required
+ * Plays the countdown MP3 on the venue display, synced with the question timer.
+ * Pauses when the host pauses the timer; muted during music rounds.
+ * Host dashboard does not use this hook — audio is venue-only.
  */
-export const useTimerSound = ({ enabled = true, muted = false }: UseTimerSoundOptions = {}) => {
-  const ctxRef = useRef<AudioContext | null>(null);
-
-  const getContext = useCallback(() => {
-    if (!ctxRef.current) {
-      ctxRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
-    }
-    return ctxRef.current;
-  }, []);
+export const useTimerSound = ({
+  enabled = true,
+  muted = false,
+  timerRemaining = 0,
+  timerDuration = 30,
+  timerRunning = false,
+}: UseTimerSoundOptions = {}) => {
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const trackDurationRef = useRef(0);
 
   useEffect(() => {
+    const audio = new Audio(TIMER_COUNTDOWN_SOUND_SRC);
+    audio.preload = 'auto';
+    audio.volume = 0.85;
+
+    const onMetadata = () => {
+      if (Number.isFinite(audio.duration) && audio.duration > 0) {
+        trackDurationRef.current = audio.duration;
+      }
+    };
+
+    audio.addEventListener('loadedmetadata', onMetadata);
+    audioRef.current = audio;
+
     return () => {
-      ctxRef.current?.close().catch(() => {});
-      ctxRef.current = null;
+      audio.pause();
+      audio.removeEventListener('loadedmetadata', onMetadata);
+      audio.src = '';
+      audioRef.current = null;
     };
   }, []);
 
-  const playTick = useCallback((urgent = false) => {
-    if (!enabled || muted) return;
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
 
-    try {
-      const ctx = getContext();
-      if (ctx.state === 'suspended') {
-        ctx.resume();
+    const stop = () => {
+      audio.pause();
+      try {
+        audio.currentTime = 0;
+      } catch {
+        /* ignore */
       }
+    };
 
-      const oscillator = ctx.createOscillator();
-      const gainNode = ctx.createGain();
-
-      oscillator.connect(gainNode);
-      gainNode.connect(ctx.destination);
-
-      oscillator.type = urgent ? 'square' : 'sine';
-      oscillator.frequency.setValueAtTime(urgent ? 880 : 440, ctx.currentTime);
-
-      const tickVolume = urgent ? 0.15 : 0.06;
-      gainNode.gain.setValueAtTime(tickVolume, ctx.currentTime);
-      gainNode.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + (urgent ? 0.15 : 0.08));
-
-      oscillator.start(ctx.currentTime);
-      oscillator.stop(ctx.currentTime + (urgent ? 0.15 : 0.08));
-    } catch {
-      // Web Audio not available
+    if (!enabled || muted || timerRemaining <= 0) {
+      stop();
+      return;
     }
-  }, [enabled, muted, getContext]);
 
-  const playBuzz = useCallback(() => {
-    if (!enabled || muted) return;
+    const questionSeconds = Math.max(1, timerDuration);
+    const elapsed = Math.max(0, questionSeconds - timerRemaining);
+    const trackSeconds =
+      trackDurationRef.current > 0 ? trackDurationRef.current : questionSeconds;
+    const targetTime = Math.min(trackSeconds, (elapsed / questionSeconds) * trackSeconds);
 
-    try {
-      const ctx = getContext();
-      if (ctx.state === 'suspended') ctx.resume();
+    const syncPosition = () => {
+      if (Math.abs(audio.currentTime - targetTime) > 0.4) {
+        try {
+          audio.currentTime = targetTime;
+        } catch {
+          /* not seekable yet */
+        }
+      }
+    };
 
-      const oscillator = ctx.createOscillator();
-      const gainNode = ctx.createGain();
-
-      oscillator.connect(gainNode);
-      gainNode.connect(ctx.destination);
-
-      oscillator.type = 'sawtooth';
-      oscillator.frequency.setValueAtTime(200, ctx.currentTime);
-      oscillator.frequency.linearRampToValueAtTime(100, ctx.currentTime + 0.5);
-
-      gainNode.gain.setValueAtTime(0.2, ctx.currentTime);
-      gainNode.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.5);
-
-      oscillator.start(ctx.currentTime);
-      oscillator.stop(ctx.currentTime + 0.5);
-    } catch {
-      // Web Audio not available
+    if (timerRunning) {
+      if (audio.readyState >= 1) {
+        syncPosition();
+        audio.play().catch(() => {});
+      } else {
+        const onReady = () => {
+          syncPosition();
+          audio.play().catch(() => {});
+        };
+        audio.addEventListener('loadedmetadata', onReady, { once: true });
+        return () => audio.removeEventListener('loadedmetadata', onReady);
+      }
+    } else {
+      syncPosition();
+      audio.pause();
     }
-  }, [enabled, muted, getContext]);
-
-  return { playTick, playBuzz };
+  }, [enabled, muted, timerRemaining, timerDuration, timerRunning]);
 };

@@ -20,6 +20,11 @@ import { BreakTimerDisplay } from '@/components/shared/BreakTimerDisplay';
 import { BreakScreenHeading } from '@/components/shared/BreakScreenHeading';
 import { RoundEndScreen } from '@/components/shared/RoundEndScreen';
 import {
+  PlayerWagerSelectionScreen,
+  FINAL_WAGER_PERCENT_OPTIONS,
+  WAGER_POINT_OPTIONS,
+} from '@/components/player/PlayerWagerSelectionScreen';
+import {
   resolveBreakUpNextLabel,
   resolveBreakUpNextLabelFromBreakStart,
 } from '@/lib/breakScreenCopy';
@@ -117,10 +122,6 @@ const OPTION_BG: Record<number, string> = {
 };
 
 const OPTION_LETTERS = ['A', 'B', 'C', 'D', 'E', 'F'];
-
-const WAGER_POINT_OPTIONS = [0, 10, 20, 30, 40, 50] as const;
-// Final wager: fixed % steps on mobile; server clamps to SCORING.FINAL_WAGER (shared/constants/scoring.js).
-const FINAL_WAGER_PERCENT_OPTIONS = [0, 20, 40, 60, 80, 100] as const;
 
 function initialWagerAmountForRoundType(roundType?: string): number {
   return (roundType || '').toUpperCase() === 'FINAL_WAGER' ? FINAL_WAGER_PERCENT_OPTIONS[0] : 0;
@@ -670,12 +671,7 @@ function QuestionMediaVisual({
     );
   }
   if ((q.mediaType || '').toLowerCase() === 'mp3' || roundType === 'MUSIC') {
-    const caption =
-      musicBanner === 'playing'
-        ? 'Audio is playing on Venue Screen'
-        : musicBanner === 'waiting'
-          ? 'Waiting for host to play music'
-          : null;
+    const caption = musicBanner === 'playing' ? null : musicBanner === 'waiting' ? null : null;
     return (
       <div className="shrink-0">
         <div className="rounded-2xl overflow-hidden">
@@ -816,6 +812,7 @@ export default function GamePage() {
   // Drives the player-side "round is over" transition screen between the last reveal
   // and the scoreboard / next round intro.
   const [roundEndInfo, setRoundEndInfo] = useState<RoundEndInfo | null>(null);
+  const roundEndInfoRef = useRef<RoundEndInfo | null>(null);
   const [question, setQuestion] = useState<QuestionData | null>(null);
   const [timerRemaining, setTimerRemaining] = useState(0);
   const [timerEndsAt, setTimerEndsAt] = useState<number | null>(null);
@@ -868,11 +865,12 @@ export default function GamePage() {
   const playerRestoreGuardRef = useRef<{ pin: string; teamId: number } | null>(null);
   useEffect(() => {
     phaseRef.current = phase;
-    // Drop the cached round-end payload once we leave the dedicated round_end phase.
-    if (phase !== 'round_end') {
+    roundEndInfoRef.current = roundEndInfo;
+    // Drop the cached round-end payload once we leave the round-end / scoreboard flow.
+    if (phase !== 'round_end' && phase !== 'scoreboard') {
       setRoundEndInfo(null);
     }
-  }, [phase]);
+  }, [phase, roundEndInfo]);
 
   useEffect(() => {
     if (question?.question?.options) {
@@ -1108,6 +1106,9 @@ export default function GamePage() {
         }
 
         if (gs.scoreboardVisible && gs.teams) {
+          if (phaseRef.current !== 'scoreboard') {
+            previousPhaseBeforeScoreboardRef.current = phaseRef.current;
+          }
           const sorted = Object.values(gs.teams)
             .sort((a: any, b: any) => Number(b.score || 0) - Number(a.score || 0))
             .map((team: any) => ({
@@ -1382,6 +1383,9 @@ export default function GamePage() {
         }
 
         if (gs.state === 'SCOREBOARD' && gs.teams) {
+          if (phaseRef.current !== 'scoreboard') {
+            previousPhaseBeforeScoreboardRef.current = phaseRef.current;
+          }
           const sorted = Object.values(gs.teams)
             .sort((a: any, b: any) => Number(b.score || 0) - Number(a.score || 0))
             .map((team: any) => ({
@@ -1857,6 +1861,10 @@ export default function GamePage() {
         setPhase(previous);
         return;
       }
+      if (roundEndInfoRef.current) {
+        setPhase('round_end');
+        return;
+      }
       if (revealDataRef.current && questionRef.current) {
         setPhase('reveal');
         return;
@@ -2197,18 +2205,6 @@ export default function GamePage() {
     socket.emit('submit_wager', { amount: wagerAmount });
     setWagerSubmitted(true);
     wagerLockRequiredRef.current = false;
-    const restoredIdx = answerRestoreRef.current.idx;
-    const nextPhase = pickQuestionPlayerPhase({
-      roundType: rt,
-      hasLockedWager: true,
-      questionState: questionStateRef.current,
-      hasRevealData: Boolean(revealDataRef.current),
-      restoredIdx,
-      eliminated: false,
-    });
-    if (question || nextPhase !== 'wager_input') {
-      setPhase(nextPhase);
-    }
     if ((questionStateRef.current || '').toUpperCase() === 'REVEALED' && !revealDataRef.current) {
       ensureRevealAfterWagerLockRef.current?.();
     }
@@ -2236,7 +2232,6 @@ export default function GamePage() {
 
   const isFinalWagerRound =
     (question?.roundType || roundInfo?.round?.type || '').toUpperCase() === 'FINAL_WAGER';
-  const lockedWagerLabel = isFinalWagerRound ? `${wagerAmount}%` : `${wagerAmount} pts`;
   const wagerChoiceValues = isFinalWagerRound ? FINAL_WAGER_PERCENT_OPTIONS : WAGER_POINT_OPTIONS;
 
   useEffect(() => {
@@ -2339,7 +2334,7 @@ export default function GamePage() {
                       ) : null}
                     </div>
 
-                    <div className="absolute left-1/2 top-[76%] flex w-[calc(100%-1.25rem)] max-w-xl -translate-x-1/2 flex-col items-center px-2 sm:top-[76%] sm:w-[min(92%,36rem)] sm:px-3 md:max-w-2xl md:px-4">
+                    <div className="absolute inset-x-[7%] top-[68%] bottom-[8%] flex flex-col items-stretch justify-center overflow-hidden px-0">
                       <RoundIntroScoringLines roundType={roundInfo.round?.type} variant="player" />
                     </div>
                   </div>
@@ -2432,119 +2427,16 @@ export default function GamePage() {
 
             {/* ── WAGER INPUT ── */}
             {phase === 'wager_input' && (
-              <motion.div
-                key="wager"
-                {...pageTransition}
-                className="flex flex-1 flex-col items-center justify-center p-4 text-center sm:p-6 md:p-8"
-              >
-                <div className="w-full max-w-sm md:max-w-md">
-                  <motion.h2
-                    initial={{ opacity: 0, y: -10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    className="text-xl font-bold mb-4 uppercase text-glow-cyan"
-                  >
-                    PLACE YOUR WAGER
-                  </motion.h2>
-                  {question?.question?.category ? (
-                    <motion.div
-                      initial={{ opacity: 0, y: -6 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{ delay: 0.05 }}
-                      className="mb-5 inline-flex items-center gap-2 rounded-full border border-[#00d9ff]/45 bg-[rgba(0,217,255,0.08)] px-4 py-1.5 shadow-[0_0_14px_rgba(0,217,255,0.18)]"
-                    >
-                      <span className="text-[10px] font-semibold uppercase tracking-[0.22em] text-[#9de9ff]/80">
-                        Category
-                      </span>
-                      <span className="text-sm font-bold uppercase tracking-[0.14em] text-[#00d9ff]">
-                        {toDisplayUpper(question.question.category)}
-                      </span>
-                    </motion.div>
-                  ) : null}
-                  {/* Current Score Display */}
-                  {/* <motion.div
-                    initial={{ opacity: 0, scale: 0.9 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    transition={{ delay: 0.1 }}
-                    className="neon-border rounded-xl p-4 mb-6 bg-surface/80"
-                  >
-                    <p className="text-foreground/50 text-xs mb-1">Current Score</p>
-                    <p className="text-3xl font-mono font-bold text-neon-cyan text-glow-cyan">
-                      {session.score} pts
-                    </p>
-                  </motion.div> */}
-                  {isFinalWagerRound ? (
-                    <p className="text-foreground/40 text-sm mb-6 uppercase">
-                      Wager 0%–100% of your current score on the final question.
-                    </p>
-                  ) : (
-                    <div className="mb-6 space-y-2 rounded-xl border border-white/10 bg-black/25 px-4 py-3 text-left text-sm uppercase leading-snug text-white/75 sm:text-center">
-                      <p>
-                        Choose a fixed wager: 0, 10, 20, 30, 40, or 50 points before the question is
-                        revealed.
-                      </p>
-                      <p>
-                        <span className="font-semibold text-neon-green/90">Correct</span> = gain
-                        wagered amount.{' '}
-                        <span className="font-semibold text-red-400/90">Incorrect</span> = lose
-                        wagered amount.
-                      </p>
-                    </div>
-                  )}
-                  <motion.div
-                    initial={{ opacity: 0, scale: 0.95 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    transition={{ delay: 0.15 }}
-                    className="neon-border rounded-xl p-4 mb-4 bg-surface/80 sm:p-6"
-                  >
-                    <div className="grid grid-cols-3 gap-2.5 sm:gap-3">
-                      {wagerChoiceValues.map((val) => (
-                        <button
-                          key={val}
-                          type="button"
-                          disabled={wagerSubmitted}
-                          onClick={() => setWagerAmount(val)}
-                          className={cn(
-                            'rounded-xl border-2 py-3.5 text-base font-black transition touch-manipulation sm:py-4 sm:text-lg',
-                            wagerAmount === val
-                              ? 'border-[#00d8ff] bg-[#00d8ff]/20 text-white shadow-[0_0_14px_rgba(0,216,255,0.35)]'
-                              : 'border-white/20 bg-black/35 text-white/90 active:brightness-110',
-                            wagerSubmitted && 'cursor-not-allowed',
-                            wagerSubmitted && wagerAmount !== val && 'opacity-35',
-                          )}
-                        >
-                          {isFinalWagerRound ? `${val}%` : val}
-                        </button>
-                      ))}
-                    </div>
-                    <p className="text-3xl font-mono font-bold text-neon-cyan text-glow-cyan mt-4 sm:text-4xl">
-                      {isFinalWagerRound ? `${wagerAmount}%` : `${wagerAmount} pts`}
-                    </p>
-                  </motion.div>
-                  <button
-                    onClick={handleSubmitWager}
-                    disabled={wagerSubmitted}
-                    className={cn(
-                      'w-full py-4 text-lg font-bold rounded-xl border transition-colors touch-manipulation',
-                      wagerSubmitted
-                        ? 'bg-green-500/20 text-green-400 border-green-500/50 cursor-not-allowed'
-                        : 'bg-neon-cyan/20 text-neon-cyan border-neon-cyan/50 hover:bg-neon-cyan/30',
-                    )}
-                  >
-                    {wagerSubmitted ? '✓ Wager Locked' : 'Lock Wager'}
-                  </button>
-                  {wagerSubmitted && (
-                    <div className="mt-4 rounded-xl border border-green-500/40 bg-green-500/10 px-4 py-3 text-sm">
-                      <p className="font-semibold text-green-300">
-                        Wager locked in: {lockedWagerLabel}
-                      </p>
-                      <p className="mt-1 text-white/60">
-                        {question
-                          ? 'Return to the question to submit your answer.'
-                          : 'Waiting for host to start the round...'}
-                      </p>
-                    </div>
-                  )}
-                </div>
+              <motion.div key="wager" {...pageTransition} className="flex flex-1 flex-col">
+                <PlayerWagerSelectionScreen
+                  category={question?.question?.category}
+                  isFinalWagerRound={isFinalWagerRound}
+                  wagerAmount={wagerAmount}
+                  wagerSubmitted={wagerSubmitted}
+                  wagerChoiceValues={wagerChoiceValues}
+                  onSelectAmount={setWagerAmount}
+                  onSubmit={handleSubmitWager}
+                />
               </motion.div>
             )}
 

@@ -12,7 +12,7 @@ const SIZE_CONFIG: Record<
     line: 'text-[clamp(3rem,14vw,5.5rem)] font-black uppercase leading-[0.95] tracking-[0.04em]',
     wrapper: 'px-4',
     logo: 'h-auto w-[min(72vw,280px)] max-w-[300px] sm:w-[min(56vw,300px)] sm:max-w-[340px]',
-    logoBottom: 'bottom-10 pb-0',
+    logoBottom: 'mb-[10px]',
   },
   host: {
     line: 'text-[clamp(2rem,5vw,3.5rem)] font-black uppercase leading-[0.95] tracking-[0.05em]',
@@ -38,6 +38,59 @@ export interface RoundEndScreenProps {
 export function RoundEndScreen({ roundIndex, size = 'player', className }: RoundEndScreenProps) {
   const cfg = SIZE_CONFIG[size];
   const roundNumber = Math.max(1, roundIndex + 1);
+  const isPlayer = size === 'player';
+
+  const titleBlock = (
+    <div className="text-center">
+      <p
+        className={cn('text-[#00e8ff]', cfg.line)}
+        style={{
+          background:
+            'linear-gradient(180deg, #4EDDFE 0%, #00D9FF 20%, #6BF8FF 40%, #4FDBFE 60%, #3AC1FF 80%, #097FFF 100%)',
+          WebkitBackgroundClip: 'text',
+          WebkitTextFillColor: 'transparent',
+          backgroundClip: 'text',
+        }}
+      >
+        END OF
+      </p>
+      <p
+        className={cn('mt-1 text-[#00e8ff] sm:mt-2', cfg.line)}
+        style={{
+          background:
+            'linear-gradient(180deg, #4EDDFE 0%, #00D9FF 20%, #6BF8FF 40%, #4FDBFE 60%, #3AC1FF 80%, #097FFF 100%)',
+          WebkitBackgroundClip: 'text',
+          WebkitTextFillColor: 'transparent',
+          backgroundClip: 'text',
+        }}
+      >
+        ROUND {roundNumber}
+      </p>
+    </div>
+  );
+
+  if (isPlayer) {
+    return (
+      <div className={cn('flex h-full min-h-0 w-full flex-col overflow-hidden mb-10', className)}>
+        <div className={cn('flex flex-1 flex-col items-center justify-center', cfg.wrapper)}>
+          {titleBlock}
+        </div>
+        <div
+          className={cn(
+            'pointer-events-none flex shrink-0 justify-center',
+            cfg.logoBottom,
+            cfg.wrapper,
+          )}
+        >
+          <img
+            src="/logo.png"
+            alt="Max Showdown Trivia"
+            className={cn('object-contain h-full w-full', cfg.logo)}
+          />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className={cn('relative h-full min-h-0 w-full overflow-hidden', className)}>
@@ -47,32 +100,7 @@ export function RoundEndScreen({ roundIndex, size = 'player', className }: Round
           cfg.wrapper,
         )}
       >
-        <div className="text-center">
-          <p
-            className={cn('text-[#00e8ff]', cfg.line)}
-            style={{
-              background:
-                'linear-gradient(180deg, #4EDDFE 0%, #00D9FF 20%, #6BF8FF 40%, #4FDBFE 60%, #3AC1FF 80%, #097FFF 100%)',
-              WebkitBackgroundClip: 'text',
-              WebkitTextFillColor: 'transparent',
-              backgroundClip: 'text',
-            }}
-          >
-            END OF
-          </p>
-          <p
-            className={cn('mt-1 text-[#00e8ff] sm:mt-2', cfg.line)}
-            style={{
-              background:
-                'linear-gradient(180deg, #4EDDFE 0%, #00D9FF 20%, #6BF8FF 40%, #4FDBFE 60%, #3AC1FF 80%, #097FFF 100%)',
-              WebkitBackgroundClip: 'text',
-              WebkitTextFillColor: 'transparent',
-              backgroundClip: 'text',
-            }}
-          >
-            ROUND {roundNumber}
-          </p>
-        </div>
+        {titleBlock}
       </div>
 
       <div
@@ -81,11 +109,7 @@ export function RoundEndScreen({ roundIndex, size = 'player', className }: Round
           cfg.logoBottom,
         )}
       >
-        <img
-          src="/logo.png"
-          alt="Max Showdown Trivia"
-          className={cn('object-contain  ', cfg.logo)}
-        />
+        <img src="/logo.png" alt="Max Showdown Trivia" className={cn('object-contain', cfg.logo)} />
       </div>
     </div>
   );

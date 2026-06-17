@@ -8,7 +8,7 @@ const SCORING = Object.freeze({
     INCORRECT: -2,
   },
   MUSIC: {
-    CORRECT: 10,
+    CORRECT: 20,
     INCORRECT: -2,
   },
   WAGER: {

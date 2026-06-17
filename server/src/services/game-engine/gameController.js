@@ -473,14 +473,10 @@ const nextQuestion = async (io, pin) => {
     if (!transResult.valid) return;
     gameState = transResult.gameState;
   } else if (gameState.state === GAME_STATES.SCOREBOARD) {
-    const round = stateMachine.getCurrentRound(gameState);
-    if (isWagerLockRound(round)) {
-      await startQuestionWagerCollection(io, pin);
-      return;
-    }
-    const transResult = stateMachine.transition(gameState, GAME_STATES.QUESTION);
-    if (!transResult.valid) return;
-    gameState = transResult.gameState;
+    // Post-round scoreboard — advance to the next round intro, never reopen the
+    // last question at the same index.
+    await advanceToNextRound(io, pin);
+    return;
   } else if (
     gameState.state === GAME_STATES.QUESTION &&
     gameState.questionState === QUESTION_STATES.REVEALED
@@ -1341,6 +1337,19 @@ const handlePlayerSocketDisconnect = async (io, pin, teamIdRaw, options = {}) =>
 const showScoreboard = async (io, pin) => {
   const gameState = await redisStore.getGameState(pin);
   if (!gameState) return;
+
+  // Overlay only between rounds — not during live questions.
+  if (
+    gameState.state !== GAME_STATES.SCOREBOARD &&
+    gameState.state !== GAME_STATES.ROUND_END
+  ) {
+    logger.warn('showScoreboard rejected — round still active', {
+      pin,
+      state: gameState.state,
+      questionState: gameState.questionState,
+    });
+    return;
+  }
 
   gameState.scoreboardVisible = true;
   await redisStore.setGameState(pin, gameState);

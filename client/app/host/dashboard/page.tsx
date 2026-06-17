@@ -14,7 +14,7 @@ import { resolveBreakUpNextLabel } from '@/lib/breakScreenCopy';
 import { clientLogger } from '@/lib/clientLogger';
 import { breakSecondsFromEndsAt, resolveBreakWallClock } from '@/lib/breakWallClock';
 import { cn } from '@/lib/utils';
-import { getRoundScoringLines } from '@/lib/roundIntroInstructions';
+import { RoundIntroScoringLines } from '@/lib/roundIntroInstructions';
 import { useAuth } from '@/lib/auth';
 import { PUBLIC_API_URL } from '@/lib/env';
 
@@ -600,7 +600,9 @@ function HostDashboardContent() {
           setHostBreakDuration(w.duration);
           setHostBreakRemaining(w.remaining);
         }
-        setIsScoreboardVisible(data.state === 'SCOREBOARD');
+        setIsScoreboardVisible(
+          data.state === 'SCOREBOARD' || Boolean(data.scoreboardVisible),
+        );
         // The round-over transition is only meaningful while the server keeps us in
         // ROUND_END; once we move on (scoreboard, next intro, break, etc.) drop the info.
         if (data.state !== 'ROUND_END') {
@@ -874,10 +876,12 @@ function HostDashboardContent() {
       );
     };
 
-    const onScoreboard = (payload?: { teams?: Team[] }) => {
+    const onScoreboard = (payload?: { teams?: Team[]; source?: string }) => {
       setIsScoreboardVisible(true);
       setGameState((prev) => {
         if (!prev) return prev;
+        const fromRoundEnd =
+          payload?.source === 'round_end' || prev.state === 'SCOREBOARD';
         if (prev.state !== 'SCOREBOARD') {
           previousStateBeforeScoreboardRef.current = {
             state: prev.state,
@@ -885,32 +889,37 @@ function HostDashboardContent() {
           };
         }
         const teamsPayload = payload?.teams;
-        if (!teamsPayload?.length) {
-          return { ...prev, state: 'SCOREBOARD' };
+        let next = prev;
+        if (teamsPayload?.length) {
+          const nextTeams = { ...prev.teams };
+          for (const t of teamsPayload) {
+            const key = String(t.teamId);
+            const existing = nextTeams[key];
+            nextTeams[key] = existing
+              ? {
+                  ...existing,
+                  score: t.score,
+                  isEliminated: t.isEliminated ?? existing.isEliminated,
+                }
+              : {
+                  teamId: t.teamId,
+                  teamName: t.teamName,
+                  score: t.score,
+                  isEliminated: t.isEliminated ?? false,
+                };
+          }
+          next = {
+            ...prev,
+            teams: nextTeams,
+            totalTeams: Object.keys(nextTeams).length,
+          };
         }
-        const nextTeams = { ...prev.teams };
-        for (const t of teamsPayload) {
-          const key = String(t.teamId);
-          const existing = nextTeams[key];
-          nextTeams[key] = existing
-            ? {
-                ...existing,
-                score: t.score,
-                isEliminated: t.isEliminated ?? existing.isEliminated,
-              }
-            : {
-                teamId: t.teamId,
-                teamName: t.teamName,
-                score: t.score,
-                isEliminated: t.isEliminated ?? false,
-              };
+        // Manual overlay during a live question must not flip the host UI to
+        // the post-round "Start next round" screen — server state stays QUESTION.
+        if (fromRoundEnd) {
+          return { ...next, state: 'SCOREBOARD' };
         }
-        return {
-          ...prev,
-          state: 'SCOREBOARD',
-          teams: nextTeams,
-          totalTeams: Object.keys(nextTeams).length,
-        };
+        return next;
       });
     };
 
@@ -918,6 +927,8 @@ function HostDashboardContent() {
       setIsScoreboardVisible(false);
       setGameState((prev) => {
         if (!prev) return prev;
+        // Overlay hide only — server stays on SCOREBOARD after round-end flow.
+        if (prev.state === 'SCOREBOARD') return prev;
         const restore = previousStateBeforeScoreboardRef.current;
         if (!restore) return prev;
         return { ...prev, state: restore.state, questionState: restore.questionState };
@@ -1373,8 +1384,7 @@ function HostDashboardContent() {
   };
   const handlePauseTimer = () => emit('pause_timer');
   const handleShowScoreboard = () => {
-    const canToggleScoreboard =
-      state === 'SCOREBOARD' || (state === 'QUESTION' && questionState === 'REVEALED');
+    const canToggleScoreboard = state === 'SCOREBOARD' || state === 'ROUND_END';
     if (!canToggleScoreboard) return;
 
     if (isScoreboardVisible) {
@@ -1738,6 +1748,14 @@ function HostDashboardContent() {
       handleCollectWagers();
       return;
     }
+    if (s === 'ROUND_END') {
+      handleNextQuestion();
+      return;
+    }
+    if (s === 'SCOREBOARD') {
+      handleAdvanceRound();
+      return;
+    }
     if (s === 'QUESTION') {
       const qs = gs?.questionState || 'WAITING';
       const idx = gs?.currentQuestionIndex ?? 0;
@@ -1954,8 +1972,7 @@ function HostDashboardContent() {
     isLastRound &&
     (state === 'SCOREBOARD' ||
       (state === 'QUESTION' && questionState === 'REVEALED' && isLastQuestionOfRound));
-  const canOpenScoreboard =
-    state === 'SCOREBOARD' || (state === 'QUESTION' && questionState === 'REVEALED');
+  const canOpenScoreboard = state === 'SCOREBOARD' || state === 'ROUND_END';
   const canStartBreak = state === 'SCOREBOARD' || state === 'ROUND_END';
   const canToggleBreak = state === 'BREAK' || canStartBreak;
 
@@ -2897,12 +2914,12 @@ function HostDashboardContent() {
                           ) : null}
                         </div>
 
-                        <p className="absolute left-1/2 top-[79.8%] w-[88%] -translate-x-1/2 -translate-y-1/2 px-2 text-xs font-black leading-[0.98] text-[#39ff14] drop-shadow-[0_0_8px_rgba(57,255,20,0.45)] sm:top-[77.8%] sm:w-[74%] sm:px-0 sm:text-xl md:text-2xl lg:text-[18px]">
-                          {getRoundScoringLines(currentRound?.type).positive}
-                        </p>
-                        <p className="absolute left-1/2 top-[90.2%] w-[88%] -translate-x-1/2 -translate-y-1/2 px-2 text-xs font-black leading-[0.98] text-[#ff3e3e] drop-shadow-[0_0_8px_rgba(255,62,62,0.45)] sm:top-[89.2%] sm:w-[74%] sm:px-0 sm:text-xl md:text-2xl lg:text-[18px]">
-                          {getRoundScoringLines(currentRound?.type).negative}
-                        </p>
+                        <div className="absolute inset-x-[6%] top-[69%] bottom-[6%] flex flex-col items-stretch justify-center overflow-hidden">
+                          <RoundIntroScoringLines
+                            roundType={currentRound?.type}
+                            variant="host"
+                          />
+                        </div>
 
                         {isCurrentRoundEmpty ? (
                           <div className="absolute left-1/2 top-[56%] w-[72%] -translate-x-1/2 -translate-y-1/2 rounded-2xl border border-[#ffd166]/60 bg-[rgba(40,28,8,0.9)] px-6 py-5 text-center shadow-[0_0_20px_rgba(255,209,102,0.3)]">
@@ -2959,16 +2976,9 @@ function HostDashboardContent() {
                 </div>
               ) : state === 'ROUND_END' ? (
                 <div className="flex w-full max-w-[720px] flex-col items-center justify-center gap-6 py-8 text-center animate-fadeIn">
-                  <div className="inline-flex items-center gap-3 rounded-full border border-[#41d9ff]/45 bg-[linear-gradient(180deg,rgba(20,42,89,0.95)_0%,rgba(11,20,46,0.95)_100%)] px-8 py-3 shadow-[0_0_22px_rgba(0,217,255,0.2)]">
-                    <span className="text-sm font-semibold uppercase tracking-[0.22em] text-[#8cdfff]">
-                      Round {(roundEndInfo?.roundIndex ?? gameState?.currentRoundIndex ?? 0) + 1}{' '}
-                      Complete
-                    </span>
-                  </div>
                   <h2 className="text-4xl font-black uppercase leading-tight text-white drop-shadow-[0_0_14px_rgba(123,194,255,0.35)] sm:text-5xl">
-                    END OF
-                    <br />
-                    ROUND {(roundEndInfo?.roundIndex ?? gameState?.currentRoundIndex ?? 0) + 1}
+                    END OF ROUND{' '}
+                    {(roundEndInfo?.roundIndex ?? gameState?.currentRoundIndex ?? 0) + 1}
                   </h2>
                   <p className="max-w-md text-base text-[#9de9ff]/90 sm:text-lg">
                     That round is over.{' '}
@@ -3289,8 +3299,7 @@ function HostDashboardContent() {
                   <path d="M5 3h4v2H5V3zm0 6h4v2H5V9zm0 6h4v2H5v-2zm6-12h10v2H11V3zm0 6h10v2H11V9zm0 6h10v2H11v-2z" />
                 </svg>
               }
-              // Only allow leaderboard after answer reveal (or while it's already showing).
-              // Keeps host from opening it in the middle of active/waiting questions.
+              // Leaderboard only between rounds (round-end / scoreboard), not mid-round.
               disabled={miniGameLive || state === 'FINAL_RESULTS' || !canOpenScoreboard}
               onClick={handleShowScoreboard}
             >
@@ -3534,13 +3543,8 @@ function HostDashboardContent() {
                         ) : null}
                       </div>
 
-                      <div className="absolute left-1/2 top-[79.5%] w-[74%] -translate-x-1/2 -translate-y-1/2">
-                        <p className="mb-5 text-[28px] font-black leading-none text-[#39ff14] drop-shadow-[0_0_8px_rgba(57,255,20,0.45)]">
-                          {getRoundScoringLines(currentRound?.type).positive}
-                        </p>
-                        <p className="text-[28px] font-black leading-none text-[#ff3e3e] drop-shadow-[0_0_8px_rgba(255,62,62,0.45)]">
-                          {getRoundScoringLines(currentRound?.type).negative}
-                        </p>
+                      <div className="absolute inset-x-[6%] top-[69%] bottom-[6%] flex flex-col items-stretch justify-center overflow-hidden">
+                        <RoundIntroScoringLines roundType={currentRound?.type} variant="host" />
                       </div>
                     </div>
                   </div>

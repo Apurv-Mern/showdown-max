@@ -20,6 +20,8 @@ import {
   resolveBreakUpNextLabel,
   resolveBreakUpNextLabelFromBreakStart,
 } from '@/lib/breakScreenCopy';
+import { VenueWagerCollectionScreenLegacy } from '@/components/venue/VenueWagerCollectionScreenLegacy';
+import { VenueLiveResponseBars } from '@/components/venue/VenueLiveResponseBars';
 import { PUBLIC_API_URL } from '@/lib/env';
 
 const API_URL = PUBLIC_API_URL;
@@ -417,6 +419,7 @@ function VenueDisplayContent() {
   // Drives the venue's "round is over" transition screen between the last
   // question reveal and the scoreboard. Cleared on phase change away from round_end.
   const [roundEndInfo, setRoundEndInfo] = useState<RoundEndInfo | null>(null);
+  const roundEndInfoRef = useRef<RoundEndInfo | null>(null);
   const [revealData, setRevealData] = useState<RevealData | null>(null);
   const [scoreboard, setScoreboard] = useState<Team[]>([]);
   const [breakDuration, setBreakDuration] = useState(360);
@@ -509,12 +512,12 @@ function VenueDisplayContent() {
   } = useAudio({ loop: false, volume: 0.8 });
   useEffect(() => {
     phaseRef.current = phase;
-    // Drop the cached round-end payload once we leave the dedicated round_end phase
-    // so a later phase (e.g. lingering reveal/scoreboard) can't accidentally render it.
-    if (phase !== 'round_end') {
+    roundEndInfoRef.current = roundEndInfo;
+    // Drop the cached round-end payload once we leave the round-end / scoreboard flow.
+    if (phase !== 'round_end' && phase !== 'scoreboard') {
       setRoundEndInfo(null);
     }
-  }, [phase]);
+  }, [phase, roundEndInfo]);
 
   useEffect(() => {
     miniGameTypeRef.current = miniGameType;
@@ -1183,7 +1186,11 @@ function VenueDisplayContent() {
         );
         applyVenuePhaseFromSession('break');
       } else if (data.state && stateToPhase[data.state]) {
-        applyVenuePhaseFromSession(stateToPhase[data.state]);
+        const nextPhase = stateToPhase[data.state];
+        if (nextPhase === 'scoreboard' && phaseRef.current !== 'scoreboard') {
+          previousPhaseBeforeScoreboardRef.current = phaseRef.current;
+        }
+        applyVenuePhaseFromSession(nextPhase);
       }
 
       if (typeof window !== 'undefined') {
@@ -1356,6 +1363,10 @@ function VenueDisplayContent() {
       const previous = previousPhaseBeforeScoreboardRef.current;
       if (previous && previous !== 'scoreboard') {
         setPhase(previous);
+        return;
+      }
+      if (roundEndInfoRef.current) {
+        setPhase('round_end');
         return;
       }
       if (revealDataRef.current && questionRef.current) {
@@ -2035,7 +2046,7 @@ function VenueDisplayContent() {
                   ) : null}
                 </div>
 
-                <div className="absolute left-1/2 top-[84%] flex w-[88%] -translate-x-1/2 -translate-y-1/2 flex-col items-center px-2 sm:gap-3">
+                <div className="absolute inset-x-[6%] top-[69%] bottom-[6%] flex flex-col items-stretch justify-center overflow-hidden">
                   <RoundIntroScoringLines roundType={roundInfo.round?.type} variant="venue" />
                 </div>
               </div>
@@ -2045,86 +2056,13 @@ function VenueDisplayContent() {
 
         {/* Wager Collection */}
         {phase === 'wager_collection' && (
-          <div className="w-full h-full flex items-center justify-center animate-fadeIn px-6">
-            <div className="flex flex-col items-center justify-center gap-8 text-center max-w-[900px]">
-              <div className="inline-flex items-center gap-3 rounded-full border border-[#ffc400]/55 bg-[linear-gradient(180deg,rgba(60,30,100,0.95)_0%,rgba(20,10,50,0.95)_100%)] px-10 py-4 shadow-[0_0_28px_rgba(255,196,0,0.25)]">
-                <span className="text-lg font-semibold uppercase tracking-[0.22em] text-[#ffc400]">
-                  Round {(roundInfo?.roundIndex || 0) + 1} — Wager Round
-                </span>
-              </div>
-              {question?.question?.category ? (
-                <div className="inline-flex items-center gap-3 rounded-full border border-[#00d9ff]/45 bg-[rgba(0,217,255,0.08)] px-7 py-2.5 shadow-[0_0_22px_rgba(0,217,255,0.2)]">
-                  <span className="text-sm font-semibold uppercase tracking-[0.22em] text-[#9de9ff]/85 sm:text-base">
-                    Category
-                  </span>
-                  <span className="text-lg font-black uppercase tracking-[0.18em] text-[#00d9ff] sm:text-xl">
-                    {toDisplayUpper(question.question.category)}
-                  </span>
-                </div>
-              ) : null}
-              <div className="mx-auto flex h-28 w-28 items-center justify-center rounded-full border-2 border-[#ffc400]/50 bg-[rgba(255,196,0,0.08)] shadow-[0_0_36px_rgba(255,196,0,0.3)]">
-                <svg
-                  className="h-14 w-14 text-[#ffc400] animate-pulse"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <circle cx="12" cy="12" r="10" />
-                  <path d="M16 8h-6a2 2 0 1 0 0 4h4a2 2 0 1 1 0 4H8" />
-                  <path d="M12 18V6" />
-                </svg>
-              </div>
-              <h1 className="text-[52px] font-black leading-none text-white drop-shadow-[0_0_18px_rgba(255,196,0,0.4)]">
-                Players Are Locking
-                <br />
-                Wager Points
-              </h1>
-              <p className="text-2xl font-medium text-[#ffc400]/75">
-                Please place your wagers on your devices now...
-              </p>
-              <div className="mt-4 inline-flex items-center gap-3 rounded-full border border-[#1de8ff]/60 bg-[#11154f]/80 px-6 py-3 shadow-[0_0_18px_rgba(29,232,255,0.25)]">
-                <div className="flex h-10 w-10 items-center justify-center rounded-full border border-[#1de8ff]/70 bg-[#0c0f3a]">
-                  <svg
-                    viewBox="0 0 24 24"
-                    className="h-5 w-5 text-[#1de8ff]"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                  >
-                    <path d="M17 21v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2" />
-                    <circle cx="9" cy="7" r="3" />
-                    <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
-                    <path d="M16 3.13a4 4 0 0 1 0 7.75" />
-                  </svg>
-                </div>
-                <div className="text-left">
-                  <p className="text-xs font-semibold uppercase tracking-wider text-[#1de8ff]/80">
-                    Wagered
-                  </p>
-                  <p className="text-3xl font-black leading-none text-white">
-                    {wagerLockedCount}{' '}
-                    <span className="text-xl text-white/60">
-                      / {wagerLockedTotal || liveTotalTeams}
-                    </span>
-                  </p>
-                </div>
-              </div>
-              <div className="flex items-center gap-3 mt-2">
-                <div className="h-2.5 w-2.5 rounded-full bg-[#ffc400] animate-pulse" />
-                <div
-                  className="h-2.5 w-2.5 rounded-full bg-[#ffc400] animate-pulse"
-                  style={{ animationDelay: '0.3s' }}
-                />
-                <div
-                  className="h-2.5 w-2.5 rounded-full bg-[#ffc400] animate-pulse"
-                  style={{ animationDelay: '0.6s' }}
-                />
-              </div>
-            </div>
-          </div>
+          <VenueWagerCollectionScreenLegacy
+            roundIndex={roundInfo?.roundIndex ?? 0}
+            category={question?.question?.category}
+            wagerLockedCount={wagerLockedCount}
+            wagerLockedTotal={wagerLockedTotal}
+            liveTotalTeams={liveTotalTeams}
+          />
         )}
 
         {/* Question Stats */}
@@ -2142,86 +2080,17 @@ function VenueDisplayContent() {
             {/* Response Stats */}
             <div className="mx-auto w-full shrink-0 rounded-2xl mb-3 ">
               <div className="rounded-xl mb-2 flex flex-col lg:flex-row items-start lg:items-center gap-3 lg:gap-4 justify-between px-3 md:px-4 py-2">
-                <div className="flex items-center gap-2 md:gap-4 flex-1 border border-[#00C8FF] rounded-xl px-3 md:px-4 py-2 md:py-3 w-full lg:max-w-2xl">
-                  <div className="relative w-8 md:w-10 lg:w-12 h-8 md:h-10 lg:h-12 rounded-full flex items-center justify-center shrink-0 overflow-hidden">
-                    <div className="absolute inset-0 bg-linear-to-br from-purple-500/20 to-transparent" />
-                    <svg
-                      viewBox="0 0 24 24"
-                      className="w-5 md:w-6 lg:w-7 h-5 md:h-6 lg:h-7 text-[#20e7ff] relative z-10"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2.5"
-                    >
-                      <path d="M3 5h18M3 12h14M3 19h10" />
-                    </svg>
-                  </div>
-
-                  {/* 2. The Progress Container (The black pill with blue border) */}
-                  <div className="flex-1 min-w-0 rounded-xl px-2 md:px-4">
-                    {[
-                      {
-                        key: 'correct',
-                        color: 'from-[#00ff00] to-[#008000]', // Brighter green
-                        track: 'bg-[#3d7a3d]/60',
-                        value: liveResponses.correct,
-                        icon:
-                          (question?.roundType || '').toUpperCase() === 'MAJORITY_RULES'
-                            ? '+'
-                            : '✓',
-                        iconBg: 'bg-green-500',
-                      },
-                      {
-                        key: 'incorrect',
-                        color: 'from-[#ff0000] to-[#800000]', // Brighter red
-                        track: 'bg-[#7a3d3d]/60',
-                        value: liveResponses.incorrect,
-                        icon:
-                          (question?.roundType || '').toUpperCase() === 'MAJORITY_RULES'
-                            ? '-'
-                            : '×',
-                        iconBg: 'bg-red-500',
-                      },
-                      {
-                        key: 'no_answer',
-                        color: 'from-[#3b82f6] to-[#1e3a8a]', // Brighter blue
-                        track: 'bg-[#3d507a]/60',
-                        value: liveResponses.noAnswer,
-                        icon: '?',
-                        iconBg: 'bg-blue-500',
-                      },
-                    ].map((item) => {
-                      const total = Math.max(1, liveResponses.total || totalTeams || 1);
-                      const width = Math.max(
-                        0,
-                        Math.min(100, Math.round((item.value / total) * 100)),
-                      );
-                      return (
-                        <div key={item.key} className="flex items-center gap-3">
-                          <div
-                            className={`${item.iconBg} h-4 w-4 rounded-full flex items-center justify-center text-[10px] text-white font-bold border border-white/20`}
-                          >
-                            {item.icon}
-                          </div>
-                          <div
-                            className={`flex-1 h-4 rounded-full ${item.track} overflow-hidden border border-white/10`}
-                          >
-                            <div
-                              className={`h-full rounded-full bg-linear-to-r ${item.color} shadow-[0_0_12px_rgba(255,255,255,0.4)]`}
-                              style={{
-                                width: `${width}%`,
-                                minWidth: item.value > 0 ? '8px' : '0px', // ← key fix
-                                transition: 'width 0.5s ease-out',
-                              }}
-                            />
-                          </div>
-                          <span className="w-6 text-right text-sm md:text-base lg:text-lg font-black text-[#47f3ff] italic">
-                            {item.value}
-                          </span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
+                <VenueLiveResponseBars
+                  variant="inline"
+                  className="flex-1 w-full lg:max-w-2xl"
+                  roundType={question?.roundType}
+                  stats={{
+                    correct: liveResponses.correct,
+                    incorrect: liveResponses.incorrect,
+                    noAnswer: liveResponses.noAnswer,
+                    total: Math.max(1, liveResponses.total || totalTeams || 1),
+                  }}
+                />
 
                 <div className="flex items-center gap-3 md:gap-4 lg:gap-5 shrink-0 pr-1">
                   <div className="flex items-center gap-2">
@@ -2384,88 +2253,17 @@ function VenueDisplayContent() {
             {/* Response Stats */}
             <div className="mx-auto w-full shrink-0 rounded-2xl mb-3 ">
               <div className="rounded-xl mb-3 flex flex-col lg:flex-row items-start lg:items-center gap-3 lg:gap-4 justify-between px-3 md:px-4 py-2 md:py-3">
-                <div className="flex items-center gap-2 md:gap-4 flex-1 border border-[#00C8FF] rounded-xl px-3 md:px-4 py-2 md:py-3 w-full lg:max-w-2xl">
-                  <div className="relative w-8 md:w-10 lg:w-12 h-8 md:h-10 lg:h-12 rounded-full flex items-center justify-center shrink-0 overflow-hidden">
-                    <div className="absolute inset-0 bg-linear-to-br from-purple-500/20 to-transparent" />
-                    <svg
-                      viewBox="0 0 24 24"
-                      className="w-5 md:w-6 lg:w-7 h-5 md:h-6 lg:h-7 text-[#20e7ff] relative z-10"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2.5"
-                    >
-                      <path d="M3 5h18M3 12h14M3 19h10" />
-                    </svg>
-                  </div>
-
-                  {/* ── DISTRIBUTION BARS ── */}
-                  <div className="flex-1 min-w-0 rounded-xl px-2 md:px-4">
-                    {[
-                      {
-                        key: 'correct',
-                        color: 'from-[#00ff00] to-[#008000]',
-                        track: 'bg-[#3d7a3d]/60',
-                        value: liveResponses.correct,
-                        icon:
-                          (question?.roundType || '').toUpperCase() === 'MAJORITY_RULES'
-                            ? '+'
-                            : '✓',
-                        iconBg: 'bg-green-500',
-                      },
-                      {
-                        key: 'incorrect',
-                        color: 'from-[#ff0000] to-[#800000]',
-                        track: 'bg-[#7a3d3d]/60',
-                        value: liveResponses.incorrect,
-                        icon:
-                          (question?.roundType || '').toUpperCase() === 'MAJORITY_RULES'
-                            ? '-'
-                            : '×',
-                        iconBg: 'bg-red-500',
-                      },
-                      {
-                        key: 'no_answer',
-                        color: 'from-[#3b82f6] to-[#1e3a8a]',
-                        track: 'bg-[#3d507a]/60',
-                        value: liveResponses.noAnswer,
-                        icon: '?',
-                        iconBg: 'bg-blue-500',
-                      },
-                    ].map((item) => {
-                      const total = Math.max(1, liveResponses.total || totalTeams || 1);
-                      const width = Math.max(
-                        0,
-                        Math.min(100, Math.round((item.value / total) * 100)),
-                      );
-                      return (
-                        <div
-                          key={item.key}
-                          className="flex items-center gap-1 md:gap-2 lg:gap-3 mb-1 md:mb-2"
-                        >
-                          <div
-                            className={`${item.iconBg} h-3 md:h-4 w-3 md:w-4 rounded-full flex items-center justify-center text-[8px] md:text-[10px] text-white font-bold border border-white/20`}
-                          >
-                            {item.icon}
-                          </div>
-                          <div
-                            className={`flex-1 h-3 md:h-4 rounded-full ${item.track} overflow-hidden border border-white/10`}
-                          >
-                            <motion.div
-                              className={`h-full rounded-full bg-linear-to-r ${item.color} shadow-[0_0_12px_rgba(255,255,255,0.4)]`}
-                              initial={{ width: 0 }}
-                              animate={{ width: `${width}%` }}
-                              transition={{ duration: 0.5 }}
-                              style={{ minWidth: item.value > 0 ? '8px' : '0px' }}
-                            />
-                          </div>
-                          <span className="w-4 md:w-5 lg:w-6 text-right text-xs md:text-sm lg:text-lg font-black text-[#47f3ff] italic shrink-0">
-                            {item.value}
-                          </span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
+                <VenueLiveResponseBars
+                  variant="inline"
+                  className="flex-1 w-full lg:max-w-2xl"
+                  roundType={question?.roundType}
+                  stats={{
+                    correct: liveResponses.correct,
+                    incorrect: liveResponses.incorrect,
+                    noAnswer: liveResponses.noAnswer,
+                    total: Math.max(1, liveResponses.total || totalTeams || 1),
+                  }}
+                />
 
                 <div className="flex items-center gap-2 md:gap-3 lg:gap-5 shrink-0 pr-1 flex-wrap justify-end">
                   <div className="flex items-center gap-1 md:gap-2 lg:gap-2">

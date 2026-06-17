@@ -120,6 +120,8 @@ interface Team {
 interface GameState {
   state: string;
   questionState: string;
+  /** Host overlay scoreboard while state may still be QUESTION / ROUND_END / etc. */
+  scoreboardVisible?: boolean;
   currentRoundIndex: number;
   currentQuestionIndex: number;
   timerRemaining: number;

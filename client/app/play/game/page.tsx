@@ -2330,7 +2330,14 @@ export default function GamePage() {
                         ROUND {(roundInfo.roundIndex || 0) + 1}
                       </p>
                       {(roundInfo.roundIndex || 0) !== 0 ? (
-                        <p className="relative z-10 mt-1 max-w-[92%] uppercase text-[clamp(0.95rem,3.2vw,1.35rem)] font-bold leading-[1.15] text-[#00d8ff] sm:max-w-[90%] sm:text-lg md:text-xl">
+                        <p
+                          className={cn(
+                            'relative z-10 mt-1 max-w-[92%] uppercase font-bold leading-[1.15] text-[#00d8ff] sm:max-w-[90%]',
+                            (roundInfo.round?.type || '').toUpperCase() === 'FINAL_WAGER'
+                              ? 'text-[clamp(1.25rem,4.2vw,1.85rem)] sm:text-3xl md:text-4xl'
+                              : 'text-[clamp(0.95rem,3.2vw,1.35rem)] sm:text-lg md:text-xl',
+                          )}
+                        >
                           {normalizeRoundIntroTitle(
                             roundInfo.round?.name,
                             roundInfo.round?.type,

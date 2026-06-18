@@ -1,6 +1,11 @@
 import type { NextConfig } from "next";
+import os from "os";
 
 const nextConfig: NextConfig = {
+  // Shared hosting often reports many CPUs but hangs/OOMs when Next spawns one worker per core.
+  experimental: {
+    cpus: Math.min(4, os.cpus().length || 1),
+  },
   async rewrites() {
     return [
       {

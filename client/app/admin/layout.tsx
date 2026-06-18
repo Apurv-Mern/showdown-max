@@ -1,15 +1,9 @@
 'use client';
 
 import { usePathname, useRouter } from 'next/navigation';
-import { Montserrat } from 'next/font/google';
 import { useAuth } from '@/lib/auth';
 import AdminTopBar from '@/components/admin/AdminTopBar';
 import AdminSidebar from '@/components/admin/AdminSidebar';
-
-const montserrat = Montserrat({
-  subsets: ['latin'],
-  variable: '--font-montserrat',
-});
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -27,7 +21,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
   return (
     <div
-      className={`${montserrat.variable} ${montserrat.className} flex h-screen flex-col overflow-hidden bg-[#0b0f1a]`}
+      className="font-sans flex h-screen flex-col overflow-hidden bg-[#0b0f1a]"
     >
       <AdminTopBar />
       <div className="flex flex-1 overflow-hidden">

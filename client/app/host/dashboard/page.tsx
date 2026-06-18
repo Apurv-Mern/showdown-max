@@ -3,7 +3,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, useCallback, Suspense } from 'react';
 import Link from 'next/link';
 import { useSearchParams, useRouter } from 'next/navigation';
-import { Montserrat } from 'next/font/google';
 import toast from 'react-hot-toast';
 import { useSocket } from '@/hooks/useSocket';
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
@@ -95,12 +94,6 @@ const SCOREBOARD_MODAL_ROW_IDS = [
   '232:2891',
   '232:2897',
 ] as const;
-
-const montserrat = Montserrat({
-  weight: ['400', '500', '600', '700', '800'],
-  subsets: ['latin'],
-  display: 'swap',
-});
 
 interface Team {
   teamId: number;
@@ -1989,7 +1982,7 @@ function HostDashboardContent() {
     <div
       data-name="Host Control Dashboard"
       data-node-id="232:4445"
-      className={cn(montserrat.className, 'flex min-h-screen flex-col bg-[#0b0f1a] text-white')}
+      className={cn('font-sans flex min-h-screen flex-col bg-[#0b0f1a] text-white')}
     >
       <header
         data-name="Header"

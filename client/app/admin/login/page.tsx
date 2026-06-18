@@ -2,15 +2,8 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Montserrat } from 'next/font/google';
 import { useAuth } from '@/lib/auth';
 import Image from 'next/image';
-
-const montserrat = Montserrat({
-  weight: ['400', '500', '600', '700', '800'],
-  subsets: ['latin'],
-  display: 'swap',
-});
 
 export default function AdminLoginPage() {
   const router = useRouter();
@@ -43,7 +36,7 @@ export default function AdminLoginPage() {
 
   return (
     <div
-      className={`${montserrat.className} flex items-center justify-center min-h-screen w-full overflow-x-hidden bg-[radial-gradient(ellipse_85%_65%_at_50%_42%,#141a2a_0%,#0d121c_45%,#0a0f1a_72%,#06080e_100%)] antialiased px-4 sm:px-8`}
+      className="font-sans flex items-center justify-center min-h-screen w-full overflow-x-hidden bg-[radial-gradient(ellipse_85%_65%_at_50%_42%,#141a2a_0%,#0d121c_45%,#0a0f1a_72%,#06080e_100%)] antialiased px-4 sm:px-8"
     >
       <div className="flex flex-col lg:flex-row items-center justify-center m-12 gap-12 lg:gap-24 w-full">
         {/* Left Side: Logo */}

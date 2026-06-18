@@ -2,17 +2,11 @@
 
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Montserrat } from 'next/font/google';
 import { PUBLIC_API_URL } from '@/lib/env';
 import Image from 'next/image';
 
 const VENUE_PIN_STORAGE_KEY = 'venue_display_pin';
 const API_URL = PUBLIC_API_URL;
-const montserrat = Montserrat({
-  weight: ['400', '500', '600', '700', '800'],
-  subsets: ['latin'],
-  display: 'swap',
-});
 
 export default function VenueSessionLoginPage() {
   const router = useRouter();
@@ -83,7 +77,7 @@ export default function VenueSessionLoginPage() {
 
   return (
     <div
-      className={`${montserrat.className} flex min-h-screen w-full items-center justify-center overflow-x-hidden bg-transparent px-4 antialiased sm:px-8`}
+      className="font-sans flex min-h-screen w-full items-center justify-center overflow-x-hidden bg-transparent px-4 antialiased sm:px-8"
     >
       <div className="m-12 flex w-full flex-col items-center justify-center gap-12 lg:flex-row lg:gap-24">
         <div className="shrink-0 flex items-center justify-center">

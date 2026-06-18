@@ -3,6 +3,10 @@
 const { getAllQuizTitles } = require('./data/questionBank');
 const { applyContentToQuizzes } = require('./data/applyQuizContent');
 
+/**
+ * Re-apply real question text, options, and media to seeded quizzes.
+ * Safe to run on production after renames (009) or if 008 previously skipped quizzes.
+ */
 module.exports = {
   async up(queryInterface) {
     const titles = getAllQuizTitles();
@@ -20,6 +24,6 @@ module.exports = {
   },
 
   async down() {
-    // Content enrichment only.
+    // Data enrichment only.
   },
 };

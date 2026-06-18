@@ -7,6 +7,7 @@ const {
   DEFAULT_KANGAROO_NAMES,
   KANGAROO_NAME_MAX_LENGTH,
   KANGAROO_SLOT_COUNT,
+  resolveKangarooNamesInput,
 } = require('shared/constants/kangarooRace');
 const stateMachine = require('./stateMachine');
 const { calculateScores } = require('./scoringEngine');
@@ -342,7 +343,7 @@ const createCardShuffleState = (roundNumber = null) => ({
 });
 
 const normalizeKangarooNames = (input) => {
-  const rawNames = Array.isArray(input) ? input : [];
+  const rawNames = resolveKangarooNamesInput(Array.isArray(input) ? input : []);
   const names = [];
   for (let i = 0; i < KANGAROO_SLOT_COUNT; i += 1) {
     const fallback = DEFAULT_KANGAROO_NAMES[i] || `Kangaroo #${i + 1}`;

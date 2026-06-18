@@ -23,20 +23,14 @@ import {
 } from '@/lib/breakScreenCopy';
 import { VenueWagerCollectionScreen } from '@/components/venue/VenueWagerCollectionScreen';
 import { VenueLiveResponseBars } from '@/components/venue/VenueLiveResponseBars';
+import { DEFAULT_KANGAROO_NAMES, defaultKangarooNames, resolveKangarooNames } from '@/lib/kangarooRaceDefaults';
 import { LeaderboardScreen } from '@/components/shared/LeaderboardScreen';
+import { RoundEndScreen } from '@/components/shared/RoundEndScreen';
 import { PUBLIC_API_URL } from '@/lib/env';
 
 const API_URL = PUBLIC_API_URL;
 const VENUE_PIN_STORAGE_KEY = 'venue_display_pin';
 const VENUE_STATE_STORAGE_KEY_PREFIX = 'venue_display_state';
-const DEFAULT_KANGAROO_NAMES = [
-  'Blue Bolt',
-  'Orange Flash',
-  'Green Dash',
-  'Golden Hop',
-  'Purple Rocket',
-  'Red Thunder',
-] as const;
 
 const getVenueStateStorageKey = (pin: string) => `${VENUE_STATE_STORAGE_KEY_PREFIX}:${pin}`;
 
@@ -443,9 +437,7 @@ function VenueDisplayContent() {
   // track this on the venue separately because `miniGameCommand` is null on
   // first mount/reconnect and would falsely show the intro mid-game.
   const [cardShuffleVenueStarted, setCardShuffleVenueStarted] = useState(false);
-  const [venueKangarooNames, setVenueKangarooNames] = useState<string[]>([
-    ...DEFAULT_KANGAROO_NAMES,
-  ]);
+  const [venueKangarooNames, setVenueKangarooNames] = useState<string[]>(defaultKangarooNames());
   const [miniGameResult, setMiniGameResult] = useState<{
     game: VenueMiniGameType;
     winningCard?: number;
@@ -1075,9 +1067,7 @@ function VenueDisplayContent() {
               ? data.miniGameConfig.kangarooNames
               : null;
           if (names?.length >= 6) {
-            setVenueKangarooNames(
-              names.slice(0, 6).map((name: string) => String(name || '').trim()),
-            );
+            setVenueKangarooNames(resolveKangarooNames(names));
           }
         }
         if (data.miniGameState?.game === 'card_shuffle' && data.miniGameState?.revealed) {
@@ -1531,9 +1521,7 @@ function VenueDisplayContent() {
         Array.isArray(data.kangarooNames) &&
         data.kangarooNames.length >= 6
       ) {
-        setVenueKangarooNames(
-          data.kangarooNames.slice(0, 6).map((name) => String(name || '').trim()),
-        );
+        setVenueKangarooNames(resolveKangarooNames(data.kangarooNames));
       }
       cardShuffleRevealFlushGenRef.current += 1;
       lastCardShuffleUnityRef.current = null;
@@ -1561,9 +1549,7 @@ function VenueDisplayContent() {
 
       if (gid === 'kangaroo_race') {
         if (Array.isArray(data.kangarooNames) && data.kangarooNames.length >= 6) {
-          setVenueKangarooNames(
-            data.kangarooNames.slice(0, 6).map((name) => String(name || '').trim()),
-          );
+          setVenueKangarooNames(resolveKangarooNames(data.kangarooNames));
         }
         setMiniGameCommand({
           id: Date.now(),
@@ -2448,21 +2434,11 @@ function VenueDisplayContent() {
 
         {/* Round Over (audience-facing transition screen between the last reveal and scoreboard) */}
         {phase === 'round_end' && (
-          <div className="w-full h-full flex items-center justify-center px-4 sm:px-6 md:px-10 animate-fadeIn">
-            <div className="flex w-full max-w-4xl h-[385px] items-center justify-center rounded-3xl border border-[#41d9ff]/50 bg-[linear-gradient(180deg,rgba(24,9,76,0.95)_0%,rgba(12,6,48,0.95)_100%)] shadow-[0_0_36px_rgba(0,217,255,0.28)] px-6 py-10 sm:px-10 sm:py-14 text-center">
-              <h2
-                className="whitespace-nowrap text-4xl font-black uppercase leading-tight sm:text-6xl md:text-7xl"
-                style={{
-                  background:
-                    'linear-gradient(180deg, #4EDDFE 0%, #00D9FF 20%, #6BF8FF 40%, #4FDBFE 60%, #3AC1FF 80%, #097FFF 100%)',
-                  WebkitBackgroundClip: 'text',
-                  WebkitTextFillColor: 'transparent',
-                  backgroundClip: 'text',
-                }}
-              >
-                END OF ROUND {(roundEndInfo?.roundIndex ?? roundInfo?.roundIndex ?? 0) + 1}
-              </h2>
-            </div>
+          <div className="h-full w-full animate-fadeIn">
+            <RoundEndScreen
+              roundIndex={roundEndInfo?.roundIndex ?? roundInfo?.roundIndex ?? 0}
+              size="venue"
+            />
           </div>
         )}
 

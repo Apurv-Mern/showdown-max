@@ -15,6 +15,11 @@ import {
 } from '../playerSnapshotStorage';
 import { Button } from '@/components/shared/Button';
 import { cn } from '@/lib/utils';
+import {
+  DEFAULT_KANGAROO_NAMES,
+  defaultKangarooNames,
+  resolveKangarooNames,
+} from '@/lib/kangarooRaceDefaults';
 
 type MiniGameType = 'kangaroo_race' | 'card_shuffle' | null;
 
@@ -31,15 +36,6 @@ const HORSES: HorseOption[] = [
   { id: 5, buttonClass: 'bg-[#6c00c8] shadow-[0_7px_0_#42007c]' },
   { id: 6, buttonClass: 'bg-[#d50024] shadow-[0_7px_0_#8a0017]' },
 ];
-const DEFAULT_KANGAROO_NAMES = [
-  'Blue Bolt',
-  'Orange Flash',
-  'Green Dash',
-  'Golden Hop',
-  'Purple Rocket',
-  'Red Thunder',
-] as const;
-
 const CARD_POSITIONS = [
   { id: 1, label: 'LEFT' },
   { id: 2, label: 'MIDDLE' },
@@ -130,7 +126,7 @@ export default function MiniGamePage() {
   const selectedChoiceRef = useRef<number | null>(null);
   const [resultPhase, setResultPhase] = useState<ResultPhase>(null);
   const [winningValue, setWinningValue] = useState<number | null>(null);
-  const [kangarooNames, setKangarooNames] = useState<string[]>([...DEFAULT_KANGAROO_NAMES]);
+  const [kangarooNames, setKangarooNames] = useState<string[]>(defaultKangarooNames());
   const [finishRank, setFinishRank] = useState<number | null>(null);
   const [pointsEarned, setPointsEarned] = useState<number | null>(null);
   const [finishOrder, setFinishOrder] = useState<number[]>([]);
@@ -154,7 +150,7 @@ export default function MiniGamePage() {
     if (!Number.isFinite(Number(slot))) return '';
     const idx = Number(slot) - 1;
     const name = kangarooNames[idx] || DEFAULT_KANGAROO_NAMES[idx] || `Kangaroo #${slot}`;
-    return `${name} (#${slot})`;
+    return name;
   };
 
   useEffect(() => {
@@ -248,7 +244,7 @@ export default function MiniGamePage() {
       logSocketIn('mini_game_start', data);
       setGameType(data.game as MiniGameType);
       if (Array.isArray(data.kangarooNames) && data.kangarooNames.length >= 6) {
-        setKangarooNames(data.kangarooNames.slice(0, 6).map((name) => String(name || '').trim()));
+        setKangarooNames(resolveKangarooNames(data.kangarooNames));
       }
       if (data.rejoinReplay) {
         return;
@@ -283,9 +279,7 @@ export default function MiniGamePage() {
       if (gid === 'kangaroo_race') {
         if (data.command === 'start_game') {
           if (Array.isArray(data.kangarooNames) && data.kangarooNames.length >= 6) {
-            setKangarooNames(
-              data.kangarooNames.slice(0, 6).map((name) => String(name || '').trim()),
-            );
+            setKangarooNames(resolveKangarooNames(data.kangarooNames));
           }
           setRoundOpen(true);
           setShuffleComplete(false);
@@ -342,7 +336,7 @@ export default function MiniGamePage() {
       if (gid === 'kangaroo_race') {
         const winning = Number(data?.winningKangaroo);
         if (Array.isArray(data.kangarooNames) && data.kangarooNames.length >= 6) {
-          setKangarooNames(data.kangarooNames.slice(0, 6).map((name) => String(name || '').trim()));
+          setKangarooNames(resolveKangarooNames(data.kangarooNames));
         }
         const parsedFinishOrder = Array.isArray(data.finishOrder)
           ? data.finishOrder
@@ -388,7 +382,7 @@ export default function MiniGamePage() {
         const winning = Number(data?.winningKangaroo);
         const selected = Number(data?.selectedChoice);
         if (Array.isArray(data.kangarooNames) && data.kangarooNames.length >= 6) {
-          setKangarooNames(data.kangarooNames.slice(0, 6).map((name) => String(name || '').trim()));
+          setKangarooNames(resolveKangarooNames(data.kangarooNames));
         }
         const parsedFinishOrder = Array.isArray(data.finishOrder)
           ? data.finishOrder
@@ -569,7 +563,7 @@ export default function MiniGamePage() {
             ? gameState.miniGameConfig.kangarooNames
             : null;
         if (names?.length >= 6) {
-          setKangarooNames(names.slice(0, 6).map((name: string) => String(name || '').trim()));
+          setKangarooNames(resolveKangarooNames(names));
         }
         // Pick as soon as the mini-game is on the venue — before the host starts the race.
         const racePickPhaseActive = !mgs.revealed;
@@ -790,15 +784,15 @@ export default function MiniGamePage() {
                 to just an icon. */}
             <div className="mb-4 rounded-xl border-2 border-[#00d8ff] bg-[linear-gradient(180deg,#3a04a6_0%,#1a0263_100%)] px-4 py-3 shadow-[0_0_22px_rgba(0,216,255,0.35)]">
               <h2 className="text-2xl font-black uppercase tracking-[0.06em] text-white drop-shadow-[0_2px_8px_rgba(0,0,0,0.45)] sm:text-3xl">
-                Kangaroo Race !!
+                KANGAROO RACE
               </h2>
               {finishRank != null && didSubmitKangarooBet ? (
                 <p className="mt-1 text-base font-extrabold text-white sm:text-lg">
-                  Your Kangaroo Finished <span className="text-[#39ff14]">{rankLabel}</span> !!
+                  YOUR KANGAROO FINISHED <span className="text-[#39ff14]">{rankLabel}</span> !!
                 </p>
               ) : (
                 <p className="mt-1 text-base font-extrabold text-white/85 sm:text-lg">
-                  Race finished
+                  RACE FINISHED
                 </p>
               )}
             </div>
@@ -806,13 +800,13 @@ export default function MiniGamePage() {
             {!didSubmitKangarooBet ? (
               <div className="mb-3 rounded-xl border-2 border-[#ffb020] bg-[linear-gradient(180deg,rgba(70,35,5,0.95),rgba(24,12,4,0.98))] px-4 py-3 shadow-[0_0_18px_rgba(255,176,32,0.28)]">
                 <p className="text-xl font-black leading-snug text-[#ffd18a] sm:text-2xl">
-                  You have not submitted your bet
+                  YOU HAVE NOT SUBMITTED A BET
                 </p>
               </div>
             ) : pointsEarned != null ? (
               <div className="mb-3 rounded-xl border-2 border-[#00f5ff] bg-[linear-gradient(180deg,rgba(13,24,60,0.95),rgba(4,10,25,0.98))] px-4 py-3 shadow-[0_0_18px_rgba(0,245,255,0.25)]">
                 <p className="text-3xl font-black text-[#39ff14]">
-                  Scored : +{pointsEarned} Points
+                  YOU SCORED : +{pointsEarned} POINTS
                 </p>
               </div>
             ) : null}
@@ -872,10 +866,7 @@ export default function MiniGamePage() {
                     KANGAROO RACE !!
                   </h1>
                   <p className="mt-2 text-[1.05rem] font-extrabold leading-tight text-white sm:text-xl">
-                    WHICH KANGAROO WILL WIN
-                  </p>
-                  <p className="text-[1.05rem] font-extrabold leading-tight text-white sm:text-xl">
-                    PICK YOUR KANGAROO
+                    SELECT YOUR KANGAROO
                   </p>
                 </header>
 
@@ -907,10 +898,9 @@ export default function MiniGamePage() {
                             : 'hover:brightness-110 hover:scale-[1.02]',
                       )}
                     >
-                      <div className="flex flex-col items-center">
-                        <span className="text-xl font-black">{horse.id}</span>
-                        <span className="text-[11px] font-semibold leading-tight">
-                          {kangarooNames[horse.id - 1] || `Kangaroo ${horse.id}`}
+                      <div className="flex flex-col items-center px-2">
+                        <span className="text-sm font-bold leading-tight sm:text-base">
+                          {kangarooNames[horse.id - 1] || DEFAULT_KANGAROO_NAMES[horse.id - 1]}
                         </span>
                       </div>
                     </button>

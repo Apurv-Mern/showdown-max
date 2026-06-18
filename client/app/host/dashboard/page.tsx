@@ -18,6 +18,7 @@ import { cn } from '@/lib/utils';
 import { RoundIntroScoringLines } from '@/lib/roundIntroInstructions';
 import { useAuth } from '@/lib/auth';
 import { PUBLIC_API_URL } from '@/lib/env';
+import { DEFAULT_KANGAROO_NAMES, defaultKangarooNames, resolveKangarooNames } from '@/lib/kangarooRaceDefaults';
 
 const API_URL = PUBLIC_API_URL;
 
@@ -80,14 +81,6 @@ function getNextRoundIntroBlurb(nextType?: string): string {
 }
 
 const KANGAROO_SLOTS = [1, 2, 3, 4, 5, 6] as const;
-const DEFAULT_KANGAROO_NAMES = [
-  'Blue Bolt',
-  'Orange Flash',
-  'Green Dash',
-  'Golden Hop',
-  'Purple Rocket',
-  'Red Thunder',
-] as const;
 
 /** Matches player mini-game (left / middle / right). */
 const CARD_SHUFFLE_SLOTS = [1, 2, 3] as const;
@@ -432,7 +425,7 @@ function HostDashboardContent() {
   const [editScoreValue, setEditScoreValue] = useState('');
   const [showRegisteredTeams, setShowRegisteredTeams] = useState(false);
   const [showRoundIntroductionModal, setShowRoundIntroductionModal] = useState(false);
-  const [kangarooNames, setKangarooNames] = useState<string[]>([...DEFAULT_KANGAROO_NAMES]);
+  const [kangarooNames, setKangarooNames] = useState<string[]>(defaultKangarooNames());
   const [kangarooVenueReady, setKangarooVenueReady] = useState(false);
   const [kangarooVenueLoading, setKangarooVenueLoading] = useState(false);
   const [kangarooRaceStarted, setKangarooRaceStarted] = useState(false);
@@ -711,7 +704,7 @@ function HostDashboardContent() {
               ? data.miniGameConfig.kangarooNames
               : null;
           if (incomingNames?.length === 6) {
-            setKangarooNames(incomingNames.map((name) => String(name || '').trim()));
+            setKangarooNames(resolveKangarooNames(incomingNames));
           }
           setKangarooBetCounts(
             [1, 2, 3, 4, 5, 6].map((slot) => Number(data.miniGameState?.pickCounts?.[slot] || 0)),
@@ -735,6 +728,7 @@ function HostDashboardContent() {
         setKangarooVenueLoading(false);
         setKangarooFinishOrder([]);
         setKangarooBetCounts([0, 0, 0, 0, 0, 0]);
+        setKangarooNames(defaultKangarooNames());
         setMiniGameRevealing(false);
       }
     };
@@ -1186,6 +1180,7 @@ function HostDashboardContent() {
         setKangarooVenueLoading(false);
         setKangarooFinishOrder([]);
         setKangarooBetCounts([0, 0, 0, 0, 0, 0]);
+        setKangarooNames(defaultKangarooNames());
         if (data?.holdScreen) {
           setCardShuffleFinishedHold(true);
           setFinishedMiniGameType('kangaroo_race');
@@ -1427,7 +1422,7 @@ function HostDashboardContent() {
     normalizedKangarooNames.every((name) => name.length > 0 && name.length <= 32);
 
   const updateKangarooName = (slotIndex: number, value: string) => {
-    const cleaned = value.replace(/\s+/g, ' ').slice(0, 12);
+    const cleaned = value.replace(/\s+/g, ' ').slice(0, 32);
     setKangarooNames((prev) => prev.map((name, idx) => (idx === slotIndex ? cleaned : name)));
   };
   const handleKangarooRaceStart = () => {

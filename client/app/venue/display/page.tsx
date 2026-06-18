@@ -26,6 +26,7 @@ import { VenueLiveResponseBars } from '@/components/venue/VenueLiveResponseBars'
 import { DEFAULT_KANGAROO_NAMES, defaultKangarooNames, resolveKangarooNames } from '@/lib/kangarooRaceDefaults';
 import { LeaderboardScreen } from '@/components/shared/LeaderboardScreen';
 import { RoundEndScreen } from '@/components/shared/RoundEndScreen';
+import { GameshowEndScreen } from '@/components/shared/GameshowEndScreen';
 import { PUBLIC_API_URL } from '@/lib/env';
 
 const API_URL = PUBLIC_API_URL;
@@ -41,6 +42,7 @@ type VenuePhase =
   | 'question'
   | 'reveal'
   | 'round_end'
+  | 'game_show_end'
   | 'scoreboard'
   | 'break'
   | 'wager_collection'
@@ -512,7 +514,7 @@ function VenueDisplayContent() {
     phaseRef.current = phase;
     roundEndInfoRef.current = roundEndInfo;
     // Drop the cached round-end payload once we leave the round-end / scoreboard flow.
-    if (phase !== 'round_end' && phase !== 'scoreboard') {
+    if (phase !== 'round_end' && phase !== 'game_show_end' && phase !== 'scoreboard') {
       setRoundEndInfo(null);
     }
   }, [phase, roundEndInfo]);
@@ -1034,6 +1036,7 @@ function VenueDisplayContent() {
         WAGER_COLLECTION: 'wager_collection',
         QUESTION: 'question',
         ROUND_END: 'round_end',
+        GAME_SHOW_END: 'game_show_end',
         SCOREBOARD: 'scoreboard',
         BREAK: 'break',
         MINI_GAME: 'mini_game',
@@ -1406,6 +1409,12 @@ function VenueDisplayContent() {
       setPhase('round_end');
     };
 
+    const onGameShowEnd = () => {
+      setIsVenueMp3Playing(false);
+      stopMp3();
+      setPhase('game_show_end');
+    };
+
     const onBreakStart = (data: {
       duration?: number;
       breakDuration?: number;
@@ -1438,6 +1447,7 @@ function VenueDisplayContent() {
         WAGER_COLLECTION: 'wager_collection',
         QUESTION: 'question',
         ROUND_END: 'round_end',
+        GAME_SHOW_END: 'game_show_end',
         SCOREBOARD: 'scoreboard',
         BREAK: 'break',
         MINI_GAME: 'mini_game',
@@ -1733,6 +1743,7 @@ function VenueDisplayContent() {
     socket.on('scoreboard', onScoreboard);
     socket.on('scoreboard_hidden', onScoreboardHidden);
     socket.on('round_end', onRoundEnd);
+    socket.on('game_show_end', onGameShowEnd);
     socket.on('break_start', onBreakStart);
     socket.on('break_end', onBreakEnd);
     socket.on('mini_game_start', onMiniGameStart);
@@ -1765,6 +1776,7 @@ function VenueDisplayContent() {
       socket.off('scoreboard', onScoreboard);
       socket.off('scoreboard_hidden', onScoreboardHidden);
       socket.off('round_end', onRoundEnd);
+      socket.off('game_show_end', onGameShowEnd);
       socket.off('break_start', onBreakStart);
       socket.off('break_end', onBreakEnd);
       socket.off('mini_game_start', onMiniGameStart);
@@ -2439,6 +2451,13 @@ function VenueDisplayContent() {
               roundIndex={roundEndInfo?.roundIndex ?? roundInfo?.roundIndex ?? 0}
               size="venue"
             />
+          </div>
+        )}
+
+        {/* Gameshow closing (after final round, before final leaderboard) */}
+        {phase === 'game_show_end' && (
+          <div className="h-full w-full animate-fadeIn">
+            <GameshowEndScreen size="venue" />
           </div>
         )}
 

@@ -459,6 +459,11 @@ const nextQuestion = async (io, pin) => {
     return;
   }
 
+  if (gameState.state === GAME_STATES.GAME_SHOW_END) {
+    await proceedFromGameShowEnd(io, pin);
+    return;
+  }
+
   if (gameState.state === GAME_STATES.ROUND_INTRO) {
     const round = stateMachine.getCurrentRound(gameState);
     if (isWagerLockRound(round)) {
@@ -1096,38 +1101,80 @@ const endRound = async (io, pin, gameState) => {
 };
 
 /**
- * Advance from the ROUND_END "round is over" screen to the SCOREBOARD.
- *
- * Called when the host presses "Next" while sitting on ROUND_END. Builds the reveal
- * snapshot and emits the scoreboard payload — the same shape clients used to receive
- * directly from endRound() in the legacy single-step flow.
+ * Emit the post-round scoreboard payload (shared by ROUND_END and GAME_SHOW_END exits).
  */
-const proceedFromRoundEnd = async (io, pin) => {
-  const gameState = await redisStore.getGameState(pin);
-  if (!gameState || gameState.state !== GAME_STATES.ROUND_END) return;
-
-  const result = stateMachine.transition(gameState, GAME_STATES.SCOREBOARD);
-  if (!result.valid) return;
-
-  await redisStore.setGameState(pin, result.gameState);
-
-  const sortedTeams = Object.values(result.gameState.teams).sort((a, b) => b.score - a.score);
+const emitRoundScoreboard = async (io, pin, gameState, source) => {
+  const sortedTeams = Object.values(gameState.teams).sort((a, b) => b.score - a.score);
 
   let revealSnapshot = null;
   try {
-    revealSnapshot = await buildRevealSnapshot(pin, result.gameState);
+    revealSnapshot = await buildRevealSnapshot(pin, gameState);
   } catch (err) {
-    logger.warn('buildRevealSnapshot failed (proceed from round end)', {
+    logger.warn('buildRevealSnapshot failed (round scoreboard)', {
       pin,
+      source,
       error: err.message,
     });
   }
 
   io.to(`session:${pin}`).emit(SOCKET_EVENTS.SCOREBOARD, {
     teams: sortedTeams,
-    source: 'round_end',
+    source,
     ...(revealSnapshot ? { revealSnapshot } : {}),
   });
+};
+
+/**
+ * Advance from the ROUND_END "round is over" screen.
+ *
+ * Normal rounds -> SCOREBOARD. Final round -> GAME_SHOW_END (gameshow closing screen)
+ * before the final leaderboard.
+ */
+const proceedFromRoundEnd = async (io, pin) => {
+  const gameState = await redisStore.getGameState(pin);
+  if (!gameState || gameState.state !== GAME_STATES.ROUND_END) return;
+
+  const nextIdx = Number(gameState.currentRoundIndex) + 1;
+  const isFinalRound = nextIdx >= gameState.rounds.length;
+
+  if (isFinalRound) {
+    const result = stateMachine.transition(gameState, GAME_STATES.GAME_SHOW_END);
+    if (!result.valid) return;
+
+    await redisStore.setGameState(pin, result.gameState);
+    logger.info('Gameshow end screen shown', { pin });
+
+    io.to(`session:${pin}`).emit(SOCKET_EVENTS.GAME_SHOW_END, {});
+    io.to(`session:${pin}`).emit(
+      SOCKET_EVENTS.SESSION_STATE,
+      clientPayloadFromGameState(result.gameState),
+    );
+    return;
+  }
+
+  const result = stateMachine.transition(gameState, GAME_STATES.SCOREBOARD);
+  if (!result.valid) return;
+
+  await redisStore.setGameState(pin, result.gameState);
+  await emitRoundScoreboard(io, pin, result.gameState, 'round_end');
+  io.to(`session:${pin}`).emit(
+    SOCKET_EVENTS.SESSION_STATE,
+    clientPayloadFromGameState(result.gameState),
+  );
+};
+
+/**
+ * Advance from the gameshow closing screen to the final SCOREBOARD.
+ */
+const proceedFromGameShowEnd = async (io, pin) => {
+  const gameState = await redisStore.getGameState(pin);
+  if (!gameState || gameState.state !== GAME_STATES.GAME_SHOW_END) return;
+
+  const result = stateMachine.transition(gameState, GAME_STATES.SCOREBOARD);
+  if (!result.valid) return;
+
+  await redisStore.setGameState(pin, result.gameState);
+  await emitRoundScoreboard(io, pin, result.gameState, 'game_show_end');
   io.to(`session:${pin}`).emit(
     SOCKET_EVENTS.SESSION_STATE,
     clientPayloadFromGameState(result.gameState),
@@ -1140,6 +1187,20 @@ const proceedFromRoundEnd = async (io, pin) => {
 const advanceToNextRound = async (io, pin) => {
   let gameState = await redisStore.getGameState(pin);
   if (!gameState) return;
+
+  if (gameState.state === GAME_STATES.GAME_SHOW_END) {
+    await proceedFromGameShowEnd(io, pin);
+    return;
+  }
+
+  if (gameState.state === GAME_STATES.ROUND_END) {
+    const nextIdx = Number(gameState.currentRoundIndex) + 1;
+    const isFinalRound = nextIdx >= gameState.rounds.length;
+    if (isFinalRound) {
+      await proceedFromRoundEnd(io, pin);
+      return;
+    }
+  }
 
   if (
     gameState.state === GAME_STATES.QUESTION &&

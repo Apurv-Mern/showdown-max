@@ -61,6 +61,7 @@ const SOCKET_EVENTS = Object.freeze({
   WAGER_COLLECTION_START: 'wager_collection_start',
   WAGER_LOCK_UPDATE: 'wager_lock_update',
   ROUND_END: 'round_end',
+  GAME_SHOW_END: 'game_show_end',
   GAME_END: 'game_end',
   PLAYER_ELIMINATED: 'player_eliminated',
   AUTO_REVEAL: 'auto_reveal',

@@ -11,6 +11,7 @@ import { breakSecondsFromEndsAt, resolveBreakWallClock } from '@/lib/breakWallCl
 import { cn, toDisplayUpper } from '@/lib/utils';
 import { RoundIntroScoringLines } from '@/lib/roundIntroInstructions';
 import { RoundEndTitle } from '@/components/shared/RoundEndTitle';
+import { GameshowEndPlayerView } from '@/components/shared/GameshowEndPlayerView';
 import {
   formatQuestionPointsAtStake,
   getStandardRoundCorrectPoints,
@@ -50,6 +51,7 @@ type GamePhase =
   | 'answered'
   | 'reveal'
   | 'round_end'
+  | 'game_show_end'
   | 'scoreboard'
   | 'eliminated'
   | 'break'
@@ -873,7 +875,7 @@ export default function GamePage() {
     phaseRef.current = phase;
     roundEndInfoRef.current = roundEndInfo;
     // Drop the cached round-end payload once we leave the round-end / scoreboard flow.
-    if (phase !== 'round_end' && phase !== 'scoreboard') {
+    if (phase !== 'round_end' && phase !== 'game_show_end' && phase !== 'scoreboard') {
       setRoundEndInfo(null);
     }
   }, [phase, roundEndInfo]);
@@ -1405,6 +1407,15 @@ export default function GamePage() {
           return;
         }
 
+        if (gs.state === 'GAME_SHOW_END') {
+          setTimerRunning(false);
+          setSelectedOption(null);
+          setRevealData(null);
+          setPointsGained(null);
+          setPhase('game_show_end');
+          return;
+        }
+
         if (gs.state === 'ROUND_END') {
           // Keep showing the round-over transition screen. The `round_end` event
           // (which arrives in parallel) populates roundEndInfo with the next-round
@@ -1908,6 +1919,14 @@ export default function GamePage() {
       setPhase('round_end');
     };
 
+    const onGameShowEnd = () => {
+      setTimerRunning(false);
+      setSelectedOption(null);
+      setRevealData(null);
+      setPointsGained(null);
+      setPhase('game_show_end');
+    };
+
     const onBreakStart = (data: {
       duration?: number;
       breakDuration?: number;
@@ -2031,6 +2050,7 @@ export default function GamePage() {
         team_updated: (d) => onTeamUpdated(d as { teamId: number; score: number }),
         scoreboard_hidden: () => onScoreboardHidden(),
         round_end: () => onRoundEnd(),
+        game_show_end: () => onGameShowEnd(),
         break_start: (d) => onBreakStart(d as any),
         break_end: () => onBreakEnd(),
         mini_game_start: (d) => onMiniGameStart(d as { game: string }),
@@ -2080,6 +2100,7 @@ export default function GamePage() {
     socket.on('team_updated', onTeamUpdated);
     socket.on('scoreboard_hidden', onScoreboardHidden);
     socket.on('round_end', onRoundEnd);
+    socket.on('game_show_end', onGameShowEnd);
     socket.on('break_start', onBreakStart);
     socket.on('break_end', onBreakEnd);
     socket.on('mini_game_start', onMiniGameStart);
@@ -2101,6 +2122,7 @@ export default function GamePage() {
       socket.off('team_updated', onTeamUpdated);
       socket.off('scoreboard_hidden', onScoreboardHidden);
       socket.off('round_end', onRoundEnd);
+      socket.off('game_show_end', onGameShowEnd);
       socket.off('break_start', onBreakStart);
       socket.off('break_end', onBreakEnd);
       socket.off('mini_game_start', onMiniGameStart);
@@ -2984,6 +3006,13 @@ export default function GamePage() {
                     className="h-auto w-[min(88vw,360px)] max-w-full object-contain drop-shadow-[0_8px_28px_rgba(0,0,0,0.5)]"
                   />
                 </div>
+              </motion.div>
+            )}
+
+            {/* ── Gameshow closing (after final round, before final leaderboard) ── */}
+            {phase === 'game_show_end' && (
+              <motion.div key="game-show-end" {...pageTransition} className="flex min-h-0 flex-1 flex-col">
+                <GameshowEndPlayerView />
               </motion.div>
             )}
 

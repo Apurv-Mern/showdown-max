@@ -10,6 +10,7 @@ import { LoadingSpinner } from '@/components/shared/LoadingSpinner';
 import { BreakTimerDisplay } from '@/components/shared/BreakTimerDisplay';
 import { QuestionTimerArch } from '@/components/shared/QuestionTimerArch';
 import { BreakScreenHeading } from '@/components/shared/BreakScreenHeading';
+import { GameshowEndScreen } from '@/components/shared/GameshowEndScreen';
 import { resolveBreakUpNextLabel } from '@/lib/breakScreenCopy';
 import { clientLogger } from '@/lib/clientLogger';
 import { breakSecondsFromEndsAt, resolveBreakWallClock } from '@/lib/breakWallClock';
@@ -957,6 +958,15 @@ function HostDashboardContent() {
       setGameState((prev) => (prev ? { ...prev, state: 'ROUND_END' } : prev));
     };
 
+    const onGameShowEnd = () => {
+      setIsScoreboardVisible(false);
+      setCurrentQuestion(null);
+      setRevealData(null);
+      setMp3Playing(false);
+      setRoundEndInfo(null);
+      setGameState((prev) => (prev ? { ...prev, state: 'GAME_SHOW_END' } : prev));
+    };
+
     const onBreakStart = (payload?: {
       duration?: number;
       breakDuration?: number;
@@ -1212,6 +1222,7 @@ function HostDashboardContent() {
     socket.on('scoreboard', onScoreboard);
     socket.on('scoreboard_hidden', onScoreboardHidden);
     socket.on('round_end', onRoundEnd);
+    socket.on('game_show_end', onGameShowEnd);
     socket.on('break_start', onBreakStart);
     socket.on('break_end', onBreakEnd);
     socket.on('game_end', onGameEnd);
@@ -1304,6 +1315,7 @@ function HostDashboardContent() {
       socket.off('scoreboard', onScoreboard);
       socket.off('scoreboard_hidden', onScoreboardHidden);
       socket.off('round_end', onRoundEnd);
+      socket.off('game_show_end', onGameShowEnd);
       socket.off('break_start', onBreakStart);
       socket.off('break_end', onBreakEnd);
       socket.off('game_end', onGameEnd);
@@ -1743,6 +1755,10 @@ function HostDashboardContent() {
       return;
     }
     if (s === 'ROUND_END') {
+      handleNextQuestion();
+      return;
+    }
+    if (s === 'GAME_SHOW_END') {
       handleNextQuestion();
       return;
     }
@@ -2969,7 +2985,7 @@ function HostDashboardContent() {
                   <p className="max-w-md text-base text-[#9de9ff]/90 sm:text-lg">
                     That round is over.{' '}
                     {roundEndInfo?.isFinalRound || isLastRound
-                      ? 'The final results are coming up next.'
+                      ? 'The gameshow closing screen is coming up next.'
                       : roundEndInfo?.nextRound
                         ? `Up next: ${formatRoundTypeLabel(roundEndInfo.nextRound.type)} Round.`
                         : nextRound
@@ -2982,6 +2998,17 @@ function HostDashboardContent() {
                     className="mt-2 min-w-[260px] rounded-xl border border-[rgba(0,217,255,0.55)] bg-[linear-gradient(180deg,#3a4a68_0%,#1e2a42_100%)] px-10 py-4 text-base font-black uppercase tracking-[0.14em] text-white shadow-[0_0_24px_rgba(0,217,255,0.22)] transition hover:brightness-110"
                   >
                     Continue
+                  </button>
+                </div>
+              ) : state === 'GAME_SHOW_END' ? (
+                <div className="flex w-full max-w-[720px] flex-col items-center justify-center gap-6 py-4 animate-fadeIn">
+                  <GameshowEndScreen size="host" className="py-0" />
+                  <button
+                    type="button"
+                    onClick={handleNextQuestion}
+                    className="min-w-[260px] rounded-xl border border-[rgba(0,217,255,0.55)] bg-[linear-gradient(180deg,#3a4a68_0%,#1e2a42_100%)] px-10 py-4 text-base font-black uppercase tracking-[0.14em] text-white shadow-[0_0_24px_rgba(0,217,255,0.22)] transition hover:brightness-110"
+                  >
+                    Show Final Scoreboard
                   </button>
                 </div>
               ) : state === 'SCOREBOARD' ? (
@@ -3304,6 +3331,7 @@ function HostDashboardContent() {
               }
               disabled={
                 miniGameLive ||
+                state === 'GAME_SHOW_END' ||
                 (!isCurrentRoundEmpty &&
                   state !== 'SCOREBOARD' &&
                   !(state === 'QUESTION' && questionState === 'REVEALED' && isLastQuestionOfRound))

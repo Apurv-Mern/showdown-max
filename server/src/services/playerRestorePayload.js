@@ -241,6 +241,13 @@ const buildJoinReplayEvents = async ({ pin, gameState, team, mySubmittedOptionIn
     });
   }
 
+  if (gameState.state === 'GAME_SHOW_END') {
+    events.push({
+      event: SOCKET_EVENTS.GAME_SHOW_END,
+      data: {},
+    });
+  }
+
   if (gameState.state === 'ROUND_END' && round) {
     const nextIdx = Number(gameState.currentRoundIndex) + 1;
     const nextRound =

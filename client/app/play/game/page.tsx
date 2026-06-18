@@ -10,6 +10,7 @@ import { clientLogger } from '@/lib/clientLogger';
 import { breakSecondsFromEndsAt, resolveBreakWallClock } from '@/lib/breakWallClock';
 import { cn, toDisplayUpper } from '@/lib/utils';
 import { RoundIntroScoringLines } from '@/lib/roundIntroInstructions';
+import { RoundEndTitle } from '@/components/shared/RoundEndTitle';
 import {
   formatQuestionPointsAtStake,
   getStandardRoundCorrectPoints,
@@ -18,7 +19,6 @@ import {
 import { QuestionStagePanel } from '@/components/shared/QuestionStagePanel';
 import { BreakTimerDisplay } from '@/components/shared/BreakTimerDisplay';
 import { BreakScreenHeading } from '@/components/shared/BreakScreenHeading';
-import { RoundEndScreen } from '@/components/shared/RoundEndScreen';
 import {
   PlayerWagerSelectionScreen,
   FINAL_WAGER_PERCENT_OPTIONS,
@@ -2966,12 +2966,24 @@ export default function GamePage() {
               <motion.div
                 key="round-end"
                 {...pageTransition}
-                className="flex min-h-0 flex-1 flex-col"
+                className="flex min-h-0 flex-1 flex-col px-4 pb-[max(1.25rem,env(safe-area-inset-bottom))]"
               >
-                <RoundEndScreen
-                  roundIndex={roundEndInfo?.roundIndex ?? roundInfo?.roundIndex ?? 0}
-                  size="player"
+                <RoundEndTitle
+                  variant="player"
+                  roundNumber={
+                    (roundEndInfo?.roundIndex ?? roundInfo?.roundIndex ?? 0) + 1
+                  }
                 />
+
+                <div className="min-h-[2rem] flex-1" aria-hidden />
+
+                <div className="flex shrink-0 justify-center">
+                  <img
+                    src="/logo.png"
+                    alt="Max Showdown Trivia"
+                    className="h-auto w-[min(88vw,360px)] max-w-full object-contain drop-shadow-[0_8px_28px_rgba(0,0,0,0.5)]"
+                  />
+                </div>
               </motion.div>
             )}
 

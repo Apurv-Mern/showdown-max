@@ -1,6 +1,4 @@
 node_modules/
-.next/
-dist/
 # Only ignore a build folder at repo root — do not ignore e.g. client/public/CardGame/Build/ (Unity WebGL)
 /build/
 .env

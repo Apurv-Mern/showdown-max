@@ -1,0 +1,172 @@
+const logger = require('../../utils/logger');
+
+const activeTimers = new Map();
+
+/** Host payloads may send PIN as a number; players/join use a 6-char string — Map keys must match. */
+const normalizeTimerPin = (sessionPin) => String(sessionPin ?? '').trim();
+
+/**
+ * Start a countdown timer for a session
+ * @param {string} sessionPin
+ * @param {number} duration - Seconds
+ * @param {Function} onTick - Called every second with remaining seconds
+ * @param {Function} onExpire - Called when timer reaches 0
+ */
+const startTimer = (sessionPin, duration, onTick, onExpire) => {
+  sessionPin = normalizeTimerPin(sessionPin);
+  stopTimer(sessionPin);
+
+  const state = {
+    remaining: duration,
+    running: true,
+    interval: null,
+  };
+
+  state.interval = setInterval(() => {
+    if (!state.running) return;
+
+    state.remaining -= 1;
+    onTick(state.remaining);
+
+    if (state.remaining <= 0) {
+      stopTimer(sessionPin);
+      onExpire();
+    }
+  }, 1000);
+
+  activeTimers.set(sessionPin, state);
+  logger.debug('Timer started', { sessionPin, duration });
+};
+
+/**
+ * Arm a full countdown in memory without starting the interval (Music rounds until host starts).
+ * @param {string} sessionPin
+ * @param {number} duration - Seconds
+ */
+const armPausedTimer = (sessionPin, duration) => {
+  sessionPin = normalizeTimerPin(sessionPin);
+  stopTimer(sessionPin);
+  const d = Math.max(0, Math.round(Number(duration)) || 0);
+  activeTimers.set(sessionPin, {
+    remaining: d,
+    running: false,
+    interval: null,
+  });
+  logger.debug('Timer armed paused', { sessionPin, duration: d });
+};
+
+/**
+ * Pause the timer for a session
+ * @param {string} sessionPin
+ * @returns {number} Remaining seconds
+ */
+const pauseTimer = (sessionPin) => {
+  sessionPin = normalizeTimerPin(sessionPin);
+  const state = activeTimers.get(sessionPin);
+  if (!state) return 0;
+
+  state.running = false;
+  logger.debug('Timer paused', { sessionPin, remaining: state.remaining });
+  return state.remaining;
+};
+
+/**
+ * Resume a paused timer
+ * @param {string} sessionPin
+ * @param {Function} onTick
+ * @param {Function} onExpire
+ */
+const resumeTimer = (sessionPin, onTick, onExpire) => {
+  sessionPin = normalizeTimerPin(sessionPin);
+  const state = activeTimers.get(sessionPin);
+  if (!state || state.running) return;
+
+  state.running = true;
+
+  if (state.interval) clearInterval(state.interval);
+
+  state.interval = setInterval(() => {
+    if (!state.running) return;
+
+    state.remaining -= 1;
+    onTick(state.remaining);
+
+    if (state.remaining <= 0) {
+      stopTimer(sessionPin);
+      onExpire();
+    }
+  }, 1000);
+
+  logger.debug('Timer resumed', { sessionPin, remaining: state.remaining });
+};
+
+/**
+ * Stop and clear the timer for a session
+ * @param {string} sessionPin
+ */
+const stopTimer = (sessionPin) => {
+  sessionPin = normalizeTimerPin(sessionPin);
+  const state = activeTimers.get(sessionPin);
+  if (state) {
+    if (state.interval) clearInterval(state.interval);
+    activeTimers.delete(sessionPin);
+    logger.debug('Timer stopped', { sessionPin });
+  }
+};
+
+/**
+ * Get remaining time for a session
+ * @param {string} sessionPin
+ * @returns {{ remaining: number, running: boolean }}
+ */
+const getTimerState = (sessionPin) => {
+  sessionPin = normalizeTimerPin(sessionPin);
+  const state = activeTimers.get(sessionPin);
+  if (!state) return { remaining: 0, running: false };
+  return { remaining: state.remaining, running: state.running };
+};
+
+/** True when this session has an in-memory countdown (running or paused mid-question). */
+const hasLiveTimer = (sessionPin) => activeTimers.has(normalizeTimerPin(sessionPin));
+
+/**
+ * Remaining seconds for reconnect payloads: prefer live timer over stale Redis copy.
+ * @param {string} pin
+ * @param {{ state?: string, questionState?: string, timerRemaining?: number } | null} gameState
+ */
+const getReconnectTimerRemaining = (pin, gameState) => {
+  const pinNorm = normalizeTimerPin(pin);
+  if (!gameState) return 0;
+  if (gameState.state !== 'QUESTION' || gameState.questionState !== 'ACTIVE') {
+    const tr = Number(gameState.timerRemaining);
+    return Number.isFinite(tr) ? Math.max(0, tr) : 0;
+  }
+  if (hasLiveTimer(pinNorm)) {
+    return Math.max(0, getTimerState(pinNorm).remaining);
+  }
+  const tr = Number(gameState.timerRemaining);
+  return Number.isFinite(tr) ? Math.max(0, tr) : 0;
+};
+
+/**
+ * Force-expire the timer (used for auto-reveal)
+ * @param {string} sessionPin
+ */
+const forceExpire = (sessionPin) => {
+  stopTimer(normalizeTimerPin(sessionPin));
+};
+
+const getActiveTimerCount = () => activeTimers.size;
+
+module.exports = {
+  startTimer,
+  armPausedTimer,
+  pauseTimer,
+  resumeTimer,
+  stopTimer,
+  getTimerState,
+  hasLiveTimer,
+  getReconnectTimerRemaining,
+  forceExpire,
+  getActiveTimerCount,
+};

@@ -70,7 +70,7 @@ const ROUND_TYPE_SCORING: Record<string, string> = {
   MUSIC: '+10 correct, −2 incorrect',
   ELIMINATION: 'Incremental 10–120, knockout',
   MAJORITY_RULES: '+50 majority, −50 minority',
-  FINAL_MULTIPLE_CHOICE: '+10 correct, −2 incorrect',
+  FINAL_MULTIPLE_CHOICE: '+20 correct, −2 incorrect',
   FINAL_WAGER: '% of total score',
 };
 

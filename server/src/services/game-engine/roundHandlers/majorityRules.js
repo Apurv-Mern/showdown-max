@@ -21,11 +21,12 @@ const calculate = ({ responses }) => {
     .map(([idx]) => Number(idx));
 
   for (const [teamId, response] of Object.entries(responses)) {
-    if (!response || Number(response.selectedOptionIndex) < 0 || majorityOptions.length === 0) {
+    const selectedIdx = Number(response?.selectedOptionIndex);
+    if (!response || !Number.isFinite(selectedIdx) || selectedIdx < 0 || majorityOptions.length === 0) {
       scores[teamId] = 0;
       continue;
     }
-    const isMajority = majorityOptions.includes(response.selectedOptionIndex);
+    const isMajority = majorityOptions.includes(selectedIdx);
     scores[teamId] = isMajority
       ? SCORING.MAJORITY_RULES.MAJORITY
       : SCORING.MAJORITY_RULES.MINORITY;

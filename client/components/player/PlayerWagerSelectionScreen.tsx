@@ -3,67 +3,17 @@
 import { motion, AnimatePresence } from 'framer-motion';
 import { cn, toDisplayUpper } from '@/lib/utils';
 import { LoadingDots } from '@/app/play/LoadingDots';
+import {
+  FINAL_WAGER_GRID,
+  FINAL_WAGER_PERCENT_OPTIONS,
+  formatWagerGridLabel,
+  STANDARD_WAGER_GRID,
+  tileClassForWagerValue,
+  wagerInstructionText,
+  WAGER_POINT_OPTIONS,
+} from '@/lib/wagerGrid';
 
-export const WAGER_POINT_OPTIONS = [0, 10, 20, 30, 40, 50] as const;
-export const FINAL_WAGER_PERCENT_OPTIONS = [0, 20, 40, 60, 80, 100] as const;
-
-const WAGER_TILE_CLASS: Record<number, string> = {
-  0: 'bg-linear-to-b from-[#0190F5] to-[#015FB4]',
-  10: 'bg-linear-to-b from-[#FF6F00] to-[#994200]',
-  20: 'bg-linear-to-b from-[#2DA600] to-[#227E00]',
-  30: 'bg-linear-to-b from-[#F29B00] to-[#B97700]',
-  40: 'bg-linear-to-b from-[#460073] to-[#5C0098]',
-  50: 'bg-linear-to-b from-[#990003] to-[#D20023]',
-};
-
-function tileClassForValue(value: number, isFinalWager: boolean): string {
-  if (!isFinalWager) {
-    return WAGER_TILE_CLASS[value] ?? 'bg-linear-to-b from-[#1565c0] to-[#0d47a1]';
-  }
-  const standardSteps = [0, 10, 20, 30, 40, 50];
-  const idx = FINAL_WAGER_PERCENT_OPTIONS.indexOf(
-    value as (typeof FINAL_WAGER_PERCENT_OPTIONS)[number],
-  );
-  const standardVal = standardSteps[Math.max(0, idx)] ?? 0;
-  return WAGER_TILE_CLASS[standardVal] ?? 'bg-linear-to-b from-[#1565c0] to-[#0d47a1]';
-}
-
-function formatOptionLabel(value: number, isFinalWager: boolean): string {
-  return isFinalWager ? `${value}%` : `${value}%`;
-}
-
-function formatCircleValue(value: number, isFinalWager: boolean): string {
-  return isFinalWager ? String(value) : String(value);
-}
-
-function formatLockedLabel(value: number, isFinalWager: boolean): string {
-  return isFinalWager ? `${value}%` : `${value} Pts`;
-}
-
-function WagerBackdrop() {
-  return (
-    <>
-      <div
-        className="pointer-events-none absolute inset-0 opacity-[0.14]"
-        aria-hidden
-        style={{
-          backgroundSize: '120px 120px',
-        }}
-      />
-      <div
-        className="pointer-events-none absolute bottom-0 left-1/2 h-36 w-[min(92vw,320px)] -translate-x-1/2 opacity-45"
-        aria-hidden
-        style={{
-          backgroundImage: 'radial-gradient(circle, rgba(180,190,210,0.55) 1px, transparent 1px)',
-          backgroundSize: '10px 10px',
-          maskImage: 'radial-gradient(ellipse 80% 70% at 50% 100%, black 20%, transparent 72%)',
-          WebkitMaskImage:
-            'radial-gradient(ellipse 80% 70% at 50% 100%, black 20%, transparent 72%)',
-        }}
-      />
-    </>
-  );
-}
+export { WAGER_POINT_OPTIONS, FINAL_WAGER_PERCENT_OPTIONS };
 
 function WagerSelectionView({
   category,
@@ -80,61 +30,76 @@ function WagerSelectionView({
   onSelectAmount: (amount: number) => void;
   onSubmit: () => void;
 }) {
+  const gridValues = isFinalWagerRound ? FINAL_WAGER_GRID : STANDARD_WAGER_GRID;
+  const headline = category
+    ? toDisplayUpper(category)
+    : isFinalWagerRound
+      ? 'FINAL WAGER'
+      : 'WAGER ROUND';
+
   return (
     <motion.div
       key="wager-select"
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: -12 }}
-      className="relative z-10 flex w-full max-w-[min(22rem,92vw)] flex-col items-center px-4 pb-8 pt-6 sm:max-w-md sm:px-5 sm:pb-10 sm:pt-8"
+      className="relative z-10 flex w-full max-w-[min(26rem,94vw)] flex-col px-4 pb-8 pt-6 sm:max-w-md sm:px-5 sm:pb-10 sm:pt-8"
     >
-      <h1 className="text-center text-[clamp(1.35rem,5.5vw,1.85rem)] font-black uppercase leading-tight tracking-[0.04em] text-[#47eaff] drop-shadow-[0_0_16px_rgba(71,234,255,0.45)]">
-        Place Your Bets
-      </h1>
-      <p className="mt-3 text-center text-[clamp(0.62rem,2.8vw,0.78rem)] font-bold uppercase leading-snug tracking-[0.08em] text-white/90">
-        {isFinalWagerRound
-          ? 'What percentage of your score do you want to risk ?'
-          : 'How many points do you want to risk ?'}
-      </p>
-      {category ? (
-        <p className="mt-4 text-center text-[clamp(1.05rem,4.5vw,1.45rem)] font-black uppercase tracking-[0.06em] text-white">
-          {toDisplayUpper(category)}
-        </p>
-      ) : null}
+      <div
+        className={cn(
+          'flex w-full flex-col rounded-[22px] border-2 border-[#e8eef5]/80',
+          'bg-linear-to-b from-[#1c208f] via-[#14185a] to-[#060612]',
+          'px-4 py-6 shadow-[0_0_32px_rgba(0,80,180,0.35)] sm:px-5 sm:py-7',
+        )}
+      >
+        <div className="text-center">
+          <h1
+            className="text-[clamp(2.25rem,9vw,3.5rem)] font-black uppercase leading-[0.9] tracking-[0.02em] drop-shadow-[0_3px_0_rgba(0,60,140,0.55),0_0_18px_rgba(71,234,255,0.4)]"
+            style={{
+              background:
+                'linear-gradient(180deg, #6BF8FF 0%, #47EAFF 35%, #00D9FF 65%, #3AC1FF 100%)',
+              WebkitBackgroundClip: 'text',
+              WebkitTextFillColor: 'transparent',
+              backgroundClip: 'text',
+            }}
+          >
+            {headline}
+          </h1>
+          <p className="mt-4 text-[clamp(0.72rem,3.2vw,0.95rem)] font-bold uppercase leading-snug tracking-[0.08em] text-white sm:mt-5">
+            {wagerInstructionText(isFinalWagerRound)}
+          </p>
+        </div>
 
-      <div className="relative mt-5 flex h-[clamp(7.5rem,28vw,9.5rem)] w-[clamp(7.5rem,28vw,9.5rem)] items-center justify-center sm:mt-6">
-        <div className="absolute inset-0 rounded-full bg-[radial-gradient(circle_at_50%_38%,rgba(88,28,160,0.55)_0%,rgba(8,4,24,0.95)_68%)] shadow-[inset_0_0_28px_rgba(0,0,0,0.65)]" />
-        <div className="absolute inset-0 rounded-full border-[5px] border-[#1de8ff] shadow-[0_0_22px_rgba(29,232,255,0.55),0_0_44px_rgba(29,232,255,0.22)]" />
-        <span className="relative z-10 text-[clamp(2.75rem,11vw,3.75rem)] font-black leading-none text-white">
-          {formatCircleValue(wagerAmount, isFinalWagerRound)}
-        </span>
-      </div>
-
-      <div className="mt-5 flex w-full flex-col gap-2.5 sm:mt-6 sm:gap-3">
-        {wagerChoiceValues.map((value) => {
-          const selected = wagerAmount === value;
-          return (
-            <button
-              key={value}
-              type="button"
-              onClick={() => onSelectAmount(value)}
-              className={cn(
-                'w-full rounded-xl py-3.5 text-[clamp(1.15rem,4.8vw,1.55rem)] font-black leading-none text-white touch-manipulation',
-                'shadow-[inset_0_2px_0_rgba(255,255,255,0.22),0_4px_14px_rgba(0,0,0,0.45)] transition-transform active:scale-[0.98]',
-                tileClassForValue(value, isFinalWagerRound),
-                selected && 'ring-2 ring-[#1de8ff] ring-offset-2 ring-offset-[#050017]',
-              )}
-            >
-              {formatOptionLabel(value, isFinalWagerRound)}
-            </button>
-          );
-        })}
+        <div className="mt-5 grid grid-cols-2 gap-2.5 sm:mt-6 sm:gap-3">
+          {gridValues.map((value) => {
+            const enabled = wagerChoiceValues.includes(value);
+            const selected = wagerAmount === value;
+            return (
+              <button
+                key={value}
+                type="button"
+                disabled={!enabled}
+                onClick={() => onSelectAmount(value)}
+                className={cn(
+                  'flex min-h-[clamp(3.5rem,14vw,4.75rem)] items-center justify-center rounded-xl',
+                  'text-[clamp(1.65rem,6.5vw,2.35rem)] font-black leading-none text-white touch-manipulation',
+                  'shadow-[inset_0_2px_0_rgba(255,255,255,0.24),0_4px_14px_rgba(0,0,0,0.45)] transition-transform active:scale-[0.98]',
+                  tileClassForWagerValue(value, isFinalWagerRound),
+                  !enabled && 'pointer-events-none opacity-40',
+                  selected && 'ring-2 ring-[#1de8ff] ring-offset-2 ring-offset-[#060612]',
+                )}
+              >
+                {formatWagerGridLabel(value, isFinalWagerRound)}
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       <button
         type="button"
         onClick={onSubmit}
-        className="mt-6 w-full rounded-xl border-2 border-[#1de8ff] bg-[rgba(5,12,34,0.88)] px-4 py-3.5 text-[clamp(0.72rem,3.1vw,0.88rem)] font-black uppercase tracking-[0.1em] text-[#47eaff] shadow-[0_0_18px_rgba(29,232,255,0.28)] transition-colors touch-manipulation hover:bg-[rgba(8,22,56,0.95)] sm:mt-7 sm:py-4"
+        className="mt-5 w-full rounded-xl border-2 border-[#1de8ff] bg-[rgba(5,12,34,0.88)] px-4 py-3.5 text-[clamp(0.72rem,3.1vw,0.88rem)] font-black uppercase tracking-[0.1em] text-[#47eaff] shadow-[0_0_18px_rgba(29,232,255,0.28)] transition-colors touch-manipulation hover:bg-[rgba(8,22,56,0.95)] sm:mt-6 sm:py-4"
       >
         Submit Point Selection
       </button>
@@ -179,7 +144,8 @@ function WagerLockedView({
 
       <div className="mt-6 w-full rounded-full bg-linear-to-b from-[#ff2b2b] via-[#c40012] to-[#7a0010] px-4 py-3.5 text-center shadow-[inset_0_2px_0_rgba(255,255,255,0.28),0_8px_22px_rgba(0,0,0,0.45)] sm:py-4">
         <p className="text-[clamp(0.72rem,3.2vw,0.92rem)] font-black uppercase tracking-[0.05em] text-white">
-          Your Selected Points : {formatLockedLabel(wagerAmount, isFinalWagerRound)}
+          Your Selected Points :{' '}
+          {isFinalWagerRound ? `${wagerAmount}%` : `${wagerAmount} Pts`}
         </p>
       </div>
 
@@ -208,8 +174,7 @@ export function PlayerWagerSelectionScreen({
   onSubmit,
 }: PlayerWagerSelectionScreenProps) {
   return (
-    <div className="relative flex flex-1 flex-col items-center justify-center overflow-hidden">
-      <WagerBackdrop />
+    <div className="relative flex flex-1 flex-col items-center justify-center overflow-hidden bg-linear-to-b from-[#1a004d] via-[#120838] to-[#000000]">
       <AnimatePresence mode="wait">
         {wagerSubmitted ? (
           <WagerLockedView wagerAmount={wagerAmount} isFinalWagerRound={isFinalWagerRound} />

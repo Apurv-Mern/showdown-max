@@ -2054,6 +2054,7 @@ const startQuestionWagerCollection = async (io, pin) => {
     questionIndex: result.gameState.currentQuestionIndex,
     totalQuestions: round.questions.length,
     questionId: upcomingQuestion?.id ?? null,
+    category: upcomingQuestion?.category ?? null,
   });
 
   io.to(`session:${pin}`).emit(

@@ -2715,15 +2715,26 @@ export default function GamePage() {
                         );
                       }
 
+                      const isMajorityRulesRound =
+                        (question.roundType || '').toUpperCase() === 'MAJORITY_RULES';
+
                       return question.question.options.map((opt, i) => {
-                        const isMajorityRulesRound =
-                          (question.roundType || '').toUpperCase() === 'MAJORITY_RULES';
                         const majorityWinners = new Set(
                           (revealData.majorityOptionIndexes || [])
                             .map(Number)
                             .filter(Number.isFinite),
                         );
+                        const fallbackIdx = Number(revealData.correctOptionIndex);
+                        if (
+                          isMajorityRulesRound &&
+                          majorityWinners.size === 0 &&
+                          Number.isFinite(fallbackIdx) &&
+                          fallbackIdx >= 0
+                        ) {
+                          majorityWinners.add(fallbackIdx);
+                        }
                         const isVoteWinner = majorityWinners.has(i);
+
                         const correctIdxNum = Number(revealData.correctOptionIndex);
                         const isCorrectOption =
                           Number.isFinite(correctIdxNum) &&
@@ -2737,14 +2748,9 @@ export default function GamePage() {
                           selNum === i;
                         const isSelectedWrong = isSelectedOption && !isCorrectOption;
 
-                        // Majority Rules: "correct" is decided by votes, not the question's factual key.
                         const shouldDim = isMajorityRulesRound
-                          ? !isVoteWinner && !isSelectedOption
+                          ? !isVoteWinner
                           : !isCorrectOption && !isSelectedWrong;
-
-                        // Majority Rules: keep the green halo on the winning option, but
-                        // suppress the green tick and the red cross/ring on the user's pick
-                        // (per host requirement — winners shouldn't look "correct/incorrect").
                         const showCorrectRing = isMajorityRulesRound
                           ? isVoteWinner
                           : isCorrectOption;
@@ -2760,13 +2766,6 @@ export default function GamePage() {
                               'flex min-h-14 w-full items-center justify-between gap-3 rounded-xl border border-white/20 px-4 py-3 text-white font-bold sm:min-h-16 sm:px-6 sm:py-4 md:min-h-[4.75rem]',
                               'touch-manipulation select-none transition-all',
                               OPTION_BG[i] || 'bg-[#1565c0]',
-                              isMajorityRulesRound &&
-                                isSelectedOption &&
-                                'ring-2 ring-[#00e5ff] shadow-[0_0_8px_8px_rgba(0,229,255,0.65)]',
-                              // Reveal-phase highlight rings: bright green halo for the
-                              // correct option, bright red halo for the player's
-                              // wrong pick. Mirrors the Figma reveal screen so the
-                              // outcome is unmistakable on a phone.
                               showCorrectRing &&
                                 'ring-2 ring-[#39ff14] shadow-[0_0_18px_4px_rgba(57,255,20,0.7)]',
                               showWrongRing &&
@@ -2894,6 +2893,8 @@ export default function GamePage() {
                       );
                     }
 
+                    // Majority Rules: only the vote winner is highlighted; wrong picks get no
+                    // red ring. Scoring (+50 / −50) still comes from the server via pointsGained.
                     return (
                       <p
                         className={cn(
@@ -2908,8 +2909,8 @@ export default function GamePage() {
                         {!didSubmitOnReveal
                           ? 'NO ANSWER SUBMITTED !!'
                           : (pointsGained ?? 0) > 0
-                            ? `CORRECT ANSWER !!`
-                            : `OOPS - WRONG ANSWER !!`}
+                            ? 'CORRECT ANSWER !!'
+                            : 'OOPS - WRONG ANSWER !!'}
                       </p>
                     );
                   })()}
@@ -2970,16 +2971,16 @@ export default function GamePage() {
                 {...pageTransition}
                 className="mt-2 flex flex-1 flex-col px-3 pb-4 pt-2 sm:mt-4 sm:px-4 md:px-6"
               >
-                <div className="mb-3 text-center sm:mb-4 flex items-center justify-center gap-10">
+                <div className="mb-3 flex items-center justify-center gap-10 text-center sm:mb-4">
                   <img
                     src="/leaderboardIcon.png"
                     alt="Leaderboard"
-                    className="w-15image.png h-15"
-                  />{' '}
+                    className="h-15 w-15"
+                  />
                   <h2 className="text-[clamp(1.75rem,6vw,3.25rem)] font-extrabold leading-none tracking-wide text-white drop-shadow-[0_0_10px_rgba(255,255,255,0.2)]">
                     Leaderboard
                   </h2>
-                  <img src="/leaderboardIcon.png" alt="Leaderboard" className="w-15 h-15" />{' '}
+                  <img src="/leaderboardIcon.png" alt="Leaderboard" className="h-15 w-15" />
                 </div>
                 <motion.div
                   variants={staggerContainer}
@@ -2997,27 +2998,25 @@ export default function GamePage() {
                           'relative flex items-center justify-between rounded-2xl border px-2 py-3 shadow-[0_0_18px_rgba(0,229,255,0.3)] sm:px-3 sm:py-4',
                           'border-[#12ddff]/70 bg-[linear-gradient(90deg,#2d12a0_0%,#9a0dbd_100%)]',
                           isMe &&
-                            'border-[#35f6ff] ring-4 ring-[#35f6ff] ring-offset-2 ring-offset-[#0b0524] shadow-[0_0_36px_rgba(53,246,255,0.85),0_0_72px_rgba(53,246,255,0.45)] scale-[1.03] z-10 animate-pulse-me',
+                            'z-10 scale-[1.03] border-[#35f6ff] ring-4 ring-[#35f6ff] ring-offset-2 ring-offset-[#0b0524] shadow-[0_0_36px_rgba(53,246,255,0.85),0_0_72px_rgba(53,246,255,0.45)] animate-pulse-me',
                         )}
                       >
-                        {/* "YOU" pill — anchored to the top-right so it never collides with the
-                            rank badge or the name+score row. Only rendered for the player's own row. */}
-                        {isMe && (
+                        {isMe ? (
                           <span className="pointer-events-none absolute -top-2 right-3 rounded-full border border-[#35f6ff] bg-[#0b0524] px-2 py-[2px] text-[10px] font-black uppercase tracking-[0.18em] text-[#8af7ff] shadow-[0_0_12px_rgba(53,246,255,0.7)] sm:text-xs">
                             You
                           </span>
-                        )}
+                        ) : null}
                         <div className="flex min-w-0 items-center gap-2 sm:gap-3">
                           <span
                             className={cn(
                               'flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border text-lg font-black sm:h-11 sm:w-11 sm:text-2xl',
                               idx === 0 &&
-                                'bg-[linear-gradient(180deg,#ffd35e_0%,#ff9f0a_100%)] text-white border-[#ffdf7f]',
+                                'border-[#ffdf7f] bg-[linear-gradient(180deg,#ffd35e_0%,#ff9f0a_100%)] text-white',
                               idx === 1 &&
-                                'bg-[linear-gradient(180deg,#b7c8e6_0%,#6f88b5_100%)] text-white border-[#d4e4ff]',
+                                'border-[#d4e4ff] bg-[linear-gradient(180deg,#b7c8e6_0%,#6f88b5_100%)] text-white',
                               idx === 2 &&
-                                'bg-[linear-gradient(180deg,#df8f49_0%,#a45a21_100%)] text-white border-[#f3b07a]',
-                              idx > 2 && 'bg-[#100a3d] text-white border-[#281d72]',
+                                'border-[#f3b07a] bg-[linear-gradient(180deg,#df8f49_0%,#a45a21_100%)] text-white',
+                              idx > 2 && 'border-[#281d72] bg-[#100a3d] text-white',
                             )}
                           >
                             {idx + 1}

@@ -21,8 +21,9 @@ import {
   resolveBreakUpNextLabel,
   resolveBreakUpNextLabelFromBreakStart,
 } from '@/lib/breakScreenCopy';
-import { VenueWagerCollectionScreenLegacy } from '@/components/venue/VenueWagerCollectionScreenLegacy';
+import { VenueWagerCollectionScreen } from '@/components/venue/VenueWagerCollectionScreen';
 import { VenueLiveResponseBars } from '@/components/venue/VenueLiveResponseBars';
+import { LeaderboardScreen } from '@/components/shared/LeaderboardScreen';
 import { PUBLIC_API_URL } from '@/lib/env';
 
 const API_URL = PUBLIC_API_URL;
@@ -419,6 +420,7 @@ function VenueDisplayContent() {
   });
   // Wager-lock progress counter for the venue's wager-collection screen.
   const [wagerLockedCount, setWagerLockedCount] = useState(0);
+  const [wagerCollectionCategory, setWagerCollectionCategory] = useState<string | null>(null);
   const [wagerLockedTotal, setWagerLockedTotal] = useState(0);
   // Drives the venue's "round is over" transition screen between the last
   // question reveal and the scoreboard. Cleared on phase change away from round_end.
@@ -1270,7 +1272,10 @@ function VenueDisplayContent() {
 
     const onWagerCollectionStart = (data: any) => {
       clearVenueMiniGameOverlay();
-      if (data) setRoundInfo(data);
+      if (data) {
+        setRoundInfo(data);
+        setWagerCollectionCategory(data.category ?? null);
+      }
       setPhase('wager_collection');
       // Reset the lock counter so the venue doesn't briefly show the previous question's
       // value before the server's initial `wager_lock_update` (0/total) arrives.
@@ -2060,9 +2065,9 @@ function VenueDisplayContent() {
 
         {/* Wager Collection */}
         {phase === 'wager_collection' && (
-          <VenueWagerCollectionScreenLegacy
-            roundIndex={roundInfo?.roundIndex ?? 0}
-            category={question?.question?.category}
+          <VenueWagerCollectionScreen
+            category={question?.question?.category ?? wagerCollectionCategory}
+            roundType={roundInfo?.round?.type ?? question?.roundType}
             wagerLockedCount={wagerLockedCount}
             wagerLockedTotal={wagerLockedTotal}
             liveTotalTeams={liveTotalTeams}
@@ -2141,7 +2146,7 @@ function VenueDisplayContent() {
                 {/* Media Section */}
                 <div className="relative rounded-t-2xl  overflow-hidden shrink-0">
                   <div className="absolute left-4 top-3 z-10 text-white/90 text-2xl font-semibold">
-                    Question {(question.questionIndex || 0) + 1}/{question.totalQuestions}
+                    QUESTION {(question.questionIndex || 0) + 1}/{question.totalQuestions}
                   </div>
                   {/* Media */}
                   <div className="h-[30vh] md:h-[34vh] lg:h-[38vh] max-h-[360px] min-h-[180px]">
@@ -2443,57 +2448,8 @@ function VenueDisplayContent() {
 
         {/* Leaderboard (venue) */}
         {phase === 'scoreboard' && (
-          <div className="w-full h-full flex flex-col items-center justify-center p-3 sm:p-4 md:p-6 animate-fadeIn">
-            <div className="w-full max-w-xl sm:max-w-3xl md:max-w-4xl lg:max-w-5xl rounded-lg sm:rounded-xl md:rounded-2xl lg:rounded-3xl border border-[#9fbeff]/70 bg-[linear-gradient(180deg,rgba(24,9,76,0.95)_0%,rgba(12,6,48,0.95)_100%)] shadow-[0_0_24px_rgba(0,216,255,0.25)] px-4 sm:px-6 md:px-8 py-3 sm:py-4 md:py-6 overflow-y-auto max-h-full">
-              <h3 className="text-2xl sm:text-3xl md:text-4xl lg:text-5xl font-black text-white text-center mb-2 sm:mb-3 md:mb-4">
-                Leaderboard
-              </h3>
-
-              <div className="grid grid-cols-[64px_minmax(0,1fr)_82px] sm:grid-cols-[74px_minmax(0,1fr)_96px] md:grid-cols-[88px_minmax(0,1fr)_120px] items-center px-2 sm:px-4 md:px-5 mb-2 sm:mb-3 text-white text-xs sm:text-sm md:text-base lg:text-lg font-bold gap-2 sm:gap-3 md:gap-4">
-                <div className="text-center">Rank</div>
-                <div className="text-left">Team Name</div>
-                <div className="text-right">Pts</div>
-              </div>
-
-              <div className="space-y-1 sm:space-y-2 md:space-y-3">
-                {scoreboard.map((team, idx) => {
-                  const response = revealData?.responseDetails?.find(
-                    (r) => Number(r.teamId) === Number(team.teamId),
-                  );
-                  const selectedOptionIndex = response?.selectedOptionIndex ?? -1;
-                  const selectedLabel =
-                    selectedOptionIndex >= 0 && selectedOptionIndex < OPTION_LETTERS.length
-                      ? OPTION_LETTERS[selectedOptionIndex]
-                      : '-';
-                  const totalScore = Number(team.score ?? 0);
-
-                  return (
-                    <div
-                      key={team.teamId}
-                      className="grid grid-cols-[64px_minmax(0,1fr)_82px] sm:grid-cols-[74px_minmax(0,1fr)_96px] md:grid-cols-[88px_minmax(0,1fr)_120px] items-center rounded-lg border border-[#2ec7ff]/50 bg-[linear-to-b_#2c00a8_0%,_#9a00b8_100%] px-2 sm:px-3 md:px-4 py-2 sm:py-2 md:py-3 text-white text-xs sm:text-sm md:text-base font-semibold gap-2 sm:gap-3 md:gap-4"
-                    >
-                      <div className="flex justify-center">
-                        <span className="inline-flex h-6 sm:h-8 md:h-10 min-w-6 sm:min-w-8 md:min-w-10 items-center justify-center rounded bg-[#080327] px-1.5 sm:px-2 md:px-3 text-[12px] sm:text-[14px] md:text-[16px] lg:text-[18px] font-bold">
-                          {idx + 1}
-                        </span>
-                      </div>
-                      <div
-                        className={cn(
-                          'min-w-0 truncate',
-                          team.isEliminated && 'line-through opacity-60',
-                        )}
-                      >
-                        {toDisplayUpper(team.teamName)}
-                      </div>
-                      <div className="text-[#00f0ff] text-right">
-                        {totalScore >= 0 ? '+' : ''}
-                        {totalScore}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
+          <div className="absolute inset-0 z-[5] h-full w-full animate-fadeIn">
+            <LeaderboardScreen teams={scoreboard} size="venue" showScene={false} />
           </div>
         )}
 
@@ -2570,7 +2526,7 @@ function VenueDisplayContent() {
                   <span className="text-2xl font-black tracking-[0.18em] text-[#8fefff]">CS</span>
                 </div>
                 <h2 className="text-6xl font-black text-white drop-shadow-[0_0_16px_rgba(255,255,255,0.18)]">
-                  Game Finished
+                  GAME FINISHED
                 </h2>
                 <p className="mt-5 text-2xl font-semibold text-[#8fefff]">
                   {miniGameResult.message || 'Wait for the host to start the game.'}
@@ -2579,7 +2535,7 @@ function VenueDisplayContent() {
             ) : miniGameResult.game === 'card_shuffle' && miniGameResult.winningCard ? (
               <>
                 <div className="text-7xl mb-6">🃏</div>
-                <h2 className="text-5xl font-black mb-4 text-glow-cyan">Winning Card</h2>
+                <h2 className="text-5xl font-black mb-4 text-glow-cyan">WINNING CARD</h2>
                 <div className="flex gap-8 mt-4">
                   {(
                     [
@@ -2627,16 +2583,16 @@ function VenueDisplayContent() {
                   <span className="text-2xl font-black tracking-[0.18em] text-[#8fefff]">KR</span>
                 </div>
                 <h2 className="text-6xl font-black text-white drop-shadow-[0_0_16px_rgba(255,255,255,0.18)]">
-                  Game Finished
+                  GAME FINISHED
                 </h2>
-                <p className="mt-5 text-2xl font-semibold text-[#8fefff]">
+                {/* <p className="mt-5 text-2xl font-semibold text-[#8fefff]">
                   {miniGameResult.message || 'Wait for the host to start the game.'}
-                </p>
+                </p> */}
               </div>
             ) : miniGameResult.game === 'Kangaroo_race' && miniGameResult.winningKangaroo ? (
               <>
                 <div className="text-7xl mb-6">🦘</div>
-                <h2 className="text-5xl font-black mb-4 text-glow-cyan">Winning Kangaroo</h2>
+                <h2 className="text-5xl font-black mb-4 text-glow-cyan">WINNING KANGAROO</h2>
                 <div className="flex gap-6 mt-4 flex-wrap justify-center">
                   {[1, 2, 3, 4, 5, 6].map((n) => {
                     const isWinner = n === miniGameResult.winningKangaroo;
@@ -2677,12 +2633,12 @@ function VenueDisplayContent() {
           <div className="w-full h-full flex flex-col items-center justify-center p-8 animate-fadeIn">
             <div className="text-7xl mb-4">🏆</div>
             <h1 className="text-6xl font-black uppercase mb-2 text-glow-cyan">
-              Thank You For Playing!
+              THANK YOU FOR PLAYING!
             </h1>
             {scoreboard.length > 0 && (
               <>
                 <p className="text-3xl uppercase text-neon-gold text-glow-gold font-bold mt-4 mb-8">
-                  Winner: {toDisplayUpper(scoreboard[0]?.teamName)}
+                  WINNER: {toDisplayUpper(scoreboard[0]?.teamName)}
                 </p>
                 <div className="flex items-end gap-4 mb-8">
                   {scoreboard.length > 1 && (
@@ -2734,7 +2690,7 @@ function VenueDisplayContent() {
               }}
               className="mt-6 rounded-xl border border-[#2bdcff]/60 bg-[rgba(8,20,56,0.92)] px-8 py-3 text-xl font-bold text-[#2be9ff] shadow-[0_0_18px_rgba(43,220,255,0.35)] hover:bg-[rgba(8,20,56,1)]"
             >
-              Leave Game
+              LEAVE GAME
             </button>
           </div>
         )}

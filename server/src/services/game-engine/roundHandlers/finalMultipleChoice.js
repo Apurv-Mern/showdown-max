@@ -1,7 +1,7 @@
 const { SCORING } = require('shared/constants/scoring');
 
 /**
- * Final Multiple Choice: Same as regular MC (+10 / -2)
+ * Final Multiple Choice: Same as regular MC (+20 / -2)
  */
 const calculate = ({ question, responses }) => {
   const scores = {};

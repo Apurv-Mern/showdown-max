@@ -70,7 +70,7 @@ const ROUND_TYPE_SCORING: Record<string, string> = {
   MUSIC: '+10 correct, -2 incorrect',
   ELIMINATION: 'Incremental 10-120, knockout',
   MAJORITY_RULES: '+50 majority, -50 minority',
-  FINAL_MULTIPLE_CHOICE: '+10 correct, -2 incorrect',
+  FINAL_MULTIPLE_CHOICE: '+20 correct, -2 incorrect',
   FINAL_WAGER: '% of total score',
 };
 
@@ -81,7 +81,7 @@ const ROUND_POINTS_PREVIEW: Record<string, string> = {
   MUSIC: 'Correct answer: +10 pts · Incorrect: −2 pts',
   ELIMINATION: '10–120 pts ladder · Wrong answer = knockout',
   MAJORITY_RULES: 'Majority +50 pts · Minority −50 pts',
-  FINAL_MULTIPLE_CHOICE: 'Correct answer: +10 pts · Incorrect: −2 pts',
+  FINAL_MULTIPLE_CHOICE: 'Correct answer: +20 pts · Incorrect: −2 pts',
   FINAL_WAGER: 'Wager 0–100% of score · Win/lose wager',
 };
 

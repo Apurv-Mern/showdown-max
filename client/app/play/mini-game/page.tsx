@@ -41,19 +41,19 @@ const DEFAULT_KANGAROO_NAMES = [
 ] as const;
 
 const CARD_POSITIONS = [
-  { id: 1, label: 'Left' },
-  { id: 2, label: 'Middle' },
-  { id: 3, label: 'Right' },
+  { id: 1, label: 'LEFT' },
+  { id: 2, label: 'MIDDLE' },
+  { id: 3, label: 'RIGHT' },
 ] as const;
 
-const CARD_LABEL_MAP: Record<number, string> = { 1: 'Left', 2: 'Middle', 3: 'Right' };
+const CARD_LABEL_MAP: Record<number, string> = { 1: 'LEFT', 2: 'MIDDLE', 3: 'RIGHT' };
 const CARD_ROUND_BONUS: Record<1 | 2 | 3 | 4, number> = {
   1: 10,
   2: 20,
   3: 30,
   4: 50,
 };
-const CARD_FINISHED_MESSAGE = 'Host will Start the game shortly !!';
+const CARD_FINISHED_MESSAGE = '';
 const MINI_GAME_FINISHED_MESSAGE = '';
 const KANGAROO_VENUE_FOOTER = 'THIS RACE WILL BE SHOWN ON THE VENUE SCREENS';
 const CARD_IMAGE_FACE_DOWN = '/games/card-shuffle/facedowncard.png';
@@ -869,13 +869,13 @@ export default function MiniGamePage() {
               <div className="relative z-10 flex min-h-0 flex-1 flex-col px-5 pb-8 pt-8 sm:px-8">
                 <header className="shrink-0 text-center">
                   <h1 className="text-[clamp(1.65rem,6vw,2.2rem)] font-black uppercase leading-tight tracking-[0.06em] text-white drop-shadow-[0_2px_12px_rgba(0,0,0,0.45)]">
-                    Kangaroo Race !!
+                    KANGAROO RACE !!
                   </h1>
                   <p className="mt-2 text-[1.05rem] font-extrabold leading-tight text-white sm:text-xl">
-                    Which Kangaroo will win
+                    WHICH KANGAROO WILL WIN
                   </p>
                   <p className="text-[1.05rem] font-extrabold leading-tight text-white sm:text-xl">
-                    Pick your Kangaroo
+                    PICK YOUR KANGAROO
                   </p>
                 </header>
 
@@ -940,10 +940,10 @@ export default function MiniGamePage() {
             <div className="relative z-10 flex min-h-0 flex-1 flex-col px-5 pb-8 pt-10 sm:px-8">
               <header className="shrink-0 text-center">
                 <h1 className="text-[clamp(1.75rem,6.4vw,2.35rem)] font-black uppercase leading-tight tracking-[0.06em] text-white drop-shadow-[0_2px_12px_rgba(0,0,0,0.45)]">
-                  Card Shuffle !!
+                  CARD SHUFFLE !!
                 </h1>
                 <p className="mt-2 text-[1.1rem] font-extrabold leading-tight text-white sm:text-xl">
-                  Which Card is the Queen of Hearts ❤️
+                  WHICH CARD IS THE QUEEN OF HEARTS ❤️
                 </p>
               </header>
 
@@ -968,7 +968,7 @@ export default function MiniGamePage() {
 
               <div className="shrink-0 rounded-xl border border-[#00d8ff]/65 bg-[rgba(0,0,0,0.62)] px-4 py-3 text-center shadow-[0_0_12px_rgba(0,216,255,0.25)]">
                 <p className="text-base font-black text-white sm:text-lg">
-                  Card Game is about to begin on the Venue screen!!
+                  CARD GAME IS ABOUT TO BEGIN ON THE VENUE SCREEN!!
                 </p>
               </div>
             </div>
@@ -980,10 +980,10 @@ export default function MiniGamePage() {
               {resultPhase !== 'finished' ? (
                 <header className="shrink-0 text-center">
                   <h1 className="text-[clamp(1.75rem,6vw,2.35rem)] font-black uppercase leading-tight tracking-[0.06em] text-white drop-shadow-[0_2px_12px_rgba(0,0,0,0.45)]">
-                    Card shuffle !!
+                    CARD SHUFFLE !!
                   </h1>
                   <p className="mt-3 text-base font-bold leading-snug text-white sm:text-lg">
-                    Which Card is the Queen of Hearts{' '}
+                    WHICH CARD IS THE QUEEN OF HEARTS{' '}
                     <span className="inline-block" aria-hidden>
                       ❤️
                     </span>
@@ -1018,16 +1018,16 @@ export default function MiniGamePage() {
                     )}
                   >
                     {resultPhase === 'winner'
-                      ? `CORRECT ! You found the Queen +${activeRoundBonus}`
+                      ? `CORRECT ! YOU FOUND THE QUEEN +${activeRoundBonus}`
                       : resultPhase === 'loser'
                         ? selectedChoice == null
                           ? winningValue
-                            ? `No pick made — Queen was in ${CARD_LABEL_MAP[winningValue]}`
-                            : 'No pick made for this round'
+                            ? `NO PICK MADE — QUEEN WAS IN ${CARD_LABEL_MAP[winningValue]}`
+                            : 'NO PICK MADE FOR THIS ROUND'
                           : winningValue && selectedChoice
                             ? `Wrong ! You picked ${CARD_LABEL_MAP[selectedChoice]} — Queen was in ${CARD_LABEL_MAP[winningValue]}`
-                            : `Wrong ! Queen was in ${winningValue ? CARD_LABEL_MAP[winningValue] : 'another'}`
-                        : 'Tap a Card to make your Selection !!'}
+                            : `Wrong ! Queen was in ${winningValue ? CARD_LABEL_MAP[winningValue] : 'ANOTHER'}`
+                        : 'TAP A CARD TO MAKE YOUR SELECTION !!'}
                   </p>
                 </div>
               ) : null}
@@ -1158,7 +1158,7 @@ export default function MiniGamePage() {
                                     : 'bg-rose-500/30 text-rose-100 ring-1 ring-rose-400/55',
                                 )}
                               >
-                                Your pick
+                                YOUR PICK
                               </span>
                             ) : null}
                           </div>
@@ -1167,7 +1167,7 @@ export default function MiniGamePage() {
                     </div>
                     {resultPhase != null ? (
                       <p className="mt-4 max-w-md px-2 text-center text-xs font-medium text-white/45">
-                        Waiting for the host to start the next round...
+                        WAITING FOR THE HOST TO START THE NEXT ROUND...
                       </p>
                     ) : null}
                   </>
@@ -1181,10 +1181,10 @@ export default function MiniGamePage() {
             <div className="text-4xl mb-3">MINI GAME</div>
             <h2 className="text-xl font-bold mb-2">Mini-Game</h2>
             <p className="text-foreground/50 text-sm mb-6">
-              Waiting for the host to launch a game...
+              WAITING FOR THE HOST TO LAUNCH A GAME...
             </p>
             <Button variant="ghost" onClick={() => router.push('/play/game')}>
-              Back to Game
+              BACK TO GAME
             </Button>
           </div>
         )}

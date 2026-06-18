@@ -2065,13 +2065,33 @@ function VenueDisplayContent() {
 
         {/* Wager Collection */}
         {phase === 'wager_collection' && (
-          <VenueWagerCollectionScreen
-            category={question?.question?.category ?? wagerCollectionCategory}
-            roundType={roundInfo?.round?.type ?? question?.roundType}
-            wagerLockedCount={wagerLockedCount}
-            wagerLockedTotal={wagerLockedTotal}
-            liveTotalTeams={liveTotalTeams}
-          />
+          <div className="flex h-full min-h-0 w-full animate-fadeIn flex-col px-4 py-3 md:px-20 md:py-4 lg:px-40 lg:py-5">
+            <div className="mx-auto mb-3 w-full shrink-0 rounded-2xl">
+              <div className="mb-2 rounded-xl px-3 py-2 md:px-4">
+                <VenueLiveResponseBars
+                  variant="inline"
+                  className="w-full flex-1 lg:max-w-2xl"
+                  roundType={roundInfo?.round?.type ?? question?.roundType}
+                  stats={{
+                    correct: wagerLockedCount,
+                    incorrect: Math.max(
+                      0,
+                      Math.max(1, wagerLockedTotal || liveTotalTeams || 1) - wagerLockedCount,
+                    ),
+                    noAnswer: 0,
+                    total: Math.max(1, wagerLockedTotal || liveTotalTeams || 1),
+                  }}
+                />
+              </div>
+            </div>
+
+            <div className="flex flex-1 items-center justify-center px-[2%] pb-[2%]">
+              <VenueWagerCollectionScreen
+                category={question?.question?.category ?? wagerCollectionCategory}
+                roundType={roundInfo?.round?.type ?? question?.roundType}
+              />
+            </div>
+          </div>
         )}
 
         {/* Question Stats */}

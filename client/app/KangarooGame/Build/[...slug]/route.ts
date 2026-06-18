@@ -11,9 +11,26 @@ import { NextResponse } from 'next/server';
 export const runtime = 'nodejs';
 
 /**
- * Unity WebGL lives at repo root `KangarooGame/Build/` (sibling to `client/`), not under `public/`.
+ * Unity WebGL lives at repo root (sibling to `client/`), not under `public/`.
+ * Tracked folder is `KangarooGamebb/Build/`; local clones may use `kangarooGame/` or `KangarooGame/`.
  * Optional override: KANGAROO_BUILD_DIR=/absolute/path/to/Build
  */
+const LEGACY_FILE_ALIASES: Record<string, string[]> = {
+  'Kangaroo_Build.loader.js': ['kangaroofinal.loader.js', 'Kangaroo_Build.loader.js'],
+  'Kangaroo_Build.data.br': ['kangaroofinal.data.br', 'Kangaroo_Build.data.br'],
+  'Kangaroo_Build.framework.js.br': ['kangaroofinal.framework.js.br', 'Kangaroo_Build.framework.js.br'],
+  'Kangaroo_Build.wasm.br': ['kangaroofinal.wasm.br', 'Kangaroo_Build.wasm.br'],
+  'Kangaroo_Build.data': ['kangaroofinal.data', 'Kangaroo_Build.data'],
+  'Kangaroo_Build.framework.js': ['kangaroofinal.framework.js', 'Kangaroo_Build.framework.js'],
+  'Kangaroo_Build.wasm': ['kangaroofinal.wasm', 'Kangaroo_Build.wasm'],
+};
+
+const BUILD_DIR_CANDIDATES = [
+  'KangarooGamebb/Build',
+  'KangarooGame/Build',
+  'kangarooGame/Build',
+];
+
 function isDirectory(dirPath: string): boolean {
   if (!existsSync(dirPath)) return false;
   try {
@@ -23,32 +40,48 @@ function isDirectory(dirPath: string): boolean {
   }
 }
 
-function resolveBuildDir(): string {
+function resolveBuildDir(): string | null {
   const fromEnv = process.env.KANGAROO_BUILD_DIR?.trim();
   if (fromEnv) {
     const envPath = path.resolve(fromEnv);
     if (isDirectory(envPath)) return envPath;
   }
 
-  const candidates = [
-    path.resolve(process.cwd(), 'KangarooGame', 'Build'),
-    path.resolve(process.cwd(), '..', 'KangarooGame', 'Build'),
-  ];
-
-  for (const candidate of candidates) {
-    if (isDirectory(candidate)) return candidate;
+  const roots = [process.cwd(), path.resolve(process.cwd(), '..')];
+  for (const root of roots) {
+    for (const relative of BUILD_DIR_CANDIDATES) {
+      const candidate = path.resolve(root, relative);
+      if (isDirectory(candidate)) return candidate;
+    }
   }
 
-  return candidates[0];
+  return null;
+}
+
+function resolveBuildFile(buildDir: string, requestedName: string): string | null {
+  const candidates = LEGACY_FILE_ALIASES[requestedName] ?? [requestedName];
+
+  for (const name of candidates) {
+    const filePath = path.resolve(buildDir, name);
+    const rel = path.relative(buildDir, filePath);
+    if (rel.startsWith('..') || path.isAbsolute(rel)) continue;
+    try {
+      if (statSync(filePath).isFile()) return filePath;
+    } catch {
+      // try next alias
+    }
+  }
+
+  return null;
 }
 
 function mimeFor(filePath: string): string {
-  const lower = filePath.toLowerCase().replace(/\.(br|br)$/i, '');
-  if (lower.endsWith('.js') || lower.endsWith('.br')) {
+  const lower = filePath.toLowerCase().replace(/\.br$/i, '');
+  if (lower.endsWith('.js') || lower.endsWith('.framework.js')) {
     return 'application/javascript; charset=utf-8';
   }
-  if (lower.endsWith('.wasm') || lower.endsWith('.wasm.br')) return 'application/wasm';
-  if (lower.endsWith('.data') || lower.endsWith('.data.br')) return 'application/octet-stream';
+  if (lower.endsWith('.wasm')) return 'application/wasm';
+  if (lower.endsWith('.data')) return 'application/octet-stream';
   if (lower.endsWith('.json')) return 'application/json';
   if (lower.endsWith('.symbols.json')) return 'application/json';
   return 'application/octet-stream';
@@ -56,11 +89,8 @@ function mimeFor(filePath: string): string {
 
 function contentEncodingFor(filePath: string): 'gzip' | 'br' | null {
   const lower = filePath.toLowerCase();
-  if (lower.endsWith('.br')) return 'br';
   if (!lower.endsWith('.br')) return null;
 
-  // Unity .unityweb may be gzip or brotli depending on build settings.
-  // If it starts with gzip magic bytes (1f 8b), set gzip; otherwise default to br.
   try {
     const fd = openSync(filePath, 'r');
     const head = Buffer.allocUnsafe(2);
@@ -85,25 +115,17 @@ export async function GET(_request: Request, context: { params: Promise<{ slug?:
   const segments = slug
     .map((s) => decodeURIComponent(s))
     .filter((p) => p && p !== '.' && p !== '..');
-  if (segments.length !== slug.length) {
+  if (segments.length !== slug.length || segments.length !== 1) {
     return new NextResponse('Bad request', { status: 400 });
   }
 
   const buildDir = resolveBuildDir();
-  const filePath = path.resolve(buildDir, ...segments);
-  const rel = path.relative(buildDir, filePath);
-  if (rel.startsWith('..') || path.isAbsolute(rel)) {
-    return new NextResponse('Forbidden', { status: 403 });
+  if (!buildDir) {
+    return new NextResponse('Kangaroo build directory not found', { status: 404 });
   }
 
-  let st: ReturnType<typeof statSync>;
-  try {
-    st = statSync(filePath);
-  } catch {
-    return new NextResponse('Not found', { status: 404 });
-  }
-
-  if (!st.isFile()) {
+  const filePath = resolveBuildFile(buildDir, segments[0]!);
+  if (!filePath) {
     return new NextResponse('Not found', { status: 404 });
   }
 

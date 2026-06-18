@@ -43,10 +43,10 @@ const GAME_CONFIGS: Record<
   { loaderUrl: string; dataUrl: string; frameworkUrl: string; codeUrl: string }
 > = {
   Kangaroo_race: {
-    loaderUrl: '/KangarooGame/Build/Kangaroo_Build.loader.js',
-    dataUrl: '/KangarooGame/Build/Kangaroo_Build.data.br',
-    frameworkUrl: '/KangarooGame/Build/Kangaroo_Build.framework.js.br',
-    codeUrl: '/KangarooGame/Build/Kangaroo_Build.wasm.br',
+    loaderUrl: '/KangarooGame/Build/kangaroofinal.loader.js',
+    dataUrl: '/KangarooGame/Build/kangaroofinal.data.br',
+    frameworkUrl: '/KangarooGame/Build/kangaroofinal.framework.js.br',
+    codeUrl: '/KangarooGame/Build/kangaroofinal.wasm.br',
   },
   /** WebGL build served from repo root `CardGame/Build/` via `app/CardGame/Build/[...slug]/route.ts` */
   card_shuffle: {
@@ -349,7 +349,7 @@ function FallbackView({ gameType }: { gameType: string }) {
       </p>
       <code className="text-xs font-mono bg-surface-light px-4 py-2 rounded-lg text-primary">
         {gameType === 'Kangaroo_race'
-          ? 'KangarooGame/Build/ (repo root, next to client/)'
+          ? 'KangarooGamebb/Build/ (repo root, next to client/)'
           : 'CardGame/Build/ (repo root, next to client/)'}
       </code>
       {gameType === 'card_shuffle' || gameType === 'Kangaroo_race' ? (

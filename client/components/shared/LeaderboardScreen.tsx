@@ -249,7 +249,7 @@ export function LeaderboardScreen({
               cfg.title,
             )}
           >
-            Leaderboard
+            LEADERBOARD
           </h2>
           <img
             src="/leaderboardIcon.png"

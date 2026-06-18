@@ -2433,7 +2433,11 @@ export default function GamePage() {
 
             {/* ── WAGER INPUT ── */}
             {phase === 'wager_input' && (
-              <motion.div key="wager" {...pageTransition} className="flex flex-1 flex-col">
+              <motion.div
+                key="wager"
+                {...pageTransition}
+                className="relative flex min-h-0 flex-1 flex-col overflow-hidden"
+              >
                 <PlayerWagerSelectionScreen
                   category={question?.question?.category}
                   isFinalWagerRound={isFinalWagerRound}
@@ -2972,13 +2976,9 @@ export default function GamePage() {
                 className="mt-2 flex flex-1 flex-col px-3 pb-4 pt-2 sm:mt-4 sm:px-4 md:px-6"
               >
                 <div className="mb-3 flex items-center justify-center gap-10 text-center sm:mb-4">
-                  <img
-                    src="/leaderboardIcon.png"
-                    alt="Leaderboard"
-                    className="h-15 w-15"
-                  />
+                  <img src="/leaderboardIcon.png" alt="Leaderboard" className="h-15 w-15" />
                   <h2 className="text-[clamp(1.75rem,6vw,3.25rem)] font-extrabold leading-none tracking-wide text-white drop-shadow-[0_0_10px_rgba(255,255,255,0.2)]">
-                    Leaderboard
+                    LEADERBOARD
                   </h2>
                   <img src="/leaderboardIcon.png" alt="Leaderboard" className="h-15 w-15" />
                 </div>

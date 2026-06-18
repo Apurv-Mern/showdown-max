@@ -38,3 +38,23 @@ export function wagerInstructionText(isFinalWager: boolean): string {
     ? 'Select the percentage you want to wager'
     : 'Select the points you want to wager';
 }
+
+export function playerWagerTitle(isFinalWager: boolean): string {
+  return isFinalWager ? 'Place your final bets' : 'Place your wager';
+}
+
+export function playerWagerSubtitle(isFinalWager: boolean): string {
+  return isFinalWager
+    ? 'What percentage of our overall scores are we willing to risk?'
+    : 'Select how many points you want to wager';
+}
+
+/** Circle display — numeric only (no % suffix), matching player mock. */
+export function formatWagerCircleValue(value: number): string {
+  return String(value);
+}
+
+/** Button face — mock shows plain numbers; final wager appends %. */
+export function formatWagerButtonLabel(value: number, isFinalWager: boolean): string {
+  return isFinalWager ? `${value}%` : String(value);
+}

@@ -68,7 +68,7 @@ export function getRoundIntroInstructions(roundType?: string): RoundIntroInstruc
       ],
       negative: [
         part('Incorrect answer : '),
-        part('knocked out', 'default'),
+        part('knocked out', 'red'),
         part(' until the end of the round'),
       ],
       positiveLines: [
@@ -77,7 +77,7 @@ export function getRoundIntroInstructions(roundType?: string): RoundIntroInstruc
         [part('next question')],
       ],
       negativeLines: [
-        [part('Incorrect answer : '), part('knocked out')],
+        [part('Incorrect answer : '), part('knocked out', 'red')],
         [part('until the end of the round')],
       ],
     };

@@ -281,8 +281,10 @@ export default function MiniGamePage() {
           if (Array.isArray(data.kangarooNames) && data.kangarooNames.length >= 6) {
             setKangarooNames(resolveKangarooNames(data.kangarooNames));
           }
-          setRoundOpen(true);
+          setRoundOpen(false);
           setShuffleComplete(false);
+          setRoundAnnouncement('RACE STARTED — WATCH THE VENUE SCREEN');
+          window.setTimeout(() => setRoundAnnouncement(null), 2200);
         }
         if (data.command === 'reveal_winner') {
           setRoundOpen(false);
@@ -565,12 +567,12 @@ export default function MiniGamePage() {
         if (names?.length >= 6) {
           setKangarooNames(resolveKangarooNames(names));
         }
-        // Pick as soon as the mini-game is on the venue — before the host starts the race.
-        const racePickPhaseActive = !mgs.revealed;
+        // Pick only before the host starts the race (gameStarted locks the window).
+        const racePickPhaseActive = !mgs.revealed && !mgs.gameStarted;
 
-        if (racePickPhaseActive) {
+        if (!mgs.revealed) {
           setGameType('kangaroo_race');
-          setRoundOpen(true);
+          setRoundOpen(racePickPhaseActive);
           // Restore the player's existing pick if any
           const teamId = sessionTeamIdRef.current;
           if (teamId && mgs.selections) {
@@ -909,10 +911,18 @@ export default function MiniGamePage() {
 
                 <div className="mt-5 rounded-xl border border-[#00d8ff]/65 bg-[rgba(0,0,0,0.62)] px-4 py-3 text-center shadow-[0_0_12px_rgba(0,216,255,0.25)]">
                   <p className="text-base font-black text-white">
-                    {selectedChoice ? 'PICK LOCKED !!' : KANGAROO_VENUE_FOOTER}
+                    {selectedChoice
+                      ? 'PICK LOCKED !!'
+                      : !roundOpen
+                        ? 'RACE STARTED — PICKS ARE CLOSED'
+                        : KANGAROO_VENUE_FOOTER}
                   </p>
                   {selectedChoice ? (
                     <p className="mt-1 text-sm font-bold text-white/80">{KANGAROO_VENUE_FOOTER}</p>
+                  ) : !roundOpen ? (
+                    <p className="mt-1 text-sm font-bold text-white/80">
+                      Watch the race on the venue screen
+                    </p>
                   ) : null}
                 </div>
               </div>

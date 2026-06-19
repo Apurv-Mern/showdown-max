@@ -23,7 +23,11 @@ import {
 } from '@/lib/breakScreenCopy';
 import { VenueWagerCollectionScreen } from '@/components/venue/VenueWagerCollectionScreen';
 import { VenueLiveResponseBars } from '@/components/venue/VenueLiveResponseBars';
-import { DEFAULT_KANGAROO_NAMES, defaultKangarooNames, resolveKangarooNames } from '@/lib/kangarooRaceDefaults';
+import {
+  DEFAULT_KANGAROO_NAMES,
+  defaultKangarooNames,
+  resolveKangarooNames,
+} from '@/lib/kangarooRaceDefaults';
 import { LeaderboardScreen } from '@/components/shared/LeaderboardScreen';
 import { RoundEndScreen } from '@/components/shared/RoundEndScreen';
 import { GameshowEndScreen } from '@/components/shared/GameshowEndScreen';
@@ -1963,7 +1967,7 @@ function VenueDisplayContent() {
                 TEAM REGISTRATION
               </h2>
               <p className="text-sm sm:text-base md:text-lg lg:text-2xl text-neon-cyan font-semibold mt-1">
-                {teams.length} of {maxTeams} Teams Joined
+                {teams.length} of {maxTeams} TEAMS JOINED
               </p>
             </div>
 
@@ -1975,7 +1979,7 @@ function VenueDisplayContent() {
                 <div className="text-left min-w-0">
                   <p className="text-neon-cyan font-bold text-xs sm:text-sm">SCAN TO JOIN</p>
                   <p className="text-white/70 text-[10px] sm:text-xs mt-0.5">
-                    Session PIN: {sessionPin}
+                    SESSION PIN: {sessionPin}
                   </p>
                 </div>
               </div>
@@ -2087,6 +2091,8 @@ function VenueDisplayContent() {
               <VenueWagerCollectionScreen
                 category={question?.question?.category ?? wagerCollectionCategory}
                 roundType={roundInfo?.round?.type ?? question?.roundType}
+                wagerLockedCount={wagerLockedCount}
+                wagerLockedTotal={Math.max(1, wagerLockedTotal || liveTotalTeams || 1)}
               />
             </div>
           </div>

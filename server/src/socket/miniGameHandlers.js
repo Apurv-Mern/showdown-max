@@ -1050,7 +1050,12 @@ const miniGameHandlers = (io, socket) => {
 
         if (activeGame === 'kangaroo_race') {
           await hydrateHorseRaceState(eventPin, (state) => {
-            if (state.game !== 'kangaroo_race' || state.revealed || !teamId) {
+            if (
+              state.game !== 'kangaroo_race' ||
+              state.revealed ||
+              state.gameStarted ||
+              !teamId
+            ) {
               shouldRelayPlayerSelection = false;
               return state;
             }

@@ -76,9 +76,7 @@ export default function VenueSessionLoginPage() {
   };
 
   return (
-    <div
-      className="font-sans flex min-h-screen w-full items-center justify-center overflow-x-hidden bg-transparent px-4 antialiased sm:px-8"
-    >
+    <div className="font-sans flex min-h-screen w-full items-center justify-center overflow-x-hidden bg-transparent px-4 antialiased sm:px-8">
       <div className="m-12 flex w-full flex-col items-center justify-center gap-12 lg:flex-row lg:gap-24">
         <div className="shrink-0 flex items-center justify-center">
           <Image
@@ -94,10 +92,10 @@ export default function VenueSessionLoginPage() {
         <main className="z-10 flex w-full max-w-180 flex-col items-center justify-center">
           <div className="flex w-full flex-col items-center">
             <h1 className="text-center text-[clamp(1.5rem,4vw,2.25rem)] font-bold text-white">
-              Venue Login
+              VENUE LOGIN
             </h1>
             <p className="mt-2 text-center text-[clamp(0.875rem,2.2vw,1.125rem)] font-medium text-[#00d1ff]">
-              Enter the 6-digit session PIN to activate this venue screen
+              ENTER THE 6-DIGIT SESSION PIN TO ACTIVATE THIS VENUE SCREEN
             </p>
 
             <form
@@ -124,7 +122,7 @@ export default function VenueSessionLoginPage() {
               <div className="flex flex-col gap-6">
                 <div className="flex flex-col gap-2">
                   <label htmlFor="venue-pin" className="text-sm font-bold text-white">
-                    Enter Session PIN
+                    ENTER SESSION PIN
                   </label>
                   <input
                     id="venue-pin"
@@ -149,7 +147,7 @@ export default function VenueSessionLoginPage() {
                   disabled={pin.length !== 6 || isCheckingPin}
                   className="h-11 min-w-[200px] max-w-[85%] rounded-lg bg-[linear-gradient(180deg,#dc2626_0%,#7f1d1d_100%)] px-10 text-base font-bold text-white shadow-[0_4px_16px_rgba(0,0,0,0.4)] transition-[filter,transform] duration-200 hover:brightness-110 active:scale-[0.98] disabled:opacity-50 sm:min-w-[240px]"
                 >
-                  {isCheckingPin ? 'Checking PIN...' : 'Activate Venue'}
+                  {isCheckingPin ? 'CHECKING PIN...' : 'ACTIVATE VENUE'}
                 </button>
               </div>
 
@@ -160,7 +158,7 @@ export default function VenueSessionLoginPage() {
                   disabled={isCheckingPin}
                   className="mt-4 w-full rounded-lg border border-white/15 bg-white/5 px-4 py-2.5 text-sm font-semibold text-white/85 transition-colors hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  Reconnect last session ({savedPin})
+                  RECONNECT LAST SESSION ({savedPin})
                 </button>
               ) : null}
             </form>

@@ -830,6 +830,7 @@ export default function GamePage() {
   const [orderingDragIndex, setOrderingDragIndex] = useState<number | null>(null);
   const [wagerAmount, setWagerAmount] = useState(0);
   const [wagerSubmitted, setWagerSubmitted] = useState(false);
+  const [wagerCollectionCategory, setWagerCollectionCategory] = useState<string | null>(null);
   const [revealData, setRevealData] = useState<RevealData | null>(null);
   const [pointsGained, setPointsGained] = useState<number | null>(null);
   const [scoreboard, setScoreboard] = useState<
@@ -1434,6 +1435,9 @@ export default function GamePage() {
           // resolve `question.question.id`. The wager_input UI never renders the question
           // text/options, so exposing it here is purely a state plumbing concern.
           setQuestion(gs.currentQuestion || null);
+          if (gs.currentQuestion?.question?.category) {
+            setWagerCollectionCategory(String(gs.currentQuestion.question.category).trim());
+          }
           setTimerEndsAt(null);
           setTimerRemaining(0);
           setTimerRunning(false);
@@ -1595,7 +1599,12 @@ export default function GamePage() {
     };
 
     const onWagerCollectionStart = (data: any) => {
-      if (data) setRoundInfo(data);
+      if (data) {
+        setRoundInfo(data);
+        if (data.category != null && String(data.category).trim()) {
+          setWagerCollectionCategory(String(data.category).trim());
+        }
+      }
       setQuestion(null);
       setTimerEndsAt(null);
       setTimerRemaining(0);
@@ -1632,6 +1641,7 @@ export default function GamePage() {
 
       if (!sameQuestion) {
         setRevealData(null);
+        setWagerCollectionCategory(null);
         setPointsGained(null);
       }
 
@@ -2468,7 +2478,7 @@ export default function GamePage() {
                 className="relative flex min-h-0 flex-1 flex-col overflow-hidden"
               >
                 <PlayerWagerSelectionScreen
-                  category={question?.question?.category}
+                  category={question?.question?.category ?? wagerCollectionCategory}
                   isFinalWagerRound={isFinalWagerRound}
                   wagerAmount={wagerAmount}
                   wagerSubmitted={wagerSubmitted}
@@ -2618,7 +2628,7 @@ export default function GamePage() {
                               'touch-manipulation select-none transition-all',
                               OPTION_BG[i] || 'bg-[#1565c0]',
                               isSelected &&
-                                'ring-4 ring-white shadow-[0_0_25px_rgba(255,255,255,0.5)]',
+                                'ring-4 ring-[#00D9FF] shadow-[0_0_25px_rgba(0,217,255,0.55)]',
                               isLocked && !isSelected && 'opacity-60 grayscale-[0.3]',
                               isLocked && 'cursor-not-allowed',
                             )}

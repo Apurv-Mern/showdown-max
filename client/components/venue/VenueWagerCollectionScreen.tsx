@@ -12,9 +12,13 @@ import {
 export function VenueWagerCollectionScreen({
   category,
   roundType,
+  wagerLockedCount = 0,
+  wagerLockedTotal = 0,
 }: {
   category?: string | null;
   roundType?: string;
+  wagerLockedCount?: number;
+  wagerLockedTotal?: number;
 }) {
   const isFinalWager = (roundType || '').toUpperCase() === 'FINAL_WAGER';
   const gridValues = isFinalWager ? FINAL_WAGER_GRID : STANDARD_WAGER_GRID;
@@ -23,6 +27,7 @@ export function VenueWagerCollectionScreen({
     : isFinalWager
       ? 'FINAL WAGER'
       : 'WAGER ROUND';
+  const totalTeams = Math.max(1, wagerLockedTotal);
 
   return (
     <div
@@ -36,6 +41,19 @@ export function VenueWagerCollectionScreen({
         background: 'linear-gradient(180deg, #4020BA 0%, #000000 60%)',
       }}
     >
+      <div
+        className="absolute right-[clamp(1rem,2.2vw,1.75rem)] top-[clamp(1rem,2.2vh,1.75rem)] rounded-xl border border-[#00d9ff]/45 bg-[rgba(4,12,32,0.82)] px-[clamp(0.85rem,1.6vw,1.15rem)] py-[clamp(0.65rem,1.2vh,0.85rem)] text-right shadow-[0_0_18px_rgba(0,217,255,0.18)]"
+        aria-live="polite"
+        aria-label={`${wagerLockedCount} of ${totalTeams} teams wagered`}
+      >
+        <p className="text-[clamp(0.62rem,1vw,0.72rem)] font-bold uppercase tracking-[0.14em] text-[#9de9ff]/85">
+          Teams wagered
+        </p>
+        <p className="mt-0.5 text-[clamp(1.35rem,2.2vw,1.85rem)] font-black leading-none text-white">
+          <span className="text-[#00d9ff]">{wagerLockedCount}</span>
+          <span className="text-white/55"> / {totalTeams}</span>
+        </p>
+      </div>
       <div className="shrink-0 text-center">
         <h1
           className="text-[clamp(2.5rem,3.8vw,6.75rem)] font-black uppercase leading-[0.88] tracking-[0.02em]"

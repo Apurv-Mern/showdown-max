@@ -33,13 +33,24 @@ function PlayerWagerBackground() {
 const SELECTED_BUTTON =
   'ring-[2.5px] ring-[#1de8ff] shadow-[0_0_18px_rgba(29,232,255,0.75)] scale-[1.01]';
 
+function resolveWagerCategoryLabel(
+  category: string | null | undefined,
+  isFinalWagerRound: boolean,
+): string {
+  const trimmed = (category || '').trim();
+  if (trimmed) return toDisplayUpper(trimmed);
+  return isFinalWagerRound ? 'FINAL WAGER' : 'WAGER';
+}
+
 function WagerSelectionView({
+  category,
   isFinalWagerRound,
   wagerAmount,
   wagerChoiceValues,
   onSelectAmount,
   onSubmit,
 }: {
+  category?: string | null;
   isFinalWagerRound: boolean;
   wagerAmount: number;
   wagerChoiceValues: readonly number[];
@@ -47,6 +58,7 @@ function WagerSelectionView({
   onSubmit: () => void;
 }) {
   const gridValues = isFinalWagerRound ? FINAL_WAGER_GRID : STANDARD_WAGER_GRID;
+  const categoryLabel = resolveWagerCategoryLabel(category, isFinalWagerRound);
 
   return (
     <motion.div
@@ -65,9 +77,9 @@ function WagerSelectionView({
         </p>
       </header>
 
-      <div className="mt-4 flex shrink-0 flex-col items-center sm:mt-3.5">
+      <div className="mt-2 flex shrink-0 flex-col items-center sm:mt-2.5">
         <p className="text-[clamp(0.95rem,4vw,1.15rem)] font-black uppercase tracking-[0.12em] text-white">
-          Wager
+          {categoryLabel}
         </p>
         <div
           className="mt-1.5 flex h-[clamp(5.75rem,23vw,7.25rem)] w-[clamp(5.75rem,23vw,7.25rem)] items-center justify-center rounded-full bg-black shadow-[0_0_28px_rgba(29,232,255,0.7)] ring-[3px] ring-[#1de8ff]"
@@ -80,7 +92,7 @@ function WagerSelectionView({
         </div>
       </div>
 
-      <div className="mx-auto mt-20 flex w-full max-w-[min(20rem,90vw)] shrink-0 flex-col gap-2.5 sm:max-w-[22rem] sm:gap-3">
+      <div className="mx-auto mt-6 flex w-full max-w-[min(20rem,90vw)] shrink-0 flex-col gap-2.5 sm:max-w-[22rem] sm:gap-3">
         {gridValues.map((value) => {
           const enabled = wagerChoiceValues.includes(value);
           const selected = wagerAmount === value;
@@ -108,7 +120,7 @@ function WagerSelectionView({
       <button
         type="button"
         onClick={onSubmit}
-        className="mx-auto mt-10 w-full max-w-[min(20rem,90vw)] shrink-0 rounded-xl border-2 border-[#1de8ff] bg-[rgba(4,8,22,0.92)] px-4 py-3 text-[clamp(0.68rem,3vw,0.8rem)] font-black uppercase tracking-[0.1em] text-[#1de8ff] shadow-[0_0_16px_rgba(29,232,255,0.22)] transition-colors touch-manipulation active:bg-[rgba(8,16,40,0.95)] sm:max-w-[22rem]"
+        className="mx-auto mt-5 w-full max-w-[min(20rem,90vw)] shrink-0 rounded-xl border-2 border-[#1de8ff] bg-[rgba(4,8,22,0.92)] px-4 py-3 text-[clamp(0.68rem,3vw,0.8rem)] font-black uppercase tracking-[0.1em] text-[#1de8ff] shadow-[0_0_16px_rgba(29,232,255,0.22)] transition-colors touch-manipulation active:bg-[rgba(8,16,40,0.95)] sm:max-w-[22rem]"
       >
         Submit Point Selection
       </button>
@@ -117,12 +129,15 @@ function WagerSelectionView({
 }
 
 function WagerLockedView({
+  category,
   wagerAmount,
   isFinalWagerRound,
 }: {
+  category?: string | null;
   wagerAmount: number;
   isFinalWagerRound: boolean;
 }) {
+  const categoryLabel = resolveWagerCategoryLabel(category, isFinalWagerRound);
   return (
     <motion.div
       key="wager-locked"
@@ -132,7 +147,7 @@ function WagerLockedView({
       className="relative z-10 flex w-full flex-1 flex-col items-center justify-center px-5 pb-10 pt-10 sm:px-6"
     >
       <p className="text-[clamp(0.95rem,4vw,1.1rem)] font-black uppercase tracking-[0.1em] text-[#1de8ff]">
-        Wager
+        {categoryLabel}
       </p>
       <div className="mt-3 flex h-[clamp(6.5rem,26vw,8.25rem)] w-[clamp(6.5rem,26vw,8.25rem)] items-center justify-center rounded-full bg-black shadow-[0_0_28px_rgba(29,232,255,0.7)] ring-[3px] ring-[#1de8ff]">
         <span className="text-[clamp(3.25rem,13vw,4.25rem)] font-black leading-none text-white">
@@ -166,6 +181,7 @@ export type PlayerWagerSelectionScreenProps = {
 };
 
 export function PlayerWagerSelectionScreen({
+  category,
   isFinalWagerRound,
   wagerAmount,
   wagerSubmitted,
@@ -178,9 +194,14 @@ export function PlayerWagerSelectionScreen({
       <PlayerWagerBackground />
       <AnimatePresence mode="wait">
         {wagerSubmitted ? (
-          <WagerLockedView wagerAmount={wagerAmount} isFinalWagerRound={isFinalWagerRound} />
+          <WagerLockedView
+            category={category}
+            wagerAmount={wagerAmount}
+            isFinalWagerRound={isFinalWagerRound}
+          />
         ) : (
           <WagerSelectionView
+            category={category}
             isFinalWagerRound={isFinalWagerRound}
             wagerAmount={wagerAmount}
             wagerChoiceValues={wagerChoiceValues}

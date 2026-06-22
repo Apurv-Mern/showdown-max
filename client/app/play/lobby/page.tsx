@@ -99,9 +99,9 @@ export default function LobbyPage() {
               initial={{ opacity: 0, y: 8 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.28 }}
-              className="text-[clamp(1.75rem,6vw,2.6rem)] font-bold leading-[1.05] text-white md:text-[clamp(2rem,4vw,2.75rem)]"
+              className="text-[clamp(1.75rem,6vw,2.6rem)] font-bold leading-[1.05]   md:text-[clamp(2rem,4vw,2.75rem)] text-[#38FF00]"
             >
-              The Quiz Wizards
+              YOU ARE IN
             </motion.h1>
             <motion.p
               initial={{ opacity: 0, y: 8 }}
@@ -109,16 +109,11 @@ export default function LobbyPage() {
               transition={{ delay: 0.38 }}
               className="mt-2 text-base font-medium leading-[1.2] text-white/70 sm:text-lg md:text-xl"
             >
-              {/* You are in
-              <p className="mt-0.5 text-base font-medium leading-[1.2] text-white/70 sm:text-lg md:text-xl">
-                The host will start the game shortly
-              </p> */}
-              YOU ARE IN
               <motion.p
                 initial={{ opacity: 0, y: 8 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: 0.38 }}
-                className="mt-2 text-base font-medium leading-[1.2] text-white/70 sm:text-lg md:text-xl"
+                className="mt-2 text-base font-medium leading-[1.2] text-white sm:text-lg md:text-xl"
               >
                 THE HOST WILL START THE GAME SHORTLY
               </motion.p>

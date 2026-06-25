@@ -107,6 +107,7 @@ interface Team {
 interface GameState {
   state: string;
   questionState: string;
+  lobbyPhase?: 'registration' | 'code_of_conduct' | 'practice_question';
   /** Host overlay scoreboard while state may still be QUESTION / ROUND_END / etc. */
   scoreboardVisible?: boolean;
   currentRoundIndex: number;
@@ -1070,7 +1071,12 @@ function HostDashboardContent() {
 
     const onSocketError = (payload: { message?: string } | string) => {
       const message = typeof payload === 'string' ? payload : payload?.message;
-      if (message) toast.error(message);
+      if (message) {
+        toast.error(message);
+        if ((gameStateRef.current?.state || 'LOBBY') === 'LOBBY') {
+          setStartGameRequested(false);
+        }
+      }
     };
 
     const onTeamRemoved = ({ teamId }: { teamId: number }) => {
@@ -1217,8 +1223,14 @@ function HostDashboardContent() {
       setWagerLockedCount(0);
     };
 
+    const onVenueLobbyPhase = (data: { phase?: GameState['lobbyPhase'] }) => {
+      if (!data?.phase) return;
+      setGameState((prev) => (prev ? { ...prev, lobbyPhase: data.phase } : prev));
+    };
+
     socket.on('round_intro', onRoundIntro);
     socket.on('wager_collection_start', onWagerCollectionStart);
+    socket.on('venue_lobby_phase', onVenueLobbyPhase);
     socket.on('scoreboard', onScoreboard);
     socket.on('scoreboard_hidden', onScoreboardHidden);
     socket.on('round_end', onRoundEnd);
@@ -1312,6 +1324,7 @@ function HostDashboardContent() {
       socket.off('live_responses_update', onLiveResponseUpdate);
       socket.off('round_intro', onRoundIntro);
       socket.off('wager_collection_start', onWagerCollectionStart);
+      socket.off('venue_lobby_phase', onVenueLobbyPhase);
       socket.off('scoreboard', onScoreboard);
       socket.off('scoreboard_hidden', onScoreboardHidden);
       socket.off('round_end', onRoundEnd);
@@ -1343,6 +1356,9 @@ function HostDashboardContent() {
   const handleStartGame = () => {
     setStartGameRequested(true);
     emit('start_game');
+  };
+  const handleAdvanceLobby = () => {
+    emit('advance_lobby');
   };
   const handleNextQuestion = () => {
     if (activeMiniGameLocal || miniGameLoading || cardShuffleFinishedHold) return;
@@ -1852,6 +1868,7 @@ function HostDashboardContent() {
   const isCurrentRoundWagerLockRound =
     currentRound?.type === 'WAGER' || currentRound?.type === 'FINAL_WAGER';
   const state = gameState?.state || 'LOBBY';
+  const lobbyPhase = gameState?.lobbyPhase || 'registration';
   const isCurrentRoundEmpty =
     state === 'ROUND_INTRO' &&
     Array.isArray(currentRound?.questions) &&
@@ -3058,11 +3075,20 @@ function HostDashboardContent() {
               ) : (
                 <div className="text-center">
                   <p className="mb-2 text-2xl font-bold text-white/30">
-                    {state === 'LOBBY' ? 'Waiting for teams to join...' : 'Waiting...'}
+                    {state === 'LOBBY'
+                      ? lobbyPhase === 'registration'
+                        ? 'Waiting for teams to join...'
+                        : lobbyPhase === 'code_of_conduct'
+                          ? 'Code of Conduct is on the venue screen'
+                          : 'Practice question is on the venue screen'
+                      : 'Waiting...'}
                   </p>
                   {state === 'LOBBY' ? (
                     <p className="text-sm text-white/40">
                       {teamList.length} team{teamList.length !== 1 ? 's' : ''} in lobby
+                      {lobbyPhase !== 'registration'
+                        ? ` · ${lobbyPhase === 'code_of_conduct' ? 'Next: practice question' : 'Ready to start'}`
+                        : ''}
                     </p>
                   ) : null}
                 </div>
@@ -3226,20 +3252,32 @@ function HostDashboardContent() {
               }
               disabled={
                 miniGameLive ||
-                (state === 'LOBBY' && startGameRequested) ||
+                (state === 'LOBBY' &&
+                  ((lobbyPhase === 'practice_question' &&
+                    (startGameRequested || teamList.length === 0)) ||
+                    (lobbyPhase === 'registration' && teamList.length === 0))) ||
                 !(state === 'LOBBY' || state === 'ROUND_INTRO' || state === 'WAGER_COLLECTION') ||
                 isCurrentRoundEmpty
               }
               onClick={() => {
-                if (state === 'LOBBY') handleStartGame();
-                else if (state === 'ROUND_INTRO' && isCurrentRoundWagerLockRound)
+                if (state === 'LOBBY') {
+                  if (lobbyPhase === 'registration' || lobbyPhase === 'code_of_conduct') {
+                    handleAdvanceLobby();
+                  } else {
+                    handleStartGame();
+                  }
+                } else if (state === 'ROUND_INTRO' && isCurrentRoundWagerLockRound)
                   handleCollectWagers();
                 else if (state === 'ROUND_INTRO') handleNextQuestion();
                 else if (state === 'WAGER_COLLECTION') handleNextQuestion();
               }}
             >
               {state === 'LOBBY'
-                ? 'Start Game'
+                ? lobbyPhase === 'registration'
+                  ? 'Show Code of Conduct'
+                  : lobbyPhase === 'code_of_conduct'
+                    ? 'Show Practice Question'
+                    : 'Start Game'
                 : state === 'ROUND_INTRO' && isCurrentRoundWagerLockRound
                   ? 'Lock Wager Points'
                   : state === 'WAGER_COLLECTION'

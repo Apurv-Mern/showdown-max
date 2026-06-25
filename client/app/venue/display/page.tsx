@@ -22,6 +22,8 @@ import {
   resolveBreakUpNextLabelFromBreakStart,
 } from '@/lib/breakScreenCopy';
 import { VenueWagerCollectionScreen } from '@/components/venue/VenueWagerCollectionScreen';
+import { VenueCodeOfConductScreen } from '@/components/venue/VenueCodeOfConductScreen';
+import { VenuePracticeQuestionScreen } from '@/components/venue/VenuePracticeQuestionScreen';
 import { VenueLiveResponseBars } from '@/components/venue/VenueLiveResponseBars';
 import {
   DEFAULT_KANGAROO_NAMES,
@@ -39,9 +41,19 @@ const VENUE_STATE_STORAGE_KEY_PREFIX = 'venue_display_state';
 
 const getVenueStateStorageKey = (pin: string) => `${VENUE_STATE_STORAGE_KEY_PREFIX}:${pin}`;
 
+type LobbyPhase = 'registration' | 'code_of_conduct' | 'practice_question';
+
+const lobbyPhaseToVenuePhase = (lobbyPhase?: string): VenuePhase => {
+  if (lobbyPhase === 'code_of_conduct') return 'code_of_conduct';
+  if (lobbyPhase === 'practice_question') return 'practice_question';
+  return 'lobby';
+};
+
 type VenuePhase =
   | 'welcome'
   | 'lobby'
+  | 'code_of_conduct'
+  | 'practice_question'
   | 'round_intro'
   | 'question'
   | 'reveal'
@@ -1035,7 +1047,7 @@ function VenueDisplayContent() {
         setLiveResponses((prev) => ({ ...prev, total: n }));
       }
       const stateToPhase: Record<string, VenuePhase> = {
-        LOBBY: 'lobby',
+        LOBBY: lobbyPhaseToVenuePhase(data.lobbyPhase),
         ROUND_INTRO: 'round_intro',
         WAGER_COLLECTION: 'wager_collection',
         QUESTION: 'question',
@@ -1205,13 +1217,16 @@ function VenueDisplayContent() {
         const resolvedPhase =
           normalizedActiveMiniGame != null
             ? 'mini_game'
-            : data.state && stateToPhase[data.state]
-              ? stateToPhase[data.state]
-              : phaseRef.current;
+            : data.state === 'LOBBY'
+              ? lobbyPhaseToVenuePhase(data.lobbyPhase)
+              : data.state && stateToPhase[data.state]
+                ? stateToPhase[data.state]
+                : phaseRef.current;
         window.sessionStorage.setItem(
           getVenueStateStorageKey(sessionPin),
           JSON.stringify({
             phase: resolvedPhase,
+            lobbyPhase: data.lobbyPhase,
             miniGameType: normalizedActiveMiniGame,
             qrCodeData: data.qrCodeData || qrCodeData,
             teams: sessionTeams,
@@ -1732,6 +1747,11 @@ function VenueDisplayContent() {
       router.replace('/venue');
     };
 
+    const onVenueLobbyPhase = (data: { phase?: LobbyPhase }) => {
+      if (!data?.phase) return;
+      applyVenuePhaseFromSession(lobbyPhaseToVenuePhase(data.phase));
+    };
+
     socket.on('session_state', onSessionState);
     socket.on('team_joined', onTeamJoined);
     socket.on('team_removed', onTeamRemoved);
@@ -1757,6 +1777,7 @@ function VenueDisplayContent() {
     socket.on('mini_game_end', onMiniGameEnd);
     socket.on('game_end', onGameEnd);
     socket.on('venue_welcome_dismiss', handleWelcomeContinue);
+    socket.on('venue_lobby_phase', onVenueLobbyPhase);
 
     joinVenue();
 
@@ -1789,6 +1810,7 @@ function VenueDisplayContent() {
       socket.off('mini_game_end', onMiniGameEnd);
       socket.off('game_end', onGameEnd);
       socket.off('venue_welcome_dismiss', handleWelcomeContinue);
+      socket.off('venue_lobby_phase', onVenueLobbyPhase);
     };
   }, [
     socket,
@@ -2027,6 +2049,10 @@ function VenueDisplayContent() {
             </div>
           </div>
         )}
+
+        {phase === 'code_of_conduct' && <VenueCodeOfConductScreen />}
+
+        {phase === 'practice_question' && <VenuePracticeQuestionScreen />}
 
         {/* Round Intro */}
         {phase === 'round_intro' && roundInfo && (

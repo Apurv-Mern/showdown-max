@@ -35,6 +35,8 @@ const SOCKET_EVENTS = Object.freeze({
   MUSIC_CONTROL: 'music_control',
   /** Host: dismiss the venue's looping welcome video (replaces the venue's Continue button). */
   DISMISS_WELCOME: 'dismiss_welcome',
+  /** Host: advance pre-game lobby on venue + players (registration → CoC → practice). */
+  ADVANCE_LOBBY: 'advance_lobby',
 
   // Server → Client
   SESSION_STATE: 'session_state',
@@ -69,6 +71,8 @@ const SOCKET_EVENTS = Object.freeze({
   LIVE_RESPONSE_UPDATE: 'live_response_update',
   /** Server -> venue: dismiss the looping welcome video (driven by host Space press). */
   VENUE_WELCOME_DISMISS: 'venue_welcome_dismiss',
+  /** Server -> clients: pre-game lobby phase changed on venue/players. */
+  VENUE_LOBBY_PHASE: 'venue_lobby_phase',
 
   // Errors
   ERROR: 'error',

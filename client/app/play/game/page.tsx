@@ -1564,6 +1564,10 @@ export default function GamePage() {
           setPhase('game_end');
         } else if (gs.state === 'LOBBY') {
           setTimerRunning(false);
+          if (gs.lobbyPhase === 'code_of_conduct' || gs.lobbyPhase === 'practice_question') {
+            router.replace('/play/lobby');
+            return;
+          }
           setPhase('waiting');
         } else if (phaseRef.current === 'break' && gs.state !== 'BREAK') {
           // Host ended break but no branch above matched — stop break countdown UI.

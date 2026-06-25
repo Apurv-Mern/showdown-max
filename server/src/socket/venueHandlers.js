@@ -9,6 +9,22 @@ const { buildRevealSnapshot } = require('../services/revealSnapshot');
 const { Session } = require('../models');
 const { mapClientQuestionPayload } = require('../utils/clientQuestionPayload');
 
+const buildPreGameLobbyPayload = async (pin, session, lobbyTeams) => {
+  const lobbyPhase = await redisStore.getLobbyPhase(pin);
+  return {
+    state: 'LOBBY',
+    lobbyPhase,
+    pin,
+    qrCodeData: session?.qrCodeData,
+    teams: lobbyTeams.reduce((acc, t) => {
+      acc[t.teamId] = t;
+      return acc;
+    }, {}),
+    totalTeams: lobbyTeams.length,
+    maxTeams: session?.maxTeams || lobbyTeams.length,
+  };
+};
+
 const normalizeMiniGameId = (game) =>
   game == null || game === '' ? '' : String(game).toLowerCase().replace(/-/g, '_');
 
@@ -137,17 +153,10 @@ const venueHandlers = (io, socket) => {
         });
         const lobbyTeams = await redisStore.getAllTeamsData(pin);
         if (session) {
-          socket.emit(SOCKET_EVENTS.SESSION_STATE, {
-            state: 'LOBBY',
-            pin,
-            qrCodeData: session.qrCodeData,
-            teams: lobbyTeams.reduce((acc, t) => {
-              acc[t.teamId] = t;
-              return acc;
-            }, {}),
-            totalTeams: lobbyTeams.length,
-            maxTeams: session.maxTeams,
-          });
+          socket.emit(
+            SOCKET_EVENTS.SESSION_STATE,
+            await buildPreGameLobbyPayload(pin, session, lobbyTeams),
+          );
         }
       }
 
@@ -179,16 +188,10 @@ const venueHandlers = (io, socket) => {
       } else {
         const session = await Session.findOne({ where: { pin } });
         const lobbyTeams = await redisStore.getAllTeamsData(pin);
-        socket.emit(SOCKET_EVENTS.SESSION_STATE, {
-          state: 'LOBBY',
-          pin,
-          teams: lobbyTeams.reduce((acc, t) => {
-            acc[t.teamId] = t;
-            return acc;
-          }, {}),
-          totalTeams: lobbyTeams.length,
-          maxTeams: session?.maxTeams || lobbyTeams.length,
-        });
+        socket.emit(
+          SOCKET_EVENTS.SESSION_STATE,
+          await buildPreGameLobbyPayload(pin, session, lobbyTeams),
+        );
       }
 
       logger.info('Host connected/reconnected', { pin });
@@ -328,4 +331,5 @@ const buildFullStatePayload = async (gameState, pin) => {
 };
 
 venueHandlers.buildFullStatePayload = buildFullStatePayload;
+venueHandlers.buildPreGameLobbyPayload = buildPreGameLobbyPayload;
 module.exports = venueHandlers;

@@ -222,7 +222,7 @@ const playerHandlers = (io, socket) => {
         if (refreshed) gameState = refreshed;
       }
 
-      const sessionPayload = buildSessionPayloadForPlayer({
+      const sessionPayload = await buildSessionPayloadForPlayer({
         pin,
         gameState,
         team,

@@ -1,12 +1,15 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 
 interface ShortcutMap {
   [key: string]: () => void;
 }
 
 export const useKeyboardShortcuts = (shortcuts: ShortcutMap) => {
+  const shortcutsRef = useRef(shortcuts);
+  shortcutsRef.current = shortcuts;
+
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement;
@@ -14,14 +17,16 @@ export const useKeyboardShortcuts = (shortcuts: ShortcutMap) => {
         return;
       }
 
-      const key = e.key.toLowerCase();
-      if (shortcuts[key]) {
+      const key = e.key === ' ' ? ' ' : e.key.toLowerCase();
+      const action = shortcutsRef.current[key];
+      if (action) {
         e.preventDefault();
-        shortcuts[key]();
+        e.stopPropagation();
+        action();
       }
     };
 
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
-  }, [shortcuts]);
+    window.addEventListener('keydown', handler, true);
+    return () => window.removeEventListener('keydown', handler, true);
+  }, []);
 };

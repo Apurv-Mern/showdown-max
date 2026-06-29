@@ -375,6 +375,9 @@ function HostFooterBtn({
       type="button"
       onClick={onClick}
       disabled={disabled}
+      onKeyDown={(e) => {
+        if (e.key === ' ' || e.key === 'Spacebar') e.preventDefault();
+      }}
       className={cn(
         'inline-flex h-12.5 min-w-30 flex-1 max-w-52.5 items-center justify-center gap-2 rounded-lg border px-2 text-[10px] font-bold uppercase tracking-wide text-white shadow-[0_4px_12px_rgba(0,0,0,0.35)] transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-30 disabled:grayscale sm:min-w-35 sm:px-3 sm:text-xs',
         danger
@@ -606,12 +609,31 @@ function HostDashboardContent() {
         if (data.state !== 'ROUND_END') {
           setRoundEndInfo(null);
         }
-        setTimerRemaining(
-          data.state === 'QUESTION' && data.questionState === 'REVEALED'
-            ? 0
-            : Number(data.timerRemaining ?? 0),
-        );
-        setTimerPaused(data.timerRunning === false);
+        setTimerRemaining((prevRemaining) => {
+          if (data.state === 'QUESTION' && data.questionState === 'REVEALED') {
+            return 0;
+          }
+          const incoming = Number(data.timerRemaining ?? 0);
+          if (
+            data.state === 'QUESTION' &&
+            data.questionState === 'ACTIVE' &&
+            prevRemaining > 0 &&
+            incoming > prevRemaining
+          ) {
+            return prevRemaining;
+          }
+          return incoming;
+        });
+        setTimerPaused((prevPaused) => {
+          const qs = data.questionState || 'WAITING';
+          if (data.state === 'QUESTION' && qs === 'ACTIVE' && timerRemainingRef.current > 0) {
+            const round = data.rounds?.[data.currentRoundIndex ?? 0];
+            const isMusic = String(round?.type || '').toUpperCase() === 'MUSIC';
+            // Non-music timers auto-start; timer_update ticks are authoritative while counting.
+            if (!isMusic) return prevPaused;
+          }
+          return data.timerRunning === false;
+        });
         if (data.state === 'QUESTION') {
           const qs = data.questionState || 'WAITING';
           const trNum = qs === 'REVEALED' ? 0 : Number(data.timerRemaining ?? 0);
@@ -750,28 +772,38 @@ function HostDashboardContent() {
       setMp3Playing(false);
       setMp4Playing(false);
       setTimerPaused(
-        typeof data.timerRunning === 'boolean' ? !data.timerRunning : (data.roundType || '').toUpperCase() === 'MUSIC',
+        typeof data.timerRunning === 'boolean'
+          ? !data.timerRunning
+          : (data.roundType || '').toUpperCase() === 'MUSIC',
       );
       const incomingQuestionIndex = Number.isFinite(Number(data.questionIndex))
         ? Number(data.questionIndex)
         : null;
-      setGameState((prev) =>
-        prev
-          ? {
-              ...prev,
-              state: 'QUESTION',
-              questionState: 'ACTIVE',
-              responseCount: 0,
-              ...(incomingQuestionIndex !== null
-                ? { currentQuestionIndex: incomingQuestionIndex }
-                : {}),
-            }
-          : prev,
-      );
+      setGameState((prev) => ({
+        ...(prev || {}),
+        state: 'QUESTION',
+        questionState: 'ACTIVE',
+        responseCount: 0,
+        rounds: prev?.rounds || [],
+        teams: prev?.teams || {},
+        currentRoundIndex: prev?.currentRoundIndex ?? 0,
+        currentQuestionIndex:
+          incomingQuestionIndex !== null
+            ? incomingQuestionIndex
+            : (prev?.currentQuestionIndex ?? 0),
+        timerRemaining: prev?.timerRemaining ?? 0,
+        timerRunning: prev?.timerRunning ?? true,
+        totalTeams: prev?.totalTeams ?? 0,
+        activeTeamIds: prev?.activeTeamIds || [],
+      }));
     };
 
     const onTimerUpdate = (data: { remaining: number; paused?: boolean; timerRunning?: boolean }) => {
-      setTimerRemaining(data.remaining);
+      setTimerRemaining((prev) => {
+        const incoming = data.remaining;
+        if (Number.isFinite(incoming) && prev > 0 && incoming > prev) return prev;
+        return incoming;
+      });
       if (data.paused !== undefined) setTimerPaused(data.paused);
       else if (typeof data.timerRunning === 'boolean') setTimerPaused(!data.timerRunning);
     };
@@ -1362,6 +1394,12 @@ function HostDashboardContent() {
   };
   const handleNextQuestion = () => {
     if (activeMiniGameLocal || miniGameLoading || cardShuffleFinishedHold) return;
+    const gs = gameStateRef.current;
+    if (gs?.state === 'QUESTION') {
+      const qs = gs.questionState || 'WAITING';
+      if (qs === 'ACTIVE') return;
+      if (qs !== 'REVEALED' && timerRemainingRef.current > 0) return;
+    }
     emit('next_question');
   };
   const handleCollectWagers = () => emit('collect_wagers');
@@ -1401,9 +1439,22 @@ function HostDashboardContent() {
   };
   const handleRevealAnswer = () => emit('reveal_answer');
   const handleStartTimer = () => {
+    const gs = gameStateRef.current;
+    if (gs?.state !== 'QUESTION' || gs?.questionState !== 'ACTIVE') return;
+    if (timerRemainingRef.current <= 0) return;
+    if (!timerPausedRef.current) return;
     emit('start_timer');
   };
-  const handlePauseTimer = () => emit('pause_timer');
+  const handleToggleTimer = () => {
+    const gs = gameStateRef.current;
+    if (gs?.state !== 'QUESTION' || gs?.questionState !== 'ACTIVE') return;
+    if (timerRemainingRef.current <= 0) return;
+    if (timerPausedRef.current) {
+      emit('start_timer');
+    } else {
+      emit('pause_timer');
+    }
+  };
   const handleShowScoreboard = () => {
     const canToggleScoreboard = state === 'SCOREBOARD' || state === 'ROUND_END';
     if (!canToggleScoreboard) return;
@@ -1783,15 +1834,21 @@ function HostDashboardContent() {
     }
     if (s === 'QUESTION') {
       const qs = gs?.questionState || 'WAITING';
-      if (qs === 'ACTIVE' && timerPausedRef.current && timerRemainingRef.current > 0) {
-        handleStartTimer();
-        return;
-      }
       const idx = gs?.currentQuestionIndex ?? 0;
       const qLen = round?.questions?.length ?? 0;
       const isLast = qLen > 0 && idx === qLen - 1;
+      if (qs === 'ACTIVE') {
+        return;
+      }
+      if (qs !== 'REVEALED' && timerRemainingRef.current > 0) {
+        return;
+      }
       if (qs === 'REVEALED' && isLast) {
         handleAdvanceRound();
+        return;
+      }
+      if (qs === 'REVEALED') {
+        handleNextQuestion();
         return;
       }
     }
@@ -1800,7 +1857,6 @@ function HostDashboardContent() {
     activeMiniGameLocal,
     miniGameLoading,
     cardShuffleFinishedHold,
-    handleStartTimer,
     handleAdvanceRound,
     handleCollectWagers,
     handleNextQuestion,
@@ -1811,7 +1867,7 @@ function HostDashboardContent() {
   useKeyboardShortcuts({
     ' ': handleSpaceKey,
     t: handleStartTimer,
-    p: handlePauseTimer,
+    p: handleToggleTimer,
     s: handleShowScoreboard,
     q: handleRevealAnswer,
   });
@@ -3302,9 +3358,9 @@ function HostDashboardContent() {
                     <path d="M8 5v14l11-7z" />
                   </svg>
                 }
-                onClick={handleStartTimer}
+                onClick={handleToggleTimer}
               >
-                Start Timer
+                Resume Timer
               </HostFooterBtn>
             ) : null}
             {timerCanPause ? (
@@ -3314,7 +3370,7 @@ function HostDashboardContent() {
                     <path d="M6 6h12v12H6z" />
                   </svg>
                 }
-                onClick={handlePauseTimer}
+                onClick={handleToggleTimer}
               >
                 Stop Timer
               </HostFooterBtn>
@@ -3371,8 +3427,8 @@ function HostDashboardContent() {
             </HostFooterBtn>
           </div>
           <p className="mt-2 text-center text-[10px] text-white/30">
-            Space=Next · T=Timer · P=Pause · S=Leaderboard — Music: Start Timer / T begins countdown
-            + media; Stop Timer / P pauses both
+            Space=Next · T=Start Timer · P=Pause/Resume · S=Leaderboard — Music: T starts
+            countdown + media; P pauses/resumes both
           </p>
         </footer>
       ) : null}

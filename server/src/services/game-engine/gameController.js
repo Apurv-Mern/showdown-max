@@ -452,6 +452,29 @@ const nextQuestion = async (io, pin) => {
   let gameState = await redisStore.getGameState(pin);
   if (!gameState) return;
 
+  if (
+    gameState.state === GAME_STATES.QUESTION &&
+    gameState.questionState === QUESTION_STATES.ACTIVE
+  ) {
+    logger.debug('nextQuestion ignored while question is active', { pin });
+    return;
+  }
+
+  const liveTimer = timerManager.getTimerState(pin);
+  if (
+    gameState.state === GAME_STATES.QUESTION &&
+    gameState.questionState !== QUESTION_STATES.REVEALED &&
+    timerManager.hasLiveTimer(pin) &&
+    liveTimer.remaining > 0
+  ) {
+    logger.debug('nextQuestion ignored while question timer is live', {
+      pin,
+      remaining: liveTimer.remaining,
+      questionState: gameState.questionState,
+    });
+    return;
+  }
+
   if (gameState.state === GAME_STATES.BREAK) {
     await endBreak(io, pin);
     gameState = await redisStore.getGameState(pin);
@@ -610,6 +633,12 @@ const nextQuestion = async (io, pin) => {
 
     const liveAfterStart = timerManager.getTimerState(pin);
     persistTimerRemainingIfActiveQuestion(pin, liveAfterStart.remaining);
+    const autoStartEndsAt = timerEndsAtFromRemaining(liveAfterStart.remaining);
+    await redisStore.updateGameState(pin, {
+      timerRunning: true,
+      timerRemaining: liveAfterStart.remaining,
+      timerEndsAt: autoStartEndsAt,
+    });
   }
 
   const gsForQuestionActive = await redisStore.getGameState(pin);
@@ -1862,6 +1891,19 @@ const endMiniGame = async (io, pin, overrideConfig = {}) => {
  * Pause the timer
  */
 const pauseTimer = async (io, pin) => {
+  const before = timerManager.getTimerState(pin);
+  if (!timerManager.hasLiveTimer(pin) || !before.running) {
+    if (before.remaining > 0) {
+      io.to(`session:${pin}`).emit(SOCKET_EVENTS.TIMER_UPDATE, {
+        remaining: before.remaining,
+        paused: true,
+        timerRunning: false,
+        timerEndsAt: null,
+      });
+    }
+    return;
+  }
+
   const remaining = timerManager.pauseTimer(pin);
   io.to(`session:${pin}`).emit(SOCKET_EVENTS.TIMER_UPDATE, {
     remaining,
@@ -1900,22 +1942,35 @@ const pauseTimer = async (io, pin) => {
 const startTimer = async (io, pin) => {
   let timerState = timerManager.getTimerState(pin);
 
+  // Already counting — never re-arm from Redis (stale value would reset to full duration).
+  if (timerState.running && timerState.remaining > 0) {
+    logger.debug('startTimer ignored — already running', {
+      pin,
+      remaining: timerState.remaining,
+    });
+    return;
+  }
+
   if (!(timerState.remaining > 0 && !timerState.running)) {
-    try {
-      const gameState = await redisStore.getGameState(pin);
-      if (
-        gameState &&
-        gameState.state === GAME_STATES.QUESTION &&
-        gameState.questionState === QUESTION_STATES.ACTIVE
-      ) {
-        const storedRemaining = Number(gameState.timerRemaining);
-        if (Number.isFinite(storedRemaining) && storedRemaining > 0) {
-          timerManager.armPausedTimer(pin, storedRemaining);
-          timerState = timerManager.getTimerState(pin);
+    if (!timerManager.hasLiveTimer(pin)) {
+      try {
+        const gameState = await redisStore.getGameState(pin);
+        if (
+          gameState &&
+          gameState.state === GAME_STATES.QUESTION &&
+          gameState.questionState === QUESTION_STATES.ACTIVE
+        ) {
+          const storedRemaining = Number(gameState.timerRemaining);
+          if (Number.isFinite(storedRemaining) && storedRemaining > 0) {
+            timerManager.armPausedTimer(pin, storedRemaining);
+            timerState = timerManager.getTimerState(pin);
+          }
         }
+      } catch (err) {
+        logger.warn('startTimer re-arm from game state failed', { error: err.message });
       }
-    } catch (err) {
-      logger.warn('startTimer re-arm from game state failed', { error: err.message });
+    } else {
+      timerState = timerManager.getTimerState(pin);
     }
   }
 

@@ -2264,7 +2264,7 @@ function VenueDisplayContent() {
                     (question.question.mediaType || '').toLowerCase() === 'image' ? (
                       <img
                         src={resolveMediaUrl(question.question.mediaUrl)}
-                        className="w-full h-full object-cover"
+                        className="w-full h-full"
                         alt="media"
                       />
                     ) : resolveMediaUrl(question.question.mediaUrl) &&

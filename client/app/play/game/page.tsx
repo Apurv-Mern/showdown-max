@@ -612,7 +612,7 @@ function QuestionImage({ mediaUrl }: { mediaUrl: string }) {
     <img
       src={candidates[index]}
       alt="Question media"
-      className="max-h-[min(42vh,220px)] w-full rounded-xl border border-[#11a7ff] object-cover md:max-h-[min(38vh,260px)]"
+      className="max-h-[min(42vh,220px)] w-full rounded-xl border border-[#11a7ff]  md:max-h-[min(38vh,260px)]"
       onError={() => {
         const next = index + 1;
         if (next < candidates.length) {
@@ -747,6 +747,7 @@ const formatRoundTypeLabel = (roundType?: string) => {
 };
 
 const normalizeRoundIntroTitle = (name?: string, roundType?: string, roundIndex?: number) => {
+  if ((roundType || '').toUpperCase() === 'FINAL_WAGER') return toDisplayUpper('FINAL');
   const raw = (name || '').trim();
   const fallback = formatRoundTypeLabel(roundType);
   if (!raw) return toDisplayUpper(fallback || `Round ${(roundIndex || 0) + 1}`);
@@ -1564,7 +1565,7 @@ export default function GamePage() {
           setPhase('game_end');
         } else if (gs.state === 'LOBBY') {
           setTimerRunning(false);
-          if (gs.lobbyPhase === 'code_of_conduct' || gs.lobbyPhase === 'practice_question') {
+          if (gs.lobbyPhase === 'code_of_conduct') {
             router.replace('/play/lobby');
             return;
           }
@@ -2362,18 +2363,11 @@ export default function GamePage() {
                   <div className="pointer-events-none absolute inset-0">
                     {/* Solid fill masks baked-in "ROUND N" text inside round intro.png so only live data shows */}
                     <div className="absolute left-1/2 top-[22%] flex h-[40%] w-[58%] -translate-x-1/2 flex-col items-center justify-center rounded-full px-2 text-center sm:px-3">
-                      <p className="relative z-10 bg-linear-to-b from-[#FFFFFF] to-[#FFC870] bg-clip-text text-[clamp(1.65rem,5.2vw,2.65rem)] font-extrabold leading-[0.95] text-transparent md:text-[clamp(2rem,4vw,2.85rem)]">
+                      <p className="relative z-10 bg-linear-to-b from-[#FFFFFF] to-[#FFC870] bg-clip-text text-[clamp(1.65rem,5.2vw,2.65rem)] font-extrabold uppercase leading-[0.95] text-transparent md:text-[clamp(2rem,4vw,2.85rem)]">
                         ROUND {(roundInfo.roundIndex || 0) + 1}
                       </p>
                       {(roundInfo.roundIndex || 0) !== 0 ? (
-                        <p
-                          className={cn(
-                            'relative z-10 mt-1 max-w-[92%] uppercase font-bold leading-[1.15] text-[#00d8ff] sm:max-w-[90%]',
-                            (roundInfo.round?.type || '').toUpperCase() === 'FINAL_WAGER'
-                              ? 'text-[clamp(1.25rem,4.2vw,1.85rem)] sm:text-3xl md:text-4xl'
-                              : 'text-[clamp(0.95rem,3.2vw,1.35rem)] sm:text-lg md:text-xl',
-                          )}
-                        >
+                        <p className="relative z-10 mt-1 max-w-[92%] bg-linear-to-b from-[#FFFFFF] to-[#FFC870] bg-clip-text text-[clamp(1.65rem,5.2vw,2.65rem)] font-extrabold uppercase leading-[0.95] text-transparent sm:max-w-[90%] md:text-[clamp(2rem,4vw,2.85rem)]">
                           {normalizeRoundIntroTitle(
                             roundInfo.round?.name,
                             roundInfo.round?.type,
@@ -3006,9 +3000,7 @@ export default function GamePage() {
               >
                 <RoundEndTitle
                   variant="player"
-                  roundNumber={
-                    (roundEndInfo?.roundIndex ?? roundInfo?.roundIndex ?? 0) + 1
-                  }
+                  roundNumber={(roundEndInfo?.roundIndex ?? roundInfo?.roundIndex ?? 0) + 1}
                 />
 
                 <div className="min-h-[2rem] flex-1" aria-hidden />
@@ -3025,7 +3017,11 @@ export default function GamePage() {
 
             {/* ── Gameshow closing (after final round, before final leaderboard) ── */}
             {phase === 'game_show_end' && (
-              <motion.div key="game-show-end" {...pageTransition} className="flex min-h-0 flex-1 flex-col">
+              <motion.div
+                key="game-show-end"
+                {...pageTransition}
+                className="flex min-h-0 flex-1 flex-col"
+              >
                 <GameshowEndPlayerView />
               </motion.div>
             )}

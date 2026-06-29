@@ -7,6 +7,8 @@ import { useSocket } from '@/hooks/useSocket';
 import { connectSocket } from '@/lib/socket';
 import { useTimerSound } from '@/hooks/useTimerSound';
 import { useAudio } from '@/hooks/useAudio';
+
+const CORRECT_ANSWER_SOUND_SRC = '/sounds/Correct%20Answer.mp4';
 import { clientLogger } from '@/lib/clientLogger';
 import { breakSecondsFromEndsAt, resolveBreakWallClock } from '@/lib/breakWallClock';
 import { cn, toDisplayUpper } from '@/lib/utils';
@@ -23,7 +25,7 @@ import {
 } from '@/lib/breakScreenCopy';
 import { VenueWagerCollectionScreen } from '@/components/venue/VenueWagerCollectionScreen';
 import { VenueCodeOfConductScreen } from '@/components/venue/VenueCodeOfConductScreen';
-import { VenuePracticeQuestionScreen } from '@/components/venue/VenuePracticeQuestionScreen';
+// import { VenuePracticeQuestionScreen } from '@/components/venue/VenuePracticeQuestionScreen';
 import { VenueLiveResponseBars } from '@/components/venue/VenueLiveResponseBars';
 import {
   DEFAULT_KANGAROO_NAMES,
@@ -45,7 +47,7 @@ type LobbyPhase = 'registration' | 'code_of_conduct' | 'practice_question';
 
 const lobbyPhaseToVenuePhase = (lobbyPhase?: string): VenuePhase => {
   if (lobbyPhase === 'code_of_conduct') return 'code_of_conduct';
-  if (lobbyPhase === 'practice_question') return 'practice_question';
+  // if (lobbyPhase === 'practice_question') return 'practice_question';
   return 'lobby';
 };
 
@@ -372,6 +374,7 @@ function parseKangarooRoundResult(
 }
 
 const normalizeRoundIntroTitle = (name?: string, roundType?: string, roundIndex?: number) => {
+  if ((roundType || '').toUpperCase() === 'FINAL_WAGER') return toDisplayUpper('FINAL');
   const raw = (name || '').trim();
   const fallback = formatRoundTypeLabel(roundType);
   if (!raw) return toDisplayUpper(fallback || `Round ${(roundIndex || 0) + 1}`);
@@ -495,6 +498,11 @@ function VenueDisplayContent() {
   const lastKangarooWinnerRef = useRef<number | null>(null);
   const cardShuffleRevealFlushTimeoutsRef = useRef<number[]>([]);
   const cardShuffleRevealFlushGenRef = useRef(0);
+  const promoVideoRef = useRef<HTMLVideoElement | null>(null);
+  const promoAudioDelayRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const promoAudioStartedRef = useRef(false);
+  const correctAnswerAudioRef = useRef<HTMLAudioElement | null>(null);
+  const stopMp3Ref = useRef<() => void>(() => {});
 
   const playerJoinUrl = useMemo(() => {
     const pin = encodeURIComponent(sessionPin);
@@ -526,6 +534,20 @@ function VenueDisplayContent() {
     stop: stopMp3,
     setSource: setMp3Source,
   } = useAudio({ loop: false, volume: 0.8 });
+  useEffect(() => {
+    stopMp3Ref.current = stopMp3;
+  }, [stopMp3]);
+  useEffect(() => {
+    const audio = new Audio(CORRECT_ANSWER_SOUND_SRC);
+    audio.preload = 'auto';
+    audio.volume = 0.9;
+    correctAnswerAudioRef.current = audio;
+    return () => {
+      audio.pause();
+      audio.src = '';
+      correctAnswerAudioRef.current = null;
+    };
+  }, []);
   useEffect(() => {
     phaseRef.current = phase;
     roundEndInfoRef.current = roundEndInfo;
@@ -709,6 +731,36 @@ function VenueDisplayContent() {
     const next = deferredVenuePhaseRef.current;
     deferredVenuePhaseRef.current = null;
     setPhase(next ?? 'lobby');
+  }, []);
+
+  const armPromoAudioDelay = useCallback(() => {
+    const video = promoVideoRef.current;
+    if (!video || promoAudioStartedRef.current) return;
+    promoAudioStartedRef.current = true;
+    video.muted = true;
+    if (promoAudioDelayRef.current) clearTimeout(promoAudioDelayRef.current);
+    promoAudioDelayRef.current = setTimeout(() => {
+      if (promoVideoRef.current) promoVideoRef.current.muted = false;
+      promoAudioDelayRef.current = null;
+    }, 5000);
+  }, []);
+
+  useEffect(() => {
+    if (phase !== 'welcome') {
+      promoAudioStartedRef.current = false;
+      if (promoAudioDelayRef.current) {
+        clearTimeout(promoAudioDelayRef.current);
+        promoAudioDelayRef.current = null;
+      }
+      return;
+    }
+    if (!showIntroVideoFallback) armPromoAudioDelay();
+  }, [phase, showIntroVideoFallback, armPromoAudioDelay]);
+
+  useEffect(() => {
+    return () => {
+      if (promoAudioDelayRef.current) clearTimeout(promoAudioDelayRef.current);
+    };
   }, []);
 
   useEffect(() => {
@@ -1364,6 +1416,12 @@ function VenueDisplayContent() {
       setLiveResponses(liveStatsFromRevealPayload(data, questionRef.current?.roundType));
       setScoreboard(data.teams.sort((a, b) => b.score - a.score));
       setPhase('reveal');
+      stopMp3Ref.current();
+      const sting = correctAnswerAudioRef.current;
+      if (sting) {
+        sting.currentTime = 0;
+        void sting.play().catch(() => {});
+      }
     };
 
     const onScoreboard = (data: { teams: Team[]; revealSnapshot?: RevealData | null }) => {
@@ -1889,7 +1947,7 @@ function VenueDisplayContent() {
             <img
               src="/venue-stage-bg.png"
               alt=""
-              className="absolute inset-0 w-full h-full object-cover"
+              className="absolute inset-0 w-full h-full object-cover  border-red-700"
             />
             <div className="absolute inset-0 bg-black/10" />
             <img
@@ -1923,12 +1981,14 @@ function VenueDisplayContent() {
                 <div className="w-full max-w-xs sm:max-w-xl md:max-w-2xl lg:max-w-3xl xl:max-w-4xl aspect-video rounded-lg sm:rounded-xl border-2 sm:border-3 md:border-4 border-[#00d9ff] shadow-[0_0_30px_rgba(0,217,255,0.35)] overflow-hidden bg-[#39ff14] shrink-0">
                   {!showIntroVideoFallback ? (
                     <video
-                      src="/Count Down.mp4"
+                      ref={promoVideoRef}
+                      src="/Promo Video.mp4"
                       autoPlay
-                      muted
                       loop
+                      muted
                       playsInline
                       className="w-full h-full object-cover"
+                      onPlay={armPromoAudioDelay}
                       onError={() => setShowIntroVideoFallback(true)}
                     />
                   ) : null}
@@ -2052,7 +2112,7 @@ function VenueDisplayContent() {
 
         {phase === 'code_of_conduct' && <VenueCodeOfConductScreen />}
 
-        {phase === 'practice_question' && <VenuePracticeQuestionScreen />}
+        {/* {phase === 'practice_question' && <VenuePracticeQuestionScreen />} */}
 
         {/* Round Intro */}
         {phase === 'round_intro' && roundInfo && (
@@ -2069,11 +2129,11 @@ function VenueDisplayContent() {
 
               <div className="absolute inset-0 pointer-events-none text-center">
                 <div className="absolute left-1/2 top-[42%] w-[62%] -translate-x-1/2 -translate-y-1/2">
-                  <h1 className="text-[clamp(2.25rem,6vh,4.5rem)] leading-none font-black text-[#fff4c2] drop-shadow-[0_0_18px_rgba(255,225,120,0.65)]">
+                  <h1 className="text-[clamp(2.75rem,7.5vh,5.75rem)] leading-none font-black text-[#fff4c2]">
                     ROUND {(roundInfo.roundIndex || 0) + 1}
                   </h1>
                   {(roundInfo.roundIndex || 0) !== 0 ? (
-                    <p className="mt-2 text-[clamp(1.15rem,3vh,2.1rem)] uppercase leading-[1.05] font-extrabold text-[#25eaff] drop-shadow-[0_0_16px_rgba(37,234,255,0.55)]">
+                    <p className="mt-2 text-[clamp(2.75rem,7.5vh,5.75rem)] uppercase leading-none font-black text-[#fff4c2]">
                       {normalizeRoundIntroTitle(
                         roundInfo.round?.name,
                         roundInfo.round?.type,
@@ -2362,7 +2422,7 @@ function VenueDisplayContent() {
                     (question.question.mediaType || '').toLowerCase() === 'image' ? (
                       <img
                         src={resolveMediaUrl(question.question.mediaUrl)}
-                        className="w-full h-full object-cover"
+                        className="w-full h-full "
                         alt="media"
                       />
                     ) : resolveMediaUrl(question.question.mediaUrl) &&

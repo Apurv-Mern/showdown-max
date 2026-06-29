@@ -13,6 +13,7 @@ import { Button } from '@/components/shared/Button';
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner';
 import { Modal } from '@/components/shared/Modal';
 import { PUBLIC_API_URL } from '@/lib/env';
+import { toPublicMediaPreviewUrl } from '@/lib/mediaUrls';
 
 const API_URL = PUBLIC_API_URL;
 
@@ -981,7 +982,7 @@ export default function QuestionsPage() {
                     <div className="flex items-center gap-2 shrink-0">
                       {formData.mediaType === 'image' && (
                         <img
-                          src={formData.mediaUrl}
+                          src={toPublicMediaPreviewUrl(formData.mediaUrl)}
                           alt="preview"
                           className="w-12 h-12 object-cover rounded"
                         />

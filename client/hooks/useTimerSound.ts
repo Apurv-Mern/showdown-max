@@ -2,7 +2,7 @@
 
 import { useEffect, useRef } from 'react';
 
-export const TIMER_COUNTDOWN_SOUND_SRC = '/sounds/Countdown Track 2.mp3';
+export const TIMER_COUNTDOWN_SOUND_SRC = '/sounds/Countdown%20Track%202.mp4';
 
 interface UseTimerSoundOptions {
   enabled?: boolean;
@@ -15,39 +15,31 @@ interface UseTimerSoundOptions {
 }
 
 /**
- * Plays the countdown MP3 on the venue display, synced with the question timer.
- * Pauses when the host pauses the timer; muted during music rounds.
- * Host dashboard does not use this hook — audio is venue-only.
+ * Plays the countdown track on the venue display while the question timer runs.
+ * Plays straight through from the start (no per-tick seeking). Pauses with the
+ * host timer; stops when the question ends or time runs out.
  */
 export const useTimerSound = ({
   enabled = true,
   muted = false,
   timerRemaining = 0,
-  timerDuration = 30,
   timerRunning = false,
 }: UseTimerSoundOptions = {}) => {
   const audioRef = useRef<HTMLAudioElement | null>(null);
-  const trackDurationRef = useRef(0);
+  const activeSessionRef = useRef(false);
 
   useEffect(() => {
     const audio = new Audio(TIMER_COUNTDOWN_SOUND_SRC);
     audio.preload = 'auto';
+    audio.loop = false;
     audio.volume = 0.85;
-
-    const onMetadata = () => {
-      if (Number.isFinite(audio.duration) && audio.duration > 0) {
-        trackDurationRef.current = audio.duration;
-      }
-    };
-
-    audio.addEventListener('loadedmetadata', onMetadata);
     audioRef.current = audio;
 
     return () => {
       audio.pause();
-      audio.removeEventListener('loadedmetadata', onMetadata);
       audio.src = '';
       audioRef.current = null;
+      activeSessionRef.current = false;
     };
   }, []);
 
@@ -55,51 +47,39 @@ export const useTimerSound = ({
     const audio = audioRef.current;
     if (!audio) return;
 
-    const stop = () => {
+    const reset = () => {
       audio.pause();
       try {
         audio.currentTime = 0;
       } catch {
         /* ignore */
       }
+      activeSessionRef.current = false;
     };
 
     if (!enabled || muted || timerRemaining <= 0) {
-      stop();
+      reset();
       return;
     }
 
-    const questionSeconds = Math.max(1, timerDuration);
-    const elapsed = Math.max(0, questionSeconds - timerRemaining);
-    const trackSeconds =
-      trackDurationRef.current > 0 ? trackDurationRef.current : questionSeconds;
-    const targetTime = Math.min(trackSeconds, (elapsed / questionSeconds) * trackSeconds);
-
-    const syncPosition = () => {
-      if (Math.abs(audio.currentTime - targetTime) > 0.4) {
-        try {
-          audio.currentTime = targetTime;
-        } catch {
-          /* not seekable yet */
-        }
-      }
-    };
-
-    if (timerRunning) {
-      if (audio.readyState >= 1) {
-        syncPosition();
-        audio.play().catch(() => {});
-      } else {
-        const onReady = () => {
-          syncPosition();
-          audio.play().catch(() => {});
-        };
-        audio.addEventListener('loadedmetadata', onReady, { once: true });
-        return () => audio.removeEventListener('loadedmetadata', onReady);
-      }
-    } else {
-      syncPosition();
+    if (!timerRunning) {
       audio.pause();
+      return;
     }
-  }, [enabled, muted, timerRemaining, timerDuration, timerRunning]);
+
+    if (!activeSessionRef.current) {
+      activeSessionRef.current = true;
+      try {
+        audio.currentTime = 0;
+      } catch {
+        /* ignore */
+      }
+      void audio.play().catch(() => {});
+      return;
+    }
+
+    if (audio.paused) {
+      void audio.play().catch(() => {});
+    }
+  }, [enabled, muted, timerRemaining, timerRunning]);
 };

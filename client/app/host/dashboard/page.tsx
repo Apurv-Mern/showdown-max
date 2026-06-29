@@ -18,7 +18,11 @@ import { cn } from '@/lib/utils';
 import { RoundIntroScoringLines } from '@/lib/roundIntroInstructions';
 import { useAuth } from '@/lib/auth';
 import { PUBLIC_API_URL } from '@/lib/env';
-import { DEFAULT_KANGAROO_NAMES, defaultKangarooNames, resolveKangarooNames } from '@/lib/kangarooRaceDefaults';
+import {
+  DEFAULT_KANGAROO_NAMES,
+  defaultKangarooNames,
+  resolveKangarooNames,
+} from '@/lib/kangarooRaceDefaults';
 
 const API_URL = PUBLIC_API_URL;
 
@@ -30,6 +34,7 @@ function formatRoundTypeLabel(type?: string): string {
 }
 
 function normalizeRoundIntroTitle(name?: string, roundType?: string, roundIndex?: number): string {
+  if ((roundType || '').toUpperCase() === 'FINAL_WAGER') return 'FINAL';
   const raw = (name || '').trim();
   const fallback =
     (roundType || '').toUpperCase() === 'ELIMINATION'
@@ -1400,7 +1405,7 @@ function HostDashboardContent() {
     }
     emit('next_question');
   };
-  const handleRevealAnswer = () => emit('reveal_answer');
+  // const handleRevealAnswer = () => emit('reveal_answer');
   const handleStartTimer = () => {
     emit('start_timer');
   };
@@ -1809,7 +1814,7 @@ function HostDashboardContent() {
     t: handleStartTimer,
     p: handlePauseTimer,
     s: handleShowScoreboard,
-    r: handleRevealAnswer,
+    // r: handleRevealAnswer,
   });
 
   useEffect(() => {
@@ -1931,7 +1936,8 @@ function HostDashboardContent() {
       : 'Next Question';
   const showNextQuestionAction =
     state === 'QUESTION' && questionState === 'REVEALED' && !isLastQuestionOfRound;
-  const showRevealAnswerAction = state === 'QUESTION' && questionState === 'ACTIVE';
+  // const showRevealAnswerAction = state === 'QUESTION' && questionState === 'ACTIVE';
+  const showRevealAnswerAction = false;
   const musicRoundAwaitingHostTimerStart =
     isMusicRound &&
     state === 'QUESTION' &&
@@ -2767,7 +2773,7 @@ function HostDashboardContent() {
                     ) ? (
                       <img
                         src={resolveMediaUrl(currentQuestion.question.mediaUrl)}
-                        className="h-full w-full object-cover"
+                        className="h-full w-full"
                         alt="Question media"
                       />
                     ) : currentQuestion.question.mediaUrl &&
@@ -2789,13 +2795,6 @@ function HostDashboardContent() {
                           className="h-full w-full object-cover opacity-60"
                           alt="placeholder"
                         />
-                        {/* {!currentQuestion.question.mediaUrl && (
-                          <div className="absolute inset-0 flex items-center justify-center">
-                            <span className="text-[120px] font-black text-white/5 opacity-40">
-                              ?
-                            </span>
-                          </div>
-                        )} */}
                       </div>
                     )}
                   </div>
@@ -2922,11 +2921,11 @@ function HostDashboardContent() {
 
                       <div className="absolute inset-0 pointer-events-none text-center">
                         <div className="absolute left-1/2 top-[40%] w-[70%] -translate-x-1/2 -translate-y-1/2 sm:w-[62%]">
-                          <h2 className="text-4xl leading-[0.95] font-black text-[#fff4c2] drop-shadow-[0_0_18px_rgba(255,225,120,0.65)] sm:text-5xl md:text-6xl lg:text-[35px]">
+                          <h2 className="text-4xl leading-[0.95] font-black text-[#fff4c2] sm:text-5xl md:text-6xl lg:text-[35px]">
                             ROUND {(gameState?.currentRoundIndex || 0) + 1}
                           </h2>
                           {(gameState?.currentRoundIndex ?? 0) !== 0 ? (
-                            <p className="mt-1 text-lg leading-[1.02] font-extrabold text-[#25eaff] drop-shadow-[0_0_16px_rgba(37,234,255,0.55)] sm:text-xl md:text-2xl lg:text-[28px]">
+                            <p className="mt-1 text-4xl font-black uppercase leading-[0.95] text-[#fff4c2]   sm:text-5xl md:text-6xl lg:text-[35px]">
                               {normalizeRoundIntroTitle(
                                 currentRound?.name,
                                 currentRound?.type,
@@ -3080,15 +3079,13 @@ function HostDashboardContent() {
                         ? 'Waiting for teams to join...'
                         : lobbyPhase === 'code_of_conduct'
                           ? 'Code of Conduct is on the venue screen'
-                          : 'Practice question is on the venue screen'
+                          : 'Ready to start'
                       : 'Waiting...'}
                   </p>
                   {state === 'LOBBY' ? (
                     <p className="text-sm text-white/40">
                       {teamList.length} team{teamList.length !== 1 ? 's' : ''} in lobby
-                      {lobbyPhase !== 'registration'
-                        ? ` · ${lobbyPhase === 'code_of_conduct' ? 'Next: practice question' : 'Ready to start'}`
-                        : ''}
+                      {lobbyPhase !== 'registration' ? ' · Ready to start' : ''}
                     </p>
                   ) : null}
                 </div>
@@ -3253,7 +3250,7 @@ function HostDashboardContent() {
               disabled={
                 miniGameLive ||
                 (state === 'LOBBY' &&
-                  ((lobbyPhase === 'practice_question' &&
+                  ((lobbyPhase === 'code_of_conduct' &&
                     (startGameRequested || teamList.length === 0)) ||
                     (lobbyPhase === 'registration' && teamList.length === 0))) ||
                 !(state === 'LOBBY' || state === 'ROUND_INTRO' || state === 'WAGER_COLLECTION') ||
@@ -3261,7 +3258,7 @@ function HostDashboardContent() {
               }
               onClick={() => {
                 if (state === 'LOBBY') {
-                  if (lobbyPhase === 'registration' || lobbyPhase === 'code_of_conduct') {
+                  if (lobbyPhase === 'registration') {
                     handleAdvanceLobby();
                   } else {
                     handleStartGame();
@@ -3275,9 +3272,7 @@ function HostDashboardContent() {
               {state === 'LOBBY'
                 ? lobbyPhase === 'registration'
                   ? 'Show Code of Conduct'
-                  : lobbyPhase === 'code_of_conduct'
-                    ? 'Show Practice Question'
-                    : 'Start Game'
+                  : 'Start Game'
                 : state === 'ROUND_INTRO' && isCurrentRoundWagerLockRound
                   ? 'Lock Wager Points'
                   : state === 'WAGER_COLLECTION'
@@ -3303,9 +3298,11 @@ function HostDashboardContent() {
                 cardShuffleFinishedHold ||
                 !(showRevealAnswerAction || showNextQuestionAction)
               }
-              onClick={showNextQuestionAction ? handleNextQuestion : handleRevealAnswer}
+              onClick={handleNextQuestion}
+              // onClick={showNextQuestionAction ? handleNextQuestion : handleRevealAnswer}
             >
-              {showRevealAnswerAction ? 'Reveal Answer' : 'Next Question'}
+              Next Question
+              {/* {showRevealAnswerAction ? 'Reveal Answer' : 'Next Question'} */}
             </HostFooterBtn>
             {musicRoundAwaitingHostTimerStart ? (
               <HostFooterBtn
@@ -3581,11 +3578,11 @@ function HostDashboardContent() {
 
                     <div className="pointer-events-none absolute inset-0 text-center">
                       <div className="absolute left-1/2 top-[34%] w-[64%] -translate-x-1/2 -translate-y-1/2">
-                        <h2 className="text-[55px] leading-none font-black text-[#fff4c2] drop-shadow-[0_0_18px_rgba(255,225,120,0.65)]">
+                        <h2 className="text-[55px] leading-none font-black text-[#fff4c2]  ">
                           ROUND {(gameState?.currentRoundIndex ?? 0) + 1}
                         </h2>
                         {(gameState?.currentRoundIndex ?? 0) !== 0 ? (
-                          <p className="mt-2 text-[34px] leading-[1.05] font-extrabold text-[#25eaff] drop-shadow-[0_0_16px_rgba(37,234,255,0.55)]">
+                          <p className="mt-2 text-[55px] font-black uppercase leading-none text-[#fff4c2]  ">
                             {normalizeRoundIntroTitle(
                               currentRound?.name,
                               currentRound?.type,

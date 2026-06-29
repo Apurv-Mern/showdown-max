@@ -86,7 +86,7 @@ export function getRoundIntroInstructions(roundType?: string): RoundIntroInstruc
   if (type === 'MAJORITY_RULES') {
     return {
       density: 'relaxed',
-      banner: [part('Most popular answer gets the points')],
+      banner: [part('Most popular answer wins')],
       positive: [part('Part of the majority : '), part('+50 points', 'green')],
       negative: [part('Part of the minority : '), part('-50 points', 'red')],
     };
@@ -95,7 +95,7 @@ export function getRoundIntroInstructions(roundType?: string): RoundIntroInstruc
   if (type === 'FINAL_WAGER') {
     return {
       density: 'compact',
-      bannerLines: [[part('How much of our overall')], [part('score are we risking?')]],
+      banner: [part('How much are you risking')],
       positive: [part('Correct answer : '), part('score selected bet', 'green')],
       negative: [part('Incorrect answer : '), part('lose selected bet', 'red')],
     };

@@ -8,12 +8,13 @@ import { cn } from '@/lib/utils';
 import { usePlayerSession } from '../playerSession';
 import { LoadingDots } from '../LoadingDots';
 import { PlayerCodeOfConductScreen } from '@/components/player/PlayerCodeOfConductScreen';
-import { PlayerPracticeQuestionScreen } from '@/components/player/PlayerPracticeQuestionScreen';
+// import { PlayerPracticeQuestionScreen } from '@/components/player/PlayerPracticeQuestionScreen';
 
 type LobbyPhase = 'registration' | 'code_of_conduct' | 'practice_question';
 
 const resolveLobbyPhase = (raw: unknown): LobbyPhase => {
-  if (raw === 'code_of_conduct' || raw === 'practice_question') return raw;
+  // if (raw === 'practice_question') return raw;
+  if (raw === 'code_of_conduct') return raw;
   return 'registration';
 };
 
@@ -174,25 +175,25 @@ export default function LobbyPage() {
     );
   }
 
-  if (lobbyPhase === 'practice_question') {
-    return (
-      <>
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ duration: 0.35 }}
-          className={cn(shellClassName, 'px-4 py-5 pb-14 sm:px-5')}
-          style={shellStyle}
-        >
-          <div className="min-h-0 flex-1 overflow-y-auto">
-            <PlayerPracticeQuestionScreen />
-          </div>
-          {leaveButton}
-        </motion.div>
-        {exitModal}
-      </>
-    );
-  }
+  // if (lobbyPhase === 'practice_question') {
+  //   return (
+  //     <>
+  //       <motion.div
+  //         initial={{ opacity: 0 }}
+  //         animate={{ opacity: 1 }}
+  //         transition={{ duration: 0.35 }}
+  //         className={cn(shellClassName, 'px-4 py-5 pb-14 sm:px-5')}
+  //         style={shellStyle}
+  //       >
+  //         <div className="min-h-0 flex-1 overflow-y-auto">
+  //           <PlayerPracticeQuestionScreen />
+  //         </div>
+  //         {leaveButton}
+  //       </motion.div>
+  //       {exitModal}
+  //     </>
+  //   );
+  // }
 
   return (
     <>

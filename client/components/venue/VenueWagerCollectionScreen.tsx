@@ -25,7 +25,7 @@ export function VenueWagerCollectionScreen({
   const headline = category
     ? toDisplayUpper(category)
     : isFinalWager
-      ? 'FINAL WAGER'
+      ? 'QUESTIONS'
       : 'WAGER ROUND';
   const totalTeams = Math.max(1, wagerLockedTotal);
 

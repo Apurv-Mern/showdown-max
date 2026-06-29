@@ -39,7 +39,7 @@ function resolveWagerCategoryLabel(
 ): string {
   const trimmed = (category || '').trim();
   if (trimmed) return toDisplayUpper(trimmed);
-  return isFinalWagerRound ? 'FINAL WAGER' : 'WAGER';
+  return isFinalWagerRound ? 'QUESTIONS' : 'WAGER';
 }
 
 function WagerSelectionView({

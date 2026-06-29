@@ -78,9 +78,9 @@ const hostHandlers = (io, socket) => {
       const existingGame = await redisStore.getGameState(pin);
       if (!existingGame) {
         const lobbyPhase = await redisStore.getLobbyPhase(pin);
-        if (lobbyPhase !== LOBBY_PHASES.PRACTICE_QUESTION) {
+        if (lobbyPhase !== LOBBY_PHASES.CODE_OF_CONDUCT) {
           socket.emit(SOCKET_EVENTS.ERROR, {
-            message: 'Show the Code of Conduct and Practice Question before starting.',
+            message: 'Show the Code of Conduct before starting.',
           });
           return;
         }

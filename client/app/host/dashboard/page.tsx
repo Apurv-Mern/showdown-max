@@ -162,6 +162,7 @@ interface QuestionData {
   };
   timerDuration: number;
   timerRemaining?: number;
+  timerRunning?: boolean;
   roundType: string;
   pointsForQuestion?: number;
 }

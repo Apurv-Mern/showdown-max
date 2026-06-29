@@ -131,6 +131,19 @@ const VENUE_OPTION_COLOR_CLASSES = [
   'border-0 bg-linear-to-b from-[#990003]  to-[#D20023]',
 ];
 
+/** Venue question card — fixed media height + fixed option rows (matches TV mockup). */
+const VENUE_QUESTION_CARD_MEDIA =
+  'relative shrink-0 overflow-hidden rounded-t-2xl h-[min(34vh,360px)] min-h-[140px]';
+const VENUE_MEDIA_FRAME = 'relative h-full w-full overflow-hidden bg-[#060818]';
+const VENUE_MEDIA_FILL = 'h-full w-full';
+const VENUE_QUESTION_CARD_OPTIONS =
+  'relative z-20 shrink-0 rounded-2xl border-t-2 border-t-white/50 bg-linear-to-b from-[#100048] to-[#000000] px-3 pt-5 pb-3 sm:px-4 md:px-5 md:pt-7 md:pb-4';
+const VENUE_OPTION_GRID = 'grid grid-cols-2 gap-2 md:gap-3';
+const VENUE_OPTION_CELL =
+  'flex min-h-14 items-start gap-2 rounded-lg border px-3 py-2.5 text-base font-bold text-white shadow-[0_8px_18px_rgba(0,0,0,0.35)] md:min-h-[57px] md:px-4 md:py-3 md:text-lg min-[1920px]:text-2xl';
+const VENUE_OPTION_LETTER = 'shrink-0 font-black text-white/80';
+const VENUE_OPTION_TEXT = 'min-w-0 flex-1 break-words leading-tight uppercase';
+
 const resolveMediaUrl = (mediaUrl?: string) => {
   if (!mediaUrl) return '';
   const venueSafeUrl = mediaUrl.replace('/api/media/files/', '/api/public/media/files/');
@@ -2195,7 +2208,7 @@ function VenueDisplayContent() {
 
         {/* Question */}
         {phase === 'question' && question && (
-          <div className="w-full h-full min-h-0 flex flex-col px-4 md:px-20 lg:px-40 py-3 md:py-4 lg:py-5 animate-fadeIn">
+          <div className="flex h-full min-h-0 w-full animate-fadeIn flex-col overflow-hidden px-4 py-[clamp(0.5rem,1.5vh,1.25rem)] md:px-20 lg:px-40">
             {/* Response Stats */}
             <div className="mx-auto w-full shrink-0 rounded-2xl mb-3 ">
               <div className="rounded-xl mb-2 flex flex-col lg:flex-row items-start lg:items-center gap-3 lg:gap-4 justify-between px-3 md:px-4 py-2">
@@ -2251,20 +2264,18 @@ function VenueDisplayContent() {
             </div>
 
             {/* ── QUESTION ── */}
-            <div className="w-full flex-1 min-h-0 flex flex-col animate-fadeIn">
-              <div className="mx-auto w-full flex-1 min-h-0 rounded-2xl flex flex-col border">
-                {/* Media Section */}
-                <div className="relative rounded-t-2xl  overflow-hidden shrink-0">
-                  <div className="absolute left-4 top-3 z-10 text-white/90 text-2xl font-semibold">
+            <div className="flex min-h-0 w-full flex-1 flex-col justify-center overflow-hidden animate-fadeIn">
+              <div className="mx-auto w-full shrink-0 overflow-hidden rounded-2xl border">
+                <div className={VENUE_QUESTION_CARD_MEDIA}>
+                  <div className="absolute left-4 top-3 z-10 text-lg font-semibold text-white/90 min-[1920px]:text-2xl">
                     QUESTION {(question.questionIndex || 0) + 1}/{question.totalQuestions}
                   </div>
-                  {/* Media */}
-                  <div className="h-[30vh] md:h-[34vh] lg:h-[38vh] max-h-[360px] min-h-[180px]">
+                  <div className={VENUE_MEDIA_FRAME}>
                     {resolveMediaUrl(question.question.mediaUrl) &&
                     (question.question.mediaType || '').toLowerCase() === 'image' ? (
                       <img
                         src={resolveMediaUrl(question.question.mediaUrl)}
-                        className="w-full h-full"
+                        className={VENUE_MEDIA_FILL}
                         alt="media"
                       />
                     ) : resolveMediaUrl(question.question.mediaUrl) &&
@@ -2273,7 +2284,7 @@ function VenueDisplayContent() {
                         ref={venueMp4Ref}
                         key={resolveMediaUrl(question.question.mediaUrl)}
                         src={resolveMediaUrl(question.question.mediaUrl)}
-                        className="w-full h-full object-cover bg-black"
+                        className={VENUE_MEDIA_FILL}
                         playsInline
                         preload="auto"
                       />
@@ -2284,30 +2295,11 @@ function VenueDisplayContent() {
                             ? '/venuemusicbg.png'
                             : '/withoutImagequestion.png'
                         }
-                        className="w-full h-full object-cover"
+                        className="h-full w-full"
                         alt={venueMusicBgPlaceholder ? 'Music round' : 'Question visual'}
                       />
                     )}
                   </div>
-
-                  {/* Waiting-for-host overlay (Music rounds only) — shows on the
-                      venue while a Music round question has been loaded but the
-                      host has not yet pressed Start Timer (which simultaneously
-                      resumes the timer and triggers MP3/MP4 playback). Hidden
-                      once the timer starts ticking, so it doesn't reappear if
-                      the host pauses mid-track. */}
-                  {/* {isMusicRound &&
-                    !timerRunning &&
-                    timerRemaining >= timerDuration &&
-                    timerDuration > 0 && (
-                      <div className="absolute inset-0 z-20 flex items-center justify-center pointer-events-none px-4">
-                        <div className="rounded-2xl border border-[#1de8ff]/70 bg-black/70 px-5 md:px-7 py-2.5 md:py-3 shadow-[0_0_24px_rgba(29,232,255,0.35)] backdrop-blur-sm">
-                          <p className="text-base md:text-lg lg:text-xl font-extrabold text-white tracking-wide drop-shadow-[0_2px_6px_rgba(0,0,0,0.45)]">
-                            Waiting for host to play music or video...
-                          </p>
-                        </div>
-                      </div>
-                    )} */}
 
                   <QuestionTimerArch
                     remainingSeconds={timerRemaining}
@@ -2316,25 +2308,24 @@ function VenueDisplayContent() {
                   />
                 </div>
 
-                {/* Questions/Options Section */}
-                <div className="relative rounded-2xl border-t-2 border-t-white/50 flex-1 bg-linear-to-b from-[#100048] to-[#000000] z-20 pt-8 md:pt-9 lg:pt-10 px-3 md:px-4 lg:px-5 pb-3 md:pb-4">
-                  <div className="mb-2 md:mb-3 lg:mb-4">
-                    <p className="text-lg md:text-xl lg:text-2xl font-bold uppercase text-white leading-tight">
+                <div className={VENUE_QUESTION_CARD_OPTIONS}>
+                  <div className="mb-3 shrink-0 md:mb-4">
+                    <p className="text-lg font-bold uppercase leading-tight text-white line-clamp-2 md:text-xl min-[1920px]:text-2xl">
                       Q{(question.questionIndex || 0) + 1}. {toDisplayUpper(question.question.text)}
                     </p>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-2 md:gap-3">
+                  <div className={VENUE_OPTION_GRID}>
                     {question.question.options.map((opt, i) => (
                       <div
                         key={i}
                         className={cn(
-                          'rounded-lg border px-3 md:px-4 py-2.5 md:py-3 text-white font-bold text-lg md:text-xl lg:text-2xl min-h-[56px] md:min-h-[64px] flex items-center shadow-[0_8px_18px_rgba(0,0,0,0.35)]',
+                          VENUE_OPTION_CELL,
                           VENUE_OPTION_COLOR_CLASSES[i % VENUE_OPTION_COLOR_CLASSES.length],
                         )}
                       >
-                        <span className="font-black mr-3">{OPTION_LETTERS[i]}.</span>
-                        <span className="truncate uppercase">{toDisplayUpper(opt.text)}</span>
+                        <span className={VENUE_OPTION_LETTER}>{OPTION_LETTERS[i]}.</span>
+                        <span className={VENUE_OPTION_TEXT}>{toDisplayUpper(opt.text)}</span>
                       </div>
                     ))}
                   </div>
@@ -2355,7 +2346,7 @@ function VenueDisplayContent() {
 
         {/* Reveal */}
         {phase === 'reveal' && revealData && question && (
-          <div className="w-full h-full min-h-0 flex flex-col px-4 md:px-20 lg:px-40 py-3 md:py-4 lg:py-5 animate-fadeIn">
+          <div className="flex h-full min-h-0 w-full animate-fadeIn flex-col overflow-hidden px-4 py-[clamp(0.5rem,1.5vh,1.25rem)] md:px-20 lg:px-40">
             {/* Response Stats */}
             <div className="mx-auto w-full shrink-0 rounded-2xl mb-3 ">
               <div className="rounded-xl mb-3 flex flex-col lg:flex-row items-start lg:items-center gap-3 lg:gap-4 justify-between px-3 md:px-4 py-2 md:py-3">
@@ -2410,30 +2401,26 @@ function VenueDisplayContent() {
             </div>
 
             {/* ── QUESTION CARD ── */}
-            <div className="w-full flex-1 min-h-0 flex flex-col animate-fadeIn">
-              <div className="mx-auto w-full h-full flex-1 rounded-2xl flex flex-col border border-white/20">
-                {/* Media Section */}
-                <div className="relative rounded-t-2xl overflow-hidden shrink-0 h-40 sm:h-48 md:h-56 lg:h-72 xl:h-96">
-                  <div className="absolute left-2 sm:left-3 md:left-4 top-1 sm:top-2 md:top-3 z-10 text-white text-xs sm:text-sm md:text-base lg:text-lg xl:text-2xl font-semibold drop-shadow-md">
+            <div className="flex min-h-0 w-full flex-1 flex-col justify-center overflow-hidden animate-fadeIn">
+              <div className="mx-auto w-full shrink-0 overflow-hidden rounded-2xl border border-white/20">
+                <div className={VENUE_QUESTION_CARD_MEDIA}>
+                  <div className="absolute left-3 top-2 z-10 text-sm font-semibold text-white drop-shadow-md md:left-4 md:top-3 md:text-lg min-[1920px]:text-2xl">
                     Question {(question.questionIndex || 0) + 1}/{question.totalQuestions}
                   </div>
-                  <div className="w-full h-full">
+                  <div className={VENUE_MEDIA_FRAME}>
                     {resolveMediaUrl(question.question.mediaUrl) &&
                     (question.question.mediaType || '').toLowerCase() === 'image' ? (
                       <img
                         src={resolveMediaUrl(question.question.mediaUrl)}
-                        className="w-full h-full "
+                        className={VENUE_MEDIA_FILL}
                         alt="media"
                       />
                     ) : resolveMediaUrl(question.question.mediaUrl) &&
                       (question.question.mediaType || '').toLowerCase() === 'mp4' ? (
-                      // Reveal phase keeps the last frame so the audience sees what was just
-                      // shown, but playback is paused (host-driven elsewhere). No new playback
-                      // starts automatically post-reveal.
                       <video
                         key={`reveal-${resolveMediaUrl(question.question.mediaUrl)}`}
                         src={resolveMediaUrl(question.question.mediaUrl)}
-                        className="w-full h-full object-cover bg-black"
+                        className={VENUE_MEDIA_FILL}
                         playsInline
                         preload="auto"
                       />
@@ -2444,7 +2431,7 @@ function VenueDisplayContent() {
                             ? '/venuemusicbg.png'
                             : '/withoutImagequestion.png'
                         }
-                        className="w-full h-full object-cover"
+                        className="h-full w-full"
                         alt={venueMusicBgPlaceholder ? 'Music round' : 'Question visual'}
                       />
                     )}
@@ -2457,16 +2444,15 @@ function VenueDisplayContent() {
                   />
                 </div>
 
-                {/* Questions/Options Section */}
-                <div className="relative rounded-2xl border-t-2 border-t-white/50 flex-1 bg-linear-to-b from-[#100048] to-[#000000] z-20 pt-4 sm:pt-6 md:pt-8 lg:pt-10 px-3 sm:px-4 md:px-5 pb-3 sm:pb-4 md:pb-5 overflow-y-auto">
-                  <div className="mb-2 sm:mb-3 md:mb-4 lg:mb-5">
-                    <p className="text-xs sm:text-sm md:text-base lg:text-xl xl:text-2xl font-bold uppercase text-white leading-tight">
+                <div className={VENUE_QUESTION_CARD_OPTIONS}>
+                  <div className="mb-3 shrink-0 md:mb-4">
+                    <p className="text-base font-bold uppercase leading-tight text-white line-clamp-2 md:text-xl min-[1920px]:text-2xl">
                       Q{(question.questionIndex || 0) + 1}. {toDisplayUpper(question.question.text)}
                     </p>
                   </div>
                   {question.question.isOrdering && revealData && (
-                    <div className="mb-3 sm:mb-4 md:mb-5 text-center">
-                      <span className="inline-block px-5 py-2 rounded-full bg-green-500/20 border border-green-500/50 text-green-400 font-bold text-sm sm:text-base md:text-xl uppercase tracking-wider shadow-[0_0_15px_rgba(57,255,74,0.2)]">
+                    <div className="mb-3 shrink-0 text-center md:mb-4">
+                      <span className="inline-block rounded-full border border-green-500/50 bg-green-500/20 px-4 py-1.5 text-sm font-bold uppercase tracking-wider text-green-400 shadow-[0_0_15px_rgba(57,255,74,0.2)] min-[1920px]:text-xl">
                         Correct Order:{' '}
                         {(revealData.correctOrderArray || [])
                           .map((idx: number) =>
@@ -2476,59 +2462,43 @@ function VenueDisplayContent() {
                       </span>
                     </div>
                   )}
-                  <div
-                    className={cn(
-                      'grid',
-                      'grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-2 gap-1 sm:gap-2 md:gap-3',
-                    )}
-                  >
-                    {(() => {
-                      // Ordering questions during reveal phase will fall through to default rendering.
-                      // The top banner already explicitly shows the correct order (e.g. A -> B -> C -> D),
-                      // so we can leave the original grid intact, dimming all options.
+                  <div className={VENUE_OPTION_GRID}>
+                    {question.question.options.map((opt, i) => {
+                      const isMajorityRulesRound =
+                        (question.roundType || '').toUpperCase() === 'MAJORITY_RULES';
+                      const majorityOptionIndexes = new Set(
+                        revealData?.majorityOptionIndexes || [],
+                      );
+                      const isRevealedWinner = revealData
+                        ? isMajorityRulesRound
+                          ? majorityOptionIndexes.has(i)
+                          : i === revealData.correctOptionIndex
+                        : false;
 
-                      return question.question.options.map((opt, i) => {
-                        const isMajorityRulesRound =
-                          (question.roundType || '').toUpperCase() === 'MAJORITY_RULES';
-                        const majorityOptionIndexes = new Set(
-                          revealData?.majorityOptionIndexes || [],
-                        );
-                        const isRevealedWinner = revealData
-                          ? isMajorityRulesRound
-                            ? majorityOptionIndexes.has(i)
-                            : i === revealData.correctOptionIndex
-                          : false;
-
-                        return (
-                          <div
-                            key={i}
-                            className={cn(
-                              'rounded-lg border px-2 sm:px-3 md:px-4 py-2 sm:py-3 md:py-4 text-white font-bold text-xs sm:text-sm md:text-base lg:text-lg xl:text-2xl flex items-center transition-all duration-500 shadow-[0_8px_18px_rgba(0,0,0,0.35)] min-h-12 sm:min-h-14 md:min-h-16',
-                              VENUE_OPTION_COLOR_CLASSES[i % VENUE_OPTION_COLOR_CLASSES.length],
-                              revealData && isRevealedWinner
-                                ? 'shadow-[0_0_8px_8px_rgba(57,255,74,0.9)] z-10 scale-[1.02]'
-                                : revealData && !isRevealedWinner
-                                  ? 'opacity-30 brightness-50 contrast-75 scale-[0.98]'
-                                  : '',
-                            )}
-                          >
-                            <span className="font-black mr-1 sm:mr-2 md:mr-3 shrink-0">
-                              {OPTION_LETTERS[i]}.
-                            </span>
-                            <span className="truncate text-left flex-1 uppercase">
-                              {toDisplayUpper(opt.text)}
-                            </span>
-                            {isRevealedWinner && !isMajorityRulesRound && (
-                              <div className="ml-auto w-6 h-6 sm:w-7 h-7 md:w-8 h-8 rounded-full bg-green-500 flex items-center justify-center border-2 border-white shadow-lg shrink-0">
-                                <span className="text-white text-sm sm:text-base md:text-lg">
-                                  ✓
-                                </span>
-                              </div>
-                            )}
-                          </div>
-                        );
-                      });
-                    })()}
+                      return (
+                        <div
+                          key={i}
+                          className={cn(
+                            VENUE_OPTION_CELL,
+                            'transition-all duration-500',
+                            VENUE_OPTION_COLOR_CLASSES[i % VENUE_OPTION_COLOR_CLASSES.length],
+                            revealData && isRevealedWinner
+                              ? 'z-10 scale-[1.02] shadow-[0_0_8px_8px_rgba(57,255,74,0.9)]'
+                              : revealData && !isRevealedWinner
+                                ? 'scale-[0.98] opacity-30 brightness-50 contrast-75'
+                                : '',
+                          )}
+                        >
+                          <span className={VENUE_OPTION_LETTER}>{OPTION_LETTERS[i]}.</span>
+                          <span className={VENUE_OPTION_TEXT}>{toDisplayUpper(opt.text)}</span>
+                          {isRevealedWinner && !isMajorityRulesRound && (
+                            <div className="ml-auto flex h-7 w-7 shrink-0 items-center justify-center rounded-full border-2 border-white bg-green-500 shadow-lg min-[1920px]:h-8 min-[1920px]:w-8">
+                              <span className="text-sm text-white min-[1920px]:text-lg">✓</span>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
               </div>

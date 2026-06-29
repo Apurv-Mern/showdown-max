@@ -1,6 +1,6 @@
 export default function VenueLayout({ children }: { children: React.ReactNode }) {
   return (
-    <div className="w-screen h-screen overflow-hidden relative bg-[#020514]">
+    <div className="w-screen h-dvh overflow-hidden relative bg-[#020514]">
       <div
         className="absolute inset-0 bg-cover bg-center"
         style={{ backgroundImage: "url('/venue-stage-bg.png')" }}

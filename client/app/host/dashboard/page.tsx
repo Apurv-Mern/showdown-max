@@ -2831,7 +2831,7 @@ function HostDashboardContent() {
                         <div
                           key={i}
                           className={cn(
-                            'flex h-[57px] items-center rounded-xl border-2 px-4 py-4 text-base font-black text-white transition-all shadow-[0_4px_12px_rgba(0,0,0,0.5)]',
+                            'flex min-h-[57px] items-start gap-2 rounded-xl border-2 px-4 py-3 text-base font-black text-white transition-all shadow-[0_4px_12px_rgba(0,0,0,0.5)]',
                             VENUE_OPTION_COLOR_CLASSES[i % VENUE_OPTION_COLOR_CLASSES.length],
                             isRevealedWinner
                               ? 'z-10 scale-[1.03] shadow-[0_0_12px_8px_rgba(57,255,74,0.8)]'
@@ -2840,10 +2840,10 @@ function HostDashboardContent() {
                                 : '',
                           )}
                         >
-                          <span className="mr-3 font-black text-white/50">
+                          <span className="shrink-0 font-black text-white/50">
                             {OPTION_LETTERS[i]}.
                           </span>
-                          <span className="flex-1 truncate">{opt.text}</span>
+                          <span className="min-w-0 flex-1 break-words leading-tight">{opt.text}</span>
                           {isRevealedWinner && !isMajorityRulesRound && (
                             <div className="ml-2 flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-white bg-green-500 shadow-lg">
                               <span className="text-sm text-white">✓</span>

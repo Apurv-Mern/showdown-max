@@ -2622,7 +2622,7 @@ export default function GamePage() {
                             onClick={() => handleSelectOption(i)}
                             disabled={isLocked}
                             className={cn(
-                              'flex min-h-14 w-full items-center justify-start rounded-xl px-4 py-3 text-white font-bold shadow-[0_4px_10px_rgba(0,0,0,0.5),inset_0_1px_1px_rgba(255,255,255,0.2)] sm:min-h-16 sm:px-6 sm:py-4 md:min-h-[4.75rem]',
+                              'flex min-h-14 w-full items-start justify-start gap-2 rounded-xl px-4 py-3 text-white font-bold shadow-[0_4px_10px_rgba(0,0,0,0.5),inset_0_1px_1px_rgba(255,255,255,0.2)] sm:min-h-16 sm:px-6 sm:py-4 md:min-h-[4.75rem]',
                               'touch-manipulation select-none transition-all',
                               OPTION_BG[i] || 'bg-[#1565c0]',
                               isSelected &&
@@ -2631,8 +2631,11 @@ export default function GamePage() {
                               isLocked && 'cursor-not-allowed',
                             )}
                           >
-                            <span className="text-left text-base font-black leading-tight drop-shadow-md sm:text-lg md:text-xl">
-                              {OPTION_LETTERS[i]}. {toDisplayUpper(opt.text)}
+                            <span className="shrink-0 text-base font-black leading-tight drop-shadow-md sm:text-lg md:text-xl">
+                              {OPTION_LETTERS[i]}.
+                            </span>
+                            <span className="min-w-0 flex-1 break-words text-left text-base font-black leading-tight drop-shadow-md sm:text-lg md:text-xl">
+                              {toDisplayUpper(opt.text)}
                             </span>
                           </motion.button>
                         );
@@ -2804,7 +2807,7 @@ export default function GamePage() {
                             key={i}
                             variants={staggerItem}
                             className={cn(
-                              'flex min-h-14 w-full items-center justify-between gap-3 rounded-xl border border-white/20 px-4 py-3 text-white font-bold sm:min-h-16 sm:px-6 sm:py-4 md:min-h-[4.75rem]',
+                              'flex min-h-14 w-full items-start justify-between gap-2 rounded-xl border border-white/20 px-4 py-3 text-white font-bold sm:min-h-16 sm:px-6 sm:py-4 md:min-h-[4.75rem]',
                               'touch-manipulation select-none transition-all',
                               OPTION_BG[i] || 'bg-[#1565c0]',
                               showCorrectRing &&
@@ -2814,9 +2817,14 @@ export default function GamePage() {
                               shouldDim && 'opacity-30 brightness-50 contrast-75 scale-[0.98]',
                             )}
                           >
-                            <span className="min-w-0 flex-1 text-left text-base font-black leading-tight drop-shadow-md sm:text-lg md:text-xl">
-                              {OPTION_LETTERS[i]}. {toDisplayUpper(opt.text)}
-                            </span>
+                            <div className="flex min-w-0 flex-1 items-start gap-2">
+                              <span className="shrink-0 text-base font-black leading-tight drop-shadow-md sm:text-lg md:text-xl">
+                                {OPTION_LETTERS[i]}.
+                              </span>
+                              <span className="min-w-0 flex-1 break-words text-left text-base font-black leading-tight drop-shadow-md sm:text-lg md:text-xl">
+                                {toDisplayUpper(opt.text)}
+                              </span>
+                            </div>
                             {showCorrectIcon && <RevealOptionStatusIcon variant="correct" />}
                             {showWrongIcon && <RevealOptionStatusIcon variant="wrong" />}
                           </motion.div>

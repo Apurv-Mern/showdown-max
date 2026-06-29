@@ -143,6 +143,8 @@ const VENUE_OPTION_CELL =
   'flex min-h-14 items-start gap-2 rounded-lg border px-3 py-2.5 text-base font-bold text-white shadow-[0_8px_18px_rgba(0,0,0,0.35)] md:min-h-[57px] md:px-4 md:py-3 md:text-lg min-[1920px]:text-2xl';
 const VENUE_OPTION_LETTER = 'shrink-0 font-black text-white/80';
 const VENUE_OPTION_TEXT = 'min-w-0 flex-1 break-words leading-tight uppercase';
+const VENUE_MINI_GAME_FINISHED_LOGO =
+  'mx-auto mb-8 h-[min(30rem,42vh)] w-auto max-w-[min(92%,480px)] object-contain drop-shadow-[0_0_24px_rgba(0,229,255,0.28)]';
 
 const resolveMediaUrl = (mediaUrl?: string) => {
   if (!mediaUrl) return '';
@@ -1204,7 +1206,11 @@ function VenueDisplayContent() {
         setTimerDuration(
           Number(data.currentQuestion.timerDuration ?? data.timerDuration ?? 30) || 30,
         );
-        setTimerRemaining(data.timerRemaining ?? data.currentQuestion.timerDuration ?? 0);
+        setTimerRemaining(
+          Number.isFinite(Number(data.timerRemaining))
+            ? Number(data.timerRemaining)
+            : 0,
+        );
         if (typeof data.timerRunning === 'boolean') {
           setTimerRunning(data.timerRunning);
         }
@@ -1363,7 +1369,11 @@ function VenueDisplayContent() {
       clearVenueMiniGameOverlay();
       setQuestion(data);
       setTimerDuration(data.timerDuration);
-      setTimerRemaining(data.timerRemaining ?? data.timerDuration);
+      setTimerRemaining(
+        typeof data.timerRemaining === 'number' && Number.isFinite(data.timerRemaining)
+          ? data.timerRemaining
+          : 0,
+      );
       // Music rounds explicitly arrive with `timerRunning: false` (host must
       // press Start Timer). Other round types may omit the flag — fall back to
       // "running" so the waiting overlay only shows when the server actually
@@ -1387,10 +1397,18 @@ function VenueDisplayContent() {
       setPhase('question');
     };
 
-    const onTimerUpdate = (data: { remaining: number; timerRunning?: boolean }) => {
+    const onTimerUpdate = (data: {
+      remaining: number;
+      timerRunning?: boolean;
+      paused?: boolean;
+    }) => {
       setTimerRemaining(data.remaining);
       if (typeof data.timerRunning === 'boolean') {
         setTimerRunning(data.timerRunning);
+      } else if (data.paused === true) {
+        setTimerRunning(false);
+      } else if (data.paused === false) {
+        setTimerRunning(true);
       }
     };
     const onTimerExpired = () => {
@@ -2599,15 +2617,10 @@ function VenueDisplayContent() {
           <div className="w-full h-full flex flex-col items-center justify-center p-8 animate-fadeIn">
             {miniGameResult.game === 'card_shuffle' && miniGameResult.holdScreen ? (
               <div className="w-full max-w-[980px] rounded-[32px] border border-[#2ec7ff]/45 bg-[linear-gradient(180deg,rgba(38,14,95,0.95)_0%,rgba(15,11,55,0.96)_100%)] px-12 py-16 text-center shadow-[0_0_36px_rgba(0,229,255,0.16)]">
-                <div className="mx-auto mb-8 flex h-24 w-24 items-center justify-center rounded-full border-2 border-[#2ec7ff]/55 bg-[rgba(4,14,38,0.85)] shadow-[0_0_28px_rgba(0,229,255,0.2)]">
-                  <span className="text-2xl font-black tracking-[0.18em] text-[#8fefff]">CS</span>
-                </div>
+                <img src="/logo.png" alt="Max Showdown" className={VENUE_MINI_GAME_FINISHED_LOGO} />
                 <h2 className="text-6xl font-black text-white drop-shadow-[0_0_16px_rgba(255,255,255,0.18)]">
                   GAME FINISHED
                 </h2>
-                <p className="mt-5 text-2xl font-semibold text-[#8fefff]">
-                  {miniGameResult.message || 'Wait for the host to start the game.'}
-                </p>
               </div>
             ) : miniGameResult.game === 'card_shuffle' && miniGameResult.winningCard ? (
               <>
@@ -2656,15 +2669,10 @@ function VenueDisplayContent() {
             ) : null}
             {miniGameResult.game === 'Kangaroo_race' && miniGameResult.holdScreen ? (
               <div className="w-full max-w-[980px] rounded-[32px] border border-[#2ec7ff]/45 bg-[linear-gradient(180deg,rgba(38,14,95,0.95)_0%,rgba(15,11,55,0.96)_100%)] px-12 py-16 text-center shadow-[0_0_36px_rgba(0,229,255,0.16)]">
-                <div className="mx-auto mb-8 flex h-24 w-24 items-center justify-center rounded-full border-2 border-[#2ec7ff]/55 bg-[rgba(4,14,38,0.85)] shadow-[0_0_28px_rgba(0,229,255,0.2)]">
-                  <span className="text-2xl font-black tracking-[0.18em] text-[#8fefff]">KR</span>
-                </div>
+                <img src="/logo.png" alt="Max Showdown" className={VENUE_MINI_GAME_FINISHED_LOGO} />
                 <h2 className="text-6xl font-black text-white drop-shadow-[0_0_16px_rgba(255,255,255,0.18)]">
                   GAME FINISHED
                 </h2>
-                {/* <p className="mt-5 text-2xl font-semibold text-[#8fefff]">
-                  {miniGameResult.message || 'Wait for the host to start the game.'}
-                </p> */}
               </div>
             ) : miniGameResult.game === 'Kangaroo_race' && miniGameResult.winningKangaroo ? (
               <>

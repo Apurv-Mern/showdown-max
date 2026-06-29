@@ -283,18 +283,12 @@ export default function UnityWrapper({
       {/* Loading overlay */}
       {!isLoaded && (
         <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-background/80">
-          <div className="mb-4 flex h-24 w-28 items-center justify-center sm:h-28 sm:w-32">
-            {gameType === 'Kangaroo_race' ? (
-              <img
-                src="/KangarooPic.png"
-                alt=""
-                className="max-h-full w-full object-contain object-bottom"
-              />
-            ) : (
-              <span className="text-4xl" aria-hidden>
-                🃏
-              </span>
-            )}
+          <div className="mb-4 flex h-60 w-[17.5rem] items-center justify-center sm:h-[17.5rem] sm:w-80">
+            <img
+              src="/logo.png"
+              alt="Max Showdown"
+              className="max-h-full w-full object-contain"
+            />
           </div>
           <p className="text-lg font-semibold mb-3">
             Loading {gameType === 'Kangaroo_race' ? 'Kangaroo Race' : 'Card Shuffle'}
@@ -328,18 +322,12 @@ export default function UnityWrapper({
 function FallbackView({ gameType }: { gameType: string }) {
   return (
     <div className="w-full h-full flex flex-col items-center justify-center text-center gap-4 bg-surface/50 rounded-2xl border border-border">
-      <div className="flex h-32 w-36 items-center justify-center sm:h-36 sm:w-40">
-        {gameType === 'Kangaroo_race' ? (
-          <img
-            src="/KangarooPic.png"
-            alt=""
-            className="max-h-full w-full object-contain object-bottom"
-          />
-        ) : (
-          <span className="text-7xl" aria-hidden>
-            🃏
-          </span>
-        )}
+      <div className="flex h-80 w-[22.5rem] items-center justify-center sm:h-[22.5rem] sm:w-[25rem]">
+        <img
+          src="/logo.png"
+          alt="Max Showdown"
+          className="max-h-full w-full object-contain"
+        />
       </div>
       <h3 className="text-3xl font-black">
         {gameType === 'Kangaroo_race' ? 'Kangaroo Race' : 'Card Shuffle'}

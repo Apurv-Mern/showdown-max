@@ -1652,8 +1652,9 @@ export default function GamePage() {
 
       setQuestion(data);
       setTimerDuration(data.timerDuration);
+      const tr = data.timerRemaining;
       const coerced = coercePlayerTimerFromServer(
-        data.timerRemaining ?? data.timerDuration,
+        typeof tr === 'number' && Number.isFinite(tr) ? tr : 0,
         data.timerEndsAt,
       );
       setTimerEndsAt(coerced.endsAt);
@@ -1661,10 +1662,9 @@ export default function GamePage() {
       const running = Boolean(data.timerRunning);
       setTimerRunning(running);
       const td = Number(data.timerDuration ?? 30) || 30;
-      const tr = coerced.remaining;
       const isMusicRound = (data.roundType || '').toUpperCase() === 'MUSIC';
       if (isMusicRound) {
-        setMusicVenuePlaybackStarted(running || (tr > 0 && tr < td));
+        setMusicVenuePlaybackStarted(running || (coerced.remaining > 0 && coerced.remaining < td));
       } else {
         setMusicVenuePlaybackStarted(false);
       }
@@ -1743,7 +1743,11 @@ export default function GamePage() {
         }
       }
       const coerced = coercePlayerTimerFromServer(data.remaining, data.timerEndsAt);
-      setTimerEndsAt(coerced.endsAt);
+      if (data.paused === true || data.timerRunning === false) {
+        setTimerEndsAt(null);
+      } else {
+        setTimerEndsAt(coerced.endsAt);
+      }
       setTimerRemaining(coerced.remaining);
       if (coerced.remaining <= 0) setTimerRunning(false);
     };

@@ -66,12 +66,12 @@ export function VenueWagerCollectionScreen({
           {headline}
         </h1>
 
-        <p className="mt-[clamp(1rem,2.5vh,1.75rem)] text-[clamp(1.05rem,1.95vw,1.65rem)] font-bold uppercase leading-snug tracking-[0.1em] text-white">
+        <p className="mt-[clamp(0.65rem,1.5vh,1.25rem)] text-[clamp(1.05rem,1.95vw,1.65rem)] font-bold uppercase leading-snug tracking-[0.1em] text-white">
           {toDisplayUpper(wagerInstructionText(isFinalWager))}
         </p>
       </div>
 
-      <div className="min-h-[clamp(10rem,10vh,10rem)] flex-1" aria-hidden />
+      <div className="min-h-[clamp(3rem,5vh,5rem)] shrink-0" aria-hidden />
 
       {/* Wager grid */}
       <div className="mx-auto grid w-full max-w-[min(900px,100%)] shrink-0 grid-cols-2 gap-[clamp(0.9rem,1.7vw,1.35rem)]">

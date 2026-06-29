@@ -452,9 +452,6 @@ function HostDashboardContent() {
   const [finishedMiniGameType, setFinishedMiniGameType] = useState<
     'card_shuffle' | 'kangaroo_race' | null
   >(null);
-  const [cardShuffleFinishedMessage, setCardShuffleFinishedMessage] = useState(
-    'Game Over. Wait for the host to start the game.',
-  );
   const [showScoreboardModal, setShowScoreboardModal] = useState(false);
   const [showEndGameModal, setShowEndGameModal] = useState(false);
   // When the host taps "Exit Game" on a mini-game, we open a confirmation
@@ -751,7 +748,9 @@ function HostDashboardContent() {
       }
       setMp3Playing(false);
       setMp4Playing(false);
-      setTimerPaused((data.roundType || '').toUpperCase() === 'MUSIC');
+      setTimerPaused(
+        typeof data.timerRunning === 'boolean' ? !data.timerRunning : (data.roundType || '').toUpperCase() === 'MUSIC',
+      );
       const incomingQuestionIndex = Number.isFinite(Number(data.questionIndex))
         ? Number(data.questionIndex)
         : null;
@@ -770,9 +769,10 @@ function HostDashboardContent() {
       );
     };
 
-    const onTimerUpdate = (data: { remaining: number; paused?: boolean }) => {
+    const onTimerUpdate = (data: { remaining: number; paused?: boolean; timerRunning?: boolean }) => {
       setTimerRemaining(data.remaining);
       if (data.paused !== undefined) setTimerPaused(data.paused);
+      else if (typeof data.timerRunning === 'boolean') setTimerPaused(!data.timerRunning);
     };
 
     const onTimerExpired = () => {
@@ -1180,9 +1180,6 @@ function HostDashboardContent() {
         if (data?.holdScreen) {
           setCardShuffleFinishedHold(true);
           setFinishedMiniGameType('card_shuffle');
-          setCardShuffleFinishedMessage(
-            data.message || 'Game Over. Wait for the host to start the game.',
-          );
         } else {
           setCardShuffleFinishedHold(false);
           setFinishedMiniGameType(null);
@@ -1198,9 +1195,6 @@ function HostDashboardContent() {
         if (data?.holdScreen) {
           setCardShuffleFinishedHold(true);
           setFinishedMiniGameType('kangaroo_race');
-          setCardShuffleFinishedMessage(
-            data.message || 'Game Over. Wait for the host to start the game.',
-          );
         } else {
           setCardShuffleFinishedHold(false);
           setFinishedMiniGameType(null);
@@ -1373,7 +1367,6 @@ function HostDashboardContent() {
   const handleStartNextRoundAfterCardShuffle = () => {
     setCardShuffleFinishedHold(false);
     setFinishedMiniGameType(null);
-    setCardShuffleFinishedMessage('Game Over. Wait for the host to start the game.');
     const gs = gameStateRef.current;
     if (gs?.state === 'LOBBY') {
       setStartGameRequested(true);
@@ -1405,7 +1398,7 @@ function HostDashboardContent() {
     }
     emit('next_question');
   };
-  // const handleRevealAnswer = () => emit('reveal_answer');
+  const handleRevealAnswer = () => emit('reveal_answer');
   const handleStartTimer = () => {
     emit('start_timer');
   };
@@ -1789,6 +1782,10 @@ function HostDashboardContent() {
     }
     if (s === 'QUESTION') {
       const qs = gs?.questionState || 'WAITING';
+      if (qs === 'ACTIVE' && timerPausedRef.current && timerRemainingRef.current > 0) {
+        handleStartTimer();
+        return;
+      }
       const idx = gs?.currentQuestionIndex ?? 0;
       const qLen = round?.questions?.length ?? 0;
       const isLast = qLen > 0 && idx === qLen - 1;
@@ -1802,6 +1799,7 @@ function HostDashboardContent() {
     activeMiniGameLocal,
     miniGameLoading,
     cardShuffleFinishedHold,
+    handleStartTimer,
     handleAdvanceRound,
     handleCollectWagers,
     handleNextQuestion,
@@ -1814,7 +1812,7 @@ function HostDashboardContent() {
     t: handleStartTimer,
     p: handlePauseTimer,
     s: handleShowScoreboard,
-    // r: handleRevealAnswer,
+    q: handleRevealAnswer,
   });
 
   useEffect(() => {
@@ -1938,18 +1936,12 @@ function HostDashboardContent() {
     state === 'QUESTION' && questionState === 'REVEALED' && !isLastQuestionOfRound;
   // const showRevealAnswerAction = state === 'QUESTION' && questionState === 'ACTIVE';
   const showRevealAnswerAction = false;
-  const musicRoundAwaitingHostTimerStart =
-    isMusicRound &&
+  const timerPausedAwaitingResume =
     state === 'QUESTION' &&
     questionState === 'ACTIVE' &&
     timerPaused &&
     timerRemaining > 0;
-  // Mirror of the above for the Stop Timer affordance in music rounds — visible while the music
-  // round timer is actively counting down so the host can pause both the countdown AND the
-  // MP3/MP4 playback in a single action (server-side `pauseTimer` echoes `music_control: pause`
-  // for music rounds, which the venue MP4 / MP3 listeners pick up).
-  const musicRoundCanStopTimer =
-    isMusicRound &&
+  const timerCanPause =
     state === 'QUESTION' &&
     questionState === 'ACTIVE' &&
     !timerPaused &&
@@ -1957,7 +1949,7 @@ function HostDashboardContent() {
   const hostMediaReplayLocked =
     state === 'QUESTION' &&
     (questionState === 'REVEALED' ||
-      (questionState === 'ACTIVE' && !musicRoundAwaitingHostTimerStart && timerRemaining <= 0));
+      (questionState === 'ACTIVE' && !timerPausedAwaitingResume && timerRemaining <= 0));
   const hostVideoPlaybackActive = mp4Playing && !hostMediaReplayLocked;
   // While any mini-game (Kangaroo Race or Card Shuffle) is on the venue —
   // loaded → running → revealed, until the host taps Finish Race / Finish Game —
@@ -2223,7 +2215,7 @@ function HostDashboardContent() {
                   disabled={
                     !currentQuestion ||
                     !hasPlayableAudio ||
-                    musicRoundAwaitingHostTimerStart ||
+                    timerPausedAwaitingResume ||
                     hostMediaReplayLocked
                   }
                   icon={
@@ -2277,20 +2269,17 @@ function HostDashboardContent() {
           {cardShuffleFinishedHold ? (
             <div className="flex min-h-0 flex-1 items-center justify-center rounded-2xl border-2 border-[rgba(0,217,255,0.45)] bg-[linear-gradient(180deg,rgba(26,31,46,0.85)_0%,rgba(11,15,26,0.92)_100%)] p-6 shadow-[0_0_28px_rgba(0,217,255,0.12)] sm:p-6">
               <div className="w-full max-w-3xl rounded-[28px] border border-[#2ec7ff]/45 bg-[linear-gradient(180deg,rgba(38,14,95,0.95)_0%,rgba(15,11,55,0.96)_100%)] px-8 py-12 text-center shadow-[0_0_36px_rgba(0,229,255,0.16)]">
-                <div className="mx-auto mb-6 flex h-24 w-24 items-center justify-center rounded-full border-2 border-[#2ec7ff]/55 bg-[rgba(4,14,38,0.85)] shadow-[0_0_28px_rgba(0,229,255,0.2)]">
-                  <span className="text-2xl font-black tracking-[0.18em] text-[#8fefff]">
-                    {finishedMiniGameType === 'kangaroo_race' ? 'KR' : 'CS'}
-                  </span>
-                </div>
+                <img
+                  src="/logo.png"
+                  alt="Max Showdown"
+                  className="mx-auto mb-6 h-[min(30rem,36vh)] w-auto max-w-[min(92%,480px)] object-contain drop-shadow-[0_0_24px_rgba(0,229,255,0.28)]"
+                />
                 <p className="text-sm font-black uppercase tracking-[0.28em] text-[#2be9ff]">
                   {finishedMiniGameType === 'kangaroo_race' ? 'Kangaroo Race' : 'Card Shuffle'}
                 </p>
                 <h2 className="mt-4 text-5xl font-black text-white drop-shadow-[0_0_16px_rgba(255,255,255,0.18)] sm:text-6xl">
                   Game Over
                 </h2>
-                <p className="mt-5 text-xl font-semibold text-[#8fefff] sm:text-2xl">
-                  {cardShuffleFinishedMessage}
-                </p>
                 {state !== 'GAME_END' && (
                   <button
                     type="button"
@@ -3304,7 +3293,7 @@ function HostDashboardContent() {
               Next Question
               {/* {showRevealAnswerAction ? 'Reveal Answer' : 'Next Question'} */}
             </HostFooterBtn>
-            {musicRoundAwaitingHostTimerStart ? (
+            {timerPausedAwaitingResume ? (
               <HostFooterBtn
                 emphasis
                 icon={
@@ -3317,7 +3306,7 @@ function HostDashboardContent() {
                 Start Timer
               </HostFooterBtn>
             ) : null}
-            {musicRoundCanStopTimer ? (
+            {timerCanPause ? (
               <HostFooterBtn
                 icon={
                   <svg viewBox="0 0 24 24" fill="currentColor" className="text-[#00d9ff]">

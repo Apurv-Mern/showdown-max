@@ -74,6 +74,12 @@ const clampAmount = (amount, min, max) => {
   return Math.max(min, Math.min(max, Math.round(parsed)));
 };
 
+/** Wall-clock end for player clients when a countdown is running. */
+const timerEndsAtFromRemaining = (remaining) => {
+  const rem = Math.max(0, Math.floor(Number(remaining)) || 0);
+  return rem > 0 ? Date.now() + rem * 1000 : null;
+};
+
 /** Keep Redis `timerRemaining` aligned with the in-memory ticker (reconnect / venue / host). */
 const persistTimerRemainingIfActiveQuestion = (pin, remaining, { immediate = false } = {}) => {
   const pinKey = String(pin);
@@ -1861,15 +1867,22 @@ const pauseTimer = async (io, pin) => {
     remaining,
     paused: true,
     timerRunning: false,
+    timerEndsAt: null,
   });
   persistTimerRemainingIfActiveQuestion(pin, remaining, { immediate: true });
 
-  // Stop Timer in a music round must also stop the audio/video on host + venue. The
-  // start-timer path (above) emits MUSIC_CONTROL `play`; we mirror that here so the projector's
-  // MP3/MP4 element pauses in lock-step with the countdown. Players never receive audio, so this
-  // is purely a venue/host concern, but emitting to the room is harmless on player clients.
   try {
     const gameState = await redisStore.getGameState(pin);
+    if (
+      gameState &&
+      gameState.state === GAME_STATES.QUESTION &&
+      gameState.questionState === QUESTION_STATES.ACTIVE
+    ) {
+      gameState.timerRemaining = Math.max(0, Number(remaining) || 0);
+      gameState.timerRunning = false;
+      gameState.timerEndsAt = null;
+      await redisStore.setGameState(pin, gameState);
+    }
     const round = gameState ? stateMachine.getCurrentRound(gameState) : null;
     if (String(round?.type || '').toUpperCase() === ROUND_TYPES.MUSIC) {
       io.to(`session:${pin}`).emit(SOCKET_EVENTS.MUSIC_CONTROL, { action: 'pause' });
@@ -1885,9 +1898,30 @@ const pauseTimer = async (io, pin) => {
  * Start/resume the timer
  */
 const startTimer = async (io, pin) => {
-  const timerState = timerManager.getTimerState(pin);
+  let timerState = timerManager.getTimerState(pin);
+
+  if (!(timerState.remaining > 0 && !timerState.running)) {
+    try {
+      const gameState = await redisStore.getGameState(pin);
+      if (
+        gameState &&
+        gameState.state === GAME_STATES.QUESTION &&
+        gameState.questionState === QUESTION_STATES.ACTIVE
+      ) {
+        const storedRemaining = Number(gameState.timerRemaining);
+        if (Number.isFinite(storedRemaining) && storedRemaining > 0) {
+          timerManager.armPausedTimer(pin, storedRemaining);
+          timerState = timerManager.getTimerState(pin);
+        }
+      }
+    } catch (err) {
+      logger.warn('startTimer re-arm from game state failed', { error: err.message });
+    }
+  }
+
   if (!(timerState.remaining > 0 && !timerState.running)) return;
 
+  const resumeEndsAt = timerEndsAtFromRemaining(timerState.remaining);
   logger.info('Timer resumed', { pin, remaining: timerState.remaining });
   timerManager.resumeTimer(
     pin,
@@ -1895,6 +1929,7 @@ const startTimer = async (io, pin) => {
       io.to(`session:${pin}`).emit(SOCKET_EVENTS.TIMER_UPDATE, {
         remaining,
         timerRunning: true,
+        timerEndsAt: resumeEndsAt,
       });
       persistTimerRemainingIfActiveQuestion(pin, remaining);
     },
@@ -1904,6 +1939,7 @@ const startTimer = async (io, pin) => {
       if (gs) {
         gs.timerRunning = false;
         gs.timerRemaining = 0;
+        gs.timerEndsAt = null;
         await redisStore.setGameState(pin, gs);
       }
       logger.info('Timer expired for question on resumed timer — auto-revealing', {
@@ -1917,12 +1953,14 @@ const startTimer = async (io, pin) => {
   if (gameState) {
     gameState.timerRunning = true;
     gameState.timerRemaining = timerState.remaining;
+    gameState.timerEndsAt = resumeEndsAt;
     await redisStore.setGameState(pin, gameState);
   }
   io.to(`session:${pin}`).emit(SOCKET_EVENTS.TIMER_UPDATE, {
     remaining: timerState.remaining,
     paused: false,
     timerRunning: true,
+    timerEndsAt: resumeEndsAt,
   });
 
   if (gameState) {

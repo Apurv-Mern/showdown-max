@@ -414,6 +414,14 @@ const normalizeRoundIntroTitle = (name?: string, roundType?: string, roundIndex?
   return toDisplayUpper(withoutPrefix);
 };
 
+/** Scale round-intro copy to stay inside the venue wheel circle. */
+function venueRoundIntroTitleSize(subtitle: string) {
+  const len = subtitle.length;
+  if (len > 16) return 'text-[clamp(1.85rem,4.6vh,3.35rem)]';
+  if (len > 10) return 'text-[clamp(2rem,5.2vh,3.65rem)]';
+  return 'text-[clamp(2.3rem,6vh,4.15rem)]';
+}
+
 function VenueDisplayContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -2159,20 +2167,39 @@ function VenueDisplayContent() {
               />
 
               <div className="absolute inset-0 pointer-events-none text-center">
-                <div className="absolute left-1/2 top-[42%] w-[62%] -translate-x-1/2 -translate-y-1/2">
-                  <h1 className="text-[clamp(2.75rem,7.5vh,5.75rem)] leading-none font-black text-[#fff4c2]">
-                    ROUND {(roundInfo.roundIndex || 0) + 1}
-                  </h1>
-                  {(roundInfo.roundIndex || 0) !== 0 ? (
-                    <p className="mt-2 text-[clamp(2.75rem,7.5vh,5.75rem)] uppercase leading-none font-black text-[#fff4c2]">
-                      {normalizeRoundIntroTitle(
-                        roundInfo.round?.name,
-                        roundInfo.round?.type,
-                        roundInfo.roundIndex,
-                      )}
-                    </p>
-                  ) : null}
-                </div>
+                {(() => {
+                  const subtitle =
+                    (roundInfo.roundIndex || 0) !== 0
+                      ? normalizeRoundIntroTitle(
+                          roundInfo.round?.name,
+                          roundInfo.round?.type,
+                          roundInfo.roundIndex,
+                        )
+                      : '';
+                  const titleSize = venueRoundIntroTitleSize(subtitle);
+                  return (
+                    <div className="absolute left-1/2 top-[42%] w-[56%] -translate-x-1/2 -translate-y-1/2">
+                      <h1
+                        className={cn(
+                          titleSize,
+                          'leading-[0.92] font-black tracking-tight text-[#fff4c2]',
+                        )}
+                      >
+                        ROUND {(roundInfo.roundIndex || 0) + 1}
+                      </h1>
+                      {subtitle ? (
+                        <p
+                          className={cn(
+                            titleSize,
+                            'mt-1 uppercase leading-[0.92] font-black tracking-tight text-[#fff4c2]',
+                          )}
+                        >
+                          {subtitle}
+                        </p>
+                      ) : null}
+                    </div>
+                  );
+                })()}
 
                 <div className="absolute inset-x-[6%] top-[69%] bottom-[6%] flex flex-col items-stretch justify-center overflow-hidden">
                   <RoundIntroScoringLines roundType={roundInfo.round?.type} variant="venue" />

@@ -92,7 +92,29 @@ export default function UnityWrapper({
     ...config,
     productName: gameType === 'Kangaroo_race' ? 'Kangaroo Race' : 'Card Shuffle',
     companyName: 'MaxShowdown',
+    // Avoid stale .wasm/.data from UnityCache on the second visit (Kangaroo + Card Shuffle).
+    cacheControl: () => 'no-store',
   });
+
+  // Unity shows a blocking alert for a harmless transient SendMessage error on cached reloads.
+  // Suppress only that case — no layout or timing changes.
+  useEffect(() => {
+    const nativeAlert = window.alert.bind(window);
+    window.alert = (message?: unknown) => {
+      const text = String(message ?? '');
+      if (
+        text.includes('An error occurred running the Unity content') &&
+        /null function|SendMessage|Player not loaded yet/i.test(text)
+      ) {
+        console.warn('[UnityWrapper] Suppressed transient Unity alert');
+        return;
+      }
+      nativeAlert(message);
+    };
+    return () => {
+      window.alert = nativeAlert;
+    };
+  }, []);
 
   /* ─── Unity → Web: JSLib callbacks ─── */
   const handlePlayerAction = useCallback(

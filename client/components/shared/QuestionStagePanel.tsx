@@ -36,7 +36,7 @@ export function QuestionStagePanel({
         </div>
 
         <QuestionNeonFrame className="question-stage-panel__question-frame">
-          <h2 className="text-left text-[clamp(1rem,3.8vw,1.35rem)] font-black uppercase leading-snug text-white drop-shadow-[0_0_10px_rgba(255,255,255,0.25)] sm:text-lg md:text-xl">
+          <h2 className="text-left text-[clamp(1.25rem,4.8vw,1.75rem)] font-black uppercase leading-snug text-white drop-shadow-[0_0_10px_rgba(255,255,255,0.25)] sm:text-2xl md:text-3xl">
             {toDisplayUpper(questionText)}
           </h2>
         </QuestionNeonFrame>

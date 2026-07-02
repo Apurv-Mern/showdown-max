@@ -8,9 +8,9 @@
   --font-geist-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono',
     'Courier New', monospace;
   --font-montserrat: var(--font-geist-sans);
-  --primary: #00e5ff;
-  --primary-light: #40efff;
-  --primary-dark: #00b0cc;
+  --primary: #6eefff;
+  --primary-light: #9af4ff;
+  --primary-dark: #4bc4de;
   --accent: #6706ab;
   --success: #00ff6a;
   --danger: #ff1744;
@@ -18,12 +18,12 @@
   --surface: #0a1628;
   --surface-light: #122040;
   --border: #1a3060;
-  --neon-cyan: #00e5ff;
+  --neon-cyan: #6eefff;
   --neon-green: #00ff6a;
   --neon-red: #ff1744;
   --neon-purple: #b44aff;
   --neon-gold: #ffd700;
-  --glow-cyan: 0 0 15px rgba(0, 229, 255, 0.5), 0 0 30px rgba(0, 229, 255, 0.2);
+  --glow-cyan: 0 0 8px rgba(110, 239, 255, 0.35);
   --glow-green: 0 0 15px rgba(0, 255, 106, 0.5), 0 0 30px rgba(0, 255, 106, 0.2);
   --glow-red: 0 0 15px rgba(255, 23, 68, 0.5), 0 0 30px rgba(255, 23, 68, 0.2);
 }
@@ -357,9 +357,7 @@ input[type='range']::-webkit-slider-thumb {
 
 /* ── Neon text glow ── */
 .text-glow-cyan {
-  text-shadow:
-    0 0 10px rgba(0, 229, 255, 0.6),
-    0 0 20px rgba(0, 229, 255, 0.3);
+  text-shadow: 0 0 8px rgba(110, 239, 255, 0.35);
 }
 
 .text-glow-green {

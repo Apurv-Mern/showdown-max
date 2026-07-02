@@ -90,7 +90,7 @@ const KANGAROO_SLOTS = [1, 2, 3, 4, 5, 6] as const;
 /** Matches player mini-game (left / middle / right). */
 const CARD_SHUFFLE_SLOTS = [1, 2, 3] as const;
 const CARD_POSITION_LABELS: Record<number, string> = { 1: 'Left', 2: 'Middle', 3: 'Right' };
-const TEAM_NAME_MAX_LENGTH = 15;
+const TEAM_NAME_MAX_LENGTH = 20;
 
 /** Figma row groups for Leaderboard modal list */
 const SCOREBOARD_MODAL_ROW_IDS = [
@@ -1469,7 +1469,7 @@ function HostDashboardContent() {
   };
   const handleAdvanceRound = () => emit('advance_round');
   const handleStartBreak = () => {
-    if (state !== 'SCOREBOARD' && state !== 'ROUND_END') return;
+    if (state === 'LOBBY' || state === 'FINAL_RESULTS' || state === 'BREAK') return;
     emit('start_break');
   };
   const handleEndBreak = () => emit('end_break');
@@ -2055,7 +2055,7 @@ function HostDashboardContent() {
     (state === 'SCOREBOARD' ||
       (state === 'QUESTION' && questionState === 'REVEALED' && isLastQuestionOfRound));
   const canOpenScoreboard = state === 'SCOREBOARD' || state === 'ROUND_END';
-  const canStartBreak = state === 'SCOREBOARD' || state === 'ROUND_END';
+  const canStartBreak = state !== 'LOBBY' && state !== 'FINAL_RESULTS';
   const canToggleBreak = state === 'BREAK' || canStartBreak;
 
   if (!pin) {
@@ -2831,16 +2831,11 @@ function HostDashboardContent() {
                         controls={hostVideoPlaybackActive}
                         autoPlay={hostVideoPlaybackActive}
                       />
-                    ) : (currentQuestion.roundType || '').toUpperCase() === 'MUSIC' ||
-                      (currentQuestion.question.mediaType || '').toLowerCase() === 'mp3' ? (
-                      <img src="/venuemusicbg.png" className="h-full w-full object-cover" alt="" />
                     ) : (
-                      <div className="relative flex h-full w-full items-center justify-center overflow-hidden">
-                        <img
-                          src="/withoutImagequestion.png"
-                          className="h-full w-full object-cover opacity-60"
-                          alt="placeholder"
-                        />
+                      <div className="flex h-full w-full items-center justify-center px-6 py-8">
+                        <p className="text-center text-xl font-black uppercase leading-tight text-white sm:text-2xl lg:text-3xl">
+                          {currentQuestion.question.text}
+                        </p>
                       </div>
                     )}
                   </div>
@@ -2854,11 +2849,16 @@ function HostDashboardContent() {
 
                 {/* Content Section */}
                 <div className="relative z-20 flex-1 border-t-2 border-t-white/20 bg-[linear-gradient(180deg,#0a0f2b_0%,#04060e_100%)] px-6 pb-6 pt-14 shadow-inner">
-                  <div className="mb-6 text-center">
-                    <p className="text-xl font-black leading-tight text-white sm:text-2xl">
-                      Q{(currentQuestion.questionIndex || 0) + 1}. {currentQuestion.question.text}
-                    </p>
-                  </div>
+                  {currentQuestion.question.mediaUrl &&
+                  ['image', 'mp4'].includes(
+                    (currentQuestion.question.mediaType || '').toLowerCase(),
+                  ) ? (
+                    <div className="mb-6 text-center">
+                      <p className="text-2xl font-black leading-tight text-white sm:text-3xl">
+                        Q{(currentQuestion.questionIndex || 0) + 1}. {currentQuestion.question.text}
+                      </p>
+                    </div>
+                  ) : null}
 
                   <div className="grid grid-cols-2 gap-3 pb-2 pt-2">
                     {currentQuestion.question.options.map((opt, i) => {
@@ -2877,7 +2877,7 @@ function HostDashboardContent() {
                         <div
                           key={i}
                           className={cn(
-                            'flex min-h-[57px] items-start gap-2 rounded-xl border-2 px-4 py-3 text-base font-black text-white transition-all shadow-[0_4px_12px_rgba(0,0,0,0.5)]',
+                            'flex min-h-[64px] items-start gap-2 rounded-xl border-2 px-4 py-3 text-lg font-black text-white transition-all shadow-[0_4px_12px_rgba(0,0,0,0.5)] sm:text-xl',
                             VENUE_OPTION_COLOR_CLASSES[i % VENUE_OPTION_COLOR_CLASSES.length],
                             isRevealedWinner
                               ? 'z-10 scale-[1.03] shadow-[0_0_12px_8px_rgba(57,255,74,0.8)]'
@@ -3029,7 +3029,7 @@ function HostDashboardContent() {
                 </div>
               ) : state === 'BREAK' ? (
                 <div className="flex w-full max-w-[640px] flex-col items-center justify-center gap-2 py-4 animate-fadeIn">
-                  <BreakScreenHeading size="host" upNextLabel={hostBreakUpNextLabel} />
+                  <BreakScreenHeading size="host" />
 
                   <BreakTimerDisplay
                     remainingSeconds={hostBreakRemaining}

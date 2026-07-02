@@ -8,7 +8,7 @@ import { usePlayerSession } from '../playerSession';
 import { Button } from '@/components/shared/Button';
 import { PUBLIC_API_URL } from '@/lib/env';
 
-const TEAM_NAME_MAX_LENGTH = 15;
+const TEAM_NAME_MAX_LENGTH = 20;
 const PLAY_JOIN_FLASH_KEY = 'playJoinFlash';
 
 const sanitizeTeamName = (name: string) => name.trim().replace(/\s+/g, ' ');

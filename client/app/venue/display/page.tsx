@@ -133,16 +133,20 @@ const VENUE_OPTION_COLOR_CLASSES = [
 
 /** Venue question card — fixed media height + fixed option rows (matches TV mockup). */
 const VENUE_QUESTION_CARD_MEDIA =
-  'relative shrink-0 overflow-hidden rounded-t-2xl h-[min(34vh,360px)] min-h-[140px]';
+  'relative shrink-0 overflow-hidden rounded-t-2xl h-[min(42vh,480px)] min-h-[180px]';
 const VENUE_MEDIA_FRAME = 'relative h-full w-full overflow-hidden bg-[#060818]';
-const VENUE_MEDIA_FILL = 'h-full w-full';
+const VENUE_MEDIA_FILL = 'h-full w-full object-contain';
 const VENUE_QUESTION_CARD_OPTIONS =
   'relative z-20 shrink-0 rounded-2xl border-t-2 border-t-white/50 bg-linear-to-b from-[#100048] to-[#000000] px-3 pt-5 pb-3 sm:px-4 md:px-5 md:pt-7 md:pb-4';
-const VENUE_OPTION_GRID = 'grid grid-cols-2 gap-2 md:gap-3';
+const VENUE_OPTION_GRID = 'grid grid-cols-2 gap-2.5 md:gap-4';
 const VENUE_OPTION_CELL =
-  'flex min-h-14 items-start gap-2 rounded-lg border px-3 py-2.5 text-base font-bold text-white shadow-[0_8px_18px_rgba(0,0,0,0.35)] md:min-h-[57px] md:px-4 md:py-3 md:text-lg min-[1920px]:text-2xl';
-const VENUE_OPTION_LETTER = 'shrink-0 font-black text-white/80';
-const VENUE_OPTION_TEXT = 'min-w-0 flex-1 break-words leading-tight uppercase';
+  'flex min-h-[5.5rem] items-center gap-3 rounded-lg border px-4 py-4 text-4xl font-normal text-white shadow-[0_8px_18px_rgba(0,0,0,0.35)] md:min-h-[6rem] md:px-6 md:py-4 md:text-5xl min-[1920px]:min-h-[6.5rem] min-[1920px]:text-6xl';
+const VENUE_CENTERED_QUESTION_TEXT =
+  'text-center text-4xl font-normal uppercase leading-[1.12] text-white drop-shadow-[0_0_18px_rgba(255,255,255,0.4)] md:text-5xl lg:text-6xl min-[1920px]:text-7xl';
+const VENUE_OPTIONS_QUESTION_TEXT =
+  'text-3xl font-normal uppercase leading-tight text-white md:text-4xl min-[1920px]:text-5xl';
+const VENUE_OPTION_LETTER = 'shrink-0 font-normal leading-none text-white';
+const VENUE_OPTION_TEXT = 'min-w-0 flex-1 break-words leading-none uppercase text-white';
 const VENUE_MINI_GAME_FINISHED_LOGO =
   'mx-auto mb-8 h-[min(30rem,42vh)] w-auto max-w-[min(92%,480px)] object-contain drop-shadow-[0_0_24px_rgba(0,229,255,0.28)]';
 
@@ -161,6 +165,12 @@ const resolveMediaUrl = (mediaUrl?: string) => {
   }
   return `${API_URL}/${venueSafeUrl}`;
 };
+
+function venueQuestionHasVisualMedia(q?: { mediaUrl?: string; mediaType?: string }) {
+  if (!q?.mediaUrl) return false;
+  const mediaType = (q.mediaType || '').toLowerCase();
+  return mediaType === 'image' || mediaType === 'mp4';
+}
 
 function bootstrapLiveResponseStats(
   rosterCount: number,
@@ -537,10 +547,6 @@ function VenueDisplayContent() {
   }, [sessionPin]);
 
   const isMusicRound = question?.roundType === 'MUSIC';
-  /** Match mobile: MUSIC round or MP3 uses music art instead of generic question placeholder. */
-  const venueMusicBgPlaceholder =
-    (question?.roundType || '').toUpperCase() === 'MUSIC' ||
-    (question?.question?.mediaType || '').toLowerCase() === 'mp3';
   // Mute the question-timer tick/buzz while a mini-game is on the venue, so the
   // host launching Kangaroo Race / Card Shuffle mid-question doesn't have the
   // ticking competing with the mini-game audio/UI on the projector.
@@ -2042,7 +2048,7 @@ function VenueDisplayContent() {
                   !welcomeQrImageFailed &&
                   (qrCodeData.startsWith('data:') || /^https?:\/\//i.test(qrCodeData)) ? (
                     // Server QR is white-on-transparent; must sit on a dark surface (not white).
-                    <div className="flex h-20 sm:h-24 md:h-28 w-20 sm:w-24 md:w-28 items-center justify-center rounded-lg bg-[#060818]">
+                    <div className="flex h-32 sm:h-36 md:h-40 w-32 sm:w-36 md:w-40 items-center justify-center rounded-lg bg-[#060818]">
                       <img
                         src={qrCodeData}
                         alt="QR code to join this session"
@@ -2051,8 +2057,8 @@ function VenueDisplayContent() {
                       />
                     </div>
                   ) : (
-                    <div className="flex h-20 sm:h-24 md:h-28 w-20 sm:w-24 md:w-28 items-center justify-center rounded-lg bg-white">
-                      <QRCodeSVG value={playerJoinUrl} size={80} className="rounded" />
+                    <div className="flex h-32 sm:h-36 md:h-40 w-32 sm:w-36 md:w-40 items-center justify-center rounded-lg bg-white">
+                      <QRCodeSVG value={playerJoinUrl} size={150} className="rounded" />
                     </div>
                   )}
                 </div>
@@ -2094,8 +2100,8 @@ function VenueDisplayContent() {
 
             {sessionPin ? (
               <div className="mx-auto mb-3 sm:mb-4 md:mb-5 shrink-0 rounded-xl border border-neon-cyan/45 bg-[#051230]/85 px-3 sm:px-4 py-2 sm:py-3 shadow-[0_0_20px_rgba(0,229,255,0.18)] flex items-center gap-2 sm:gap-3 max-w-full">
-                <div className="w-16 h-16 sm:w-36 h-40 md:w-44 h-44 rounded bg-white p-1 flex items-center justify-center shrink-0">
-                  <QRCodeSVG value={playerJoinUrl} size={140} />
+                <div className="w-36 h-36 sm:w-44 sm:h-44 md:w-52 md:h-52 rounded bg-white p-1 flex items-center justify-center shrink-0">
+                  <QRCodeSVG value={playerJoinUrl} size={200} />
                 </div>
                 <div className="text-left min-w-0">
                   <p className="text-neon-cyan font-bold text-xs sm:text-sm">SCAN TO JOIN</p>
@@ -2255,8 +2261,8 @@ function VenueDisplayContent() {
         {phase === 'question' && question && (
           <div className="flex h-full min-h-0 w-full animate-fadeIn flex-col overflow-hidden px-4 py-[clamp(0.5rem,1.5vh,1.25rem)] md:px-20 lg:px-40">
             {/* Response Stats */}
-            <div className="mx-auto w-full shrink-0 rounded-2xl mb-3 ">
-              <div className="rounded-xl mb-2 flex flex-col lg:flex-row items-start lg:items-center gap-3 lg:gap-4 justify-between px-3 md:px-4 py-2">
+            <div className="mx-auto mb-1 w-full shrink-0 rounded-2xl">
+              <div className="rounded-xl flex flex-col lg:flex-row items-start lg:items-center gap-2 lg:gap-3 justify-between px-3 md:px-4 py-1">
                 <VenueLiveResponseBars
                   variant="inline"
                   className="flex-1 w-full lg:max-w-2xl"
@@ -2309,21 +2315,21 @@ function VenueDisplayContent() {
             </div>
 
             {/* ── QUESTION ── */}
-            <div className="flex min-h-0 w-full flex-1 flex-col justify-center overflow-hidden animate-fadeIn">
+            <div className="flex min-h-0 w-full flex-1 flex-col justify-start overflow-hidden animate-fadeIn">
               <div className="mx-auto w-full shrink-0 overflow-hidden rounded-2xl border">
                 <div className={VENUE_QUESTION_CARD_MEDIA}>
                   <div className="absolute left-4 top-3 z-10 text-lg font-semibold text-white/90 min-[1920px]:text-2xl">
                     QUESTION {(question.questionIndex || 0) + 1}/{question.totalQuestions}
                   </div>
                   <div className={VENUE_MEDIA_FRAME}>
-                    {resolveMediaUrl(question.question.mediaUrl) &&
+                    {venueQuestionHasVisualMedia(question.question) &&
                     (question.question.mediaType || '').toLowerCase() === 'image' ? (
                       <img
                         src={resolveMediaUrl(question.question.mediaUrl)}
                         className={VENUE_MEDIA_FILL}
                         alt="media"
                       />
-                    ) : resolveMediaUrl(question.question.mediaUrl) &&
+                    ) : venueQuestionHasVisualMedia(question.question) &&
                       (question.question.mediaType || '').toLowerCase() === 'mp4' ? (
                       <video
                         ref={venueMp4Ref}
@@ -2334,15 +2340,11 @@ function VenueDisplayContent() {
                         preload="auto"
                       />
                     ) : (
-                      <img
-                        src={
-                          venueMusicBgPlaceholder
-                            ? '/venuemusicbg.png'
-                            : '/withoutImagequestion.png'
-                        }
-                        className="h-full w-full"
-                        alt={venueMusicBgPlaceholder ? 'Music round' : 'Question visual'}
-                      />
+                      <div className="flex h-full w-full items-center justify-center px-6 py-8 md:px-12 md:py-10">
+                        <p className={VENUE_CENTERED_QUESTION_TEXT}>
+                          {toDisplayUpper(question.question.text)}
+                        </p>
+                      </div>
                     )}
                   </div>
 
@@ -2354,11 +2356,13 @@ function VenueDisplayContent() {
                 </div>
 
                 <div className={VENUE_QUESTION_CARD_OPTIONS}>
-                  <div className="mb-3 shrink-0 md:mb-4">
-                    <p className="text-lg font-bold uppercase leading-tight text-white line-clamp-2 md:text-xl min-[1920px]:text-2xl">
-                      Q{(question.questionIndex || 0) + 1}. {toDisplayUpper(question.question.text)}
-                    </p>
-                  </div>
+                  {venueQuestionHasVisualMedia(question.question) ? (
+                    <div className="mb-3 shrink-0 md:mb-4">
+                      <p className={cn(VENUE_OPTIONS_QUESTION_TEXT, 'line-clamp-3')}>
+                        Q{(question.questionIndex || 0) + 1}. {toDisplayUpper(question.question.text)}
+                      </p>
+                    </div>
+                  ) : null}
 
                   <div className={VENUE_OPTION_GRID}>
                     {question.question.options.map((opt, i) => (
@@ -2393,8 +2397,8 @@ function VenueDisplayContent() {
         {phase === 'reveal' && revealData && question && (
           <div className="flex h-full min-h-0 w-full animate-fadeIn flex-col overflow-hidden px-4 py-[clamp(0.5rem,1.5vh,1.25rem)] md:px-20 lg:px-40">
             {/* Response Stats */}
-            <div className="mx-auto w-full shrink-0 rounded-2xl mb-3 ">
-              <div className="rounded-xl mb-3 flex flex-col lg:flex-row items-start lg:items-center gap-3 lg:gap-4 justify-between px-3 md:px-4 py-2 md:py-3">
+            <div className="mx-auto mb-1 w-full shrink-0 rounded-2xl">
+              <div className="rounded-xl flex flex-col lg:flex-row items-start lg:items-center gap-2 lg:gap-3 justify-between px-3 md:px-4 py-1 md:py-1.5">
                 <VenueLiveResponseBars
                   variant="inline"
                   className="flex-1 w-full lg:max-w-2xl"
@@ -2446,21 +2450,21 @@ function VenueDisplayContent() {
             </div>
 
             {/* ── QUESTION CARD ── */}
-            <div className="flex min-h-0 w-full flex-1 flex-col justify-center overflow-hidden animate-fadeIn">
+            <div className="flex min-h-0 w-full flex-1 flex-col justify-start overflow-hidden animate-fadeIn">
               <div className="mx-auto w-full shrink-0 overflow-hidden rounded-2xl border border-white/20">
                 <div className={VENUE_QUESTION_CARD_MEDIA}>
                   <div className="absolute left-3 top-2 z-10 text-sm font-semibold text-white drop-shadow-md md:left-4 md:top-3 md:text-lg min-[1920px]:text-2xl">
                     Question {(question.questionIndex || 0) + 1}/{question.totalQuestions}
                   </div>
                   <div className={VENUE_MEDIA_FRAME}>
-                    {resolveMediaUrl(question.question.mediaUrl) &&
+                    {venueQuestionHasVisualMedia(question.question) &&
                     (question.question.mediaType || '').toLowerCase() === 'image' ? (
                       <img
                         src={resolveMediaUrl(question.question.mediaUrl)}
                         className={VENUE_MEDIA_FILL}
                         alt="media"
                       />
-                    ) : resolveMediaUrl(question.question.mediaUrl) &&
+                    ) : venueQuestionHasVisualMedia(question.question) &&
                       (question.question.mediaType || '').toLowerCase() === 'mp4' ? (
                       <video
                         key={`reveal-${resolveMediaUrl(question.question.mediaUrl)}`}
@@ -2470,15 +2474,11 @@ function VenueDisplayContent() {
                         preload="auto"
                       />
                     ) : (
-                      <img
-                        src={
-                          venueMusicBgPlaceholder
-                            ? '/venuemusicbg.png'
-                            : '/withoutImagequestion.png'
-                        }
-                        className="h-full w-full"
-                        alt={venueMusicBgPlaceholder ? 'Music round' : 'Question visual'}
-                      />
+                      <div className="flex h-full w-full items-center justify-center px-6 py-8 md:px-12 md:py-10">
+                        <p className={VENUE_CENTERED_QUESTION_TEXT}>
+                          {toDisplayUpper(question.question.text)}
+                        </p>
+                      </div>
                     )}
                   </div>
 
@@ -2490,11 +2490,13 @@ function VenueDisplayContent() {
                 </div>
 
                 <div className={VENUE_QUESTION_CARD_OPTIONS}>
-                  <div className="mb-3 shrink-0 md:mb-4">
-                    <p className="text-base font-bold uppercase leading-tight text-white line-clamp-2 md:text-xl min-[1920px]:text-2xl">
-                      Q{(question.questionIndex || 0) + 1}. {toDisplayUpper(question.question.text)}
-                    </p>
-                  </div>
+                  {venueQuestionHasVisualMedia(question.question) ? (
+                    <div className="mb-3 shrink-0 md:mb-4">
+                      <p className={cn(VENUE_OPTIONS_QUESTION_TEXT, 'line-clamp-3')}>
+                        Q{(question.questionIndex || 0) + 1}. {toDisplayUpper(question.question.text)}
+                      </p>
+                    </div>
+                  ) : null}
                   {question.question.isOrdering && revealData && (
                     <div className="mb-3 shrink-0 text-center md:mb-4">
                       <span className="inline-block rounded-full border border-green-500/50 bg-green-500/20 px-4 py-1.5 text-sm font-bold uppercase tracking-wider text-green-400 shadow-[0_0_15px_rgba(57,255,74,0.2)] min-[1920px]:text-xl">
@@ -2582,7 +2584,6 @@ function VenueDisplayContent() {
             totalSeconds={breakDuration}
             breakEndsAtMs={venueBreakEndsAtMs}
             clockSkewMs={venueBreakSkewMs}
-            upNextLabel={breakUpNextLabel}
             pin={sessionPin}
             qrCodeData={qrCodeData}
           />
@@ -2815,14 +2816,12 @@ function BreakView({
   totalSeconds,
   breakEndsAtMs,
   clockSkewMs,
-  upNextLabel,
   pin,
   qrCodeData,
 }: {
   totalSeconds: number;
   breakEndsAtMs: number | null;
   clockSkewMs: number;
-  upNextLabel?: string | null;
   pin: string;
   qrCodeData: string;
 }) {
@@ -2859,7 +2858,7 @@ function BreakView({
       <div className="pointer-events-none absolute left-0 top-0 h-[280px] w-[280px] bg-[radial-gradient(circle_at_30%_20%,rgba(255,245,170,0.38),rgba(255,245,170,0.04)_38%,transparent_68%)] opacity-60" />
       <div className="pointer-events-none absolute right-0 top-0 h-[280px] w-[280px] bg-[radial-gradient(circle_at_70%_20%,rgba(255,245,170,0.38),rgba(255,245,170,0.04)_38%,transparent_68%)] opacity-60" />
 
-      <BreakScreenHeading size="venue" upNextLabel={upNextLabel} className="mb-10" />
+      <BreakScreenHeading size="venue" className="mb-10" />
       <BreakTimerDisplay remainingSeconds={remaining} totalSeconds={totalSeconds} size="venue" />
 
       <div className="relative z-10 mt-10 flex w-full justify-center px-6">

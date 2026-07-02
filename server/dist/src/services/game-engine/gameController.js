@@ -1388,18 +1388,6 @@ const startBreak = async (io, pin) => {
   if (!gameState) return;
   if (gameState.state === GAME_STATES.BREAK) return;
 
-  // Break may only start between rounds (after round-end / on scoreboard), not mid-question.
-  if (
-    gameState.state !== GAME_STATES.SCOREBOARD &&
-    gameState.state !== GAME_STATES.ROUND_END
-  ) {
-    logger.warn('startBreak rejected — round not over', {
-      pin,
-      state: gameState.state,
-    });
-    return;
-  }
-
   const timerState = timerManager.getTimerState(pin);
   const shouldPauseTimer =
     gameState.state === GAME_STATES.QUESTION &&

@@ -537,8 +537,6 @@ const isImageMedia = (mediaType?: string, mediaUrl?: string) => {
   return /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(mediaUrl || '');
 };
 
-const QUESTION_NO_IMAGE_PLACEHOLDER = '/withoutImagequestion.png';
-
 function QuestionImage({ mediaUrl }: { mediaUrl: string }) {
   const candidates = useMemo(() => {
     const raw = (mediaUrl || '').replace(/\\/g, '/').trim();
@@ -599,13 +597,7 @@ function QuestionImage({ mediaUrl }: { mediaUrl: string }) {
   }, [mediaUrl]);
 
   if (!candidates.length || failed) {
-    return (
-      <img
-        src={QUESTION_NO_IMAGE_PLACEHOLDER}
-        alt=""
-        className="max-h-[min(42vh,220px)] w-full rounded-xl border border-[#11a7ff] object-cover md:max-h-[min(38vh,260px)]"
-      />
-    );
+    return null;
   }
 
   return (
@@ -652,10 +644,7 @@ function QuestionMediaVisual({
     );
   }
   if ((q.mediaType || '').toLowerCase() === 'mp4' && q.mediaUrl) {
-    // Per design: MP4 plays on the venue projector only — players see a
-    // video-themed thumbnail (`/videobg.png`) so the mobile UI clearly signals
-    // "watch the venue" without us streaming the actual clip to 30+ phones.
-    // MP3 questions keep using `/venuemusicbg.png` (handled below).
+    // Per design: MP4 plays on the venue projector only — players see a caption only.
     const caption =
       musicBanner === 'playing'
         ? 'Video is playing on Venue Screen'
@@ -663,49 +652,16 @@ function QuestionMediaVisual({
           ? 'Waiting for host to start the video'
           : 'Video is playing on Venue Screen';
     return (
-      <div className="shrink-0">
-        <div className="rounded-2xl overflow-hidden">
-          <img
-            src="/videobg.png"
-            alt={caption}
-            className="max-h-[min(42vh,220px)] w-full object-cover md:max-h-[min(38vh,280px)]"
-          />
-        </div>
-        <p className="mt-2 text-center text-sm font-semibold text-white sm:text-base">{caption}</p>
+      <div className="shrink-0 px-2 py-3">
+        <p className="text-center text-sm font-semibold text-white sm:text-base">{caption}</p>
       </div>
     );
   }
   if ((q.mediaType || '').toLowerCase() === 'mp3' || roundType === 'MUSIC') {
-    const caption = musicBanner === 'playing' ? null : musicBanner === 'waiting' ? null : null;
-    return (
-      <div className="shrink-0">
-        <div className="rounded-2xl overflow-hidden">
-          <img
-            src="/venuemusicbg.png"
-            alt={caption || 'Music round'}
-            className="max-h-[min(42vh,220px)] w-full object-cover md:max-h-[min(38vh,280px)]"
-          />
-        </div>
-        {caption ? (
-          <p className="mt-2 text-center text-sm font-semibold text-white sm:text-base">
-            {caption}
-          </p>
-        ) : null}
-      </div>
-    );
+    return null;
   }
 
-  return (
-    <div className="shrink-0">
-      <div className="rounded-2xl border-2 border-[#11a7ff] overflow-hidden shadow-[0_0_20px_rgba(17,167,255,0.3)]">
-        <img
-          src={QUESTION_NO_IMAGE_PLACEHOLDER}
-          alt=""
-          className="max-h-[min(42vh,220px)] w-full object-cover md:max-h-[min(38vh,260px)]"
-        />
-      </div>
-    </div>
-  );
+  return null;
 }
 
 const pageTransition = {
@@ -2563,7 +2519,7 @@ export default function GamePage() {
                                     orderingDragIndex === index && 'ring-2 ring-white/80',
                                   )}
                                 >
-                                  <span className="flex min-w-0 flex-1 items-center gap-2 text-left text-base font-black leading-tight drop-shadow-md sm:gap-3 sm:text-lg md:text-xl">
+                                  <span className="flex min-w-0 flex-1 items-center gap-2 text-left text-lg font-black leading-tight drop-shadow-md sm:gap-3 sm:text-xl md:text-2xl">
                                     <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-black/40 text-sm shadow-inner">
                                       {index + 1}
                                     </span>
@@ -2635,10 +2591,10 @@ export default function GamePage() {
                               isLocked && 'cursor-not-allowed',
                             )}
                           >
-                            <span className="shrink-0 text-base font-black leading-tight drop-shadow-md sm:text-lg md:text-xl">
+                            <span className="shrink-0 text-lg font-black leading-tight drop-shadow-md sm:text-xl md:text-2xl">
                               {OPTION_LETTERS[i]}.
                             </span>
-                            <span className="min-w-0 flex-1 break-words text-left text-base font-black leading-tight drop-shadow-md sm:text-lg md:text-xl">
+                            <span className="min-w-0 flex-1 break-words text-left text-lg font-black leading-tight drop-shadow-md sm:text-xl md:text-2xl">
                               {toDisplayUpper(opt.text)}
                             </span>
                           </motion.button>
@@ -2741,7 +2697,7 @@ export default function GamePage() {
                                       OPTION_BG[optIdx] || 'bg-[#1565c0]',
                                     )}
                                   >
-                                    <span className="min-w-0 flex-1 text-left text-base font-black leading-tight drop-shadow-md flex items-center gap-2 sm:text-lg md:text-xl">
+                                    <span className="min-w-0 flex-1 text-left text-lg font-black leading-tight drop-shadow-md flex items-center gap-2 sm:text-xl md:text-2xl">
                                       <span className="w-7 h-7 flex items-center justify-center bg-black/40 rounded-full text-sm shrink-0 shadow-inner">
                                         {userPos + 1}
                                       </span>
@@ -2822,10 +2778,10 @@ export default function GamePage() {
                             )}
                           >
                             <div className="flex min-w-0 flex-1 items-start gap-2">
-                              <span className="shrink-0 text-base font-black leading-tight drop-shadow-md sm:text-lg md:text-xl">
+                              <span className="shrink-0 text-lg font-black leading-tight drop-shadow-md sm:text-xl md:text-2xl">
                                 {OPTION_LETTERS[i]}.
                               </span>
-                              <span className="min-w-0 flex-1 break-words text-left text-base font-black leading-tight drop-shadow-md sm:text-lg md:text-xl">
+                              <span className="min-w-0 flex-1 break-words text-left text-lg font-black leading-tight drop-shadow-md sm:text-xl md:text-2xl">
                                 {toDisplayUpper(opt.text)}
                               </span>
                             </div>
@@ -3127,7 +3083,7 @@ export default function GamePage() {
 
                 <div className="absolute inset-0 z-10 flex items-center justify-center overflow-y-auto px-4 py-4 text-center sm:px-6 sm:py-6">
                   <div className="flex w-full max-w-md flex-col items-center">
-                    <BreakScreenHeading size="player" upNextLabel={breakUpNextLabel} />
+                    <BreakScreenHeading size="player" />
                     <BreakTimerDisplay
                       remainingSeconds={breakRemaining}
                       totalSeconds={breakDuration}

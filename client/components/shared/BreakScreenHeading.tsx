@@ -21,7 +21,7 @@ const SIZE_CONFIG: Record<
     titleGap: 'gap-0',
   },
   venue: {
-    line: 'text-[clamp(2rem,3.2vw,40px)] font-black leading-[1.05] tracking-[0.02em]',
+    line: 'text-[clamp(3rem,5.5vw,72px)] font-black leading-[1.05] tracking-[0.04em]',
     sub: 'mt-4 text-[clamp(1.35rem,2.2vw,32px)] font-extrabold leading-tight tracking-[0.05em]',
     wrapper: 'max-w-[980px] px-6',
     titleGap: 'gap-0',
@@ -30,14 +30,12 @@ const SIZE_CONFIG: Record<
 
 export interface BreakScreenHeadingProps {
   size?: BreakScreenHeadingSize;
-  upNextLabel?: string | null;
   className?: string;
 }
 
-/** Break screen title — two-line white headline + optional cyan "… UP NEXT" subline. */
+/** Break screen title — white headline only. */
 export function BreakScreenHeading({
   size = 'player',
-  upNextLabel,
   className,
 }: BreakScreenHeadingProps) {
   const cfg = SIZE_CONFIG[size];
@@ -46,22 +44,9 @@ export function BreakScreenHeading({
     <header className={cn('text-center', cfg.wrapper, className)}>
       <div className={cn('flex flex-col items-center', cfg.titleGap)}>
         <p className={cn('text-white drop-shadow-[0_0_14px_rgba(255,255,255,0.35)]', cfg.line)}>
-          WE&apos;LL BE BACK RIGHT AFTER OUR
-        </p>
-        <p className={cn('text-white drop-shadow-[0_0_14px_rgba(255,255,255,0.35)]', cfg.line)}>
-          FIRST OFFICIAL BREAK !!
+          BREAK TIME
         </p>
       </div>
-      {upNextLabel ? (
-        <p
-          className={cn(
-            'relative z-20 mx-auto w-full mb-4 max-w-md text-[#00e8ff] drop-shadow-[0_0_14px_rgba(0,232,255,0.65)]',
-            cfg.sub,
-          )}
-        >
-          {upNextLabel}
-        </p>
-      ) : null}
     </header>
   );
 }

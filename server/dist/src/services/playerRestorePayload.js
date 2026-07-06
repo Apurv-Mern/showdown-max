@@ -64,7 +64,7 @@ const getLockedWager = (gameState, round, teamId, questionId) => {
 /**
  * Builds the same `sessionPayload` object as `join_session` (SESSION_STATE body) from Redis + team.
  */
-const buildSessionPayloadForPlayer = ({ pin, gameState, team, mySubmittedOptionIndex }) => {
+const buildSessionPayloadForPlayer = async ({ pin, gameState, team, mySubmittedOptionIndex }) => {
   const currentRound = gameState?.rounds?.[gameState.currentRoundIndex];
   const currentQuestionRow = currentRound?.questions?.[gameState.currentQuestionIndex] || null;
   // Surface the upcoming question during WAGER_COLLECTION so the wager-input screen
@@ -82,6 +82,23 @@ const buildSessionPayloadForPlayer = ({ pin, gameState, team, mySubmittedOptionI
       ? Number(redisScoreRaw)
       : Number(team.score) || 0;
 
+  if (!gameState) {
+    const lobbyPhase = await redisStore.getLobbyPhase(pin);
+    return {
+      joined: true,
+      teamId: team.id,
+      teamName: team.teamName,
+      score: resolvedJoinScore,
+      gameState: {
+        state: 'LOBBY',
+        lobbyPhase,
+      },
+    };
+  }
+
+  const lobbyPhase =
+    gameState.state === 'LOBBY' ? await redisStore.getLobbyPhase(pin) : undefined;
+
   return {
     joined: true,
     teamId: team.id,
@@ -91,6 +108,7 @@ const buildSessionPayloadForPlayer = ({ pin, gameState, team, mySubmittedOptionI
       ? {
           state: gameState.state,
           questionState: gameState.questionState,
+          ...(lobbyPhase ? { lobbyPhase } : {}),
           currentRoundIndex: gameState.currentRoundIndex,
           currentQuestionIndex: gameState.currentQuestionIndex,
           totalRounds: gameState.rounds?.length || 0,
@@ -238,6 +256,13 @@ const buildJoinReplayEvents = async ({ pin, gameState, team, mySubmittedOptionIn
         teams: Object.values(gameState.teams).sort((a, b) => b.score - a.score),
         ...(revealSnapshot ? { revealSnapshot } : {}),
       },
+    });
+  }
+
+  if (gameState.state === 'GAME_SHOW_END') {
+    events.push({
+      event: SOCKET_EVENTS.GAME_SHOW_END,
+      data: {},
     });
   }
 
@@ -468,7 +493,7 @@ const buildPlayerHttpRestore = async (pin, teamId) => {
     mySubmittedOptionIndex = await getMySubmittedOptionIndex(pin, questionForSubmitted.id, team.id);
   }
 
-  const sessionPayload = buildSessionPayloadForPlayer({
+  const sessionPayload = await buildSessionPayloadForPlayer({
     pin,
     gameState,
     team,

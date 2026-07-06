@@ -2,6 +2,7 @@ const { getRedisClient, isRedisReady, getRedisMode } = require('../config/redis'
 const logger = require('../utils/logger');
 
 const { normalizeTeamName } = require('../utils/teamName');
+const { LOBBY_PHASES, LOBBY_PHASE_ORDER } = require('shared/constants/lobbyPhases');
 
 const KEYS = {
   session: (pin) => `session:${pin}`,
@@ -9,6 +10,7 @@ const KEYS = {
   teams: (pin) => `game:${pin}:teams`,
   responses: (pin, questionId) => `game:${pin}:responses:${questionId}`,
   lobby: (pin) => `game:${pin}:lobby`,
+  lobbyPhase: (pin) => `game:${pin}:lobbyPhase`,
   /** Normalized team names + ids removed by host; survives LOBBY when game state is not yet written */
   hostRemovalBlocklist: (pin) => `game:${pin}:hostRemovalBlocklist`,
 };
@@ -558,6 +560,46 @@ const getCacheSummary = async () => {
   );
 };
 
+const getLobbyPhase = async (pin) =>
+  withFallback(
+    async () => {
+      const redis = getRedisClient();
+      const raw = await redis.get(KEYS.lobbyPhase(pin));
+      return LOBBY_PHASE_ORDER.includes(raw) ? raw : LOBBY_PHASES.REGISTRATION;
+    },
+    () => {
+      const raw = memoryGet(KEYS.lobbyPhase(pin));
+      return LOBBY_PHASE_ORDER.includes(raw) ? raw : LOBBY_PHASES.REGISTRATION;
+    },
+  );
+
+const setLobbyPhase = async (pin, phase) => {
+  const next = LOBBY_PHASE_ORDER.includes(phase) ? phase : LOBBY_PHASES.REGISTRATION;
+  return withFallback(
+    async () => {
+      const redis = getRedisClient();
+      await redis.set(KEYS.lobbyPhase(pin), next, 'EX', TTL);
+      return next;
+    },
+    () => {
+      memorySet(KEYS.lobbyPhase(pin), next, TTL);
+      return next;
+    },
+  );
+};
+
+const advanceLobbyPhase = async (pin) => {
+  const current = await getLobbyPhase(pin);
+  const idx = LOBBY_PHASE_ORDER.indexOf(current);
+  const next =
+    idx >= 0 && idx < LOBBY_PHASE_ORDER.length - 1
+      ? LOBBY_PHASE_ORDER[idx + 1]
+      : LOBBY_PHASE_ORDER[LOBBY_PHASE_ORDER.length - 1];
+  return setLobbyPhase(pin, next);
+};
+
+const resetLobbyPhase = async (pin) => setLobbyPhase(pin, LOBBY_PHASES.REGISTRATION);
+
 module.exports = {
   KEYS,
   setSession,
@@ -582,4 +624,8 @@ module.exports = {
   inspectCache,
   clearAllGameCaches,
   getCacheSummary,
+  getLobbyPhase,
+  setLobbyPhase,
+  advanceLobbyPhase,
+  resetLobbyPhase,
 };

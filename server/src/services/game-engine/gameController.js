@@ -1339,7 +1339,7 @@ const advanceToNextRound = async (io, pin) => {
 };
 
 /**
- * Removes the team after a disconnect (purge + broadcasts).
+ * Parks the team after a disconnect (drop from active roster, keep leaderboard entry).
  */
 const executePlayerDisconnectPurge = async (io, pin, teamId, options = {}) => {
   const disconnectingSocketId = options.disconnectingSocketId || null;
@@ -1352,9 +1352,11 @@ const executePlayerDisconnectPurge = async (io, pin, teamId, options = {}) => {
     }
   }
 
-  const gameState = await redisStore.getGameState(pin);
+  const gameStateBeforePurge = await redisStore.getGameState(pin);
 
   const { removedSocketId } = await purgeTeamFromLiveSession(pin, teamId);
+
+  const freshGameState = await redisStore.getGameState(pin);
 
   if (eliminationStates.has(pin)) {
     const es = eliminationStates.get(pin);
@@ -1365,40 +1367,44 @@ const executePlayerDisconnectPurge = async (io, pin, teamId, options = {}) => {
   // `questionWagers` for passive disconnects so reconnecting players still read their
   // locked amount from Redis. Do not delete entries here — that used to wipe locks on
   // every refresh and also risked overwriting Redis with a stale pre-purge snapshot.
-  if (gameState && gameState.state === GAME_STATES.WAGER_COLLECTION) {
-    const fresh = await redisStore.getGameState(pin);
-    if (fresh) {
-      emitWagerLockUpdate(io, pin, fresh);
-    }
+  if (freshGameState && freshGameState.state === GAME_STATES.WAGER_COLLECTION) {
+    emitWagerLockUpdate(io, pin, freshGameState);
   }
 
   if (
-    gameState &&
-    gameState.state === GAME_STATES.QUESTION &&
-    gameState.questionState === QUESTION_STATES.ACTIVE
+    freshGameState &&
+    freshGameState.state === GAME_STATES.QUESTION &&
+    freshGameState.questionState === QUESTION_STATES.ACTIVE
   ) {
-    const question = stateMachine.getCurrentQuestion(gameState);
+    const question = stateMachine.getCurrentQuestion(freshGameState);
     if (question) {
       const responsesRaw = await redisStore.getResponses(pin, question.id);
-      const answeredAmongActive = countValidAnswersAmongTeamIds(
-        responsesRaw,
-        gameState.activeTeamIds,
-      );
-      gameState.responseCount = answeredAmongActive;
-      await redisStore.setGameState(pin, gameState);
+      const activeTeamIds = Array.isArray(freshGameState.activeTeamIds)
+        ? freshGameState.activeTeamIds
+        : [];
+      const answeredAmongActive = countValidAnswersAmongTeamIds(responsesRaw, activeTeamIds);
+      freshGameState.responseCount = answeredAmongActive;
+      await redisStore.setGameState(pin, freshGameState);
       io.to(`session:${pin}`).emit(SOCKET_EVENTS.RESPONSE_COUNT, {
         count: answeredAmongActive,
-        total: gameState.activeTeamIds.length,
+        total: activeTeamIds.length,
       });
       io.to(`session:${pin}`).emit(
         SOCKET_EVENTS.LIVE_RESPONSE_UPDATE,
-        buildLiveResponseStats(gameState, question, responsesRaw),
+        buildLiveResponseStats(freshGameState, question, responsesRaw),
       );
 
       // Timer policy (matches submitAnswer): all rounds let the clock run to completion
       // even when every remaining team has answered. Auto-reveal is driven by timer
       // expiry alone, so a disconnect that completes the roster never short-circuits it.
     }
+  }
+
+  if (freshGameState) {
+    io.to(`session:${pin}`).emit(
+      SOCKET_EVENTS.SESSION_STATE,
+      clientPayloadFromGameState(freshGameState),
+    );
   }
 
   io.to(`session:${pin}`).emit(SOCKET_EVENTS.TEAM_REMOVED, {
@@ -1412,13 +1418,16 @@ const executePlayerDisconnectPurge = async (io, pin, teamId, options = {}) => {
       reason: 'disconnected',
     });
   }
-  logger.info('Player disconnected — team purged from session', { pin, teamId });
+  logger.info('Player disconnected — team parked (leaderboard preserved)', {
+    pin,
+    teamId,
+    hadGameState: Boolean(gameStateBeforePurge),
+  });
 };
 
 /**
- * Tab close / network loss: purge immediately so the team is removed from the live
- * session and leaderboard as soon as the socket disconnects.
- * Explicit leave also uses the same immediate path.
+ * Tab close / network loss: park the team immediately (drop from active roster, keep
+ * leaderboard entry). Explicit leave also uses the same immediate path.
  */
 const handlePlayerSocketDisconnect = async (io, pin, teamIdRaw, options = {}) => {
   const teamId = Number(teamIdRaw);

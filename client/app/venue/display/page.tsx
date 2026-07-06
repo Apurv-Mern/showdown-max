@@ -1221,9 +1221,7 @@ function VenueDisplayContent() {
           Number(data.currentQuestion.timerDuration ?? data.timerDuration ?? 30) || 30,
         );
         setTimerRemaining(
-          Number.isFinite(Number(data.timerRemaining))
-            ? Number(data.timerRemaining)
-            : 0,
+          Number.isFinite(Number(data.timerRemaining)) ? Number(data.timerRemaining) : 0,
         );
         if (typeof data.timerRunning === 'boolean') {
           setTimerRunning(data.timerRunning);
@@ -2015,73 +2013,69 @@ function VenueDisplayContent() {
 
         {/* ── WELCOME ── */}
         {phase === 'welcome' && (
-          <div className="w-full h-full relative overflow-hidden animate-fadeIn">
-            <div
-              className="w-full h-full relative bg-cover bg-center"
-              style={{ backgroundImage: "url('/venue-stage-bg.png')" }}
-            >
-              <div className="absolute inset-0 bg-black/10" />
-
-              <div className="absolute inset-0 flex flex-col items-center justify-center px-4 sm:px-6 md:px-8 pb-4 sm:pb-6 md:pb-8 gap-3 sm:gap-4 md:gap-6">
-                <div className="w-full max-w-xs sm:max-w-xl md:max-w-2xl lg:max-w-3xl xl:max-w-4xl aspect-video rounded-lg sm:rounded-xl border-2 sm:border-3 md:border-4 border-[#00d9ff] shadow-[0_0_30px_rgba(0,217,255,0.35)] overflow-hidden bg-[#39ff14] shrink-0">
-                  {!showIntroVideoFallback ? (
-                    <video
-                      ref={promoVideoRef}
-                      src="/Promo Video.mp4"
-                      autoPlay
-                      loop
-                      muted
-                      playsInline
-                      className="w-full h-full object-cover"
-                      onPlay={armPromoAudioDelay}
-                      onError={() => setShowIntroVideoFallback(true)}
-                    />
-                  ) : null}
-                </div>
-              </div>
+          <div className="flex h-full w-full overflow-hidden animate-fadeIn">
+            {/* Left 70% — promo video (shared venue-stage-bg from parent) */}
+            <div className="relative flex h-full w-[70%] min-w-0 items-center justify-center overflow-hidden">
+              {!showIntroVideoFallback ? (
+                <video
+                  ref={promoVideoRef}
+                  src="/Promo Video.mp4"
+                  autoPlay
+                  loop
+                  muted
+                  playsInline
+                  className="h-[90%] w-[90%] max-h-none max-w-none"
+                  onPlay={armPromoAudioDelay}
+                  onError={() => setShowIntroVideoFallback(true)}
+                />
+              ) : null}
             </div>
 
-            <div className="absolute left-1/2 -translate-x-1/2 bottom-3 sm:bottom-4 md:bottom-6 w-full max-w-sm sm:max-w-md md:max-w-2xl px-3 sm:px-4 md:px-6">
-              <div className="neon-border-strong rounded-lg sm:rounded-xl md:rounded-2xl px-4 sm:px-6 py-3 sm:py-4 md:py-5 bg-surface/85 flex  items-center gap-3 sm:gap-4 md:gap-6">
-                <div className="shrink-0 rounded-lg md:rounded-xl border border-neon-cyan/40 p-1.5 sm:p-2 shadow-[0_0_20px_rgba(0,229,255,0.15)]">
-                  {qrCodeData &&
-                  !welcomeQrImageFailed &&
-                  (qrCodeData.startsWith('data:') || /^https?:\/\//i.test(qrCodeData)) ? (
-                    // Server QR is white-on-transparent; must sit on a dark surface (not white).
-                    <div className="flex h-32 sm:h-36 md:h-40 w-32 sm:w-36 md:w-40 items-center justify-center rounded-lg bg-[#060818]">
-                      <img
-                        src={qrCodeData}
-                        alt="QR code to join this session"
-                        className="max-h-[95%] max-w-[95%] object-contain"
-                        onError={() => setWelcomeQrImageFailed(true)}
-                      />
-                    </div>
-                  ) : (
-                    <div className="flex h-32 sm:h-36 md:h-40 w-32 sm:w-36 md:w-40 items-center justify-center rounded-lg bg-white">
-                      <QRCodeSVG value={playerJoinUrl} size={150} className="rounded" />
-                    </div>
-                  )}
-                </div>
-                <div className="text-center min-w-0">
-                  <p className="text-neon-cyan font-bold text-xs sm:text-sm md:text-base lg:text-lg tracking-wide">
-                    SCAN TO JOIN
-                  </p>
-                  <p className="text-foreground/50 text-[10px] sm:text-xs md:text-sm mt-0.5">
+            {/* Right 30% — QR + join info */}
+            <div className="relative flex h-full w-[30%] min-w-0 flex-col items-center justify-center gap-4 overflow-hidden px-4 py-6 sm:gap-5 sm:px-5 md:gap-6 md:px-6">
+              <div className="neon-border-strong rounded-xl bg-surface/90 p-2.5 shadow-[0_0_28px_rgba(0,229,255,0.2)] sm:rounded-2xl sm:p-3 md:p-4">
+                {qrCodeData &&
+                !welcomeQrImageFailed &&
+                (qrCodeData.startsWith('data:') || /^https?:\/\//i.test(qrCodeData)) ? (
+                  <div className="flex h-[min(35vw,35vh)] w-[min(35vw,35vh)] min-h-40 min-w-40 items-center justify-center rounded-lg bg-[#060818] sm:min-h-44 sm:min-w-44 md:min-h-48 md:min-w-48">
+                    <img
+                      src={qrCodeData}
+                      alt="QR code to join this session"
+                      className="h-[92%] w-[92%] object-contain"
+                      onError={() => setWelcomeQrImageFailed(true)}
+                    />
+                  </div>
+                ) : (
+                  <div className="flex h-[min(35vw,35vh)] w-[min(35vw,35vh)] min-h-40 min-w-40 items-center justify-center rounded-lg bg-white p-2 sm:min-h-44 sm:min-w-44 md:min-h-48 md:min-w-48">
+                    <QRCodeSVG
+                      value={playerJoinUrl}
+                      size={280}
+                      className="h-full w-full max-h-full max-w-full"
+                    />
+                  </div>
+                )}
+              </div>
+
+              <div className="text-center">
+                <p className="text-neon-cyan text-xl font-bold tracking-wide sm:text-2xl md:text-3xl">
+                  Session PIN
+                </p>
+                {/* <p className="mt-1 text-sm text-foreground/50 sm:text-base md:text-lg">
                     Session PIN
-                  </p>
-                  <p className="text-xl sm:text-3xl md:text-3xl lg:text-3xl font-mono font-black tracking-widest sm:tracking-[0.15em] md:tracking-[0.2em] text-neon-cyan text-glow-cyan mt-1 sm:mt-2">
-                    {sessionPin}
-                  </p>
-                </div>
-                {welcomeHold && !showVenueSplash ? (
+                  </p> */}
+                <p className="mt-2 font-mono text-4xl font-black tracking-[0.12em] text-neon-cyan text-glow-cyan sm:text-5xl md:text-6xl">
+                  {sessionPin}
+                </p>
+              </div>
+
+              {/* {welcomeHold && !showVenueSplash ? (
                   <div
-                    className="rounded-lg sm:rounded-xl border-2 border-neon-cyan/80 bg-neon-cyan/10 px-6 sm:px-8 md:px-10 py-3 sm:py-4 md:py-5 text-center text-[10px] sm:text-xs md:text-sm font-black tracking-[0.15em] md:tracking-[0.2em] text-neon-cyan uppercase shadow-[0_0_24px_rgba(0,229,255,0.35)]"
+                    className="rounded-xl border-2 border-neon-cyan/80 bg-neon-cyan/10 px-5 py-3 text-center text-[11px] font-black uppercase tracking-[0.12em] text-neon-cyan shadow-[0_0_24px_rgba(0,229,255,0.35)] sm:px-6 sm:py-4 sm:text-xs md:text-sm"
                     aria-live="polite"
                   >
                     Waiting for host…
                   </div>
-                ) : null}
-              </div>
+                ) : null} */}
             </div>
           </div>
         )}
@@ -2359,7 +2353,8 @@ function VenueDisplayContent() {
                   {venueQuestionHasVisualMedia(question.question) ? (
                     <div className="mb-3 shrink-0 md:mb-4">
                       <p className={cn(VENUE_OPTIONS_QUESTION_TEXT, 'line-clamp-3')}>
-                        Q{(question.questionIndex || 0) + 1}. {toDisplayUpper(question.question.text)}
+                        Q{(question.questionIndex || 0) + 1}.{' '}
+                        {toDisplayUpper(question.question.text)}
                       </p>
                     </div>
                   ) : null}
@@ -2493,7 +2488,8 @@ function VenueDisplayContent() {
                   {venueQuestionHasVisualMedia(question.question) ? (
                     <div className="mb-3 shrink-0 md:mb-4">
                       <p className={cn(VENUE_OPTIONS_QUESTION_TEXT, 'line-clamp-3')}>
-                        Q{(question.questionIndex || 0) + 1}. {toDisplayUpper(question.question.text)}
+                        Q{(question.questionIndex || 0) + 1}.{' '}
+                        {toDisplayUpper(question.question.text)}
                       </p>
                     </div>
                   ) : null}

@@ -1117,12 +1117,32 @@ function HostDashboardContent() {
       }
     };
 
-    const onTeamRemoved = ({ teamId }: { teamId: number }) => {
+    const onTeamRemoved = ({
+      teamId,
+      reason,
+    }: {
+      teamId: number;
+      reason?: string;
+    }) => {
+      const isHostRemoval = reason === 'host_removed' || reason === 'removed_by_host';
       setGameState((prev) => {
         if (!prev) return prev;
+        if (isHostRemoval) {
+          const teams = { ...prev.teams };
+          delete teams[teamId];
+          delete teams[String(teamId)];
+          return { ...prev, teams, totalTeams: Object.keys(teams).length };
+        }
         const teams = { ...prev.teams };
-        delete teams[teamId];
-        return { ...prev, teams, totalTeams: Object.keys(teams).length };
+        const resolvedKey =
+          teams[teamId] != null
+            ? teamId
+            : teams[String(teamId)] != null
+              ? String(teamId)
+              : null;
+        if (resolvedKey == null) return prev;
+        teams[resolvedKey] = { ...teams[resolvedKey], isConnected: false };
+        return { ...prev, teams };
       });
     };
 

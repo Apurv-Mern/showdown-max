@@ -152,6 +152,7 @@ const playerHandlers = (io, socket) => {
         teamName: team.teamName,
         score: preservedScore,
         isEliminated: preservedIsEliminated,
+        isConnected: true,
       };
 
       await redisStore.addTeamToLobby(pin, teamData);

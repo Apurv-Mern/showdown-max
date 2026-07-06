@@ -7,7 +7,7 @@ const QRCode = require('qrcode');
  */
 const generateQRCode = async (url) => {
   const dataUrl = await QRCode.toDataURL(url, {
-    width: 300,
+    width: 400,
     margin: 2,
     color: {
       dark: '#FFFFFF',

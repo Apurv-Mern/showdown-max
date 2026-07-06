@@ -60,8 +60,21 @@ function HostTeamsContent() {
       if (message) toast.error(message);
     };
 
-    const onTeamRemoved = ({ teamId }: { teamId: number }) => {
-      setTeams((prev) => prev.filter((t) => t.teamId !== teamId));
+    const onTeamRemoved = ({
+      teamId,
+      reason,
+    }: {
+      teamId: number;
+      reason?: string;
+    }) => {
+      const isHostRemoval = reason === 'host_removed' || reason === 'removed_by_host';
+      if (isHostRemoval) {
+        setTeams((prev) => prev.filter((t) => t.teamId !== teamId));
+        return;
+      }
+      setTeams((prev) =>
+        prev.map((t) => (t.teamId === teamId ? { ...t, isConnected: false } : t)),
+      );
     };
 
     const onTeamUpdated = ({ teamId, score }: { teamId: number; score: number }) => {

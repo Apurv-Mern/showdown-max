@@ -8,6 +8,7 @@ const redisStore = require('../services/redisSessionStore');
 const { Session, Quiz, Round, Question, Team } = require('../models');
 const { normalizeTeamName, sanitizeTeamName } = require('../utils/teamName');
 const { purgeTeamFromLiveSession } = require('../services/purgeTeamFromLiveSession');
+const { LOBBY_PHASES } = require('shared/constants/lobbyPhases');
 const venueHandlers = require('./venueHandlers');
 
 const purgeTeamRecord = async (pin, teamId) => purgeTeamFromLiveSession(pin, teamId, true);
@@ -24,16 +25,10 @@ const emitSessionRosterState = async (io, pin) => {
   }
   const session = await Session.findOne({ where: { pin } });
   const lobbyTeams = await redisStore.getAllTeamsData(pin);
-  io.to(`session:${pin}`).emit(SOCKET_EVENTS.SESSION_STATE, {
-    state: 'LOBBY',
-    pin,
-    teams: lobbyTeams.reduce((acc, t) => {
-      acc[t.teamId] = t;
-      return acc;
-    }, {}),
-    totalTeams: lobbyTeams.length,
-    maxTeams: session?.maxTeams || lobbyTeams.length,
-  });
+  io.to(`session:${pin}`).emit(
+    SOCKET_EVENTS.SESSION_STATE,
+    await venueHandlers.buildPreGameLobbyPayload(pin, session, lobbyTeams),
+  );
 };
 
 /**
@@ -80,8 +75,20 @@ const hostHandlers = (io, socket) => {
         return;
       }
 
+      const existingGame = await redisStore.getGameState(pin);
+      if (!existingGame) {
+        const lobbyPhase = await redisStore.getLobbyPhase(pin);
+        if (lobbyPhase !== LOBBY_PHASES.CODE_OF_CONDUCT) {
+          socket.emit(SOCKET_EVENTS.ERROR, {
+            message: 'Show the Code of Conduct before starting.',
+          });
+          return;
+        }
+      }
+
       await session.update({ status: 'active' });
       await gameController.startGame(io, pin, quiz.toJSON(), session.id);
+      await redisStore.resetLobbyPhase(pin);
       logger.info('Game started', { pin, sessionId: session.id, teamCount: lobbyTeams.length });
     } catch (err) {
       logger.error('start_game error', { error: err.message });
@@ -110,6 +117,25 @@ const hostHandlers = (io, socket) => {
       logger.info('Venue welcome dismissed by host', { pin });
     } catch (err) {
       logger.error('dismiss_welcome error', { error: err.message });
+    }
+  });
+
+  socket.on(SOCKET_EVENTS.ADVANCE_LOBBY, async (data) => {
+    try {
+      const pin = data?.pin;
+      if (!pin) return;
+
+      const gameState = await redisStore.getGameState(pin);
+      if (gameState) {
+        socket.emit(SOCKET_EVENTS.ERROR, { message: 'Game has already started.' });
+        return;
+      }
+
+      const nextPhase = await redisStore.advanceLobbyPhase(pin);
+      io.to(`session:${pin}`).emit(SOCKET_EVENTS.VENUE_LOBBY_PHASE, { phase: nextPhase });
+      logger.info('Lobby phase advanced', { pin, phase: nextPhase });
+    } catch (err) {
+      logger.error('advance_lobby error', { error: err.message });
     }
   });
 

@@ -32,7 +32,7 @@ module.exports = {
         allowNull: true,
       },
       mediaType: {
-        type: Sequelize.ENUM('mp3', 'mp4'),
+        type: Sequelize.ENUM('mp3', 'mp4', 'image'),
         allowNull: true,
       },
       order: {

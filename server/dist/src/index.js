@@ -41,6 +41,8 @@ const start = async () => {
     pid: process.pid,
     env: env.NODE_ENV,
     port: env.PORT,
+    storageBackend: env.STORAGE_BACKEND,
+    s3Bucket: env.S3_BUCKET || null,
   });
 
   if (sslConfig) {

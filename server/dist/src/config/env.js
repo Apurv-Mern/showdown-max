@@ -3,24 +3,43 @@ const dotenv = require('dotenv');
 const fs = require('fs');
 const path = require('path');
 
-const resolveEnvPath = () => {
+const resolveRepoRoot = () => {
   const candidates = [
-    path.resolve(process.cwd(), '.env'),
-    path.resolve(process.cwd(), '../.env'),
-    path.resolve(process.cwd(), '../../.env'),
-    path.resolve(__dirname, '../../../.env'),
-    path.resolve(__dirname, '../../../../.env'),
+    path.resolve(__dirname, '../../../../'),
+    path.resolve(__dirname, '../../../'),
+    path.resolve(process.cwd(), '..'),
+    path.resolve(process.cwd()),
   ];
 
-  return candidates.find((candidate) => fs.existsSync(candidate));
+  return (
+    candidates.find(
+      (dir) => fs.existsSync(path.join(dir, '.env')) || fs.existsSync(path.join(dir, '.env.example')),
+    ) || candidates[0]
+  );
 };
 
-const envPath = resolveEnvPath();
-if (envPath) {
-  dotenv.config({ path: envPath });
-} else {
-  dotenv.config();
-}
+const loadProjectEnv = () => {
+  const root = resolveRepoRoot();
+  const mode = process.env.NODE_ENV || 'development';
+
+  const basePath = path.join(root, '.env');
+  if (fs.existsSync(basePath)) {
+    dotenv.config({ path: basePath });
+  }
+
+  const modeFile =
+    mode === 'production'
+      ? path.join(root, '.env.production')
+      : mode === 'development'
+        ? path.join(root, '.env.development')
+        : null;
+
+  if (modeFile && fs.existsSync(modeFile)) {
+    dotenv.config({ path: modeFile, override: true });
+  }
+};
+
+loadProjectEnv();
 
 const envSchema = z.object({
   DB_HOST: z.string().default('localhost'),
@@ -31,7 +50,7 @@ const envSchema = z.object({
   REDIS_URL: z.string().default('redis://localhost:6379'),
   PORT: z.coerce.number().default(5001),
   UPLOAD_DIR: z.string().default('./uploads'),
-  STORAGE_BACKEND: z.enum(['local', 's3']).default('local'),
+  STORAGE_BACKEND: z.enum(['local', 's3']).optional(),
   AWS_REGION: z.string().optional(),
   AWS_ACCESS_KEY_ID: z.string().optional(),
   AWS_SECRET_ACCESS_KEY: z.string().optional(),
@@ -52,9 +71,37 @@ const envSchema = z.object({
   // Comma-separated list of allowed CORS origins. Leave unset to use
   // sensible per-NODE_ENV defaults in `server/src/config/cors.js`.
   ALLOWED_ORIGINS: z.string().optional(),
+  // Public frontend URL for QR codes / join links.
+  CLIENT_PUBLIC_URL: z.string().url().optional(),
 });
 
-const env = envSchema.parse(process.env);
+const hasS3Config = (source) =>
+  Boolean(
+    source.S3_BUCKET &&
+      source.AWS_ACCESS_KEY_ID &&
+      source.AWS_SECRET_ACCESS_KEY &&
+      source.S3_PUBLIC_BASE_URL &&
+      source.AWS_REGION,
+  );
+
+const resolveStorageBackend = (parsed) => {
+  if (parsed.STORAGE_BACKEND === 'local' || parsed.STORAGE_BACKEND === 's3') {
+    return parsed.STORAGE_BACKEND;
+  }
+  if (parsed.NODE_ENV === 'production' && hasS3Config(parsed)) {
+    return 's3';
+  }
+  if (hasS3Config(parsed)) {
+    return 's3';
+  }
+  return 'local';
+};
+
+const parsedEnv = envSchema.parse(process.env);
+const env = {
+  ...parsedEnv,
+  STORAGE_BACKEND: resolveStorageBackend(parsedEnv),
+};
 
 if (env.NODE_ENV === 'production') {
   const missingProductionVars = [

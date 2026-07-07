@@ -7,20 +7,23 @@ const DEFAULT_DEV_ORIGINS = ['http://localhost:5003', 'http://127.0.0.1:5003'];
 
 const DEFAULT_PROD_ORIGINS = [
   'https://showdown-frontend.24livehost.com',
+  'https://showdown-backend.24livehost.com',
   'https://showdowntrivia.24livehost.com',
   'https://showdowntrivia-web.24livehost.com',
 ];
+
+const normalizeOrigin = (value) => String(value || '').trim().replace(/\/$/, '');
 
 const parseAllowedOrigins = (raw) => {
   if (!raw) return [];
   return raw
     .split(',')
-    .map((value) => value.trim())
+    .map((value) => normalizeOrigin(value))
     .filter(Boolean);
 };
 
 const getAllowedOrigins = () => {
-  const fromEnv = parseAllowedOrigins(process.env.ALLOWED_ORIGINS);
+  const fromEnv = parseAllowedOrigins(env.ALLOWED_ORIGINS);
   if (fromEnv.length > 0) return fromEnv;
   return env.NODE_ENV === 'production' ? DEFAULT_PROD_ORIGINS : DEFAULT_DEV_ORIGINS;
 };
@@ -29,9 +32,10 @@ const getAllowedOrigins = () => {
 // non-browser callers (curl, server-to-server, health checks) do not, so we let those through.
 const buildOriginValidator = (allowed) => (origin, cb) => {
   if (!origin) return cb(null, true);
-  if (allowed.includes(origin)) return cb(null, true);
-  logger.warn('CORS origin rejected', { origin, allowed });
-  return cb(new Error(`CORS: origin "${origin}" not allowed`), false);
+  const normalized = normalizeOrigin(origin);
+  if (allowed.includes(normalized)) return cb(null, normalized);
+  logger.warn('CORS origin rejected', { origin: normalized, allowed });
+  return cb(new Error(`CORS: origin "${normalized}" not allowed`), false);
 };
 
 const getCorsOptions = () => {

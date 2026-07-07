@@ -73,7 +73,7 @@ const createSession = async (data) => {
   }
 
   const hostToken = generateHostToken();
-  const joinUrl = `https://showdowntrivia-web.24livehost.com/play/join?pin=${pin}`;
+  const joinUrl = `https://showdown-frontend.24livehost.com/play/join?pin=${pin}`;
   const qrCodeData = await generateQRCode(joinUrl);
 
   const session = await Session.create({

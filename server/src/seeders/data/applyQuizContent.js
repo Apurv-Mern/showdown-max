@@ -42,7 +42,7 @@ async function applyContentToRound(queryInterface, round, mediaUrls, now = new D
 }
 
 async function applyContentToQuizzes(queryInterface, quizIds) {
-  const mediaUrls = ensureSeedMediaUrls();
+  const mediaUrls = await ensureSeedMediaUrls();
   const now = new Date();
 
   for (const quizId of quizIds) {

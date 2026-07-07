@@ -15,6 +15,9 @@ const filenameFromMediaUrl = (mediaUrl) => {
   if (apiIdx >= 0) u = u.slice(apiIdx);
   const filesMatch = u.match(/\/(?:public\/)?media\/files\/([^/?#]+)$/i);
   if (filesMatch) return decodeURIComponent(filesMatch[1]);
+  // S3 / CloudFront URLs: .../media/{filename} or .../{filename}
+  const s3MediaMatch = u.match(/\/media\/([^/?#]+)$/i);
+  if (s3MediaMatch) return decodeURIComponent(s3MediaMatch[1]);
   const tail = u.match(/\/([^/?#]+)$/);
   return tail ? decodeURIComponent(tail[1]) : null;
 };
@@ -95,7 +98,7 @@ const mapDiskFile = (file, byFilename) => ({
  * @returns {{ music: object[], images: object[] }}
  */
 const listMediaLibrary = async () => {
-  const allFiles = mediaService.listFiles().filter((f) => f.filename !== '.gitkeep');
+  const allFiles = (await mediaService.listFiles()).filter((f) => f.filename !== '.gitkeep');
   const byFilename = await buildReferencesByFilename();
 
   const musicFiles = allFiles.filter(isAudioVideoFile);
@@ -130,7 +133,7 @@ const detachQuestionsAndDeleteFile = async (filename) => {
     detachedQuestionCount = Number(n) || 0;
   }
 
-  const deleted = mediaService.deleteFile(filename);
+  const deleted = await mediaService.deleteFile(filename);
   return { deleted, detachedQuestionCount };
 };
 

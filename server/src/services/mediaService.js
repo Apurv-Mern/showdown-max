@@ -1,5 +1,4 @@
-const fs = require('fs');
-const path = require('path');
+const storage = require('./storage');
 const { env } = require('../config/env');
 const logger = require('../utils/logger');
 
@@ -17,28 +16,15 @@ const ALLOWED_TYPES = {
 const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50 MB
 
 /**
- * Ensure the upload directory exists
- */
-const ensureUploadDir = () => {
-  const uploadPath = path.resolve(env.UPLOAD_DIR);
-  if (!fs.existsSync(uploadPath)) {
-    fs.mkdirSync(uploadPath, { recursive: true });
-  }
-  return uploadPath;
-};
-
-/**
- * Save an uploaded file to the uploads directory
+ * Save an uploaded file to the configured storage backend.
  * @param {object} file - Multipart file object from Fastify
  * @returns {Promise<{ filename: string, url: string, mediaType: string }>}
  */
 const saveFile = async (file) => {
-  const uploadDir = ensureUploadDir();
-
   const ext = ALLOWED_TYPES[file.mimetype];
   if (!ext) {
     throw Object.assign(
-      new Error(`Unsupported file type: ${file.mimetype}. Allowed: MP3, MP4`),
+      new Error(`Unsupported file type: ${file.mimetype}. Allowed: MP3, MP4, JPEG, PNG, GIF, WebP`),
       { statusCode: 400 },
     );
   }
@@ -55,72 +41,49 @@ const saveFile = async (file) => {
   const timestamp = Date.now();
   const safeName = file.filename.replace(/[^a-zA-Z0-9._-]/g, '_');
   const filename = `${timestamp}_${safeName}`;
-  const filepath = path.join(uploadDir, filename);
 
-  fs.writeFileSync(filepath, buffer);
+  const result = await storage.saveFile({
+    filename,
+    buffer,
+    contentType: file.mimetype,
+  });
 
-  logger.info('File uploaded', { filename, size: buffer.length, type: ext });
+  logger.info('File uploaded', { filename, size: buffer.length, type: ext, backend: env.STORAGE_BACKEND });
 
   return {
-    filename,
-    url: `/api/media/files/${filename}`,
+    filename: result.filename,
+    url: result.url,
     mediaType: ext,
   };
 };
 
-/**
- * Get the absolute path for a stored file
- * @param {string} filename
- * @returns {string | null}
- */
+/** @deprecated Use fileExists / getFileStream. Local storage only. */
 const getFilePath = (filename) => {
-  const uploadDir = ensureUploadDir();
-  const filepath = path.join(uploadDir, filename);
-
-  if (!fs.existsSync(filepath)) return null;
-  return filepath;
+  if (env.STORAGE_BACKEND !== 'local') return null;
+  return require('./storage/localStorage').getFilePath(filename);
 };
 
-/**
- * Delete a stored file
- * @param {string} filename
- * @returns {boolean}
- */
-const deleteFile = (filename) => {
-  const filepath = getFilePath(filename);
-  if (!filepath) return false;
+const fileExists = async (filename) => storage.fileExists(filename);
 
-  fs.unlinkSync(filepath);
-  logger.info('File deleted', { filename });
-  return true;
+const getFileStream = async (filename) => storage.getFileStream(filename);
+
+const getPublicUrl = (filename) => {
+  if (typeof storage.getPublicUrl === 'function') {
+    return storage.getPublicUrl(filename);
+  }
+  return null;
 };
 
-/**
- * List all uploaded files
- * @returns {object[]}
- */
-const listFiles = () => {
-  const uploadDir = ensureUploadDir();
-  const files = fs.readdirSync(uploadDir);
+const deleteFile = async (filename) => storage.deleteFile(filename);
 
-  return files.map((filename) => {
-    const filepath = path.join(uploadDir, filename);
-    const stats = fs.statSync(filepath);
-    const ext = path.extname(filename).slice(1);
-
-    return {
-      filename,
-      url: `/api/media/files/${filename}`,
-      mediaType: ext,
-      size: stats.size,
-      createdAt: stats.birthtime,
-    };
-  });
-};
+const listFiles = async () => storage.listFiles();
 
 module.exports = {
   saveFile,
   getFilePath,
+  fileExists,
+  getFileStream,
+  getPublicUrl,
   deleteFile,
   listFiles,
   ALLOWED_TYPES,

@@ -31,6 +31,13 @@ const envSchema = z.object({
   REDIS_URL: z.string().default('redis://localhost:6379'),
   PORT: z.coerce.number().default(5001),
   UPLOAD_DIR: z.string().default('./uploads'),
+  STORAGE_BACKEND: z.enum(['local', 's3']).default('local'),
+  AWS_REGION: z.string().optional(),
+  AWS_ACCESS_KEY_ID: z.string().optional(),
+  AWS_SECRET_ACCESS_KEY: z.string().optional(),
+  S3_BUCKET: z.string().optional(),
+  S3_KEY_PREFIX: z.string().default('media/'),
+  S3_PUBLIC_BASE_URL: z.string().optional(),
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
   JWT_SECRET: z.string().min(16).default('dev_jwt_secret_change_in_production'),
   JWT_EXPIRES_IN: z.string().default('7d'),
@@ -60,6 +67,20 @@ if (env.NODE_ENV === 'production') {
 
   if (missingProductionVars.length > 0) {
     throw new Error(`Missing required production env vars: ${missingProductionVars.join(', ')}`);
+  }
+
+  if (env.STORAGE_BACKEND === 's3') {
+    const missingS3Vars = [
+      'AWS_REGION',
+      'AWS_ACCESS_KEY_ID',
+      'AWS_SECRET_ACCESS_KEY',
+      'S3_BUCKET',
+      'S3_PUBLIC_BASE_URL',
+    ].filter((key) => !process.env[key] || String(process.env[key]).trim() === '');
+
+    if (missingS3Vars.length > 0) {
+      throw new Error(`Missing required S3 env vars: ${missingS3Vars.join(', ')}`);
+    }
   }
 }
 

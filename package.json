@@ -21,7 +21,8 @@
     "lint": "eslint .",
     "load-test": "node tools/load-test/run.js",
     "load-test:setup": "node tools/load-test/run.js --setup --bots 150",
-    "load-test:local": "node tools/load-test/run.js --setup --bots 30 --duration 120"
+    "load-test:local": "node tools/load-test/run.js --setup --bots 30 --duration 120",
+    "migrate:uploads-to-s3": "node scripts/with-env.cjs .env.production .env -- npm run migrate:uploads-to-s3 -w server"
   },
   "devDependencies": {
     "concurrently": "^9.1.0",

@@ -6,7 +6,7 @@ const { ensureSeedMediaUrls } = require('./data/seedMedia');
 module.exports = {
   async up(queryInterface) {
     const now = new Date();
-    const mediaUrls = ensureSeedMediaUrls();
+    const mediaUrls = await ensureSeedMediaUrls();
     const orderingMedia = mediaUrls.imageHistory;
 
     const [finalWagerRounds] = await queryInterface.sequelize.query(

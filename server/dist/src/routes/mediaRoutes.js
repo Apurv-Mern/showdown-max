@@ -1,7 +1,7 @@
-const path = require('path');
 const { success, error } = require('../utils/responseWrapper');
 const mediaService = require('../services/mediaService');
 const mediaReferenceService = require('../services/mediaReferenceService');
+const { serveMediaFile } = require('../utils/serveMediaFile');
 
 /**
  * @param {import('fastify').FastifyInstance} fastify
@@ -26,7 +26,7 @@ const mediaRoutes = async (fastify) => {
   });
 
   fastify.get('/files', async () => {
-    const files = mediaService.listFiles();
+    const files = await mediaService.listFiles();
     return success(files, 'Files listed');
   });
 
@@ -37,32 +37,7 @@ const mediaRoutes = async (fastify) => {
 
   fastify.get('/files/:filename', async (request, reply) => {
     const { filename } = request.params;
-    const filepath = mediaService.getFilePath(filename);
-
-    if (!filepath) {
-      reply.status(404);
-      return error('File not found', 404);
-    }
-
-    const ext = path.extname(filename).slice(1).toLowerCase();
-    const mimeMap = {
-      mp3: 'audio/mpeg',
-      mp4: 'video/mp4',
-      jpg: 'image/jpeg',
-      jpeg: 'image/jpeg',
-      jfif: 'image/jpeg',
-      png: 'image/png',
-      gif: 'image/gif',
-      webp: 'image/webp',
-      bmp: 'image/bmp',
-      svg: 'image/svg+xml',
-    };
-    const contentType = mimeMap[ext] || 'application/octet-stream';
-
-    const fs = require('fs');
-    const stream = fs.createReadStream(filepath);
-    reply.type(contentType);
-    return reply.send(stream);
+    return serveMediaFile(reply, filename);
   });
 
   fastify.delete('/files/:filename', async (request, reply) => {

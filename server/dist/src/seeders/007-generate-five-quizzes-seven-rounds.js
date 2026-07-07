@@ -13,7 +13,7 @@ const { ensureSeedMediaUrls } = require('./data/seedMedia');
 module.exports = {
   async up(queryInterface) {
     const now = new Date();
-    const mediaUrls = ensureSeedMediaUrls();
+    const mediaUrls = await ensureSeedMediaUrls();
 
     for (const quizDef of QUIZ_DEFINITIONS) {
       const quizNo = quizDef.code;

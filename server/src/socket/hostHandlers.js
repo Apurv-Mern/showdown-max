@@ -246,7 +246,7 @@ const hostHandlers = (io, socket) => {
 
   socket.on(SOCKET_EVENTS.MUSIC_CONTROL, async (data) => {
     try {
-      const { pin, action, mediaUrl } = data || {};
+      const { pin, action, mediaUrl, seekTo } = data || {};
       if (!pin || !action) return;
       if (action === 'play') {
         const gs = await redisStore.getGameState(pin);
@@ -266,6 +266,7 @@ const hostHandlers = (io, socket) => {
       io.to(`session:${pin}`).emit(SOCKET_EVENTS.MUSIC_CONTROL, {
         action,
         mediaUrl: mediaUrl || null,
+        ...(Number.isFinite(Number(seekTo)) ? { seekTo: Number(seekTo) } : {}),
       });
     } catch (err) {
       logger.error('music_control error', { error: err.message });

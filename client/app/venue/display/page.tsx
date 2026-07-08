@@ -562,6 +562,7 @@ function VenueDisplayContent() {
     pause: pauseMp3,
     stop: stopMp3,
     setSource: setMp3Source,
+    seek: seekMp3,
   } = useAudio({ loop: false, volume: 0.8 });
   useEffect(() => {
     stopMp3Ref.current = stopMp3;
@@ -1741,11 +1742,16 @@ function VenueDisplayContent() {
       setPhase('mini_game');
     };
 
-    const onMusicControl = (data: { action: 'play' | 'pause' | 'stop'; mediaUrl?: string }) => {
+    const onMusicControl = (data: {
+      action: 'play' | 'pause' | 'stop';
+      mediaUrl?: string;
+      seekTo?: number;
+    }) => {
       const action = data?.action;
       if (!action) return;
 
       const currentMediaType = (questionRef.current?.question?.mediaType || '').toLowerCase();
+      const seekTo = Number.isFinite(Number(data?.seekTo)) ? Number(data.seekTo) : null;
 
       if (action === 'play') {
         const mediaUrl = data?.mediaUrl || questionMediaUrlRef.current;
@@ -1755,6 +1761,7 @@ function VenueDisplayContent() {
           const v = venueMp4Ref.current;
           if (v) {
             try {
+              if (seekTo !== null) v.currentTime = seekTo;
               const playPromise = v.play();
               if (playPromise && typeof playPromise.catch === 'function') {
                 playPromise.catch(() => {});
@@ -1772,6 +1779,7 @@ function VenueDisplayContent() {
             venueMp3LoadedUrlRef.current = resolved;
           }
         }
+        if (seekTo !== null) seekMp3(seekTo);
         playMp3();
         setIsVenueMp3Playing(true);
         return;

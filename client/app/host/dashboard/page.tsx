@@ -1812,9 +1812,12 @@ function HostDashboardContent() {
     } else {
       if (replayLocked) return;
       setMp3Playing(true);
+      const effectiveTimer = Number(currentQuestion?.timerDuration ?? timerDuration ?? 30) || 30;
+      const seekTo = musicAwaiting ? Math.max(0, effectiveTimer - timerRemaining) : undefined;
       emit('music_control', {
         action: 'play',
         mediaUrl: rawMediaUrl,
+        ...(seekTo !== undefined ? { seekTo } : {}),
       });
     }
   };

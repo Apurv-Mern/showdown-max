@@ -823,6 +823,11 @@ export default function GamePage() {
   const wagerLockResubmitGuardRef = useRef<Set<string>>(new Set());
   /** Set synchronously in session_state so answer_reveal replays cannot flash reveal before React commits. */
   const wagerLockRequiredRef = useRef(false);
+  const wagerSourcesRef = useRef<{
+    roundWagers?: Record<string, Record<string, number>> | null;
+    questionWagers?: Record<string, Record<string, number>> | null;
+    topLevelLocked?: number | null;
+  }>({});
   const quizRoundsRef = useRef<Array<{ name?: string; type?: string }>>([]);
   const quizRoundIndexRef = useRef(0);
   const questionStateRef = useRef<string>('');
@@ -1173,6 +1178,18 @@ export default function GamePage() {
               : null);
           const roundIdForLock = roundMetaForLock?.id;
           const questionIdForLock = gs.currentQuestion?.question?.id ?? null;
+          wagerSourcesRef.current = {
+            roundWagers: gs.roundWagers,
+            questionWagers: gs.questionWagers,
+            topLevelLocked: gs.lockedWagerAmount,
+          };
+          if (roundMetaForLock?.type) {
+            setRoundInfo({
+              round: roundMetaForLock,
+              roundIndex: wagerRoundIdxForLock,
+              totalRounds: Number(gs.totalRounds ?? gs.rounds?.length ?? 0),
+            });
+          }
           const {
             amount: lockedWagerAmount,
             hasLocked: hasLockedWager,
@@ -1240,13 +1257,6 @@ export default function GamePage() {
                     socket.emit('submit_wager', { amount: dAmt });
                   });
                 }
-              }
-              if (roundMetaForLock?.type) {
-                setRoundInfo({
-                  round: roundMetaForLock,
-                  roundIndex: wagerRoundIdxForLock,
-                  totalRounds: Number(gs.totalRounds ?? gs.rounds?.length ?? 0),
-                });
               }
             }
           } else {
@@ -1646,17 +1656,32 @@ export default function GamePage() {
       const isWagerQuestion = isWagerRoundType(data.roundType);
       let hasLockedWager = true;
       if (isWagerQuestion) {
-        const { amount, hasLocked } = resolveLockedWagerFromPayload(
+        const { amount, hasLocked } = resolveWagerLockForPlayer(
           session.teamId,
-          null,
+          roundInfo?.round?.id ?? null,
           data.question?.id ?? null,
-          { currentQuestionLocked: data.lockedWagerAmount },
+          data.roundType,
+          session.pin,
+          {
+            currentQuestionLocked: data.lockedWagerAmount,
+            topLevelLocked: wagerSourcesRef.current.topLevelLocked,
+            roundWagers: wagerSourcesRef.current.roundWagers,
+            questionWagers: wagerSourcesRef.current.questionWagers,
+          },
         );
         hasLockedWager = hasLocked;
         wagerLockRequiredRef.current = !hasLocked;
         if (hasLocked && amount != null) {
           setWagerAmount(amount);
           setWagerSubmitted(true);
+          if (session.pin && session.teamId != null && data.question?.id != null) {
+            persistWagerLockCache(
+              session.pin,
+              Number(session.teamId),
+              data.question.id,
+              amount,
+            );
+          }
         } else {
           setWagerSubmitted(false);
           setWagerAmount(initialWagerAmountForRoundType(data.roundType));
@@ -1671,7 +1696,7 @@ export default function GamePage() {
         pickQuestionPlayerPhase({
           roundType: data.roundType,
           hasLockedWager,
-          questionState: questionStateRef.current,
+          questionState: questionStateRef.current || 'ACTIVE',
           hasRevealData: Boolean(revealDataRef.current),
           restoredIdx: restored,
           eliminated: false,
@@ -1951,11 +1976,18 @@ export default function GamePage() {
           setPhase('eliminated');
         } else if (revealDataRef.current && questionRef.current) {
           const q = questionRef.current;
-          const { hasLocked: hasLockedWager } = resolveLockedWagerFromPayload(
+          const { hasLocked: hasLockedWager } = resolveWagerLockForPlayer(
             session.teamId,
             roundInfo?.round?.id,
             q.question?.id ?? null,
-            { currentQuestionLocked: q.lockedWagerAmount },
+            q.roundType,
+            session.pin,
+            {
+              currentQuestionLocked: q.lockedWagerAmount,
+              topLevelLocked: wagerSourcesRef.current.topLevelLocked,
+              roundWagers: wagerSourcesRef.current.roundWagers,
+              questionWagers: wagerSourcesRef.current.questionWagers,
+            },
           );
           if (teamNeedsWagerLockScreen(q.roundType, hasLockedWager)) {
             setPhase('wager_input');
@@ -1964,17 +1996,24 @@ export default function GamePage() {
           }
         } else if (questionRef.current) {
           const q = questionRef.current;
-          const { hasLocked: hasLockedWager } = resolveLockedWagerFromPayload(
+          const { hasLocked: hasLockedWager } = resolveWagerLockForPlayer(
             session.teamId,
             roundInfo?.round?.id,
             q.question?.id ?? null,
-            { currentQuestionLocked: q.lockedWagerAmount },
+            q.roundType,
+            session.pin,
+            {
+              currentQuestionLocked: q.lockedWagerAmount,
+              topLevelLocked: wagerSourcesRef.current.topLevelLocked,
+              roundWagers: wagerSourcesRef.current.roundWagers,
+              questionWagers: wagerSourcesRef.current.questionWagers,
+            },
           );
           setPhase(
             pickQuestionPlayerPhase({
               roundType: q.roundType,
               hasLockedWager,
-              questionState: questionStateRef.current,
+              questionState: questionStateRef.current || 'ACTIVE',
               hasRevealData: Boolean(revealDataRef.current),
               restoredIdx: null,
               eliminated: false,

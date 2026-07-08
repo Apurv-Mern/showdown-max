@@ -1506,6 +1506,12 @@ const startBreak = async (io, pin) => {
     gameState.timerRunning = false;
   }
 
+  const breakRound = stateMachine.getCurrentRound(gameState);
+  const isMusicBreakQuestion =
+    gameState.state === GAME_STATES.QUESTION &&
+    gameState.questionState === QUESTION_STATES.ACTIVE &&
+    String(breakRound?.type || '').toUpperCase() === ROUND_TYPES.MUSIC;
+
   gameState.breakResumeState = {
     state: gameState.state,
     questionState: gameState.questionState,
@@ -1549,6 +1555,9 @@ const startBreak = async (io, pin) => {
     currentRoundIndex: Number(result.gameState.currentRoundIndex ?? 0),
     upNextRound,
   });
+  if (isMusicBreakQuestion) {
+    io.to(`session:${pin}`).emit(SOCKET_EVENTS.MUSIC_CONTROL, { action: 'pause' });
+  }
   logger.info('Break started', {
     pin,
     breakDuration: result.gameState.breakDuration,
@@ -2021,9 +2030,12 @@ const startTimer = async (io, pin) => {
       const q = stateMachine.getCurrentQuestion(gameState);
       const mediaUrl = q?.mediaUrl || null;
       if (mediaUrl) {
+        const effectiveTimer = Number(q.timerDuration ?? round.timerDuration ?? 30) || 30;
+        const seekTo = Math.max(0, effectiveTimer - timerState.remaining);
         io.to(`session:${pin}`).emit(SOCKET_EVENTS.MUSIC_CONTROL, {
           action: 'play',
           mediaUrl,
+          seekTo,
         });
       }
     }

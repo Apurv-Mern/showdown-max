@@ -2194,24 +2194,46 @@ export default function GamePage() {
     session.teamId,
   ]);
 
-  const handleSubmitWager = () => {
-    if (!socket) return;
-    const pin = session.pin;
-    const tid = session.teamId;
-    const qid = question?.question?.id;
-    const rt = question?.roundType || roundInfo?.round?.type;
-    // Mirror the lock locally immediately so a refresh before Redis round-trips still
-    // shows the chosen amount as locked.
-    if (pin && tid != null && qid != null && isValidWagerDraftAmount(rt, wagerAmount)) {
-      persistWagerLockCache(pin, Number(tid), qid, wagerAmount);
-    }
-    socket.emit('submit_wager', { amount: wagerAmount });
-    setWagerSubmitted(true);
-    wagerLockRequiredRef.current = false;
-    if ((questionStateRef.current || '').toUpperCase() === 'REVEALED' && !revealDataRef.current) {
-      ensureRevealAfterWagerLockRef.current?.();
-    }
-  };
+  const handleSubmitWager = useCallback(
+    (amountOverride?: number) => {
+      if (!socket || wagerSubmitted) return;
+      const amount = amountOverride ?? wagerAmount;
+      const pin = session.pin;
+      const tid = session.teamId;
+      const qid = question?.question?.id;
+      const rt = question?.roundType || roundInfo?.round?.type;
+      if (!isValidWagerDraftAmount(rt, amount)) return;
+      setWagerAmount(amount);
+      // Mirror the lock locally immediately so a refresh before Redis round-trips still
+      // shows the chosen amount as locked.
+      if (pin && tid != null && qid != null) {
+        persistWagerLockCache(pin, Number(tid), qid, amount);
+      }
+      socket.emit('submit_wager', { amount });
+      setWagerSubmitted(true);
+      wagerLockRequiredRef.current = false;
+      if ((questionStateRef.current || '').toUpperCase() === 'REVEALED' && !revealDataRef.current) {
+        ensureRevealAfterWagerLockRef.current?.();
+      }
+    },
+    [
+      socket,
+      wagerSubmitted,
+      wagerAmount,
+      session.pin,
+      session.teamId,
+      question?.question?.id,
+      question?.roundType,
+      roundInfo?.round?.type,
+    ],
+  );
+
+  const handleSelectWagerAmount = useCallback(
+    (amount: number) => {
+      handleSubmitWager(amount);
+    },
+    [handleSubmitWager],
+  );
 
   useEffect(() => {
     if (phase !== 'wager_input' || wagerSubmitted) return;
@@ -2441,8 +2463,7 @@ export default function GamePage() {
                   wagerAmount={wagerAmount}
                   wagerSubmitted={wagerSubmitted}
                   wagerChoiceValues={wagerChoiceValues}
-                  onSelectAmount={setWagerAmount}
-                  onSubmit={handleSubmitWager}
+                  onSelectAmount={handleSelectWagerAmount}
                 />
               </motion.div>
             )}

@@ -48,14 +48,12 @@ function WagerSelectionView({
   wagerAmount,
   wagerChoiceValues,
   onSelectAmount,
-  onSubmit,
 }: {
   category?: string | null;
   isFinalWagerRound: boolean;
   wagerAmount: number;
   wagerChoiceValues: readonly number[];
   onSelectAmount: (amount: number) => void;
-  onSubmit: () => void;
 }) {
   const gridValues = isFinalWagerRound ? FINAL_WAGER_GRID : STANDARD_WAGER_GRID;
   const categoryLabel = resolveWagerCategoryLabel(category, isFinalWagerRound);
@@ -116,14 +114,6 @@ function WagerSelectionView({
           );
         })}
       </div>
-
-      <button
-        type="button"
-        onClick={onSubmit}
-        className="mx-auto mt-5 w-full max-w-[min(20rem,90vw)] shrink-0 rounded-xl border-2 border-[#1de8ff] bg-[rgba(4,8,22,0.92)] px-4 py-3 text-[clamp(0.68rem,3vw,0.8rem)] font-black uppercase tracking-[0.1em] text-[#1de8ff] shadow-[0_0_16px_rgba(29,232,255,0.22)] transition-colors touch-manipulation active:bg-[rgba(8,16,40,0.95)] sm:max-w-[22rem]"
-      >
-        Submit Point Selection
-      </button>
     </motion.div>
   );
 }
@@ -177,7 +167,6 @@ export type PlayerWagerSelectionScreenProps = {
   wagerSubmitted: boolean;
   wagerChoiceValues: readonly number[];
   onSelectAmount: (amount: number) => void;
-  onSubmit: () => void;
 };
 
 export function PlayerWagerSelectionScreen({
@@ -187,7 +176,6 @@ export function PlayerWagerSelectionScreen({
   wagerSubmitted,
   wagerChoiceValues,
   onSelectAmount,
-  onSubmit,
 }: PlayerWagerSelectionScreenProps) {
   return (
     <div className="relative flex min-h-0 w-full flex-1 flex-col overflow-hidden">
@@ -206,7 +194,6 @@ export function PlayerWagerSelectionScreen({
             wagerAmount={wagerAmount}
             wagerChoiceValues={wagerChoiceValues}
             onSelectAmount={onSelectAmount}
-            onSubmit={onSubmit}
           />
         )}
       </AnimatePresence>

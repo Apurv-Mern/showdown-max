@@ -6,13 +6,17 @@ const logger = require('../utils/logger');
 const DEFAULT_DEV_ORIGINS = ['http://localhost:5003', 'http://127.0.0.1:5003'];
 
 const DEFAULT_PROD_ORIGINS = [
+  'https://maxshowdownlive.com/',
   'https://showdown-frontend.24livehost.com',
   'https://showdown-backend.24livehost.com',
   'https://showdowntrivia.24livehost.com',
   'https://showdowntrivia-web.24livehost.com',
 ];
 
-const normalizeOrigin = (value) => String(value || '').trim().replace(/\/$/, '');
+const normalizeOrigin = (value) =>
+  String(value || '')
+    .trim()
+    .replace(/\/$/, '');
 
 const parseAllowedOrigins = (raw) => {
   if (!raw) return [];

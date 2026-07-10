@@ -438,8 +438,8 @@ export default function QuestionsPage() {
       category: editingQuestion ? (trimmedCategory || null) : (trimmedCategory || undefined),
       options: optionsPayload,
       roundId: Number(formData.roundId),
-      mediaUrl: formData.mediaUrl || undefined,
-      mediaType: formData.mediaType || undefined,
+      mediaUrl: editingQuestion ? (formData.mediaUrl || null) : (formData.mediaUrl || undefined),
+      mediaType: editingQuestion ? (formData.mediaType || null) : (formData.mediaType || undefined),
       timerDuration: formData.timerDuration ? Number(formData.timerDuration) : undefined,
     };
 

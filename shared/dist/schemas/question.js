@@ -11,8 +11,8 @@ const baseQuestionSchema = z.object({
   options: z.array(answerOptionSchema).min(2).max(6),
   // `null` lets the admin clear an existing category; `undefined` (i.e. omitted) leaves it untouched on an update.
   category: z.string().max(100).nullable().optional(),
-  mediaUrl: z.string().max(500).optional(),
-  mediaType: z.enum(['mp3', 'mp4', 'image']).optional(),
+  mediaUrl: z.string().max(500).nullable().optional(),
+  mediaType: z.enum(['mp3', 'mp4', 'image']).nullable().optional(),
   roundId: z.number().int().positive().optional(),
   timerDuration: z.number().int().min(5).max(300).optional(),
 });

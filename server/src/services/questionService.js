@@ -2,6 +2,7 @@ const { Question, Round, Quiz } = require('../models');
 const { Op } = require('sequelize');
 const { ROUND_TYPES } = require('shared/constants/roundTypes');
 const logger = require('../utils/logger');
+const mediaReferenceService = require('./mediaReferenceService');
 
 /**
  * @param {number|null|undefined} roundId
@@ -179,8 +180,17 @@ const updateQuestion = async (questionId, data) => {
   const nextMediaType = data.mediaType !== undefined ? data.mediaType : question.mediaType;
   assertMp3Mp4OnlyForMusicRound(round, nextMediaType);
 
+  const previousFilename = mediaReferenceService.filenameFromMediaUrl(question.mediaUrl);
+  const nextMediaUrl = data.mediaUrl !== undefined ? data.mediaUrl : question.mediaUrl;
+  const nextFilename = mediaReferenceService.filenameFromMediaUrl(nextMediaUrl);
+
   await question.update(data);
   logger.info('Question updated', { questionId });
+
+  if (previousFilename && previousFilename !== nextFilename) {
+    await mediaReferenceService.deleteFileIfUnreferenced(previousFilename);
+  }
+
   return getQuestionById(questionId);
 };
 

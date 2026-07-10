@@ -39,7 +39,7 @@ import { PUBLIC_API_URL } from '@/lib/env';
 
 const API_URL = PUBLIC_API_URL;
 const VENUE_PIN_STORAGE_KEY = 'venue_display_pin';
-const VENUE_WELCOME_QR_URL = 'https://maxshowdownlive.com/play/join';
+const VENUE_JOIN_BASE_URL = 'https://maxshowdownlive.com/play/join';
 const VENUE_STATE_STORAGE_KEY_PREFIX = 'venue_display_state';
 
 const getVenueStateStorageKey = (pin: string) => `${VENUE_STATE_STORAGE_KEY_PREFIX}:${pin}`;
@@ -544,6 +544,11 @@ function VenueDisplayContent() {
     }
     // return `http://localhost:3000/play/join?pin=${pin}`;
     return `${PUBLIC_API_URL}/play/join?pin=${pin}`;
+  }, [sessionPin]);
+
+  const welcomeJoinUrl = useMemo(() => {
+    const pin = encodeURIComponent(sessionPin);
+    return `${VENUE_JOIN_BASE_URL}?pin=${pin}`;
   }, [sessionPin]);
 
   const isMusicRound = question?.roundType === 'MUSIC';
@@ -2040,7 +2045,7 @@ function VenueDisplayContent() {
               <div className="neon-border-strong rounded-xl bg-surface/90 p-2.5 shadow-[0_0_28px_rgba(0,229,255,0.2)] sm:rounded-2xl sm:p-3 md:p-4">
                 <div className="flex h-[min(35vw,35vh)] w-[min(35vw,35vh)] min-h-40 min-w-40 items-center justify-center rounded-lg bg-white p-2 sm:min-h-44 sm:min-w-44 md:min-h-48 md:min-w-48">
                   <QRCodeSVG
-                    value={VENUE_WELCOME_QR_URL}
+                    value={welcomeJoinUrl}
                     size={280}
                     className="h-full w-full max-h-full max-w-full"
                   />

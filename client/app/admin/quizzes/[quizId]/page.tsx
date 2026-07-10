@@ -521,8 +521,8 @@ export default function QuizDetailPage() {
       category: editingQuestion ? (trimmedCategory || null) : (trimmedCategory || undefined),
       options: optionsPayload,
       roundId: addingToRound,
-      mediaUrl: formData.mediaUrl || undefined,
-      mediaType: formData.mediaType || undefined,
+      mediaUrl: editingQuestion ? (formData.mediaUrl || null) : (formData.mediaUrl || undefined),
+      mediaType: editingQuestion ? (formData.mediaType || null) : (formData.mediaType || undefined),
       timerDuration: formData.timerDuration ? Number(formData.timerDuration) : undefined,
     };
 

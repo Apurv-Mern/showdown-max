@@ -2,6 +2,7 @@ const path = require('path');
 const { Op } = require('sequelize');
 const { Question, Round, Quiz } = require('../models');
 const mediaService = require('./mediaService');
+const logger = require('../utils/logger');
 
 /**
  * Extract stored upload filename from a question mediaUrl (relative or absolute).
@@ -137,8 +138,36 @@ const detachQuestionsAndDeleteFile = async (filename) => {
   return { deleted, detachedQuestionCount };
 };
 
+/**
+ * Delete an upload from storage only when no question still references it.
+ * @param {string} filename
+ * @returns {Promise<{ deleted: boolean }>}
+ */
+const deleteFileIfUnreferenced = async (filename) => {
+  if (!filename) return { deleted: false };
+
+  const rows = await Question.findAll({
+    attributes: ['mediaUrl'],
+    where: { mediaUrl: { [Op.and]: [{ [Op.ne]: null }, { [Op.ne]: '' }] } },
+  });
+  const stillReferenced = rows.some((r) => filenameFromMediaUrl(r.mediaUrl) === filename);
+  if (stillReferenced) return { deleted: false };
+
+  try {
+    const deleted = await mediaService.deleteFile(filename);
+    return { deleted };
+  } catch (err) {
+    logger.warn('Failed to delete unreferenced media file', {
+      filename,
+      error: err.message,
+    });
+    return { deleted: false };
+  }
+};
+
 module.exports = {
   filenameFromMediaUrl,
   listMediaLibrary,
   detachQuestionsAndDeleteFile,
+  deleteFileIfUnreferenced,
 };

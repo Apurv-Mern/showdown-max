@@ -39,6 +39,7 @@ import { PUBLIC_API_URL } from '@/lib/env';
 
 const API_URL = PUBLIC_API_URL;
 const VENUE_PIN_STORAGE_KEY = 'venue_display_pin';
+const VENUE_WELCOME_QR_URL = 'https://maxshowdownlive.com/play/join';
 const VENUE_STATE_STORAGE_KEY_PREFIX = 'venue_display_state';
 
 const getVenueStateStorageKey = (pin: string) => `${VENUE_STATE_STORAGE_KEY_PREFIX}:${pin}`;
@@ -503,7 +504,6 @@ function VenueDisplayContent() {
   const [showVenueSplash, setShowVenueSplash] = useState(shouldPlayIntro);
   /** Stay on the green welcome / video screen until the operator clicks Continue. */
   const [welcomeHold, setWelcomeHold] = useState(true);
-  const [welcomeQrImageFailed, setWelcomeQrImageFailed] = useState(false);
   const [showIntroVideoFallback, setShowIntroVideoFallback] = useState(false);
   const [isVenueMp3Playing, setIsVenueMp3Playing] = useState(false);
   const [showBreakEndedNotice, setShowBreakEndedNotice] = useState(false);
@@ -690,10 +690,6 @@ function VenueDisplayContent() {
       window.localStorage.removeItem(VENUE_PIN_STORAGE_KEY);
     }
   }, [sessionPin]);
-
-  useEffect(() => {
-    setWelcomeQrImageFailed(false);
-  }, [sessionPin, qrCodeData]);
 
   /** Admin deleted the session — must not depend on `useSocket()` first paint (socket can be null). */
   useEffect(() => {
@@ -2042,26 +2038,13 @@ function VenueDisplayContent() {
             {/* Right 30% — QR + join info */}
             <div className="relative flex h-full w-[30%] min-w-0 flex-col items-center justify-center gap-4 overflow-hidden px-4 py-6 sm:gap-5 sm:px-5 md:gap-6 md:px-6">
               <div className="neon-border-strong rounded-xl bg-surface/90 p-2.5 shadow-[0_0_28px_rgba(0,229,255,0.2)] sm:rounded-2xl sm:p-3 md:p-4">
-                {qrCodeData &&
-                !welcomeQrImageFailed &&
-                (qrCodeData.startsWith('data:') || /^https?:\/\//i.test(qrCodeData)) ? (
-                  <div className="flex h-[min(35vw,35vh)] w-[min(35vw,35vh)] min-h-40 min-w-40 items-center justify-center rounded-lg bg-[#060818] sm:min-h-44 sm:min-w-44 md:min-h-48 md:min-w-48">
-                    <img
-                      src={qrCodeData}
-                      alt="QR code to join this session"
-                      className="h-[92%] w-[92%] object-contain"
-                      onError={() => setWelcomeQrImageFailed(true)}
-                    />
-                  </div>
-                ) : (
-                  <div className="flex h-[min(35vw,35vh)] w-[min(35vw,35vh)] min-h-40 min-w-40 items-center justify-center rounded-lg bg-white p-2 sm:min-h-44 sm:min-w-44 md:min-h-48 md:min-w-48">
-                    <QRCodeSVG
-                      value={playerJoinUrl}
-                      size={280}
-                      className="h-full w-full max-h-full max-w-full"
-                    />
-                  </div>
-                )}
+                <div className="flex h-[min(35vw,35vh)] w-[min(35vw,35vh)] min-h-40 min-w-40 items-center justify-center rounded-lg bg-white p-2 sm:min-h-44 sm:min-w-44 md:min-h-48 md:min-w-48">
+                  <QRCodeSVG
+                    value={VENUE_WELCOME_QR_URL}
+                    size={280}
+                    className="h-full w-full max-h-full max-w-full"
+                  />
+                </div>
               </div>
 
               <div className="text-center">

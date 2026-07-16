@@ -1076,7 +1076,7 @@ export default function GamePage() {
           return;
         }
 
-        if (gs.scoreboardVisible && gs.teams) {
+        if (gs.scoreboardVisible && gs.teams && !gs.activeMiniGame) {
           if (phaseRef.current !== 'scoreboard') {
             previousPhaseBeforeScoreboardRef.current = phaseRef.current;
           }

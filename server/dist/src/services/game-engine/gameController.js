@@ -1405,7 +1405,10 @@ const executePlayerDisconnectPurge = async (io, pin, teamId, options = {}) => {
       SOCKET_EVENTS.SESSION_STATE,
       clientPayloadFromGameState(freshGameState),
     );
-    if (freshGameState.state === GAME_STATES.SCOREBOARD) {
+    if (
+      freshGameState.state === GAME_STATES.SCOREBOARD &&
+      !freshGameState.activeMiniGame
+    ) {
       const sortedTeams = Object.values(freshGameState.teams || {}).sort(
         (a, b) => b.score - a.score,
       );
@@ -1638,7 +1641,7 @@ const endBreak = async (io, pin) => {
         io.to(`session:${pin}`).emit(SOCKET_EVENTS.TIMER_UPDATE, { remaining: 0 });
       }
     }
-    if (gameState.state === GAME_STATES.SCOREBOARD) {
+    if (gameState.state === GAME_STATES.SCOREBOARD && !gameState.activeMiniGame) {
       const sortedTeams = Object.values(gameState.teams || {}).sort((a, b) => b.score - a.score);
       const revealPayload = await buildRevealSnapshot(pin, gameState);
       io.to(`session:${pin}`).emit(SOCKET_EVENTS.SCOREBOARD, {
@@ -1813,6 +1816,7 @@ const launchMiniGame = async (io, pin, gameType, config = {}) => {
 
   gameState.activeMiniGame = gameType;
   gameState.miniGameConfig = normalizedConfig;
+  gameState.scoreboardVisible = false;
   gameState.miniGameState =
     gameType === 'card_shuffle'
       ? createCardShuffleState()

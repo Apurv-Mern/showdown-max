@@ -603,7 +603,10 @@ function HostDashboardContent() {
           setHostBreakDuration(w.duration);
           setHostBreakRemaining(w.remaining);
         }
-        setIsScoreboardVisible(data.state === 'SCOREBOARD' || Boolean(data.scoreboardVisible));
+        setIsScoreboardVisible(
+          !data.activeMiniGame &&
+            (data.state === 'SCOREBOARD' || Boolean(data.scoreboardVisible)),
+        );
         // The round-over transition is only meaningful while the server keeps us in
         // ROUND_END; once we move on (scoreboard, next intro, break, etc.) drop the info.
         if (data.state !== 'ROUND_END') {
@@ -911,6 +914,7 @@ function HostDashboardContent() {
     };
 
     const onScoreboard = (payload?: { teams?: Team[]; source?: string }) => {
+      if (gameStateRef.current?.activeMiniGame) return;
       setIsScoreboardVisible(true);
       setGameState((prev) => {
         if (!prev) return prev;

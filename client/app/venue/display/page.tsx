@@ -1270,7 +1270,8 @@ function VenueDisplayContent() {
       });
 
       const shouldShowScoreboard =
-        data.state === 'SCOREBOARD' || Boolean(data.scoreboardVisible);
+        !data.activeMiniGame &&
+        (data.state === 'SCOREBOARD' || Boolean(data.scoreboardVisible));
       if (shouldShowScoreboard && data.teams) {
         const scoreboardTeams =
           typeof data.teams === 'object' && !Array.isArray(data.teams)
@@ -1499,7 +1500,7 @@ function VenueDisplayContent() {
     };
 
     const onAnswerReveal = (data: RevealData) => {
-      if (phaseRef.current === 'scoreboard') return;
+      if (phaseRef.current === 'scoreboard' || miniGameTypeRef.current) return;
       clearVenueMiniGameOverlay();
       setRevealData(data);
       setLiveResponses(liveStatsFromRevealPayload(data, questionRef.current?.roundType));
@@ -1514,6 +1515,9 @@ function VenueDisplayContent() {
     };
 
     const onScoreboard = (data: { teams: Team[]; revealSnapshot?: RevealData | null }) => {
+      if (miniGameTypeRef.current || phaseRef.current === 'mini_game' || phaseRef.current === 'mini_game_result') {
+        return;
+      }
       clearVenueMiniGameOverlay();
       if (phaseRef.current !== 'scoreboard') {
         previousPhaseBeforeScoreboardRef.current = phaseRef.current;

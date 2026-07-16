@@ -446,7 +446,7 @@ const applyCardShuffleBonusOnReveal = async (io, pin, miniGameState) => {
     gameState,
   });
 
-  if (gameState.scoreboardVisible) {
+  if (gameState.scoreboardVisible && !gameState.activeMiniGame) {
     io.to(room).emit(SOCKET_EVENTS.SCOREBOARD, {
       teams: Object.values(gameState.teams).sort(
         (a, b) => Number(b.score || 0) - Number(a.score || 0),
@@ -572,7 +572,7 @@ const applyKangarooRacePointsOnResult = async (io, pin, miniGameState) => {
     gameState,
   });
 
-  if (gameState.scoreboardVisible) {
+  if (gameState.scoreboardVisible && !gameState.activeMiniGame) {
     io.to(room).emit(SOCKET_EVENTS.SCOREBOARD, {
       teams: Object.values(gameState.teams).sort(
         (a, b) => Number(b.score || 0) - Number(a.score || 0),

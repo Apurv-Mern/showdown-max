@@ -216,7 +216,7 @@ const emitTriviaReconnectSideEvents = async (socket, pin, gameState) => {
       socket.emit(SOCKET_EVENTS.TIMER_UPDATE, { remaining: 0 });
     }
   }
-  if (gameState.state === 'SCOREBOARD') {
+  if (gameState.state === 'SCOREBOARD' && !gameState.activeMiniGame) {
     const sortedTeams = Object.values(gameState.teams || {}).sort((a, b) => b.score - a.score);
     const revealSnapshot = await buildRevealSnapshot(pin, gameState);
     socket.emit(SOCKET_EVENTS.SCOREBOARD, {
@@ -225,7 +225,11 @@ const emitTriviaReconnectSideEvents = async (socket, pin, gameState) => {
       ...(revealSnapshot ? { revealSnapshot } : {}),
     });
   }
-  if (gameState.scoreboardVisible && gameState.state !== 'SCOREBOARD') {
+  if (
+    gameState.scoreboardVisible &&
+    gameState.state !== 'SCOREBOARD' &&
+    !gameState.activeMiniGame
+  ) {
     const sortedTeams = Object.values(gameState.teams || {}).sort((a, b) => b.score - a.score);
     const revealPayload = await buildRevealSnapshot(pin, gameState);
     socket.emit(SOCKET_EVENTS.SCOREBOARD, {

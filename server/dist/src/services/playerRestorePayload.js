@@ -248,7 +248,7 @@ const buildJoinReplayEvents = async ({ pin, gameState, team, mySubmittedOptionIn
     }
   }
 
-  if (gameState.state === 'SCOREBOARD') {
+  if (gameState.state === 'SCOREBOARD' && !gameState.activeMiniGame) {
     const revealSnapshot = await buildRevealSnapshot(pin, gameState);
     events.push({
       event: SOCKET_EVENTS.SCOREBOARD,
@@ -288,7 +288,11 @@ const buildJoinReplayEvents = async ({ pin, gameState, team, mySubmittedOptionIn
     });
   }
 
-  if (gameState.scoreboardVisible && gameState.state !== 'SCOREBOARD') {
+  if (
+    gameState.scoreboardVisible &&
+    gameState.state !== 'SCOREBOARD' &&
+    !gameState.activeMiniGame
+  ) {
     const revealSnapshot = await buildRevealSnapshot(pin, gameState);
     events.push({
       event: SOCKET_EVENTS.SCOREBOARD,

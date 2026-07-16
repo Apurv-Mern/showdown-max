@@ -526,22 +526,22 @@ export default function MiniGamePage() {
       logSocketIn('round_intro');
       // Host resumed trivia after mini-game "game over" hold — leave even if
       // session_state has not arrived yet (holdScreen skips that emit).
-      exitMiniGameToGame();
+      if (shouldExitMiniGame()) exitMiniGameToGame();
     };
 
     const onQuestionActive = () => {
       logSocketIn('question_active');
-      exitMiniGameToGame();
+      if (shouldExitMiniGame()) exitMiniGameToGame();
     };
 
     const onAnswerReveal = () => {
       logSocketIn('answer_reveal');
-      exitMiniGameToGame();
+      if (shouldExitMiniGame()) exitMiniGameToGame();
     };
 
     const onScoreboard = () => {
       logSocketIn('scoreboard');
-      exitMiniGameToGame();
+      if (shouldExitMiniGame()) exitMiniGameToGame();
     };
 
     const onSessionState = (data: any) => {

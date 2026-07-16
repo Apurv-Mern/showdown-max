@@ -1854,6 +1854,19 @@ export default function GamePage() {
       }
     };
 
+    const onTeamJoined = (team: { teamId: number; teamName: string; score?: number }) => {
+      if (phaseRef.current !== 'scoreboard') return;
+      setScoreboard((prev) => {
+        const entry = {
+          teamId: Number(team.teamId),
+          teamName: String(team.teamName || ''),
+          score: Number(team.score ?? 0),
+        };
+        const next = [...prev.filter((t) => Number(t.teamId) !== entry.teamId), entry];
+        return next.sort((a, b) => b.score - a.score);
+      });
+    };
+
     const onTeamUpdated = (data: { teamId: number; score: number }) => {
       if (!data || !Number.isFinite(Number(data.teamId))) return;
       const teamId = Number(data.teamId);
@@ -2111,6 +2124,7 @@ export default function GamePage() {
     socket.on('answer_reveal', onAnswerReveal);
     socket.on('player_eliminated', onPlayerEliminated);
     socket.on('scoreboard', onScoreboard);
+    socket.on('team_joined', onTeamJoined);
     socket.on('team_updated', onTeamUpdated);
     socket.on('scoreboard_hidden', onScoreboardHidden);
     socket.on('round_end', onRoundEnd);
@@ -2133,6 +2147,7 @@ export default function GamePage() {
       socket.off('answer_reveal', onAnswerReveal);
       socket.off('player_eliminated', onPlayerEliminated);
       socket.off('scoreboard', onScoreboard);
+      socket.off('team_joined', onTeamJoined);
       socket.off('team_updated', onTeamUpdated);
       socket.off('scoreboard_hidden', onScoreboardHidden);
       socket.off('round_end', onRoundEnd);

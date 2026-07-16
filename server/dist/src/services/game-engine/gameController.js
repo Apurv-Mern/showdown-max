@@ -1405,6 +1405,17 @@ const executePlayerDisconnectPurge = async (io, pin, teamId, options = {}) => {
       SOCKET_EVENTS.SESSION_STATE,
       clientPayloadFromGameState(freshGameState),
     );
+    if (freshGameState.state === GAME_STATES.SCOREBOARD) {
+      const sortedTeams = Object.values(freshGameState.teams || {}).sort(
+        (a, b) => b.score - a.score,
+      );
+      const revealSnapshot = await buildRevealSnapshot(pin, freshGameState);
+      io.to(`session:${pin}`).emit(SOCKET_EVENTS.SCOREBOARD, {
+        teams: sortedTeams,
+        source: 'reconnect',
+        ...(revealSnapshot ? { revealSnapshot } : {}),
+      });
+    }
   }
 
   io.to(`session:${pin}`).emit(SOCKET_EVENTS.TEAM_REMOVED, {

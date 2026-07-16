@@ -551,6 +551,20 @@ function VenueDisplayContent() {
     return `${VENUE_JOIN_BASE_URL}?pin=${pin}`;
   }, [sessionPin]);
 
+  /** Merge late joiners from `teams` into the post-round leaderboard without waiting for a resync. */
+  const displayScoreboardTeams = useMemo(() => {
+    if (phase !== 'scoreboard') return scoreboard;
+    const byId = new Map<number, Team>();
+    for (const t of scoreboard) {
+      byId.set(Number(t.teamId), t);
+    }
+    for (const t of teams) {
+      const id = Number(t.teamId);
+      if (!byId.has(id)) byId.set(id, t);
+    }
+    return [...byId.values()].sort((a, b) => b.score - a.score);
+  }, [phase, scoreboard, teams]);
+
   const isMusicRound = question?.roundType === 'MUSIC';
   // Mute the question-timer tick/buzz while a mini-game is on the venue, so the
   // host launching Kangaroo Race / Card Shuffle mid-question doesn't have the
@@ -1255,6 +1269,35 @@ function VenueDisplayContent() {
         };
       });
 
+      const shouldShowScoreboard =
+        data.state === 'SCOREBOARD' || Boolean(data.scoreboardVisible);
+      if (shouldShowScoreboard && data.teams) {
+        const scoreboardTeams =
+          typeof data.teams === 'object' && !Array.isArray(data.teams)
+            ? (Object.values(data.teams) as Team[])
+            : (data.teams as Team[]);
+        setScoreboard([...scoreboardTeams].sort((a, b) => b.score - a.score));
+        if (phaseRef.current !== 'scoreboard') {
+          previousPhaseBeforeScoreboardRef.current = phaseRef.current;
+        }
+        applyVenuePhaseFromSession('scoreboard');
+        if (typeof window !== 'undefined') {
+          window.sessionStorage.setItem(
+            getVenueStateStorageKey(sessionPin),
+            JSON.stringify({
+              phase: 'scoreboard',
+              lobbyPhase: data.lobbyPhase,
+              qrCodeData: data.qrCodeData || qrCodeData,
+              teams: scoreboardTeams,
+              scoreboard: [...scoreboardTeams].sort((a, b) => b.score - a.score),
+              maxTeams: Number.isFinite(Number(data.maxTeams)) ? Number(data.maxTeams) : maxTeams,
+              totalTeams: scoreboardTeams.length,
+            }),
+          );
+        }
+        return;
+      }
+
       if (data.state === 'QUESTION') {
         if (data.currentQuestion) {
           applyVenuePhaseFromSession('question');
@@ -1456,6 +1499,7 @@ function VenueDisplayContent() {
     };
 
     const onAnswerReveal = (data: RevealData) => {
+      if (phaseRef.current === 'scoreboard') return;
       clearVenueMiniGameOverlay();
       setRevealData(data);
       setLiveResponses(liveStatsFromRevealPayload(data, questionRef.current?.roundType));
@@ -2565,7 +2609,7 @@ function VenueDisplayContent() {
         {/* Leaderboard (venue) */}
         {phase === 'scoreboard' && (
           <div className="absolute inset-0 z-[5] h-full w-full animate-fadeIn">
-            <LeaderboardScreen teams={scoreboard} size="venue" showScene={false} />
+            <LeaderboardScreen teams={displayScoreboardTeams} size="venue" showScene={false} />
           </div>
         )}
 

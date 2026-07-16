@@ -217,10 +217,13 @@ const emitTriviaReconnectSideEvents = async (socket, pin, gameState) => {
     }
   }
   if (gameState.state === 'SCOREBOARD') {
-    const revealPayload = await buildRevealSnapshot(pin, gameState);
-    if (revealPayload) {
-      socket.emit(SOCKET_EVENTS.ANSWER_REVEAL, revealPayload);
-    }
+    const sortedTeams = Object.values(gameState.teams || {}).sort((a, b) => b.score - a.score);
+    const revealSnapshot = await buildRevealSnapshot(pin, gameState);
+    socket.emit(SOCKET_EVENTS.SCOREBOARD, {
+      teams: sortedTeams,
+      source: 'reconnect',
+      ...(revealSnapshot ? { revealSnapshot } : {}),
+    });
   }
   if (gameState.scoreboardVisible && gameState.state !== 'SCOREBOARD') {
     const sortedTeams = Object.values(gameState.teams || {}).sort((a, b) => b.score - a.score);

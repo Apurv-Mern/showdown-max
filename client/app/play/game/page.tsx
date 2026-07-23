@@ -703,7 +703,7 @@ const formatRoundTypeLabel = (roundType?: string) => {
 };
 
 const normalizeRoundIntroTitle = (name?: string, roundType?: string, roundIndex?: number) => {
-  if ((roundType || '').toUpperCase() === 'FINAL_WAGER') return toDisplayUpper('FINAL');
+  if ((roundType || '').toUpperCase() === 'FINAL_WAGER') return toDisplayUpper('FINAL QUESTION');
   const raw = (name || '').trim();
   const fallback = formatRoundTypeLabel(roundType);
   if (!raw) return toDisplayUpper(fallback || `Round ${(roundIndex || 0) + 1}`);

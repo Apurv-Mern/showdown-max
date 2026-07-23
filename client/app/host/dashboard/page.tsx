@@ -34,7 +34,7 @@ function formatRoundTypeLabel(type?: string): string {
 }
 
 function normalizeRoundIntroTitle(name?: string, roundType?: string, roundIndex?: number): string {
-  if ((roundType || '').toUpperCase() === 'FINAL_WAGER') return 'FINAL';
+  if ((roundType || '').toUpperCase() === 'FINAL_WAGER') return 'FINAL QUESTION';
   const raw = (name || '').trim();
   const fallback =
     (roundType || '').toUpperCase() === 'ELIMINATION'
@@ -1480,7 +1480,8 @@ function HostDashboardContent() {
     }
   };
   const handleShowScoreboard = () => {
-    const canToggleScoreboard = state === 'SCOREBOARD' || state === 'ROUND_END';
+    const canToggleScoreboard =
+      state === 'SCOREBOARD' || state === 'ROUND_END' || state === 'GAME_SHOW_END';
     if (!canToggleScoreboard) return;
 
     if (isScoreboardVisible) {
@@ -1852,7 +1853,7 @@ function HostDashboardContent() {
       return;
     }
     if (s === 'GAME_SHOW_END') {
-      handleNextQuestion();
+      handleEndGame();
       return;
     }
     if (s === 'SCOREBOARD') {
@@ -1887,6 +1888,7 @@ function HostDashboardContent() {
     handleAdvanceRound,
     handleCollectWagers,
     handleNextQuestion,
+    handleEndGame,
     socket,
     pin,
   ]);
@@ -2080,8 +2082,10 @@ function HostDashboardContent() {
   const isFinalRoundCompletionState =
     isLastRound &&
     (state === 'SCOREBOARD' ||
+      state === 'GAME_SHOW_END' ||
       (state === 'QUESTION' && questionState === 'REVEALED' && isLastQuestionOfRound));
-  const canOpenScoreboard = state === 'SCOREBOARD' || state === 'ROUND_END';
+  const canOpenScoreboard =
+    state === 'SCOREBOARD' || state === 'ROUND_END' || state === 'GAME_SHOW_END';
   const canStartBreak = state !== 'LOBBY' && state !== 'FINAL_RESULTS';
   const canToggleBreak = state === 'BREAK' || canStartBreak;
 
@@ -3092,12 +3096,16 @@ function HostDashboardContent() {
               ) : state === 'GAME_SHOW_END' ? (
                 <div className="flex w-full max-w-[720px] flex-col items-center justify-center gap-6 py-4 animate-fadeIn">
                   <GameshowEndScreen size="host" className="py-0" />
+                  <p className="max-w-md text-center text-base text-[#9de9ff]/90 sm:text-lg">
+                    Use Show Leaderboard anytime if you want the final standings on venue and
+                    players. When you are ready, finish the game.
+                  </p>
                   <button
                     type="button"
-                    onClick={handleNextQuestion}
-                    className="min-w-[260px] rounded-xl border border-[rgba(0,217,255,0.55)] bg-[linear-gradient(180deg,#3a4a68_0%,#1e2a42_100%)] px-10 py-4 text-base font-black uppercase tracking-[0.14em] text-white shadow-[0_0_24px_rgba(0,217,255,0.22)] transition hover:brightness-110"
+                    onClick={handleEndGame}
+                    className="min-w-[260px] rounded-xl border border-[#ff4d4d]/70 bg-[linear-gradient(180deg,#b91c1c_0%,#7f1d1d_100%)] px-10 py-4 text-base font-black uppercase tracking-[0.14em] text-white shadow-[0_0_24px_rgba(239,68,68,0.26)] transition hover:brightness-110"
                   >
-                    Show Final Scoreboard
+                    Finish Game
                   </button>
                 </div>
               ) : state === 'SCOREBOARD' ? (
@@ -3439,16 +3447,16 @@ function HostDashboardContent() {
               }
               disabled={
                 miniGameLive ||
-                state === 'GAME_SHOW_END' ||
                 (!isCurrentRoundEmpty &&
                   state !== 'SCOREBOARD' &&
+                  state !== 'GAME_SHOW_END' &&
                   !(state === 'QUESTION' && questionState === 'REVEALED' && isLastQuestionOfRound))
               }
-              onClick={handleAdvanceRound}
+              onClick={state === 'GAME_SHOW_END' ? handleEndGame : handleAdvanceRound}
             >
               {isCurrentRoundEmpty
                 ? 'Skip Empty Round'
-                : isFinalRoundCompletionState
+                : isFinalRoundCompletionState || state === 'GAME_SHOW_END'
                   ? 'Finish Game'
                   : 'Next Round'}
             </HostFooterBtn>

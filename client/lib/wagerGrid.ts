@@ -35,18 +35,16 @@ export function formatWagerGridLabel(value: number, isFinalWager: boolean): stri
 
 export function wagerInstructionText(isFinalWager: boolean): string {
   return isFinalWager
-    ? 'Select the percentage you want to wager'
+    ? 'Select the percentage you want to risk'
     : 'Select the points you want to wager';
 }
 
 export function playerWagerTitle(isFinalWager: boolean): string {
-  return isFinalWager ? 'Questions' : 'Place your wager';
+  return isFinalWager ? 'Final Question' : 'Place your wager';
 }
 
 export function playerWagerSubtitle(isFinalWager: boolean): string {
-  return isFinalWager
-    ? 'How much are you risking?'
-    : 'Select how many points you want to wager';
+  return isFinalWager ? 'How much are you risking?' : 'Select how many points you want to wager';
 }
 
 /** Circle display — numeric only (no % suffix), matching player mock. */

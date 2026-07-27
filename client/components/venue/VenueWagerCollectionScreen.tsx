@@ -22,10 +22,10 @@ export function VenueWagerCollectionScreen({
 }) {
   const isFinalWager = (roundType || '').toUpperCase() === 'FINAL_WAGER';
   const gridValues = isFinalWager ? FINAL_WAGER_GRID : STANDARD_WAGER_GRID;
-  const headline = category
-    ? toDisplayUpper(category)
-    : isFinalWager
-      ? 'QUESTIONS'
+  const headline = isFinalWager
+    ? 'FINAL QUESTION'
+    : category
+      ? toDisplayUpper(category)
       : 'WAGER ROUND';
   const totalTeams = Math.max(1, wagerLockedTotal);
 

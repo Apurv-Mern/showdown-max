@@ -28,8 +28,7 @@ const VALID_TRANSITIONS = {
     GAME_STATES.FINAL_RESULTS,
     GAME_STATES.FINAL_WAGER,
   ],
-  // Finale closing screen: host may optionally overlay the leaderboard, but Next
-  // no longer auto-advances into SCOREBOARD — Finish Game goes to FINAL_RESULTS.
+  // Finale closing screen: Continue opens SCOREBOARD; Finish Game goes to FINAL_RESULTS.
   [GAME_STATES.GAME_SHOW_END]: [
     GAME_STATES.SCOREBOARD,
     GAME_STATES.FINAL_RESULTS,

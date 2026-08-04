@@ -1853,7 +1853,7 @@ function HostDashboardContent() {
       return;
     }
     if (s === 'GAME_SHOW_END') {
-      handleEndGame();
+      handleNextQuestion();
       return;
     }
     if (s === 'SCOREBOARD') {
@@ -1888,7 +1888,6 @@ function HostDashboardContent() {
     handleAdvanceRound,
     handleCollectWagers,
     handleNextQuestion,
-    handleEndGame,
     socket,
     pin,
   ]);
@@ -3079,11 +3078,17 @@ function HostDashboardContent() {
                     That round is over.{' '}
                     {roundEndInfo?.isFinalRound || isLastRound
                       ? 'The gameshow closing screen is coming up next.'
-                      : roundEndInfo?.nextRound
-                        ? `Up next: ${formatRoundTypeLabel(roundEndInfo.nextRound.type)} Round.`
-                        : nextRound
-                          ? `Up next: ${formatRoundTypeLabel(nextRound.type)} Round.`
-                          : 'Continue to view the scoreboard.'}
+                      : (roundEndInfo?.nextRound?.type || nextRound?.type || '').toUpperCase() ===
+                            'FINAL_WAGER' ||
+                          (currentRound?.type || '').toUpperCase() === 'FINAL_MULTIPLE_CHOICE'
+                        ? `Continue to begin the ${formatRoundTypeLabel(
+                            roundEndInfo?.nextRound?.type || nextRound?.type || 'FINAL_WAGER',
+                          )} Round (no scoreboard this time).`
+                        : roundEndInfo?.nextRound
+                          ? `Up next: ${formatRoundTypeLabel(roundEndInfo.nextRound.type)} Round.`
+                          : nextRound
+                            ? `Up next: ${formatRoundTypeLabel(nextRound.type)} Round.`
+                            : 'Continue to view the scoreboard.'}
                   </p>
                   <button
                     type="button"
@@ -3096,16 +3101,12 @@ function HostDashboardContent() {
               ) : state === 'GAME_SHOW_END' ? (
                 <div className="flex w-full max-w-[720px] flex-col items-center justify-center gap-6 py-4 animate-fadeIn">
                   <GameshowEndScreen size="host" className="py-0" />
-                  <p className="max-w-md text-center text-base text-[#9de9ff]/90 sm:text-lg">
-                    Use Show Leaderboard anytime if you want the final standings on venue and
-                    players. When you are ready, finish the game.
-                  </p>
                   <button
                     type="button"
-                    onClick={handleEndGame}
-                    className="min-w-[260px] rounded-xl border border-[#ff4d4d]/70 bg-[linear-gradient(180deg,#b91c1c_0%,#7f1d1d_100%)] px-10 py-4 text-base font-black uppercase tracking-[0.14em] text-white shadow-[0_0_24px_rgba(239,68,68,0.26)] transition hover:brightness-110"
+                    onClick={handleNextQuestion}
+                    className="min-w-[260px] rounded-xl border border-[rgba(0,217,255,0.55)] bg-[linear-gradient(180deg,#3a4a68_0%,#1e2a42_100%)] px-10 py-4 text-base font-black uppercase tracking-[0.14em] text-white shadow-[0_0_24px_rgba(0,217,255,0.22)] transition hover:brightness-110"
                   >
-                    Finish Game
+                    Show Final Scoreboard
                   </button>
                 </div>
               ) : state === 'SCOREBOARD' ? (

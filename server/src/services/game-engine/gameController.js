@@ -488,9 +488,9 @@ const nextQuestion = async (io, pin) => {
     return;
   }
 
-  // Finale gameshow screen: do not auto-open the leaderboard on Next/Space.
-  // Host finishes via advance_round / end_game, or shows the board with Show Leaderboard.
+  // Finale gameshow screen: Continue / Space opens the final leaderboard.
   if (gameState.state === GAME_STATES.GAME_SHOW_END) {
+    await proceedFromGameShowEnd(io, pin);
     return;
   }
 
@@ -1163,8 +1163,9 @@ const emitRoundScoreboard = async (io, pin, gameState, source) => {
 /**
  * Advance from the ROUND_END "round is over" screen.
  *
- * Normal rounds -> SCOREBOARD. Final round -> GAME_SHOW_END (gameshow closing screen).
- * Finale does not auto-open SCOREBOARD; host may Show Leaderboard or Finish Game.
+ * - Final round (Final Question) -> GAME_SHOW_END, then host Continue opens SCOREBOARD
+ * - Final Multiple Choice (typically round 6) -> skip SCOREBOARD, go straight to next intro
+ * - All other rounds -> SCOREBOARD
  */
 const proceedFromRoundEnd = async (io, pin) => {
   const gameState = await redisStore.getGameState(pin);
@@ -1188,6 +1189,18 @@ const proceedFromRoundEnd = async (io, pin) => {
     return;
   }
 
+  const currentRound = stateMachine.getCurrentRound(gameState);
+  const skipScoreboard =
+    String(currentRound?.type || '').toUpperCase() === ROUND_TYPES.FINAL_MULTIPLE_CHOICE;
+  if (skipScoreboard) {
+    logger.info('Skipping post-round scoreboard after Final Multiple Choice', {
+      pin,
+      roundIndex: gameState.currentRoundIndex,
+    });
+    await advanceToNextRound(io, pin);
+    return;
+  }
+
   const result = stateMachine.transition(gameState, GAME_STATES.SCOREBOARD);
   if (!result.valid) return;
 
@@ -1200,11 +1213,21 @@ const proceedFromRoundEnd = async (io, pin) => {
 };
 
 /**
- * @deprecated Finale no longer auto-advances to SCOREBOARD. Kept as a no-op
- * so older host builds that still call this path do not force the leaderboard.
+ * Advance from the gameshow closing screen to the final SCOREBOARD (after Final Question).
  */
-const proceedFromGameShowEnd = async (_io, pin) => {
-  logger.info('proceedFromGameShowEnd ignored — finale scoreboard is host-opt-in only', { pin });
+const proceedFromGameShowEnd = async (io, pin) => {
+  const gameState = await redisStore.getGameState(pin);
+  if (!gameState || gameState.state !== GAME_STATES.GAME_SHOW_END) return;
+
+  const result = stateMachine.transition(gameState, GAME_STATES.SCOREBOARD);
+  if (!result.valid) return;
+
+  await redisStore.setGameState(pin, result.gameState);
+  await emitRoundScoreboard(io, pin, result.gameState, 'game_show_end');
+  io.to(`session:${pin}`).emit(
+    SOCKET_EVENTS.SESSION_STATE,
+    clientPayloadFromGameState(result.gameState),
+  );
 };
 
 /**
@@ -1214,7 +1237,8 @@ const advanceToNextRound = async (io, pin) => {
   let gameState = await redisStore.getGameState(pin);
   if (!gameState) return;
 
-  // After the finale gameshow screen, Finish Game ends the session — no SCOREBOARD step.
+  // After the finale gameshow screen, Finish Game / Next Round ends the session.
+  // Final leaderboard is opened via next_question (Continue) from GAME_SHOW_END.
   if (gameState.state === GAME_STATES.GAME_SHOW_END) {
     await endGame(io, pin);
     return;

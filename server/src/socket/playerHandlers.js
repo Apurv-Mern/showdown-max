@@ -51,7 +51,9 @@ const playerHandlers = (io, socket) => {
         where: { sessionId: sessionData.sessionId },
         attributes: ['id', 'teamName', 'isConnected', 'socketId', 'score', 'isEliminated'],
       });
-      const preJoinGameState = await redisStore.getGameState(pin);
+      const preJoinGameState = await require('../services/sessionCheckpointService').ensureHydratedGameState(
+        pin,
+      );
       const hostRemovalBlocklist = await redisStore.getHostRemovalBlocklist(pin);
       const existingTeam = sessionTeams.find(
         (t) => normalizeTeamName(t.teamName) === normalizedTeamName,

@@ -23,6 +23,8 @@ import {
   defaultKangarooNames,
   resolveKangarooNames,
 } from '@/lib/kangarooRaceDefaults';
+import { shouldWaitForHostAudioTimer } from '@/lib/questionMedia';
+import { HostLivePreviewPanel } from '@/components/host/HostLivePreviewPanel';
 
 const API_URL = PUBLIC_API_URL;
 
@@ -323,6 +325,7 @@ function HostSidebarTile({
   onClick,
   disabled,
   active,
+  highlight,
   icon,
   'data-node-id': dataNodeId,
 }: {
@@ -330,6 +333,7 @@ function HostSidebarTile({
   onClick?: () => void;
   disabled?: boolean;
   active?: boolean;
+  highlight?: boolean;
   icon: React.ReactNode;
   'data-node-id'?: string;
 }) {
@@ -341,10 +345,13 @@ function HostSidebarTile({
       disabled={disabled}
       className={cn(
         'flex h-27.75 w-38 flex-col items-center justify-center gap-2 rounded-xl border px-2 text-center text-sm font-medium text-white shadow-[inset_0_0_24px_rgba(0,217,255,0.06)] transition hover:border-[rgba(0,217,255,0.55)] disabled:cursor-not-allowed disabled:opacity-35',
-        'bg-[linear-gradient(180deg,rgba(30,36,58,0.95)_0%,rgba(15,20,32,0.98)_100%)]',
-        active
-          ? 'border-[rgba(0,217,255,0.55)] shadow-[0_0_16px_rgba(0,217,255,0.15)]'
-          : 'border-[rgba(0,217,255,0.3)]',
+        highlight
+          ? 'border-[rgba(103,6,171,0.65)] bg-[linear-gradient(180deg,rgba(80,40,140,0.95)_0%,rgba(40,20,80,0.98)_100%)] shadow-[0_0_20px_rgba(103,6,171,0.25)]'
+          : 'bg-[linear-gradient(180deg,rgba(30,36,58,0.95)_0%,rgba(15,20,32,0.98)_100%)]',
+        !highlight &&
+          (active
+            ? 'border-[rgba(0,217,255,0.55)] shadow-[0_0_16px_rgba(0,217,255,0.15)]'
+            : 'border-[rgba(0,217,255,0.3)]'),
       )}
     >
       <span className="flex size-[50px] items-center justify-center text-[#00d9ff] [&>svg]:h-10 [&>svg]:w-10">
@@ -428,6 +435,7 @@ function HostDashboardContent() {
   const [editScoreTeamId, setEditScoreTeamId] = useState<number | null>(null);
   const [editScoreValue, setEditScoreValue] = useState('');
   const [showRegisteredTeams, setShowRegisteredTeams] = useState(false);
+  const [livePreviewOpen, setLivePreviewOpen] = useState(false);
   const [showRoundIntroductionModal, setShowRoundIntroductionModal] = useState(false);
   const [kangarooNames, setKangarooNames] = useState<string[]>(defaultKangarooNames());
   const [kangarooVenueReady, setKangarooVenueReady] = useState(false);
@@ -550,7 +558,6 @@ function HostDashboardContent() {
     isScoreboardVisible,
   ]);
 
-  const isMusicRound = currentQuestion?.roundType === 'MUSIC';
   // Mute the question-timer tick/buzz while a mini-game is on the venue. The
   // server keeps the underlying question timer ticking (so the host can resume
   // mid-question once the mini-game ends), but the audible tick during a
@@ -631,7 +638,10 @@ function HostDashboardContent() {
           const qs = data.questionState || 'WAITING';
           if (data.state === 'QUESTION' && qs === 'ACTIVE' && timerRemainingRef.current > 0) {
             const round = data.rounds?.[data.currentRoundIndex ?? 0];
-            const isMusic = String(round?.type || '').toUpperCase() === 'MUSIC';
+            const q =
+              data.currentQuestion?.question ||
+              round?.questions?.[data.currentQuestionIndex ?? 0];
+            const isMusic = shouldWaitForHostAudioTimer(round?.type, q);
             // Non-music timers auto-start; timer_update ticks are authoritative while counting.
             if (!isMusic) return prevPaused;
           }
@@ -641,7 +651,10 @@ function HostDashboardContent() {
           const qs = data.questionState || 'WAITING';
           const trNum = qs === 'REVEALED' ? 0 : Number(data.timerRemaining ?? 0);
           const round = data.rounds?.[data.currentRoundIndex ?? 0];
-          const isMusic = (round?.type || '') === 'MUSIC';
+          const q =
+            data.currentQuestion?.question ||
+            round?.questions?.[data.currentQuestionIndex ?? 0];
+          const isMusic = shouldWaitForHostAudioTimer(round?.type, q);
           const musicAwaiting =
             isMusic && qs === 'ACTIVE' && data.timerRunning === false && trNum > 0;
           const replayLocked =
@@ -777,7 +790,7 @@ function HostDashboardContent() {
       setTimerPaused(
         typeof data.timerRunning === 'boolean'
           ? !data.timerRunning
-          : (data.roundType || '').toUpperCase() === 'MUSIC',
+          : shouldWaitForHostAudioTimer(data.roundType, data.question),
       );
       const incomingQuestionIndex = Number.isFinite(Number(data.questionIndex))
         ? Number(data.questionIndex)
@@ -1351,7 +1364,10 @@ function HostDashboardContent() {
           if (qs === 'ACTIVE') {
             const tr = Number(timerRemainingRef.current ?? 0);
             const round = gs.rounds?.[gs.currentRoundIndex ?? 0];
-            const isMusic = (round?.type || '') === 'MUSIC';
+            const isMusic = shouldWaitForHostAudioTimer(
+              round?.type,
+              gs.currentQuestion?.question || currentQuestion?.question,
+            );
             const musicAwaitingHostTimer =
               isMusic && timerPausedRef.current && Number.isFinite(tr) && tr > 0;
             const allowPlay = musicAwaitingHostTimer || tr > 0;
@@ -1493,6 +1509,7 @@ function HostDashboardContent() {
     }
   };
   const handleAdvanceRound = () => emit('advance_round');
+  const handleSkipQuestion = () => emit('skip_question');
   const handleStartBreak = () => {
     if (state === 'LOBBY' || state === 'FINAL_RESULTS' || state === 'BREAK') return;
     emit('start_break');
@@ -1804,7 +1821,10 @@ function HostDashboardContent() {
 
     const s = gameState?.state || 'LOBBY';
     const qs = gameState?.questionState || 'WAITING';
-    const isMusic = currentQuestion?.roundType === 'MUSIC';
+    const isMusic = shouldWaitForHostAudioTimer(
+      currentQuestion?.roundType,
+      currentQuestion?.question,
+    );
     const musicAwaiting =
       Boolean(isMusic) && s === 'QUESTION' && qs === 'ACTIVE' && timerPaused && timerRemaining > 0;
     const replayLocked =
@@ -2043,6 +2063,13 @@ function HostDashboardContent() {
   // automatically once the mini-game finish action resets activeMiniGameLocal.
   const miniGameLive =
     activeMiniGameLocal === 'kangaroo_race' || activeMiniGameLocal === 'card_shuffle';
+  const canSkipQuestion =
+    state === 'QUESTION' &&
+    questionState !== 'REVEALED' &&
+    !miniGameLive &&
+    activeMiniGameLocal == null &&
+    !miniGameLoading &&
+    !cardShuffleFinishedHold;
 
   useLayoutEffect(() => {
     if (!hostMediaReplayLocked) return;
@@ -2194,6 +2221,24 @@ function HostDashboardContent() {
           className="w-full shrink-0 border-white/10 bg-[linear-gradient(180deg,rgba(20,26,42,0.6)_0%,#0b0f1a_100%)] px-4 py-6 lg:w-[min(100%,350px)] lg:border-r"
         >
           <div className="space-y-10">
+            <section data-name="Director Tools Panel">
+              <HostPanelTitle>Director Tools</HostPanelTitle>
+              <div className="grid grid-cols-2 gap-3">
+                <HostSidebarTile
+                  label="Live Preview"
+                  highlight={livePreviewOpen}
+                  active={livePreviewOpen}
+                  disabled={!gameState || gameState.state === 'LOBBY' || gameState.state === 'FINAL_RESULTS'}
+                  icon={
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                      <circle cx="12" cy="12" r="3" />
+                    </svg>
+                  }
+                  onClick={() => setLivePreviewOpen((o) => !o)}
+                />
+              </div>
+            </section>
             <section data-name="Team Management Panel" data-node-id="232:4462">
               <HostPanelTitle data-node-id="232:4463">Team Management</HostPanelTitle>
               <div
@@ -3386,6 +3431,26 @@ function HostDashboardContent() {
               Next Question
               {/* {showRevealAnswerAction ? 'Reveal Answer' : 'Next Question'} */}
             </HostFooterBtn>
+            <HostFooterBtn
+              icon={
+                <svg viewBox="0 0 24 24" fill="currentColor" className="text-[#00d9ff]">
+                  <path d="M6 6h2v12H6V6zm10 0h2v12h-2V6z" />
+                </svg>
+              }
+              disabled={!canSkipQuestion}
+              onClick={handleSkipQuestion}
+            >
+              Skip Question
+            </HostFooterBtn>
+            {state === 'ROUND_END' ? (
+              <HostFooterBtn emphasis icon={
+                <svg viewBox="0 0 24 24" fill="currentColor" className="text-[#00d9ff]">
+                  <path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z" />
+                </svg>
+              } onClick={handleAdvanceRound}>
+                Skip Round
+              </HostFooterBtn>
+            ) : null}
             {timerPausedAwaitingResume ? (
               <HostFooterBtn
                 emphasis
@@ -3468,6 +3533,14 @@ function HostDashboardContent() {
           </p>
         </footer>
       ) : null}
+
+      <HostLivePreviewPanel
+        open={livePreviewOpen}
+        onClose={() => setLivePreviewOpen(false)}
+        pin={pin}
+        socket={socket}
+        currentQuestionIndex={gameState?.currentQuestionIndex ?? 0}
+      />
 
       {/* ═══════ MODALS ═══════ */}
       {showRegisteredTeams ? (

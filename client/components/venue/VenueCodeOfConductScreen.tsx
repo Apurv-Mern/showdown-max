@@ -1,56 +1,96 @@
 'use client';
 
-import { cn } from '@/lib/utils';
-
 const RULES = [
-  { number: 1, text: 'NO CHEATING ALLOWED', bar: 'from-[#ff2d2d] via-[#e81919] to-[#c40f0f]', shadow: 'shadow-[0_0_18px_rgba(255,45,45,0.45)]' },
-  { number: 2, text: 'NOT NECESSARY ANYWAYS', bar: 'from-[#ffb020] via-[#f59e0b] to-[#d97706]', shadow: 'shadow-[0_0_18px_rgba(255,176,32,0.4)]' },
-  { number: 3, text: 'HOST IS ALWAYS RIGHT', bar: 'from-[#22c55e] via-[#16a34a] to-[#15803d]', shadow: 'shadow-[0_0_18px_rgba(34,197,94,0.4)]' },
+  {
+    number: 1,
+    text: 'NO CHEATING ALLOWED DURNING GAMESHOW',
+    accent: '#0085FF',
+    numberFrom: '#0085FF',
+    numberTo: '#002BB5',
+  },
+  {
+    number: 2,
+    text: 'NOT NECCESSARY ANYWAY, PLAYERS ARE SMART ENOUGH',
+    accent: '#FF6F00',
+    numberFrom: '#FF6F00',
+    numberTo: '#994200',
+  },
+  {
+    number: 3,
+    text: 'HOST IS ALWAYS RIGHT, EVEN IF HE/SHE NEVER STARTS ON TIME',
+    accent: '#38FF00',
+    numberFrom: '#38FF00',
+    numberTo: '#007B00',
+  },
+  {
+    number: 4,
+    text: 'BRIBES ALLOWED (CASH AND MAJOR CREDIT CARDS ACCEPTED)',
+    accent: '#FFCC00',
+    numberFrom: '#FFCC00',
+    numberTo: '#FFA600',
+  },
 ] as const;
-
-function ConductRuleBar({ number, text, bar, shadow }: { number: number; text: string; bar: string; shadow: string }) {
-  return (
-    <div
-      className={cn(
-        'flex w-full max-w-[min(920px,94vw)] items-center gap-3 rounded-full border border-white/25 bg-linear-to-r px-4 py-3 sm:gap-4 sm:px-5 sm:py-3.5',
-        bar,
-        shadow,
-      )}
-    >
-      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border-2 border-[#1e3a8a] bg-[#1d4ed8] text-lg font-black text-white sm:h-11 sm:w-11 sm:text-xl">
-        {number}
-      </div>
-      <p className="min-w-0 flex-1 text-left text-[clamp(1rem,2.2vw,1.65rem)] font-black uppercase leading-tight tracking-wide text-white">
-        {text}
-      </p>
-    </div>
-  );
-}
 
 export function VenueCodeOfConductScreen() {
   return (
-    <div className="flex h-full min-h-0 w-full animate-fadeIn flex-col px-4 py-4 sm:px-8 sm:py-6 md:px-12">
-      <header className="shrink-0 flex justify-center">
+    <section
+      className="absolute inset-0 z-20 animate-fadeIn overflow-hidden"
+      aria-labelledby="venue-code-of-conduct-title"
+    >
+      <img
+        src="/venue-splash.png"
+        alt=""
+        className="absolute inset-0 h-full w-full object-cover object-center"
+        draggable={false}
+      />
+
+      <div className="relative z-10 flex h-full w-full flex-col items-center px-[6%] py-[3%]">
+        <h1 id="venue-code-of-conduct-title" className="sr-only">
+          Code of Conduct
+        </h1>
         <img
           src="/coc.png"
-          alt="Code of Conduct"
-          className="w-full max-w-[min(920px,94vw)] object-contain drop-shadow-[0_0_22px_rgba(0,217,255,0.35)]"
+          alt=""
+          className="h-auto w-[min(68vw,1180px)] shrink-0 object-contain drop-shadow-[0_8px_18px_rgba(0,0,0,0.55)]"
           draggable={false}
         />
-      </header>
-      <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-4 py-6 sm:gap-5 md:py-8">
-        {RULES.map((rule) => (
-          <ConductRuleBar key={rule.number} {...rule} />
-        ))}
-      </div>
-      <footer className="flex shrink-0 justify-center pb-2">
+
+        <ol className="mt-[3.2vh] flex w-full max-w-[min(52vw,980px)] flex-col gap-[2.4vh]">
+          {RULES.map((rule) => (
+            <li
+              key={rule.number}
+              className="relative isolate flex h-[min(9.2vh,100px)] w-full items-center overflow-hidden rounded-full"
+              style={{
+                background: 'linear-gradient(180deg, #00072F 0%, #00010A 100%)',
+                border: `3px solid ${rule.accent}`,
+                boxShadow: `0 0 14px ${rule.accent}`,
+              }}
+            >
+              <div
+                className="absolute inset-y-0 left-0 w-[102px] rounded-l-full"
+                style={{
+                  background: `linear-gradient(180deg, ${rule.numberFrom} 0%, ${rule.numberTo} 100%)`,
+                }}
+              />
+              <div className="relative z-10 ml-[16px] flex size-[70px] shrink-0 items-center justify-center rounded-full bg-[#000027] shadow-[0_0_8px_#00D0FF]">
+                <span className="text-[40px] font-extrabold leading-none text-white [text-shadow:0_2px_4px_rgba(0,0,0,0.5)]">
+                  {rule.number}
+                </span>
+              </div>
+              <p className="relative z-10 ml-6 mr-6 min-w-0 flex-1 text-[clamp(1.05rem,1.55vw,1.875rem)] font-extrabold uppercase leading-tight text-white [text-shadow:0_2px_4px_rgba(0,0,0,0.5)]">
+                {rule.text}
+              </p>
+            </li>
+          ))}
+        </ol>
+
         <img
           src="/logo.png"
-          alt="Max Showdown Trivia"
-          className="h-auto w-[min(380px,48vw)] object-contain drop-shadow-[0_8px_32px_rgba(0,0,0,0.45)]"
+          alt="Max Showdown Live"
+          className="mt-auto h-auto w-[min(32vw,607px)] shrink-0 object-contain drop-shadow-[0_8px_28px_rgba(0,0,0,0.55)]"
           draggable={false}
         />
-      </footer>
-    </div>
+      </div>
+    </section>
   );
 }

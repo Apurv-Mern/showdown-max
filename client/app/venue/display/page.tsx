@@ -32,6 +32,7 @@ import {
   defaultKangarooNames,
   resolveKangarooNames,
 } from '@/lib/kangarooRaceDefaults';
+import { shouldWaitForHostAudioTimer } from '@/lib/questionMedia';
 import { LeaderboardScreen } from '@/components/shared/LeaderboardScreen';
 import { RoundEndScreen } from '@/components/shared/RoundEndScreen';
 import { GameshowEndScreen } from '@/components/shared/GameshowEndScreen';
@@ -565,13 +566,13 @@ function VenueDisplayContent() {
     return [...byId.values()].sort((a, b) => b.score - a.score);
   }, [phase, scoreboard, teams]);
 
-  const isMusicRound = question?.roundType === 'MUSIC';
-  // Mute the question-timer tick/buzz while a mini-game is on the venue, so the
-  // host launching Kangaroo Race / Card Shuffle mid-question doesn't have the
-  // ticking competing with the mini-game audio/UI on the projector.
+  const muteTimerSound =
+    shouldWaitForHostAudioTimer(question?.roundType, question?.question) ||
+    phase === 'mini_game' ||
+    phase === 'mini_game_result';
   useTimerSound({
     enabled: phase === 'question',
-    muted: isMusicRound || phase === 'mini_game' || phase === 'mini_game_result',
+    muted: muteTimerSound,
     timerRemaining,
     timerDuration,
     timerRunning,
@@ -1439,7 +1440,7 @@ function VenueDisplayContent() {
       setTimerRunning(
         typeof data.timerRunning === 'boolean'
           ? data.timerRunning
-          : (data.roundType || '').toUpperCase() === 'MUSIC'
+          : shouldWaitForHostAudioTimer(data.roundType, data.question)
             ? false
             : true,
       );

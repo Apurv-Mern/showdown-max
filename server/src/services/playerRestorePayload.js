@@ -462,7 +462,7 @@ const buildPlayerHttpRestore = async (pin, teamId) => {
     return { ok: false, status: 404, message: 'Team not found for this session' };
   }
 
-  let gameState = await redisStore.getGameState(pin);
+  let gameState = await require('./sessionCheckpointService').ensureHydratedGameState(pin);
   const normalizedTeamName = normalizeTeamName(team.teamName);
   const wasRemovedByHost =
     Array.isArray(gameState?.removedTeamNames) &&

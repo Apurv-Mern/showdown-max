@@ -44,6 +44,11 @@ module.exports = (sequelize) => {
       allowNull: false,
       defaultValue: 'pending',
     },
+    liveCheckpoint: {
+      type: DataTypes.JSON,
+      allowNull: true,
+      comment: 'Durable live game snapshot for crash/power-loss resume',
+    },
   }, {
     tableName: 'sessions',
     timestamps: true,

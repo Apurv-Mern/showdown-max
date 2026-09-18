@@ -125,7 +125,9 @@ const venueHandlers = (io, socket) => {
       socket.join(`session:${pin}`);
       socket.data = { pin, role: 'venue' };
 
-      let gameState = await redisStore.getGameState(pin);
+      let gameState = await require('../services/sessionCheckpointService').ensureHydratedGameState(
+        pin,
+      );
       if (gameState) {
         if (!Number.isFinite(Number(gameState.maxTeams)) || Number(gameState.maxTeams) <= 0) {
           const session = await Session.findOne({ where: { pin } });
@@ -174,7 +176,9 @@ const venueHandlers = (io, socket) => {
       socket.join(`session:${pin}`);
       socket.data = { pin, role: 'host' };
 
-      let gameState = await redisStore.getGameState(pin);
+      let gameState = await require('../services/sessionCheckpointService').ensureHydratedGameState(
+        pin,
+      );
       if (gameState) {
         if (!Number.isFinite(Number(gameState.maxTeams)) || Number(gameState.maxTeams) <= 0) {
           const session = await Session.findOne({ where: { pin } });

@@ -1,21 +1,22 @@
 const { SCORING } = require('shared/constants/scoring');
+const { isUnanswered } = require('../unanswered');
 
 /**
- * Wager (standard): +wager if correct, -wager if incorrect. Wager 0–50.
+ * Wager (standard): +wager if correct, -wager if incorrect or unanswered. Wager 0–50.
  */
 const calculate = ({ question, responses }) => {
   const scores = {};
   const correctIndex = question.options.findIndex((o) => o.isCorrect);
 
+  const clampWager = (raw) =>
+    Math.min(Math.max(Number(raw) || 0, SCORING.WAGER.MIN), SCORING.WAGER.MAX);
+
   for (const [teamId, response] of Object.entries(responses)) {
-    if (!response || Number(response.selectedOptionIndex) < 0) {
-      scores[teamId] = 0;
+    const wager = clampWager(response?.wagerAmount);
+    if (isUnanswered(response, question)) {
+      scores[teamId] = -wager;
       continue;
     }
-    const wager = Math.min(
-      Math.max(response.wagerAmount || 0, SCORING.WAGER.MIN),
-      SCORING.WAGER.MAX,
-    );
     const isCorrect = Number(response.selectedOptionIndex) === correctIndex;
     scores[teamId] = isCorrect ? wager : -wager;
   }

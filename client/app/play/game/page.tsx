@@ -30,6 +30,7 @@ import {
   resolveBreakUpNextLabelFromBreakStart,
 } from '@/lib/breakScreenCopy';
 import { PUBLIC_API_URL } from '@/lib/env';
+import { shouldWaitForHostAudioTimer } from '@/lib/questionMedia';
 import {
   appendSnapshotReplay,
   applyPlayerRestoreBundle,
@@ -180,7 +181,7 @@ function isWagerRoundType(roundType?: string | null): boolean {
   return rt === 'WAGER' || rt === 'FINAL_WAGER';
 }
 
-/** QUESTION state: late joiners must lock wager before question / reveal / answered UI. */
+/** QUESTION state: wager lock is only required before the host opens the question. */
 function pickQuestionPlayerPhase(opts: {
   roundType?: string;
   hasLockedWager: boolean;
@@ -190,8 +191,12 @@ function pickQuestionPlayerPhase(opts: {
   eliminated: boolean;
 }): GamePhase {
   if (opts.eliminated) return 'eliminated';
-  if (isWagerRoundType(opts.roundType) && !opts.hasLockedWager) return 'wager_input';
-  if ((opts.questionState || '').toUpperCase() === 'REVEALED') {
+  const qs = (opts.questionState || '').toUpperCase();
+  const questionHasStarted = qs === 'ACTIVE' || qs === 'REVEALED';
+  if (isWagerRoundType(opts.roundType) && !opts.hasLockedWager && !questionHasStarted) {
+    return 'wager_input';
+  }
+  if (qs === 'REVEALED') {
     if (opts.hasRevealData) return 'reveal';
     if (hasSelectionIdx(opts.restoredIdx)) return 'answered';
     return 'question';
@@ -200,7 +205,13 @@ function pickQuestionPlayerPhase(opts: {
   return 'question';
 }
 
-function teamNeedsWagerLockScreen(roundType?: string, hasLockedWager?: boolean): boolean {
+function teamNeedsWagerLockScreen(
+  roundType?: string,
+  hasLockedWager?: boolean,
+  questionState?: string,
+): boolean {
+  const qs = (questionState || '').toUpperCase();
+  if (qs === 'ACTIVE' || qs === 'REVEALED') return false;
   return isWagerRoundType(roundType) && !hasLockedWager;
 }
 
@@ -916,7 +927,7 @@ export default function GamePage() {
         setTimerRunning(running);
         const td = Number(data.timerDuration ?? 30) || 30;
         const tr = coerced.remaining;
-        const isMusicRound = (data.roundType || '').toUpperCase() === 'MUSIC';
+        const isMusicRound = shouldWaitForHostAudioTimer(data.roundType, data.question);
         if (isMusicRound) {
           setMusicVenuePlaybackStarted(running || (tr > 0 && tr < td));
         } else {
@@ -950,13 +961,15 @@ export default function GamePage() {
               { currentQuestionLocked: data.lockedWagerAmount },
             );
             hasLockedWager = hasLocked;
-            wagerLockRequiredRef.current = !hasLocked;
             if (hasLocked && amount != null) {
+              wagerLockRequiredRef.current = false;
               setWagerAmount(amount);
               setWagerSubmitted(true);
             } else {
-              setWagerAmount(initialWagerAmountForRoundType(data.roundType));
-              setWagerSubmitted(false);
+              hasLockedWager = true;
+              wagerLockRequiredRef.current = false;
+              setWagerAmount(0);
+              setWagerSubmitted(true);
             }
           }
 
@@ -1153,7 +1166,10 @@ export default function GamePage() {
           setTimerRunning(running);
           const td = Number(gs.currentQuestion.timerDuration ?? 30) || 30;
           const tr = coerced.remaining;
-          const isMusicRound = (gs.currentQuestion.roundType || '').toUpperCase() === 'MUSIC';
+          const isMusicRound = shouldWaitForHostAudioTimer(
+            gs.currentQuestion.roundType,
+            gs.currentQuestion.question,
+          );
           if (isMusicRound) {
             setMusicVenuePlaybackStarted(running || (tr > 0 && tr < td));
           } else {
@@ -1208,7 +1224,10 @@ export default function GamePage() {
             },
           );
           const isWagerQuestionRound = isWagerRoundType(gs.currentQuestion.roundType);
-          wagerLockRequiredRef.current = isWagerQuestionRound && !hasLockedWager;
+          const questionHasStarted =
+            gs.questionState === 'ACTIVE' || gs.questionState === 'REVEALED';
+          wagerLockRequiredRef.current =
+            isWagerQuestionRound && !hasLockedWager && !questionHasStarted;
           if (isWagerQuestionRound) {
             if (hasLockedWager && lockedWagerAmount != null) {
               setWagerAmount(lockedWagerAmount);
@@ -1232,6 +1251,10 @@ export default function GamePage() {
                   socket.emit('submit_wager', { amount: resubmitAmount });
                 });
               }
+            } else if (questionHasStarted) {
+              setWagerAmount(0);
+              setWagerSubmitted(true);
+              wagerLockRequiredRef.current = false;
             } else {
               setWagerSubmitted(false);
               const { amount: draftAmount, draftMeta } = resolveUnlockedWagerAmount(
@@ -1324,6 +1347,7 @@ export default function GamePage() {
             const needsWagerLock = teamNeedsWagerLockScreen(
               gs.currentQuestion.roundType,
               hasLockedWager,
+              gs.questionState,
             );
             if (needsWagerLock) {
               setSelectedOption(null);
@@ -1609,11 +1633,16 @@ export default function GamePage() {
       const nextQid = data.question?.id;
       const sameQuestion =
         prevQid != null && nextQid != null && Number(prevQid) === Number(nextQid);
+      const submissionReset = Boolean(
+        (data as { submissionReset?: boolean }).submissionReset,
+      );
 
-      if (!sameQuestion) {
+      if (!sameQuestion || submissionReset) {
         setRevealData(null);
-        setWagerCollectionCategory(null);
-        setPointsGained(null);
+        if (!sameQuestion) {
+          setWagerCollectionCategory(null);
+          setPointsGained(null);
+        }
       }
 
       setQuestion(data);
@@ -1628,7 +1657,7 @@ export default function GamePage() {
       const running = Boolean(data.timerRunning);
       setTimerRunning(running);
       const td = Number(data.timerDuration ?? 30) || 30;
-      const isMusicRound = (data.roundType || '').toUpperCase() === 'MUSIC';
+      const isMusicRound = shouldWaitForHostAudioTimer(data.roundType, data.question);
       if (isMusicRound) {
         setMusicVenuePlaybackStarted(running || (coerced.remaining > 0 && coerced.remaining < td));
       } else {
@@ -1642,7 +1671,12 @@ export default function GamePage() {
         Object.prototype.hasOwnProperty.call(data, 'mySubmittedOptionIndex');
 
       let restored: number | number[] | null = null;
-      if (hasMineKey) {
+      if (submissionReset) {
+        answerRestoreRef.current = { qid: '', idx: null };
+        if (session.pin && session.teamId != null && nextQidStr) {
+          clearAnswerDraftsForTeam(session.pin, Number(session.teamId));
+        }
+      } else if (hasMineKey) {
         restored = parseSubmittedIdxFromMineRaw(data.mySubmittedOptionIndex);
         if (nextQidStr) {
           answerRestoreRef.current = { qid: nextQidStr, idx: restored };
@@ -1651,7 +1685,7 @@ export default function GamePage() {
         restored = answerRestoreRef.current.idx;
       }
 
-      setSelectedOption(dead ? null : restored);
+      setSelectedOption(dead || submissionReset ? null : restored);
 
       const isWagerQuestion = isWagerRoundType(data.roundType);
       let hasLockedWager = true;
@@ -1670,8 +1704,8 @@ export default function GamePage() {
           },
         );
         hasLockedWager = hasLocked;
-        wagerLockRequiredRef.current = !hasLocked;
         if (hasLocked && amount != null) {
+          wagerLockRequiredRef.current = false;
           setWagerAmount(amount);
           setWagerSubmitted(true);
           if (session.pin && session.teamId != null && data.question?.id != null) {
@@ -1683,8 +1717,11 @@ export default function GamePage() {
             );
           }
         } else {
-          setWagerSubmitted(false);
-          setWagerAmount(initialWagerAmountForRoundType(data.roundType));
+          // Host started the question without this team locking — default 0 and show the question.
+          hasLockedWager = true;
+          wagerLockRequiredRef.current = false;
+          setWagerAmount(0);
+          setWagerSubmitted(true);
         }
       }
 
@@ -1712,14 +1749,14 @@ export default function GamePage() {
     }) => {
       if (typeof data.timerRunning === 'boolean') {
         setTimerRunning(data.timerRunning);
-        if (data.timerRunning && (questionRef.current?.roundType || '').toUpperCase() === 'MUSIC') {
+        if (data.timerRunning && shouldWaitForHostAudioTimer(questionRef.current?.roundType, questionRef.current?.question)) {
           setMusicVenuePlaybackStarted(true);
         }
       } else if (data.paused === true) {
         setTimerRunning(false);
       } else if (data.paused === false) {
         setTimerRunning(true);
-        if ((questionRef.current?.roundType || '').toUpperCase() === 'MUSIC') {
+        if (shouldWaitForHostAudioTimer(questionRef.current?.roundType, questionRef.current?.question)) {
           setMusicVenuePlaybackStarted(true);
         }
       }
@@ -1740,11 +1777,7 @@ export default function GamePage() {
 
     const onAnswerReveal = (data: RevealData) => {
       setHasInitialState(true);
-      if (wagerLockRequiredRef.current) {
-        setTimerRunning(false);
-        setPhase('wager_input');
-        return;
-      }
+      wagerLockRequiredRef.current = false;
       revealDataRef.current = data;
       setRevealData(data);
       setTimerRunning(false);
@@ -2002,7 +2035,7 @@ export default function GamePage() {
               questionWagers: wagerSourcesRef.current.questionWagers,
             },
           );
-          if (teamNeedsWagerLockScreen(q.roundType, hasLockedWager)) {
+          if (teamNeedsWagerLockScreen(q.roundType, hasLockedWager, 'REVEALED')) {
             setPhase('wager_input');
           } else {
             setPhase('reveal');
@@ -2334,7 +2367,7 @@ export default function GamePage() {
   }, [phase, wagerSubmitted, roundInfo?.round?.type, wagerAmount]);
 
   const myRank = scoreboard.findIndex((t) => t.teamId === session.teamId) + 1;
-  const isMusicQuestion = (question?.roundType || '').toUpperCase() === 'MUSIC';
+  const isMusicQuestion = shouldWaitForHostAudioTimer(question?.roundType, question?.question);
   const isAnswerSelectionLocked =
     selectedOption !== null ||
     isEliminatedRef.current ||
@@ -2351,7 +2384,7 @@ export default function GamePage() {
     selectedOption === null;
 
   const questionMusicBanner: 'none' | 'waiting' | 'playing' = (() => {
-    if (!question || (question.roundType || '').toUpperCase() !== 'MUSIC') return 'none';
+    if (!question || !shouldWaitForHostAudioTimer(question.roundType, question.question)) return 'none';
     if (phase !== 'question' && phase !== 'answered') return 'none';
     // Once the answer is on its way / revealed, never show "Waiting for host to play music" —
     // even if the player UI hasn't transitioned to the reveal phase yet (race between

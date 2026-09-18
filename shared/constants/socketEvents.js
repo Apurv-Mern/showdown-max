@@ -37,6 +37,12 @@ const SOCKET_EVENTS = Object.freeze({
   DISMISS_WELCOME: 'dismiss_welcome',
   /** Host: advance pre-game lobby on venue + players (registration → CoC → practice). */
   ADVANCE_LOBBY: 'advance_lobby',
+  /** Host: request full question list for the current round (editor preview). */
+  GET_LIVE_ROUND_PREVIEW: 'get_live_round_preview',
+  /** Host: patch question text/options during a live session. */
+  UPDATE_LIVE_QUESTION: 'update_live_question',
+  /** Host: abandon current question without scoring. */
+  SKIP_QUESTION: 'skip_question',
 
   // Server → Client
   SESSION_STATE: 'session_state',
@@ -73,6 +79,8 @@ const SOCKET_EVENTS = Object.freeze({
   VENUE_WELCOME_DISMISS: 'venue_welcome_dismiss',
   /** Server -> clients: pre-game lobby phase changed on venue/players. */
   VENUE_LOBBY_PHASE: 'venue_lobby_phase',
+  /** Server -> host: current round questions with full options for live preview editor. */
+  LIVE_ROUND_PREVIEW: 'live_round_preview',
 
   // Errors
   ERROR: 'error',

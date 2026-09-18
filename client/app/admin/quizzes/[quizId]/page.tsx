@@ -415,10 +415,12 @@ export default function QuizDetailPage() {
         if (fileInputRef.current) fileInputRef.current.value = '';
         return;
       }
-    } else if (isAudioOrVideo) {
-      toast.error(
-        'Audio and video files (including MP3 and MP4) are only allowed for Music rounds',
-      );
+    } else if (looksMp4 || (fileType.startsWith('video/') && !looksMp3)) {
+      toast.error('MP4 attachments are only allowed for Music rounds');
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      return;
+    } else if (isAudioOrVideo && !looksMp3) {
+      toast.error('This round type allows MP3 audio or image files');
       if (fileInputRef.current) fileInputRef.current.value = '';
       return;
     }
@@ -485,11 +487,8 @@ export default function QuizDetailPage() {
       }
     }
 
-    if (
-      targetRound?.type !== 'MUSIC' &&
-      (formData.mediaType === 'mp3' || formData.mediaType === 'mp4')
-    ) {
-      toast.error('MP3 and MP4 attachments are only allowed for Music rounds');
+    if (targetRound?.type !== 'MUSIC' && formData.mediaType === 'mp4') {
+      toast.error('MP4 attachments are only allowed for Music rounds');
       return;
     }
     if (
@@ -1137,7 +1136,7 @@ export default function QuizDetailPage() {
                       accept={
                         addingRound?.type === 'MUSIC'
                           ? 'audio/mpeg,audio/mp3,.mp3,video/mp4,.mp4'
-                          : 'image/jpeg,image/png,image/gif,image/webp'
+                          : 'audio/mpeg,audio/mp3,.mp3,image/jpeg,image/png,image/gif,image/webp'
                       }
                       onChange={handleFileUpload}
                       className="hidden"
@@ -1151,7 +1150,7 @@ export default function QuizDetailPage() {
                       title={
                         addingRound?.type === 'MUSIC'
                           ? 'Music rounds: MP3 or MP4 only'
-                          : 'MP3 and MP4 files are only allowed for Music rounds'
+                          : 'MP3 audio or image files'
                       }
                     >
                       {uploading ? 'Uploading...' : '📎 Upload File'}
@@ -1159,7 +1158,7 @@ export default function QuizDetailPage() {
                     <span className="text-xs text-foreground/30 self-center">
                       {addingRound?.type === 'MUSIC'
                         ? 'MP3 or MP4 only'
-                        : 'JPG, PNG, GIF, or WebP only'}
+                        : 'MP3, JPG, PNG, GIF, or WebP'}
                     </span>
                   </div>
                 )}

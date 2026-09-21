@@ -23,7 +23,7 @@ const MOBILE_BG = "url('/Mobile_BG.png')";
 export default function LobbyPage() {
   const router = useRouter();
   const { socket } = useSocket();
-  const { session, clearSession } = usePlayerSession();
+  const { session, setSession, clearSession } = usePlayerSession();
   const [showExitConfirm, setShowExitConfirm] = useState(false);
   const [lobbyPhase, setLobbyPhase] = useState<LobbyPhase>('registration');
 
@@ -61,6 +61,11 @@ export default function LobbyPage() {
 
     const handleSessionState = (data: any) => {
       const gameState = data?.gameState ?? data;
+      // The join reply carries the server's current team name — adopt it so a host rename
+      // made while we were in the lobby doesn't linger in sessionStorage.
+      if (data?.teamName && String(data.teamName) !== session.teamName) {
+        setSession({ teamName: String(data.teamName) });
+      }
       if (gameState?.activeMiniGame) {
         router.push(`/play/mini-game?game=${encodeURIComponent(String(gameState.activeMiniGame))}`);
         return;
@@ -75,6 +80,15 @@ export default function LobbyPage() {
       if (data?.phase) setLobbyPhase(resolveLobbyPhase(data.phase));
     };
 
+    const handleTeamUpdated = (data: { teamId?: number; teamName?: string; score?: number }) => {
+      if (Number(data?.teamId) !== Number(session.teamId)) return;
+      const teamName = String(data?.teamName ?? '').trim();
+      setSession({
+        ...(teamName ? { teamName } : {}),
+        ...(Number.isFinite(Number(data?.score)) ? { score: Number(data.score) } : {}),
+      });
+    };
+
     socket.on('round_intro', handleRoundIntro);
     socket.on('question_active', handleQuestionActive);
     socket.on('mini_game_start', handleMiniGameStart);
@@ -82,6 +96,7 @@ export default function LobbyPage() {
     socket.on('game_end', handleGameEnd);
     socket.on('session_state', handleSessionState);
     socket.on('venue_lobby_phase', handleVenueLobbyPhase);
+    socket.on('team_updated', handleTeamUpdated);
 
     socket.emit('join_session', {
       pin: session.pin,
@@ -97,8 +112,17 @@ export default function LobbyPage() {
       socket.off('game_end', handleGameEnd);
       socket.off('session_state', handleSessionState);
       socket.off('venue_lobby_phase', handleVenueLobbyPhase);
+      socket.off('team_updated', handleTeamUpdated);
     };
-  }, [socket, router, clearSession, session.pin, session.teamName, session.teamId]);
+  }, [
+    socket,
+    router,
+    clearSession,
+    setSession,
+    session.pin,
+    session.teamName,
+    session.teamId,
+  ]);
 
   const shellClassName = cn(
     'relative h-full min-h-0 w-full overflow-hidden mobile-play-bg text-center',

@@ -12,6 +12,8 @@ import { cn, toDisplayUpper } from '@/lib/utils';
 import { RoundIntroScoringLines } from '@/lib/roundIntroInstructions';
 import { RoundEndTitle } from '@/components/shared/RoundEndTitle';
 import { GameshowEndPlayerView } from '@/components/shared/GameshowEndPlayerView';
+import { LeaderboardScreen } from '@/components/shared/LeaderboardScreen';
+import { isEliminationRoundType } from '@/lib/eliminationLeaderboard';
 import {
   formatQuestionPointsAtStake,
   getStandardRoundCorrectPoints,
@@ -64,6 +66,25 @@ interface RoundEndInfo {
   roundType: string;
   nextRound: { index: number; name: string; type: string } | null;
   isFinalRound: boolean;
+}
+
+type ScoreboardTeamRow = {
+  teamId: number;
+  teamName: string;
+  score: number;
+  isEliminated?: boolean;
+};
+
+function normalizeScoreboardTeams(teams: unknown[]): ScoreboardTeamRow[] {
+  return (teams || []).map((raw) => {
+    const t = raw as Record<string, unknown>;
+    return {
+      teamId: Number(t.teamId),
+      teamName: String(t.teamName || ''),
+      score: Number(t.score ?? 0),
+      isEliminated: Boolean(t.isEliminated),
+    };
+  });
 }
 
 interface QuestionData {
@@ -801,9 +822,7 @@ export default function GamePage() {
   const [wagerCollectionCategory, setWagerCollectionCategory] = useState<string | null>(null);
   const [revealData, setRevealData] = useState<RevealData | null>(null);
   const [pointsGained, setPointsGained] = useState<number | null>(null);
-  const [scoreboard, setScoreboard] = useState<
-    { teamId: number; teamName: string; score: number }[]
-  >([]);
+  const [scoreboard, setScoreboard] = useState<ScoreboardTeamRow[]>([]);
   const [isEliminated, setIsEliminated] = useState(false);
   const [breakDuration, setBreakDuration] = useState(300);
   const [breakRemaining, setBreakRemaining] = useState(300);
@@ -845,6 +864,16 @@ export default function GamePage() {
   const ensureRevealAfterWagerLockRef = useRef<(() => void) | null>(null);
   /** Same pin+team: run local + HTTP restore only once per mount cycle (socket effect may re-run). */
   const playerRestoreGuardRef = useRef<{ pin: string; teamId: number } | null>(null);
+
+  const scoreboardEliminationStyle = useMemo(
+    () =>
+      phase === 'scoreboard' &&
+      (isEliminationRoundType(roundEndInfo?.roundType) ||
+        isEliminationRoundType(roundInfo?.round?.type) ||
+        isEliminationRoundType(question?.roundType)),
+    [phase, roundEndInfo?.roundType, roundInfo?.round?.type, question?.roundType],
+  );
+
   useEffect(() => {
     phaseRef.current = phase;
     roundEndInfoRef.current = roundEndInfo;
@@ -1058,6 +1087,11 @@ export default function GamePage() {
         const gs = data.gameState ?? data;
         if (!gs || typeof gs !== 'object' || !('state' in gs)) return;
         setHasInitialState(true);
+        // Join reply carries the server's current team name — adopt it so a rename made while
+        // this device was disconnected doesn't linger in sessionStorage.
+        if (data.teamName && String(data.teamName) !== session.teamName) {
+          setSession({ teamName: String(data.teamName) });
+        }
         if (session.pin && session.teamId != null) {
           setSnapshotSessionPayload(session.pin, Number(session.teamId), data);
         }
@@ -1093,13 +1127,9 @@ export default function GamePage() {
           if (phaseRef.current !== 'scoreboard') {
             previousPhaseBeforeScoreboardRef.current = phaseRef.current;
           }
-          const sorted = Object.values(gs.teams)
-            .sort((a: any, b: any) => Number(b.score || 0) - Number(a.score || 0))
-            .map((team: any) => ({
-              teamId: Number(team.teamId),
-              teamName: String(team.teamName || ''),
-              score: Number(team.score || 0),
-            }));
+          const sorted = normalizeScoreboardTeams(Object.values(gs.teams)).sort(
+            (a, b) => b.score - a.score,
+          );
           setScoreboard(sorted);
           setPhase('scoreboard');
           setTimerRunning(false);
@@ -1386,13 +1416,9 @@ export default function GamePage() {
           if (phaseRef.current !== 'scoreboard') {
             previousPhaseBeforeScoreboardRef.current = phaseRef.current;
           }
-          const sorted = Object.values(gs.teams)
-            .sort((a: any, b: any) => Number(b.score || 0) - Number(a.score || 0))
-            .map((team: any) => ({
-              teamId: Number(team.teamId),
-              teamName: String(team.teamName || ''),
-              score: Number(team.score || 0),
-            }));
+          const sorted = normalizeScoreboardTeams(Object.values(gs.teams)).sort(
+            (a, b) => b.score - a.score,
+          );
           setScoreboard(sorted);
           setPhase('scoreboard');
           setTimerRunning(false);
@@ -1879,7 +1905,7 @@ export default function GamePage() {
       if (phaseRef.current !== 'scoreboard') {
         previousPhaseBeforeScoreboardRef.current = phaseRef.current;
       }
-      setScoreboard(data.teams);
+      setScoreboard(normalizeScoreboardTeams(data.teams));
       setPhase('scoreboard');
       setTimerRunning(false);
       if (session.pin && session.teamId != null) {
@@ -1900,17 +1926,28 @@ export default function GamePage() {
       });
     };
 
-    const onTeamUpdated = (data: { teamId: number; score: number }) => {
+    const onTeamUpdated = (data: { teamId: number; score: number; teamName?: string }) => {
       if (!data || !Number.isFinite(Number(data.teamId))) return;
       const teamId = Number(data.teamId);
       const score = Number(data.score || 0);
+      const teamName =
+        data.teamName != null && String(data.teamName).trim() !== ''
+          ? String(data.teamName)
+          : undefined;
 
       if (session.teamId && Number(session.teamId) === teamId) {
-        setSession({ score });
+        setSession({
+          score,
+          ...(teamName ? { teamName } : {}),
+        });
       }
 
       setScoreboard((prev) =>
-        prev.map((team) => (Number(team.teamId) === teamId ? { ...team, score } : team)),
+        prev.map((team) =>
+          Number(team.teamId) === teamId
+            ? { ...team, score, ...(teamName ? { teamName } : {}) }
+            : team,
+        ),
       );
     };
 
@@ -3107,76 +3144,92 @@ export default function GamePage() {
               <motion.div
                 key="scoreboard"
                 {...pageTransition}
-                className="mt-2 flex flex-1 flex-col px-3 pb-4 pt-2 sm:mt-4 sm:px-4 md:px-6"
+                className="mt-2 flex min-h-0 flex-1 flex-col px-3 pb-4 pt-2 sm:mt-4 sm:px-4 md:px-6"
               >
-                <div className="mb-3 flex items-center justify-center gap-10 text-center sm:mb-4">
-                  <img src="/leaderboardIcon.png" alt="Leaderboard" className="h-15 w-15" />
-                  <h2 className="text-[clamp(1.75rem,6vw,3.25rem)] font-extrabold leading-none tracking-wide text-white drop-shadow-[0_0_10px_rgba(255,255,255,0.2)]">
-                    LEADERBOARD
-                  </h2>
-                  <img src="/leaderboardIcon.png" alt="Leaderboard" className="h-15 w-15" />
-                </div>
-                <motion.div
-                  variants={staggerContainer}
-                  initial="initial"
-                  animate="animate"
-                  className="flex-1 space-y-3"
-                >
-                  {scoreboard.map((team, idx) => {
-                    const isMe = team.teamId === session.teamId;
-                    return (
-                      <motion.div
-                        key={team.teamId}
-                        variants={staggerItem}
-                        className={cn(
-                          'relative flex items-center justify-between rounded-2xl border px-2 py-3 shadow-[0_0_18px_rgba(0,229,255,0.3)] sm:px-3 sm:py-4',
-                          'border-[#12ddff]/70 bg-[linear-gradient(90deg,#2d12a0_0%,#9a0dbd_100%)]',
-                          isMe &&
-                            'z-10 scale-[1.03] border-[#35f6ff] ring-4 ring-[#35f6ff] ring-offset-2 ring-offset-[#0b0524] shadow-[0_0_36px_rgba(53,246,255,0.85),0_0_72px_rgba(53,246,255,0.45)] animate-pulse-me',
-                        )}
-                      >
-                        {isMe ? (
-                          <span className="pointer-events-none absolute -top-2 right-3 rounded-full border border-[#35f6ff] bg-[#0b0524] px-2 py-[2px] text-[10px] font-black uppercase tracking-[0.18em] text-[#8af7ff] shadow-[0_0_12px_rgba(53,246,255,0.7)] sm:text-xs">
-                            You
-                          </span>
-                        ) : null}
-                        <div className="flex min-w-0 items-center gap-2 sm:gap-3">
-                          <span
+                {scoreboardEliminationStyle ? (
+                  <LeaderboardScreen
+                    teams={scoreboard}
+                    size="player"
+                    highlightTeamId={
+                      session.teamId != null ? Number(session.teamId) : null
+                    }
+                    eliminationStyle
+                    className="min-h-0 flex-1"
+                  />
+                ) : (
+                  <>
+                    <div className="mb-3 flex items-center justify-center gap-10 text-center sm:mb-4">
+                      <img src="/leaderboardIcon.png" alt="Leaderboard" className="h-15 w-15" />
+                      <h2 className="text-[clamp(1.75rem,6vw,3.25rem)] font-extrabold leading-none tracking-wide text-white drop-shadow-[0_0_10px_rgba(255,255,255,0.2)]">
+                        LEADERBOARD
+                      </h2>
+                      <img src="/leaderboardIcon.png" alt="Leaderboard" className="h-15 w-15" />
+                    </div>
+                    <motion.div
+                      variants={staggerContainer}
+                      initial="initial"
+                      animate="animate"
+                      className="flex-1 space-y-3"
+                    >
+                      {scoreboard.map((team, idx) => {
+                        const isMe = team.teamId === session.teamId;
+                        return (
+                          <motion.div
+                            key={team.teamId}
+                            variants={staggerItem}
                             className={cn(
-                              'flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border text-lg font-black sm:h-11 sm:w-11 sm:text-2xl',
-                              idx === 0 &&
-                                'border-[#ffdf7f] bg-[linear-gradient(180deg,#ffd35e_0%,#ff9f0a_100%)] text-white',
-                              idx === 1 &&
-                                'border-[#d4e4ff] bg-[linear-gradient(180deg,#b7c8e6_0%,#6f88b5_100%)] text-white',
-                              idx === 2 &&
-                                'border-[#f3b07a] bg-[linear-gradient(180deg,#df8f49_0%,#a45a21_100%)] text-white',
-                              idx > 2 && 'border-[#281d72] bg-[#100a3d] text-white',
+                              'relative flex items-center justify-between rounded-2xl border px-2 py-3 shadow-[0_0_18px_rgba(0,229,255,0.3)] sm:px-3 sm:py-4',
+                              'border-[#12ddff]/70 bg-[linear-gradient(90deg,#2d12a0_0%,#9a0dbd_100%)]',
+                              isMe &&
+                                'z-10 scale-[1.03] border-[#35f6ff] ring-4 ring-[#35f6ff] ring-offset-2 ring-offset-[#0b0524] shadow-[0_0_36px_rgba(53,246,255,0.85),0_0_72px_rgba(53,246,255,0.45)] animate-pulse-me',
                             )}
                           >
-                            {idx + 1}
-                          </span>
-                          <span
-                            className={cn(
-                              'truncate text-xl font-bold text-white sm:text-2xl md:text-3xl',
-                              isMe && 'text-[#bff8ff] drop-shadow-[0_0_8px_rgba(53,246,255,0.85)]',
-                            )}
-                          >
-                            {toDisplayUpper(team.teamName)}
-                          </span>
-                        </div>
-                        <span
-                          className={cn(
-                            'shrink-0 pl-2 text-2xl font-extrabold leading-none text-white sm:text-3xl md:text-4xl',
-                            isMe && 'text-[#bff8ff] drop-shadow-[0_0_8px_rgba(53,246,255,0.85)]',
-                          )}
-                        >
-                          {team.score >= 0 ? '+' : ''}
-                          {team.score}
-                        </span>
-                      </motion.div>
-                    );
-                  })}
-                </motion.div>
+                            {isMe ? (
+                              <span className="pointer-events-none absolute -top-2 right-3 rounded-full border border-[#35f6ff] bg-[#0b0524] px-2 py-[2px] text-[10px] font-black uppercase tracking-[0.18em] text-[#8af7ff] shadow-[0_0_12px_rgba(53,246,255,0.7)] sm:text-xs">
+                                You
+                              </span>
+                            ) : null}
+                            <div className="flex min-w-0 items-center gap-2 sm:gap-3">
+                              <span
+                                className={cn(
+                                  'flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border text-lg font-black sm:h-11 sm:w-11 sm:text-2xl',
+                                  idx === 0 &&
+                                    'border-[#ffdf7f] bg-[linear-gradient(180deg,#ffd35e_0%,#ff9f0a_100%)] text-white',
+                                  idx === 1 &&
+                                    'border-[#d4e4ff] bg-[linear-gradient(180deg,#b7c8e6_0%,#6f88b5_100%)] text-white',
+                                  idx === 2 &&
+                                    'border-[#f3b07a] bg-[linear-gradient(180deg,#df8f49_0%,#a45a21_100%)] text-white',
+                                  idx > 2 && 'border-[#281d72] bg-[#100a3d] text-white',
+                                )}
+                              >
+                                {idx + 1}
+                              </span>
+                              <span
+                                className={cn(
+                                  'truncate text-xl font-bold text-white sm:text-2xl md:text-3xl',
+                                  isMe &&
+                                    'text-[#bff8ff] drop-shadow-[0_0_8px_rgba(53,246,255,0.85)]',
+                                )}
+                              >
+                                {toDisplayUpper(team.teamName)}
+                              </span>
+                            </div>
+                            <span
+                              className={cn(
+                                'shrink-0 pl-2 text-2xl font-extrabold leading-none text-white sm:text-3xl md:text-4xl',
+                                isMe &&
+                                  'text-[#bff8ff] drop-shadow-[0_0_8px_rgba(53,246,255,0.85)]',
+                              )}
+                            >
+                              {team.score >= 0 ? '+' : ''}
+                              {team.score}
+                            </span>
+                          </motion.div>
+                        );
+                      })}
+                    </motion.div>
+                  </>
+                )}
               </motion.div>
             )}
 

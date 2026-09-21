@@ -55,9 +55,15 @@ const playerHandlers = (io, socket) => {
         pin,
       );
       const hostRemovalBlocklist = await redisStore.getHostRemovalBlocklist(pin);
-      const existingTeam = sessionTeams.find(
-        (t) => normalizeTeamName(t.teamName) === normalizedTeamName,
-      );
+      // Resolve by team id first so a host rename never orphans the device: the player app
+      // keeps the name it joined with in sessionStorage, and a name-only lookup would miss the
+      // renamed row and create a duplicate team with a fresh score.
+      const teamById =
+        reclaimTeamId != null
+          ? sessionTeams.find((t) => Number(t.id) === Number(reclaimTeamId))
+          : null;
+      const existingTeam =
+        teamById || sessionTeams.find((t) => normalizeTeamName(t.teamName) === normalizedTeamName);
       const nameMarkedRemoved =
         hostRemovalBlocklist.teamNames.includes(normalizedTeamName) ||
         (Array.isArray(preJoinGameState?.removedTeamNames) &&

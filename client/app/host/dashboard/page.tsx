@@ -1,6 +1,14 @@
 'use client';
 
-import { useEffect, useLayoutEffect, useRef, useState, useCallback, Suspense } from 'react';
+import {
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  useCallback,
+  Suspense,
+} from 'react';
 import Link from 'next/link';
 import { useSearchParams, useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
@@ -25,6 +33,13 @@ import {
 } from '@/lib/kangarooRaceDefaults';
 import { shouldWaitForHostAudioTimer } from '@/lib/questionMedia';
 import { HostLivePreviewPanel } from '@/components/host/HostLivePreviewPanel';
+import { WagerDistributionGrid } from '@/components/shared/WagerDistributionGrid';
+import { emptyWagerDistributionCounts } from '@/lib/wagerGrid';
+import {
+  eliminationLeaderboardRowClasses,
+  isEliminationRoundType,
+  prepareLeaderboardTeams,
+} from '@/lib/eliminationLeaderboard';
 
 const API_URL = PUBLIC_API_URL;
 
@@ -195,25 +210,49 @@ function resolveHostRosterCount(
   return activeCount > 0 ? activeCount : teamMapCount || Math.max(0, Number(totalTeams || 0));
 }
 
+type LiveResponsesState = {
+  correct: number;
+  incorrect: number;
+  noAnswer: number;
+  total: number;
+  correctTeamIds: number[];
+  incorrectTeamIds: number[];
+  noAnswerTeamIds: number[];
+};
+
+const emptyLiveResponseBuckets = (): Pick<
+  LiveResponsesState,
+  'correctTeamIds' | 'incorrectTeamIds' | 'noAnswerTeamIds'
+> => ({
+  correctTeamIds: [],
+  incorrectTeamIds: [],
+  noAnswerTeamIds: [],
+});
+
 /** Fresh tallies when a question opens (or resumes) with no answers yet. */
 function bootstrapLiveResponseStats(
   rosterCount: number,
   answered = 0,
-): { correct: number; incorrect: number; noAnswer: number; total: number } {
+  activeTeamIds?: number[],
+): LiveResponsesState {
   const roster = Math.max(0, rosterCount);
   const ans = Math.max(0, Math.min(roster, answered));
+  const rosterIds = (Array.isArray(activeTeamIds) ? activeTeamIds : [])
+    .map(Number)
+    .filter((id) => Number.isFinite(id));
   return {
     correct: 0,
     incorrect: 0,
     noAnswer: Math.max(0, roster - ans),
     total: Math.max(1, roster),
+    correctTeamIds: [],
+    incorrectTeamIds: [],
+    noAnswerTeamIds:
+      ans === 0 && rosterIds.length > 0 ? rosterIds : [],
   };
 }
 
-function liveStatsFromRevealPayload(
-  reveal: RevealData,
-  roundType?: string,
-): { correct: number; incorrect: number; noAnswer: number; total: number } {
+function liveStatsFromRevealPayload(reveal: RevealData, roundType?: string): LiveResponsesState {
   const rt = (roundType || '').toUpperCase();
   const isMajority = rt === 'MAJORITY_RULES';
   const correctIdx = Number(reveal.correctOptionIndex);
@@ -224,6 +263,9 @@ function liveStatsFromRevealPayload(
   let correct = 0;
   let incorrect = 0;
   let noAnswer = 0;
+  const correctTeamIds: number[] = [];
+  const incorrectTeamIds: number[] = [];
+  const noAnswerTeamIds: number[] = [];
 
   const hasValidSelection = (idx: unknown): boolean => {
     if (idx === undefined || idx === null) return false;
@@ -233,33 +275,50 @@ function liveStatsFromRevealPayload(
   };
 
   for (const r of details) {
+    const tid = Number(r.teamId);
     if (!hasValidSelection(r.selectedOptionIndex)) {
       noAnswer += 1;
+      if (Number.isFinite(tid)) noAnswerTeamIds.push(tid);
       continue;
     }
     if (isMajority) {
       const sel = Array.isArray(r.selectedOptionIndex) ? NaN : Number(r.selectedOptionIndex);
-      if (majorityWinners.has(sel)) correct += 1;
-      else incorrect += 1;
+      if (majorityWinners.has(sel)) {
+        correct += 1;
+        if (Number.isFinite(tid)) correctTeamIds.push(tid);
+      } else {
+        incorrect += 1;
+        if (Number.isFinite(tid)) incorrectTeamIds.push(tid);
+      }
     } else if (Array.isArray(r.selectedOptionIndex)) {
       const score =
         reveal.scores?.[String(r.teamId)] ??
         (reveal.scores as Record<number, number> | undefined)?.[r.teamId];
-      if (Number(score) > 0) correct += 1;
-      else incorrect += 1;
+      if (Number(score) > 0) {
+        correct += 1;
+        if (Number.isFinite(tid)) correctTeamIds.push(tid);
+      } else {
+        incorrect += 1;
+        if (Number.isFinite(tid)) incorrectTeamIds.push(tid);
+      }
     } else if (Number(r.selectedOptionIndex) === correctIdx) {
       correct += 1;
+      if (Number.isFinite(tid)) correctTeamIds.push(tid);
     } else {
       incorrect += 1;
+      if (Number.isFinite(tid)) incorrectTeamIds.push(tid);
     }
   }
 
   if (details.length === 0 && reveal.teams?.length) {
     noAnswer = reveal.teams.length;
+    for (const t of reveal.teams) {
+      if (Number.isFinite(Number(t.teamId))) noAnswerTeamIds.push(Number(t.teamId));
+    }
   }
 
   const total = Math.max(reveal.teams?.length ?? 0, details.length, correct + incorrect + noAnswer);
-  return { correct, incorrect, noAnswer, total };
+  return { correct, incorrect, noAnswer, total, correctTeamIds, incorrectTeamIds, noAnswerTeamIds };
 }
 
 const OPTION_LETTERS = ['A', 'B', 'C', 'D', 'E', 'F'];
@@ -418,22 +477,30 @@ function HostDashboardContent() {
   const [timerRemaining, setTimerRemaining] = useState(0);
   const [timerDuration, setTimerDuration] = useState(30);
   const [timerPaused, setTimerPaused] = useState(false);
-  const [liveResponses, setLiveResponses] = useState({
+  const [liveResponses, setLiveResponses] = useState<LiveResponsesState>({
     correct: 0,
     incorrect: 0,
     noAnswer: 0,
     total: 0,
+    ...emptyLiveResponseBuckets(),
   });
+  const [liveResponseModal, setLiveResponseModal] = useState<
+    'correct' | 'incorrect' | 'noAnswer' | null
+  >(null);
   // Wager-lock progress counter (drives the WAGER_COLLECTION copy in the Live Responses panel).
   // Reset to 0 on every wager-collection screen via `wager_lock_update` from the server.
   const [wagerLockedCount, setWagerLockedCount] = useState(0);
   const [wagerLockedTotal, setWagerLockedTotal] = useState(0);
+  const [wagerDistributionCounts, setWagerDistributionCounts] = useState<Record<string, number>>(
+    () => emptyWagerDistributionCounts(false),
+  );
 
   const [addTeamName, setAddTeamName] = useState('');
   const [addTeamScore, setAddTeamScore] = useState('');
   const [showAddTeam, setShowAddTeam] = useState(false);
   const [editScoreTeamId, setEditScoreTeamId] = useState<number | null>(null);
   const [editScoreValue, setEditScoreValue] = useState('');
+  const [editTeamNameValue, setEditTeamNameValue] = useState('');
   const [showRegisteredTeams, setShowRegisteredTeams] = useState(false);
   const [livePreviewOpen, setLivePreviewOpen] = useState(false);
   const [showRoundIntroductionModal, setShowRoundIntroductionModal] = useState(false);
@@ -681,7 +748,7 @@ function HostDashboardContent() {
           const answered = Math.max(0, Number(data.responseCount ?? 0));
           if (data.state === 'QUESTION' && data.questionState === 'ACTIVE') {
             if (answered === 0) {
-              return bootstrapLiveResponseStats(rosterCount, 0);
+              return bootstrapLiveResponseStats(rosterCount, 0, data.activeTeamIds);
             }
             // Keep tallies from live_response_update; session_state only syncs roster size.
             return { ...prev, total: Math.max(prev.total, rosterCount, 1) };
@@ -694,6 +761,7 @@ function HostDashboardContent() {
             incorrect: 0,
             noAnswer: 0,
             total: rosterCount,
+            ...emptyLiveResponseBuckets(),
           };
         });
         if (data.questionState !== 'REVEALED') {
@@ -783,7 +851,9 @@ function HostDashboardContent() {
       {
         const g = gameStateRef.current;
         const roster = resolveHostRosterCount(g?.activeTeamIds, g?.teams, g?.totalTeams);
-        setLiveResponses(bootstrapLiveResponseStats(roster, 0));
+        setLiveResponses(
+          bootstrapLiveResponseStats(roster, 0, g?.activeTeamIds),
+        );
       }
       setMp3Playing(false);
       setMp4Playing(false);
@@ -873,11 +943,20 @@ function HostDashboardContent() {
       );
     };
 
-    const onWagerLockUpdate = (data: { locked?: number; total?: number; questionId?: number }) => {
+    const onWagerLockUpdate = (data: {
+      locked?: number;
+      total?: number;
+      questionId?: number;
+      roundType?: string;
+      counts?: Record<string, number>;
+    }) => {
       const locked = Math.max(0, Number(data?.locked ?? 0));
       const total = Math.max(0, Number(data?.total ?? 0));
       setWagerLockedCount(locked);
       setWagerLockedTotal(total);
+      if (data?.counts && typeof data.counts === 'object') {
+        setWagerDistributionCounts(data.counts);
+      }
     };
 
     const onLiveResponseUpdate = (data: {
@@ -885,12 +964,20 @@ function HostDashboardContent() {
       incorrect?: number;
       noAnswer?: number;
       total?: number;
+      correctTeamIds?: number[];
+      incorrectTeamIds?: number[];
+      noAnswerTeamIds?: number[];
     }) => {
+      const toIds = (raw: number[] | undefined) =>
+        Array.isArray(raw) ? raw.map(Number).filter((id) => Number.isFinite(id)) : [];
       setLiveResponses({
         correct: Number(data?.correct || 0),
         incorrect: Number(data?.incorrect || 0),
         noAnswer: Number(data?.noAnswer || 0),
         total: Number(data?.total || 0),
+        correctTeamIds: toIds(data?.correctTeamIds),
+        incorrectTeamIds: toIds(data?.incorrectTeamIds),
+        noAnswerTeamIds: toIds(data?.noAnswerTeamIds),
       });
     };
 
@@ -910,6 +997,7 @@ function HostDashboardContent() {
           const teamMapCount = g?.teams ? Object.keys(g.teams).length : 0;
           return activeCount > 0 ? activeCount : teamMapCount || Number(g?.totalTeams || 0);
         })(),
+        ...emptyLiveResponseBuckets(),
       });
       setMp3Playing(false);
       setGameState((prev) =>
@@ -1062,7 +1150,9 @@ function HostDashboardContent() {
         const g = gameStateRef.current;
         const roster = resolveHostRosterCount(g?.activeTeamIds, g?.teams, g?.totalTeams);
         const answered = Math.max(0, Number(g?.responseCount ?? 0));
-        setLiveResponses(bootstrapLiveResponseStats(roster, answered));
+        setLiveResponses(
+          bootstrapLiveResponseStats(roster, answered, g?.activeTeamIds),
+        );
       }
     };
 
@@ -1163,10 +1253,35 @@ function HostDashboardContent() {
       });
     };
 
-    const onTeamUpdated = ({ teamId, score }: { teamId: number; score: number }) => {
+    const onTeamUpdated = ({
+      teamId,
+      score,
+      teamName,
+    }: {
+      teamId: number;
+      score: number;
+      teamName?: string;
+    }) => {
       setGameState((prev) => {
-        if (!prev || !prev.teams[teamId]) return prev;
-        return { ...prev, teams: { ...prev.teams, [teamId]: { ...prev.teams[teamId], score } } };
+        if (!prev) return prev;
+        const key =
+          prev.teams[teamId] != null
+            ? teamId
+            : prev.teams[String(teamId)] != null
+              ? String(teamId)
+              : null;
+        if (key == null) return prev;
+        return {
+          ...prev,
+          teams: {
+            ...prev.teams,
+            [key]: {
+              ...prev.teams[key],
+              score,
+              ...(teamName != null ? { teamName: String(teamName) } : {}),
+            },
+          },
+        };
       });
     };
 
@@ -1290,6 +1405,11 @@ function HostDashboardContent() {
       // New wager-collection screen — fresh counter (server will emit the initial 0/total
       // shortly after, but reset locally so the UI doesn't flash a stale count).
       setWagerLockedCount(0);
+      const gs = gameStateRef.current;
+      const rt = gs?.rounds?.[gs?.currentRoundIndex ?? 0]?.type;
+      setWagerDistributionCounts(
+        emptyWagerDistributionCounts((rt || '').toUpperCase() === 'FINAL_WAGER'),
+      );
     };
 
     const onVenueLobbyPhase = (data: { phase?: GameState['lobbyPhase'] }) => {
@@ -1797,12 +1917,25 @@ function HostDashboardContent() {
     closeAddTeamModal();
   };
 
-  const handleEditScore = (teamId: number) => {
+  const handleEditTeam = (teamId: number) => {
+    const normalizedTeamName = editTeamNameValue.trim().replace(/\s+/g, ' ');
+    if (!normalizedTeamName) {
+      toast.error('Team name is required.');
+      return;
+    }
+    if (normalizedTeamName.length > TEAM_NAME_MAX_LENGTH) {
+      toast.error(`Team name must be ${TEAM_NAME_MAX_LENGTH} characters or fewer.`);
+      return;
+    }
     const val = Number(editScoreValue);
-    if (isNaN(val)) return;
-    emit('edit_team_score', { teamId, score: val });
+    if (Number.isNaN(val)) {
+      toast.error('Please enter a valid score.');
+      return;
+    }
+    emit('edit_team_score', { teamId, score: val, teamName: normalizedTeamName });
     setEditScoreTeamId(null);
     setEditScoreValue('');
+    setEditTeamNameValue('');
   };
 
   const handleRemoveTeam = (team: Team) => {
@@ -1948,6 +2081,15 @@ function HostDashboardContent() {
   }, [teamPendingRemoval]);
 
   useEffect(() => {
+    if (!liveResponseModal) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setLiveResponseModal(null);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [liveResponseModal]);
+
+  useEffect(() => {
     if (!showRoundIntroductionModal) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') closeRoundIntroductionModal();
@@ -1973,6 +2115,32 @@ function HostDashboardContent() {
   );
   const isMajorityRulesLiveRound =
     (currentQuestion?.roundType || currentRound?.type || '').toUpperCase() === 'MAJORITY_RULES';
+
+  const liveResponseModalTeams = useMemo((): Team[] => {
+    if (!liveResponseModal || !gameState?.teams) return [];
+    const ids =
+      liveResponseModal === 'correct'
+        ? liveResponses.correctTeamIds
+        : liveResponseModal === 'incorrect'
+          ? liveResponses.incorrectTeamIds
+          : liveResponses.noAnswerTeamIds;
+    const teams = gameState.teams;
+    return ids
+      .map((id) => teams[id] ?? teams[String(id)])
+      .filter((t): t is Team => Boolean(t));
+  }, [liveResponseModal, liveResponses, gameState?.teams]);
+
+  const liveResponseModalTitle = useMemo(() => {
+    if (!liveResponseModal) return '';
+    const n = liveResponseModalTeams.length;
+    if (liveResponseModal === 'correct') {
+      return `${isMajorityRulesLiveRound ? 'Majority' : 'Correct'} answers (${n})`;
+    }
+    if (liveResponseModal === 'incorrect') {
+      return `${isMajorityRulesLiveRound ? 'Minority' : 'Incorrect'} answers (${n})`;
+    }
+    return `No answer (${n})`;
+  }, [liveResponseModal, liveResponseModalTeams.length, isMajorityRulesLiveRound]);
   const isCurrentRoundWagerLockRound =
     currentRound?.type === 'WAGER' || currentRound?.type === 'FINAL_WAGER';
   const state = gameState?.state || 'LOBBY';
@@ -1987,7 +2155,10 @@ function HostDashboardContent() {
     gameStateRef.current?.currentRoundIndex ?? gameState?.currentRoundIndex ?? 0;
   const isLastRound = totalRounds > 0 && currentRoundIndex === totalRounds - 1;
   const teamList = gameState?.teams ? Object.values(gameState.teams) : [];
-  const sortedTeams = [...teamList].sort((a, b) => b.score - a.score);
+  const eliminationLeaderboardStyle = isEliminationRoundType(currentRound?.type);
+  const sortedTeams = eliminationLeaderboardStyle
+    ? prepareLeaderboardTeams(teamList, true)
+    : [...teamList].sort((a, b) => b.score - a.score);
   /** Roster rows come from `teams`; never trust `totalTeams` alone (reconnect could inflate it). */
   const rosterTeamCount = Math.max(0, teamList.length);
   const activeTeamCountForLive =
@@ -2066,6 +2237,13 @@ function HostDashboardContent() {
   const canSkipQuestion =
     state === 'QUESTION' &&
     questionState !== 'REVEALED' &&
+    !miniGameLive &&
+    activeMiniGameLocal == null &&
+    !miniGameLoading &&
+    !cardShuffleFinishedHold;
+
+  const canJumpToQuestion =
+    state === 'QUESTION' &&
     !miniGameLive &&
     activeMiniGameLocal == null &&
     !miniGameLoading &&
@@ -3235,12 +3413,26 @@ function HostDashboardContent() {
                 data-name="Response Progress Container"
               >
                 {state === 'WAGER_COLLECTION' ? (
-                  <p className="text-lg text-white" data-node-id="232:4555">
-                    <span className="font-bold text-[#00d9ff]">{wagerLockedCount}</span>{' '}
-                    <span className="font-medium">
-                      of {wagerLockedTotal || respondedLineTotal} Teams wagered
-                    </span>
-                  </p>
+                  <>
+                    <p className="text-lg text-white" data-node-id="232:4555">
+                      <span className="font-bold text-[#00d9ff]">{wagerLockedCount}</span>{' '}
+                      <span className="font-medium">
+                        of {wagerLockedTotal || respondedLineTotal} Teams wagered
+                      </span>
+                    </p>
+                    <p className="mt-3 text-[10px] font-bold uppercase tracking-wider text-white/45">
+                      {(currentRound?.type || '').toUpperCase() === 'FINAL_WAGER'
+                        ? 'Teams per risk %'
+                        : 'Teams per wager'}
+                    </p>
+                    <div className="mt-2">
+                      <WagerDistributionGrid
+                        variant="host"
+                        roundType={currentRound?.type}
+                        counts={wagerDistributionCounts}
+                      />
+                    </div>
+                  </>
                 ) : (
                   <p className="mb-4 text-lg text-white" data-node-id="232:4555">
                     <span className="font-bold text-[#00d9ff]">
@@ -3252,56 +3444,66 @@ function HostDashboardContent() {
 
                 {state !== 'WAGER_COLLECTION' && (
                   <div className="space-y-4">
-                    {[
-                      {
-                        label: isMajorityRulesLiveRound ? 'Majority' : 'Correct',
-                        value: liveResponses.correct,
-                        color: 'from-[#00ff00] to-[#008000]',
-                        track: 'bg-[#3d7a3d]/60',
-                        icon: isMajorityRulesLiveRound ? '+' : '✓',
-                        iconBg: 'bg-green-500',
-                      },
-                      {
-                        label: isMajorityRulesLiveRound ? 'Minority' : 'Incorrect',
-                        value: liveResponses.incorrect,
-                        color: 'from-[#ff0000] to-[#800000]',
-                        track: 'bg-[#7a3d3d]/60',
-                        icon: isMajorityRulesLiveRound ? '-' : '×',
-                        iconBg: 'bg-red-500',
-                      },
-                      {
-                        label: 'No Answer',
-                        value: liveResponses.noAnswer,
-                        color: 'from-[#3b82f6] to-[#1e3a8a]',
-                        track: 'bg-[#3d507a]/60',
-                        icon: '?',
-                        iconBg: 'bg-blue-500',
-                      },
-                    ].map((item) => {
+                    {(
+                      [
+                        {
+                          bucket: 'correct' as const,
+                          label: isMajorityRulesLiveRound ? 'Majority' : 'Correct',
+                          value: liveResponses.correct,
+                          color: 'from-[#00ff00] to-[#008000]',
+                          track: 'bg-[#3d7a3d]/60',
+                          icon: isMajorityRulesLiveRound ? '+' : '✓',
+                          iconBg: 'bg-green-500',
+                        },
+                        {
+                          bucket: 'incorrect' as const,
+                          label: isMajorityRulesLiveRound ? 'Minority' : 'Incorrect',
+                          value: liveResponses.incorrect,
+                          color: 'from-[#ff0000] to-[#800000]',
+                          track: 'bg-[#7a3d3d]/60',
+                          icon: isMajorityRulesLiveRound ? '-' : '×',
+                          iconBg: 'bg-red-500',
+                        },
+                        {
+                          bucket: 'noAnswer' as const,
+                          label: 'No Answer',
+                          value: liveResponses.noAnswer,
+                          color: 'from-[#3b82f6] to-[#1e3a8a]',
+                          track: 'bg-[#3d507a]/60',
+                          icon: '?',
+                          iconBg: 'bg-blue-500',
+                        },
+                      ] as const
+                    ).map((item) => {
                       const total = liveResponseDenominator;
                       const width = Math.max(
                         0,
                         Math.min(100, Math.round((item.value / total) * 100)),
                       );
                       return (
-                        <div key={item.label} className="flex flex-col gap-1.5">
+                        <button
+                          key={item.label}
+                          type="button"
+                          onClick={() => setLiveResponseModal(item.bucket)}
+                          className="flex w-full cursor-pointer flex-col gap-1.5 rounded-lg px-1 py-1.5 text-left transition hover:bg-white/5"
+                        >
                           <div className="flex items-center justify-between text-[11px] font-bold uppercase tracking-wider text-white/70">
                             <div className="flex items-center gap-2">
                               <div
                                 className={cn(
                                   item.iconBg,
-                                  'flex h-4 w-4 items-center justify-center rounded-full text-[10px] text-white border border-white/20',
+                                  'flex h-4 w-4 items-center justify-center rounded-full border border-white/20 text-[10px] text-white',
                                 )}
                               >
                                 {item.icon}
                               </div>
                               <span>{item.label}</span>
                             </div>
-                            <span className="text-[#00d9ff] italic text-sm">{item.value}</span>
+                            <span className="text-sm italic text-[#00d9ff]">{item.value}</span>
                           </div>
                           <div
                             className={cn(
-                              'h-2.5 rounded-full overflow-hidden border border-white/10',
+                              'h-2.5 overflow-hidden rounded-full border border-white/10',
                               item.track,
                             )}
                           >
@@ -3316,7 +3518,7 @@ function HostDashboardContent() {
                               }}
                             />
                           </div>
-                        </div>
+                        </button>
                       );
                     })}
                   </div>
@@ -3342,13 +3544,28 @@ function HostDashboardContent() {
                   sortedTeams.map((team, idx) => (
                     <div
                       key={team.teamId}
-                      className="flex items-center gap-3 border-b border-white/20 bg-[#1a1f2e] px-4 py-3 last:border-b-0"
+                      className={cn(
+                        'flex items-center gap-3 border-b border-white/20 bg-[#1a1f2e] px-4 py-3 last:border-b-0',
+                        eliminationLeaderboardStyle &&
+                          team.isEliminated &&
+                          eliminationLeaderboardRowClasses.eliminated,
+                        eliminationLeaderboardStyle &&
+                          !team.isEliminated &&
+                          eliminationLeaderboardRowClasses.survivor,
+                      )}
                       data-name="Rank Background"
                     >
                       <div className="flex size-[34px] shrink-0 items-center justify-center rounded bg-[#0b0f1a] text-lg font-semibold text-white">
                         {idx + 1}
                       </div>
-                      <div className="min-w-0 flex-1 text-base text-white">
+                      <div
+                        className={cn(
+                          'min-w-0 flex-1 text-base text-white',
+                          eliminationLeaderboardStyle &&
+                            team.isEliminated &&
+                            'line-through decoration-white/40 text-white/45',
+                        )}
+                      >
                         <span className="font-medium">{team.teamName}</span>
                         <span className="font-bold"> : {team.score} Points</span>
                       </div>
@@ -3540,6 +3757,9 @@ function HostDashboardContent() {
         pin={pin}
         socket={socket}
         currentQuestionIndex={gameState?.currentQuestionIndex ?? 0}
+        jumpDisabled={!canJumpToQuestion}
+        questionState={questionState}
+        timerRunning={timerCanPause}
       />
 
       {/* ═══════ MODALS ═══════ */}
@@ -3600,7 +3820,13 @@ function HostDashboardContent() {
                       key={team.teamId}
                       className={cn(
                         'flex h-[57px] items-center gap-4 border-b border-white/10 bg-[#151b2e] px-4 last:border-b-0',
-                        team.isEliminated && 'opacity-50',
+                        !eliminationLeaderboardStyle && team.isEliminated && 'opacity-50',
+                        eliminationLeaderboardStyle &&
+                          team.isEliminated &&
+                          eliminationLeaderboardRowClasses.eliminated,
+                        eliminationLeaderboardStyle &&
+                          !team.isEliminated &&
+                          eliminationLeaderboardRowClasses.survivor,
                       )}
                       data-node-id={idx === 0 ? '232:2095' : undefined}
                     >
@@ -3612,13 +3838,21 @@ function HostDashboardContent() {
                         {idx + 1}
                       </div>
                       <span
-                        className="min-w-0 flex-1 truncate text-xl font-medium text-white"
+                        className={cn(
+                          'min-w-0 flex-1 truncate text-xl font-medium text-white',
+                          eliminationLeaderboardStyle &&
+                            team.isEliminated &&
+                            'line-through decoration-white/40 text-white/45',
+                        )}
                         data-node-id="232:2104"
                       >
                         {team.teamName}
                       </span>
                       <span
-                        className="shrink-0 text-xl font-bold text-[#00d9ff]"
+                        className={cn(
+                          'shrink-0 text-xl font-bold text-[#00d9ff]',
+                          eliminationLeaderboardStyle && team.isEliminated && 'text-white/45',
+                        )}
                         data-node-id="232:2105"
                       >
                         {team.score} Points
@@ -3632,9 +3866,10 @@ function HostDashboardContent() {
                             closeRegisteredTeamsModal();
                             setEditScoreTeamId(team.teamId);
                             setEditScoreValue(String(team.score));
+                            setEditTeamNameValue(team.teamName);
                           }}
                           className="flex size-[30px] items-center justify-center rounded border border-[#00d9ff]/50 bg-[#00d9ff]/10 text-[#00d9ff] transition-colors hover:bg-[#00d9ff]/20"
-                          aria-label={`Edit score for ${team.teamName}`}
+                          aria-label={`Edit team ${team.teamName}`}
                         >
                           <svg
                             width="16"
@@ -3827,7 +4062,13 @@ function HostDashboardContent() {
                       key={team.teamId}
                       className={cn(
                         'flex h-[57px] items-center gap-4 border-b border-white/10 bg-[#151b2e] px-4 last:border-b-0',
-                        team.isEliminated && 'opacity-50',
+                        !eliminationLeaderboardStyle && team.isEliminated && 'opacity-50',
+                        eliminationLeaderboardStyle &&
+                          team.isEliminated &&
+                          eliminationLeaderboardRowClasses.eliminated,
+                        eliminationLeaderboardStyle &&
+                          !team.isEliminated &&
+                          eliminationLeaderboardRowClasses.survivor,
                       )}
                       data-node-id={SCOREBOARD_MODAL_ROW_IDS[idx]}
                     >
@@ -3837,10 +4078,22 @@ function HostDashboardContent() {
                       >
                         {idx + 1}
                       </div>
-                      <span className="min-w-0 flex-1 truncate text-xl font-medium text-white">
+                      <span
+                        className={cn(
+                          'min-w-0 flex-1 truncate text-xl font-medium text-white',
+                          eliminationLeaderboardStyle &&
+                            team.isEliminated &&
+                            'line-through decoration-white/40 text-white/45',
+                        )}
+                      >
                         {team.teamName}
                       </span>
-                      <span className="shrink-0 text-xl font-bold text-[#00d9ff]">
+                      <span
+                        className={cn(
+                          'shrink-0 text-xl font-bold text-[#00d9ff]',
+                          eliminationLeaderboardStyle && team.isEliminated && 'text-white/45',
+                        )}
+                      >
                         {team.score} Points
                       </span>
                     </li>
@@ -3968,31 +4221,54 @@ function HostDashboardContent() {
       ) : null}
 
       {editScoreTeamId !== null && (
-        <ModalOverlay onClose={() => setEditScoreTeamId(null)} title="Edit Team Score">
-          <p className="mb-2 text-sm text-foreground/50">
-            {sortedTeams.find((t) => t.teamId === editScoreTeamId)?.teamName}
-          </p>
+        <ModalOverlay
+          onClose={() => {
+            setEditScoreTeamId(null);
+            setEditScoreValue('');
+            setEditTeamNameValue('');
+          }}
+          title="Edit Team"
+        >
+          <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-foreground/50">
+            Team name
+          </label>
+          <input
+            type="text"
+            value={editTeamNameValue}
+            onChange={(e) =>
+              setEditTeamNameValue(e.target.value.slice(0, TEAM_NAME_MAX_LENGTH))
+            }
+            maxLength={TEAM_NAME_MAX_LENGTH}
+            className="mb-3 w-full rounded-lg border border-border bg-surface-light px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-neon-cyan/50"
+            autoFocus
+          />
+          <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-foreground/50">
+            Score
+          </label>
           <input
             type="number"
             value={editScoreValue}
             onChange={(e) => setEditScoreValue(e.target.value)}
             className="mb-3 w-full rounded-lg border border-border bg-surface-light px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-neon-cyan/50"
-            autoFocus
             onKeyDown={(e) =>
-              e.key === 'Enter' && editScoreTeamId !== null && handleEditScore(editScoreTeamId)
+              e.key === 'Enter' && editScoreTeamId !== null && handleEditTeam(editScoreTeamId)
             }
           />
           <div className="flex gap-2">
             <button
               type="button"
-              onClick={() => editScoreTeamId !== null && handleEditScore(editScoreTeamId)}
+              onClick={() => editScoreTeamId !== null && handleEditTeam(editScoreTeamId)}
               className="flex-1 rounded-lg border border-neon-cyan/40 bg-neon-cyan/20 py-2 text-sm font-medium text-neon-cyan hover:bg-neon-cyan/30"
             >
               Save
             </button>
             <button
               type="button"
-              onClick={() => setEditScoreTeamId(null)}
+              onClick={() => {
+                setEditScoreTeamId(null);
+                setEditScoreValue('');
+                setEditTeamNameValue('');
+              }}
               className="flex-1 rounded-lg border border-border py-2 text-sm font-medium hover:bg-surface-light"
             >
               Cancel
@@ -4024,6 +4300,49 @@ function HostDashboardContent() {
           </div>
         </ModalOverlay>
       )}
+      {liveResponseModal ? (
+        <ModalOverlay
+          onClose={() => setLiveResponseModal(null)}
+          title={liveResponseModalTitle}
+        >
+          {liveResponseModalTeams.length === 0 ? (
+            <p className="py-6 text-center text-sm text-white/50">No teams in this category.</p>
+          ) : (
+            <ul className="max-h-[min(50vh,320px)] space-y-2 overflow-y-auto pr-1">
+              {liveResponseModalTeams.map((team) => (
+                <li
+                  key={team.teamId}
+                  className="flex items-center gap-3 rounded-lg border border-white/15 bg-[#1a1f2e] px-4 py-3"
+                >
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate font-medium text-white">{team.teamName}</p>
+                    <p className="text-sm text-[#00d9ff]">{team.score} Points</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setLiveResponseModal(null);
+                      handleRemoveTeam(team);
+                    }}
+                    className="flex size-[30px] shrink-0 items-center justify-center rounded border border-red-500/40 bg-red-500/10 text-red-500 transition-colors hover:bg-red-500/20"
+                    aria-label={`Remove ${team.teamName}`}
+                  >
+                    <svg
+                      width="16"
+                      height="16"
+                      viewBox="0 0 24 24"
+                      fill="currentColor"
+                      aria-hidden
+                    >
+                      <path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z" />
+                    </svg>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </ModalOverlay>
+      ) : null}
       {teamPendingRemoval && (
         <ModalOverlay onClose={() => setTeamPendingRemoval(null)} title="Remove Team?">
           <p className="mb-5 text-sm leading-relaxed text-white/70">

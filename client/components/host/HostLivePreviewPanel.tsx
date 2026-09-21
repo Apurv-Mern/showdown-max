@@ -35,6 +35,10 @@ type HostLivePreviewPanelProps = {
   pin: string;
   socket: Socket | null;
   currentQuestionIndex: number;
+  /** When true, Go to is disabled (mini-game, wrong game state, etc.). */
+  jumpDisabled?: boolean;
+  questionState?: string;
+  timerRunning?: boolean;
 };
 
 function validateOptions(options: LivePreviewOption[]): string | null {
@@ -57,11 +61,15 @@ export function HostLivePreviewPanel({
   pin,
   socket,
   currentQuestionIndex,
+  jumpDisabled = false,
+  questionState = '',
+  timerRunning = false,
 }: HostLivePreviewPanelProps) {
   const [questions, setQuestions] = useState<LivePreviewQuestion[]>([]);
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
   const [savingId, setSavingId] = useState<number | null>(null);
+  const [jumpingToIndex, setJumpingToIndex] = useState<number | null>(null);
 
   const requestPreview = useCallback(() => {
     if (!socket || !pin) return;
@@ -104,6 +112,38 @@ export function HostLivePreviewPanel({
         };
       }),
     );
+  };
+
+  const needsJumpConfirm = (idx: number) =>
+    idx < currentQuestionIndex ||
+    (questionState === 'ACTIVE' && timerRunning);
+
+  const handleGoToQuestion = (idx: number) => {
+    if (!socket || !pin || jumpDisabled || idx === currentQuestionIndex) return;
+
+    const executeJump = () => {
+      setJumpingToIndex(idx);
+      socket.emit(
+        'jump_to_question',
+        { pin, questionIndex: idx },
+        (ack?: { ok?: boolean; error?: string }) => {
+          setJumpingToIndex(null);
+          if (ack?.ok) {
+            toast.success(`Jumped to question ${idx + 1}`);
+          } else if (ack?.error) {
+            toast.error(ack.error);
+          }
+        },
+      );
+    };
+
+    if (needsJumpConfirm(idx)) {
+      const ok = window.confirm(
+        `Go to question ${idx + 1}? Team scores stay the same; this question will be ready to run again.`,
+      );
+      if (!ok) return;
+    }
+    executeJump();
   };
 
   const saveQuestion = (q: LivePreviewQuestion) => {
@@ -157,7 +197,9 @@ export function HostLivePreviewPanel({
             <h2 id="live-preview-title" className="text-lg font-black uppercase tracking-wide text-white">
               Question Preview ({questions.length})
             </h2>
-            <p className="text-xs text-white/50">Edits save to the live show and question bank</p>
+            <p className="text-xs text-white/50">
+              Edits save to the live show and question bank. Use Go to to jump within this round.
+            </p>
           </div>
           <button
             type="button"
@@ -181,23 +223,42 @@ export function HostLivePreviewPanel({
               const expanded = expandedId === q.id;
               return (
                 <li key={q.id}>
-                  <button
-                    type="button"
-                    onClick={() => setExpandedId(expanded ? null : q.id)}
+                  <div
                     className={cn(
-                      'w-full rounded-xl border px-3 py-3 text-left transition',
+                      'flex items-stretch gap-2 rounded-xl border px-3 py-3 transition',
                       isCurrent
                         ? 'border-[#00d9ff] bg-[rgba(0,217,255,0.08)] shadow-[0_0_12px_rgba(0,217,255,0.12)]'
-                        : 'border-white/15 bg-[#1a1f2e]/80 hover:border-white/25',
+                        : 'border-white/15 bg-[#1a1f2e]/80',
                     )}
                   >
-                    <div className="flex gap-2">
-                      <span className="flex size-7 shrink-0 items-center justify-center rounded bg-[#0b0f1a] text-sm font-bold text-[#00d9ff]">
-                        {idx + 1}
-                      </span>
-                      <p className="line-clamp-2 flex-1 text-sm font-medium text-white">{q.text}</p>
-                    </div>
-                  </button>
+                    <button
+                      type="button"
+                      onClick={() => setExpandedId(expanded ? null : q.id)}
+                      className="min-w-0 flex-1 text-left hover:opacity-90"
+                    >
+                      <div className="flex gap-2">
+                        <span className="flex size-7 shrink-0 items-center justify-center rounded bg-[#0b0f1a] text-sm font-bold text-[#00d9ff]">
+                          {idx + 1}
+                        </span>
+                        <p className="line-clamp-2 flex-1 text-sm font-medium text-white">
+                          {q.text}
+                        </p>
+                      </div>
+                    </button>
+                    <button
+                      type="button"
+                      disabled={
+                        jumpDisabled ||
+                        isCurrent ||
+                        jumpingToIndex !== null ||
+                        jumpingToIndex === idx
+                      }
+                      onClick={() => handleGoToQuestion(idx)}
+                      className="shrink-0 self-center rounded-lg border border-[rgba(0,217,255,0.45)] bg-[linear-gradient(180deg,#3a4a68_0%,#1e2a42_100%)] px-2.5 py-1.5 text-[10px] font-black uppercase tracking-wider text-white disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      {jumpingToIndex === idx ? '…' : 'Go to'}
+                    </button>
+                  </div>
                   {expanded ? (
                     <div className="mt-2 space-y-3 rounded-xl border border-white/10 bg-[#0b0f1a]/90 p-3">
                       <label className="block text-xs font-semibold uppercase text-white/50">

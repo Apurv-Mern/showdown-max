@@ -455,11 +455,76 @@ const hostHandlers = (io, socket) => {
     }
   });
 
+  socket.on(SOCKET_EVENTS.JUMP_TO_QUESTION, async (data, ack) => {
+    try {
+      const pin = data?.pin;
+      if (!assertHostForPin(socket, pin)) {
+        const message = 'Unauthorized';
+        socket.emit(SOCKET_EVENTS.ERROR, { message });
+        if (typeof ack === 'function') ack({ ok: false, error: message });
+        return;
+      }
+      const questionIndex = Number(data?.questionIndex);
+      await gameController.jumpToQuestion(io, pin, questionIndex);
+      if (typeof ack === 'function') ack({ ok: true });
+    } catch (err) {
+      logger.error('jump_to_question error', { error: err.message });
+      const message = err.message || 'Failed to jump to question';
+      socket.emit(SOCKET_EVENTS.ERROR, { message });
+      if (typeof ack === 'function') ack({ ok: false, error: message });
+    }
+  });
+
   socket.on(SOCKET_EVENTS.EDIT_TEAM_SCORE, async (data) => {
     try {
-      const { pin, teamId, score } = data;
-      const updatedScore = Number(score);
-      await Team.update({ score: updatedScore }, { where: { id: teamId } });
+      const { pin, teamId, score, teamName: rawTeamName } = data;
+      if (!assertHostForPin(socket, pin)) {
+        socket.emit(SOCKET_EVENTS.ERROR, { message: 'Unauthorized' });
+        return;
+      }
+
+      const existing = await Team.findByPk(teamId, {
+        attributes: ['id', 'teamName', 'score', 'sessionId'],
+      });
+      if (!existing) return;
+
+      const dbUpdates = {};
+
+      if (rawTeamName !== undefined && rawTeamName !== null) {
+        const cleanTeamName = sanitizeTeamName(rawTeamName);
+        const normalized = normalizeTeamName(cleanTeamName);
+        if (!normalized) {
+          socket.emit(SOCKET_EVENTS.ERROR, { message: 'Team name is required.' });
+          return;
+        }
+        const sessionTeams = await Team.findAll({
+          where: { sessionId: existing.sessionId },
+          attributes: ['id', 'teamName'],
+        });
+        const duplicateTeam = sessionTeams.find(
+          (t) => t.id !== existing.id && normalizeTeamName(t.teamName) === normalized,
+        );
+        if (duplicateTeam) {
+          socket.emit(SOCKET_EVENTS.ERROR, {
+            message: 'Team name already taken. Please choose a different name.',
+          });
+          return;
+        }
+        dbUpdates.teamName = cleanTeamName;
+      }
+
+      if (score !== undefined && score !== null && String(score).trim() !== '') {
+        const updatedScore = Number(score);
+        if (!Number.isFinite(updatedScore)) {
+          socket.emit(SOCKET_EVENTS.ERROR, { message: 'Please enter a valid score.' });
+          return;
+        }
+        dbUpdates.score = updatedScore;
+      }
+
+      if (Object.keys(dbUpdates).length === 0) return;
+
+      await Team.update(dbUpdates, { where: { id: teamId } });
 
       const team = await Team.findByPk(teamId, {
         attributes: ['id', 'teamName', 'score', 'sessionId'],
@@ -476,9 +541,13 @@ const hostHandlers = (io, socket) => {
       await redisStore.updateTeamData(pin, teamId, teamData);
 
       const patched = await redisStore.updateGameState(pin, (current) => {
-        const row = current.teams?.[teamId];
+        const row = current.teams?.[teamId] ?? current.teams?.[String(teamId)];
         if (!row) return null;
-        const nextRow = { ...row, score: updatedScore };
+        const nextRow = {
+          ...row,
+          ...(dbUpdates.score !== undefined ? { score: team.score } : {}),
+          ...(dbUpdates.teamName !== undefined ? { teamName: team.teamName } : {}),
+        };
         return { teams: { ...(current.teams || {}), [teamId]: nextRow } };
       });
       if (patched?.teams?.[teamId]) {
@@ -499,9 +568,9 @@ const hostHandlers = (io, socket) => {
       io.to(`session:${pin}`).emit(SOCKET_EVENTS.TEAM_UPDATED, {
         teamId,
         teamName: teamData.teamName,
-        score: updatedScore,
+        score: team.score,
       });
-      logger.info('Team score edited', { pin, teamId, score: updatedScore });
+      logger.info('Team edited by host', { pin, teamId, ...dbUpdates });
     } catch (err) {
       logger.error('edit_team_score error', { error: err.message });
     }

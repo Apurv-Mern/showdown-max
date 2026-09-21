@@ -40,6 +40,7 @@ const SOCKET_EVENTS = Object.freeze({
   GET_LIVE_ROUND_PREVIEW: 'get_live_round_preview',
   UPDATE_LIVE_QUESTION: 'update_live_question',
   SKIP_QUESTION: 'skip_question',
+  JUMP_TO_QUESTION: 'jump_to_question',
 
   // Server → Client
   SESSION_STATE: 'session_state',

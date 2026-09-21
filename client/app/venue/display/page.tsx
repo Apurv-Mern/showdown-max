@@ -24,6 +24,7 @@ import {
   resolveBreakUpNextLabelFromBreakStart,
 } from '@/lib/breakScreenCopy';
 import { VenueWagerCollectionScreen } from '@/components/venue/VenueWagerCollectionScreen';
+import { emptyWagerDistributionCounts } from '@/lib/wagerGrid';
 import { VenueCodeOfConductScreen } from '@/components/venue/VenueCodeOfConductScreen';
 // import { VenuePracticeQuestionScreen } from '@/components/venue/VenuePracticeQuestionScreen';
 import { VenueLiveResponseBars } from '@/components/venue/VenueLiveResponseBars';
@@ -34,6 +35,7 @@ import {
 } from '@/lib/kangarooRaceDefaults';
 import { shouldWaitForHostAudioTimer } from '@/lib/questionMedia';
 import { LeaderboardScreen } from '@/components/shared/LeaderboardScreen';
+import { isEliminationRoundType } from '@/lib/eliminationLeaderboard';
 import { RoundEndScreen } from '@/components/shared/RoundEndScreen';
 import { GameshowEndScreen } from '@/components/shared/GameshowEndScreen';
 import { PUBLIC_API_URL } from '@/lib/env';
@@ -174,16 +176,15 @@ function venueQuestionHasVisualMedia(q?: { mediaUrl?: string; mediaType?: string
   return mediaType === 'image' || mediaType === 'mp4';
 }
 
+/** Empty breakdown until answer_reveal — bars stay visible with zero fill. */
 function bootstrapLiveResponseStats(
   rosterCount: number,
-  answered = 0,
 ): { correct: number; incorrect: number; noAnswer: number; total: number } {
   const roster = Math.max(0, rosterCount);
-  const ans = Math.max(0, Math.min(roster, answered));
   return {
     correct: 0,
     incorrect: 0,
-    noAnswer: Math.max(0, roster - ans),
+    noAnswer: 0,
     total: Math.max(1, roster),
   };
 }
@@ -472,6 +473,9 @@ function VenueDisplayContent() {
   const [wagerLockedCount, setWagerLockedCount] = useState(0);
   const [wagerCollectionCategory, setWagerCollectionCategory] = useState<string | null>(null);
   const [wagerLockedTotal, setWagerLockedTotal] = useState(0);
+  const [wagerDistributionCounts, setWagerDistributionCounts] = useState<Record<string, number>>(
+    () => emptyWagerDistributionCounts(false),
+  );
   // Drives the venue's "round is over" transition screen between the last
   // question reveal and the scoreboard. Cleared on phase change away from round_end.
   const [roundEndInfo, setRoundEndInfo] = useState<RoundEndInfo | null>(null);
@@ -553,6 +557,14 @@ function VenueDisplayContent() {
   }, [sessionPin]);
 
   /** Merge late joiners from `teams` into the post-round leaderboard without waiting for a resync. */
+  const scoreboardEliminationStyle = useMemo(
+    () =>
+      isEliminationRoundType(roundEndInfo?.roundType) ||
+      isEliminationRoundType(roundInfo?.round?.type) ||
+      isEliminationRoundType(question?.roundType),
+    [roundEndInfo?.roundType, roundInfo?.round?.type, question?.roundType],
+  );
+
   const displayScoreboardTeams = useMemo(() => {
     if (phase !== 'scoreboard') return scoreboard;
     const byId = new Map<number, Team>();
@@ -561,7 +573,16 @@ function VenueDisplayContent() {
     }
     for (const t of teams) {
       const id = Number(t.teamId);
-      if (!byId.has(id)) byId.set(id, t);
+      const existing = byId.get(id);
+      if (!existing) {
+        byId.set(id, t);
+      } else {
+        byId.set(id, {
+          ...existing,
+          ...t,
+          isEliminated: t.isEliminated ?? existing.isEliminated,
+        });
+      }
     }
     return [...byId.values()].sort((a, b) => b.score - a.score);
   }, [phase, scoreboard, teams]);
@@ -1251,13 +1272,8 @@ function VenueDisplayContent() {
         const rosterCount = Array.isArray(data.activeTeamIds)
           ? data.activeTeamIds.length
           : (data.teams ? Object.keys(data.teams).length : 0) || Number(data.totalTeams || 0);
-        const answered = Math.max(0, Number(data.responseCount ?? 0));
-
         if (data.state === 'QUESTION' && data.questionState === 'ACTIVE') {
-          if (answered === 0) {
-            return bootstrapLiveResponseStats(rosterCount, 0);
-          }
-          return { ...prev, total: Math.max(prev.total, rosterCount, 1) };
+          return bootstrapLiveResponseStats(rosterCount);
         }
         if (data.state === 'QUESTION' && data.questionState === 'REVEALED') {
           return { ...prev, total: Math.max(prev.total, rosterCount, 1) };
@@ -1374,9 +1390,32 @@ function VenueDisplayContent() {
         const next = [...prev.filter((t) => !sameVenueTeamId(t.teamId, team.teamId)), team];
         const n = next.length;
         setTotalTeams(n);
-        setLiveResponses((lr) => ({ ...lr, total: n }));
+        setLiveResponses(
+          phaseRef.current === 'reveal'
+            ? (lr) => ({ ...lr, total: Math.max(1, n) })
+            : bootstrapLiveResponseStats(n),
+        );
         return next;
       });
+    };
+
+    const onTeamUpdated = (data: {
+      teamId: number;
+      score: number;
+      teamName?: string;
+    }) => {
+      if (!data || !Number.isFinite(Number(data.teamId))) return;
+      const teamId = Number(data.teamId);
+      const patch = {
+        score: Number(data.score ?? 0),
+        ...(data.teamName != null ? { teamName: String(data.teamName) } : {}),
+      };
+      setTeams((prev) =>
+        prev.map((t) => (sameVenueTeamId(t.teamId, teamId) ? { ...t, ...patch } : t)),
+      );
+      setScoreboard((prev) =>
+        prev.map((t) => (sameVenueTeamId(t.teamId, teamId) ? { ...t, ...patch } : t)),
+      );
     };
 
     const onTeamRemoved = ({ teamId }: { teamId: number }) => {
@@ -1384,13 +1423,17 @@ function VenueDisplayContent() {
         const next = prev.filter((t) => !sameVenueTeamId(t.teamId, teamId));
         const n = next.length;
         setTotalTeams(n);
-        setLiveResponses((lr) => ({
-          ...lr,
-          total: n,
-          correct: Math.min(lr.correct, n),
-          incorrect: Math.min(lr.incorrect, n),
-          noAnswer: Math.min(lr.noAnswer, n),
-        }));
+        if (phaseRef.current === 'reveal') {
+          setLiveResponses((lr) => ({
+            ...lr,
+            total: Math.max(1, n),
+            correct: Math.min(lr.correct, n),
+            incorrect: Math.min(lr.incorrect, n),
+            noAnswer: Math.min(lr.noAnswer, n),
+          }));
+        } else {
+          setLiveResponses(bootstrapLiveResponseStats(n));
+        }
         return next;
       });
     };
@@ -1422,6 +1465,10 @@ function VenueDisplayContent() {
       // Reset the lock counter so the venue doesn't briefly show the previous question's
       // value before the server's initial `wager_lock_update` (0/total) arrives.
       setWagerLockedCount(0);
+      const rt = data?.round?.type ?? roundInfoRef.current?.round?.type;
+      setWagerDistributionCounts(
+        emptyWagerDistributionCounts((rt || '').toUpperCase() === 'FINAL_WAGER'),
+      );
     };
 
     const onQuestionActive = (data: QuestionData) => {
@@ -1444,12 +1491,7 @@ function VenueDisplayContent() {
             ? false
             : true,
       );
-      setLiveResponses({
-        correct: 0,
-        incorrect: 0,
-        noAnswer: 0,
-        total: Math.max(totalTeams, 0),
-      });
+      setLiveResponses(bootstrapLiveResponseStats(totalTeams));
       setRevealData(null);
       setIsVenueMp3Playing(false);
       stopMp3();
@@ -1478,26 +1520,28 @@ function VenueDisplayContent() {
     const onResponseCount = (data: { count: number; total: number }) => {
       const n = Math.max(0, Number(data.total) || 0);
       setTotalTeams(n);
-      setLiveResponses((prev) => ({ ...prev, total: n }));
+      if (phaseRef.current === 'reveal') {
+        setLiveResponses((prev) => ({ ...prev, total: n }));
+      } else {
+        setLiveResponses(bootstrapLiveResponseStats(n));
+      }
     };
 
-    const onWagerLockUpdate = (data: { locked?: number; total?: number; questionId?: number }) => {
+    const onWagerLockUpdate = (data: {
+      locked?: number;
+      total?: number;
+      questionId?: number;
+      counts?: Record<string, number>;
+    }) => {
       setWagerLockedCount(Math.max(0, Number(data?.locked ?? 0)));
       setWagerLockedTotal(Math.max(0, Number(data?.total ?? 0)));
+      if (data?.counts && typeof data.counts === 'object') {
+        setWagerDistributionCounts(data.counts);
+      }
     };
 
-    const onLiveResponseUpdate = (data: {
-      correct: number;
-      incorrect: number;
-      noAnswer: number;
-      total: number;
-    }) => {
-      setLiveResponses({
-        correct: Number(data?.correct || 0),
-        incorrect: Number(data?.incorrect || 0),
-        noAnswer: Number(data?.noAnswer || 0),
-        total: Number(data?.total || 0),
-      });
+    const onLiveResponseUpdate = () => {
+      // Venue shows response breakdown only on answer_reveal (not live during the question).
     };
 
     const onAnswerReveal = (data: RevealData) => {
@@ -1913,6 +1957,7 @@ function VenueDisplayContent() {
 
     socket.on('session_state', onSessionState);
     socket.on('team_joined', onTeamJoined);
+    socket.on('team_updated', onTeamUpdated);
     socket.on('team_removed', onTeamRemoved);
     socket.on('round_intro', onRoundIntro);
     socket.on('wager_collection_start', onWagerCollectionStart);
@@ -1946,6 +1991,7 @@ function VenueDisplayContent() {
       socket.off('connect', joinVenue);
       socket.off('session_state', onSessionState);
       socket.off('team_joined', onTeamJoined);
+      socket.off('team_updated', onTeamUpdated);
       socket.off('team_removed', onTeamRemoved);
       socket.off('round_intro', onRoundIntro);
       socket.off('wager_collection_start', onWagerCollectionStart);
@@ -2282,6 +2328,7 @@ function VenueDisplayContent() {
                 roundType={roundInfo?.round?.type ?? question?.roundType}
                 wagerLockedCount={wagerLockedCount}
                 wagerLockedTotal={Math.max(1, wagerLockedTotal || liveTotalTeams || 1)}
+                wagerDistributionCounts={wagerDistributionCounts}
               />
             </div>
           </div>
@@ -2614,7 +2661,12 @@ function VenueDisplayContent() {
         {/* Leaderboard (venue) */}
         {phase === 'scoreboard' && (
           <div className="absolute inset-0 z-[5] h-full w-full animate-fadeIn">
-            <LeaderboardScreen teams={displayScoreboardTeams} size="venue" showScene={false} />
+            <LeaderboardScreen
+              teams={displayScoreboardTeams}
+              size="venue"
+              showScene={false}
+              eliminationStyle={scoreboardEliminationStyle}
+            />
           </div>
         )}
 

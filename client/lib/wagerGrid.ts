@@ -56,3 +56,8 @@ export function formatWagerCircleValue(value: number): string {
 export function formatWagerButtonLabel(value: number, isFinalWager: boolean): string {
   return isFinalWager ? `${value}%` : String(value);
 }
+
+export function emptyWagerDistributionCounts(isFinalWager: boolean): Record<string, number> {
+  const grid = isFinalWager ? FINAL_WAGER_GRID : STANDARD_WAGER_GRID;
+  return Object.fromEntries(grid.map((v) => [String(v), 0]));
+}

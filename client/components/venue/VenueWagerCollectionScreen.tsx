@@ -1,27 +1,23 @@
 'use client';
 
 import { cn, toDisplayUpper } from '@/lib/utils';
-import {
-  FINAL_WAGER_GRID,
-  formatWagerGridLabel,
-  STANDARD_WAGER_GRID,
-  tileClassForWagerValue,
-  wagerInstructionText,
-} from '@/lib/wagerGrid';
+import { wagerInstructionText } from '@/lib/wagerGrid';
+import { WagerDistributionGrid } from '@/components/shared/WagerDistributionGrid';
 
 export function VenueWagerCollectionScreen({
   category,
   roundType,
   wagerLockedCount = 0,
   wagerLockedTotal = 0,
+  wagerDistributionCounts = {},
 }: {
   category?: string | null;
   roundType?: string;
   wagerLockedCount?: number;
   wagerLockedTotal?: number;
+  wagerDistributionCounts?: Record<string, number>;
 }) {
   const isFinalWager = (roundType || '').toUpperCase() === 'FINAL_WAGER';
-  const gridValues = isFinalWager ? FINAL_WAGER_GRID : STANDARD_WAGER_GRID;
   const headline = isFinalWager
     ? 'FINAL QUESTION'
     : category
@@ -73,22 +69,12 @@ export function VenueWagerCollectionScreen({
 
       <div className="min-h-[clamp(3rem,5vh,5rem)] shrink-0" aria-hidden />
 
-      {/* Wager grid */}
-      <div className="mx-auto grid w-full max-w-[min(900px,100%)] shrink-0 grid-cols-2 gap-[clamp(0.9rem,1.7vw,1.35rem)]">
-        {gridValues.map((value) => (
-          <div
-            key={value}
-            aria-hidden
-            className={cn(
-              'pointer-events-none flex min-h-[clamp(4.5rem,0vh,6.5rem)] select-none items-center justify-center rounded-[10px]',
-              'text-[clamp(2.5rem,5.5vw,2rem)] font-black leading-none text-white',
-              'shadow-[inset_0_2px_0_rgba(255,255,255,0.32),inset_0_-3px_0_rgba(0,0,0,0.32),0_6px_18px_rgba(0,0,0,0.45)]',
-              tileClassForWagerValue(value, isFinalWager),
-            )}
-          >
-            {formatWagerGridLabel(value, isFinalWager)}
-          </div>
-        ))}
+      <div className="mx-auto w-full max-w-[min(900px,100%)] shrink-0">
+        <WagerDistributionGrid
+          variant="venue"
+          roundType={roundType}
+          counts={wagerDistributionCounts}
+        />
       </div>
     </div>
   );

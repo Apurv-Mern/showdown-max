@@ -43,6 +43,8 @@ const SOCKET_EVENTS = Object.freeze({
   UPDATE_LIVE_QUESTION: 'update_live_question',
   /** Host: abandon current question without scoring. */
   SKIP_QUESTION: 'skip_question',
+  /** Host: jump to a question index in the current round (no score changes). */
+  JUMP_TO_QUESTION: 'jump_to_question',
 
   // Server → Client
   SESSION_STATE: 'session_state',

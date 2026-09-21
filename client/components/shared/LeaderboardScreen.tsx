@@ -1,6 +1,10 @@
 'use client';
 
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import {
+  eliminationLeaderboardRowClasses,
+  prepareLeaderboardTeams,
+} from '@/lib/eliminationLeaderboard';
 import { cn, toDisplayUpper } from '@/lib/utils';
 
 export type LeaderboardTeam = {
@@ -117,6 +121,7 @@ function LeaderboardColumn({
   isPlayer,
   cfg,
   startRank = 1,
+  eliminationStyle = false,
 }: {
   teams: LeaderboardTeam[];
   size: LeaderboardScreenSize;
@@ -124,6 +129,7 @@ function LeaderboardColumn({
   isPlayer: boolean;
   cfg: (typeof SIZE_CONFIG)[LeaderboardScreenSize];
   startRank?: number;
+  eliminationStyle?: boolean;
 }) {
   const isVenue = size === 'venue';
 
@@ -133,6 +139,9 @@ function LeaderboardColumn({
         const isMe = isPlayer && highlightTeamId != null && team.teamId === highlightTeamId;
         const score = Number(team.score ?? 0);
         const rank = startRank + idx;
+
+        const showEliminated = eliminationStyle && team.isEliminated;
+        const showSurvivor = eliminationStyle && !team.isEliminated;
 
         return (
           <div
@@ -144,7 +153,8 @@ function LeaderboardColumn({
                 : 'grid grid-cols-[1fr_auto]',
               cfg.rowPy,
               cfg.rowPx,
-              team.isEliminated && 'opacity-55',
+              showEliminated && eliminationLeaderboardRowClasses.eliminated,
+              showSurvivor && eliminationLeaderboardRowClasses.survivor,
               isMe &&
                 'z-10 scale-[1.02] border-white/60 ring-2 ring-white/80 ring-offset-1 ring-offset-[#0b0524]',
             )}
@@ -171,7 +181,7 @@ function LeaderboardColumn({
                 'min-w-0 truncate uppercase text-white',
                 isVenue ? 'text-center font-normal' : 'font-bold',
                 cfg.nameText,
-                team.isEliminated && 'line-through',
+                showEliminated && 'line-through decoration-white/40',
               )}
             >
               {toDisplayUpper(team.teamName)}
@@ -182,6 +192,7 @@ function LeaderboardColumn({
                 'text-right text-white',
                 isVenue ? 'font-normal' : 'font-extrabold',
                 cfg.scoreText,
+                showEliminated && 'text-white/45',
               )}
             >
               {score}
@@ -202,6 +213,8 @@ export interface LeaderboardScreenProps {
   showScene?: boolean;
   emptyMessage?: string;
   titleId?: string;
+  /** Elimination round only: survivor/neon + grey knockouts and special sort. */
+  eliminationStyle?: boolean;
 }
 
 export function LeaderboardScreen({
@@ -212,6 +225,7 @@ export function LeaderboardScreen({
   showScene = true,
   emptyMessage = 'No teams on the leaderboard yet',
   titleId,
+  eliminationStyle = false,
 }: LeaderboardScreenProps) {
   const cfg = SIZE_CONFIG[size];
   const isPlayer = size === 'player';
@@ -220,16 +234,22 @@ export function LeaderboardScreen({
   const listAreaRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const teamsKeyRef = useRef('');
-  const teamsKey = teams.map((t) => `${t.teamId}:${t.score}`).join('|');
+  const displayTeams = useMemo(
+    () => prepareLeaderboardTeams(teams, eliminationStyle),
+    [teams, eliminationStyle],
+  );
+  const teamsKey = displayTeams
+    .map((t) => `${t.teamId}:${t.score}:${t.isEliminated ? 1 : 0}`)
+    .join('|');
 
   const useVenueSplit = isVenue && venueSplit;
-  const venueLeftCount = useVenueSplit ? Math.ceil(teams.length / 2) : teams.length;
-  const leftTeams = isVenue ? teams.slice(0, venueLeftCount) : teams;
-  const rightTeams = useVenueSplit ? teams.slice(venueLeftCount) : [];
+  const venueLeftCount = useVenueSplit ? Math.ceil(displayTeams.length / 2) : displayTeams.length;
+  const leftTeams = isVenue ? displayTeams.slice(0, venueLeftCount) : displayTeams;
+  const rightTeams = useVenueSplit ? displayTeams.slice(venueLeftCount) : [];
   const rightStartRank = venueLeftCount + 1;
 
   useLayoutEffect(() => {
-    if (!isVenue || teams.length === 0) {
+    if (!isVenue || displayTeams.length === 0) {
       setVenueSplit(false);
       return;
     }
@@ -264,7 +284,7 @@ export function LeaderboardScreen({
     if (contentRef.current) ro.observe(contentRef.current);
 
     return () => ro.disconnect();
-  }, [isVenue, teamsKey, teams.length, venueSplit]);
+  }, [isVenue, teamsKey, displayTeams.length, venueSplit]);
 
   useEffect(() => {
     if (!isVenue) return;
@@ -345,7 +365,7 @@ export function LeaderboardScreen({
             </div>
           ) : null}
 
-          {teams.length === 0 ? (
+          {displayTeams.length === 0 ? (
             <p className="py-8 text-center text-sm text-white/45">{emptyMessage}</p>
           ) : (
             <div ref={listAreaRef} className="min-h-0 flex-1 overflow-hidden">
@@ -362,6 +382,7 @@ export function LeaderboardScreen({
                       isPlayer={isPlayer}
                       cfg={cfg}
                       startRank={1}
+                      eliminationStyle={eliminationStyle}
                     />
                     <LeaderboardColumn
                       teams={rightTeams}
@@ -370,16 +391,18 @@ export function LeaderboardScreen({
                       isPlayer={isPlayer}
                       cfg={cfg}
                       startRank={rightStartRank}
+                      eliminationStyle={eliminationStyle}
                     />
                   </div>
                 ) : (
                   <div ref={contentRef}>
                     <LeaderboardColumn
-                      teams={teams}
+                      teams={displayTeams}
                       size={size}
                       highlightTeamId={highlightTeamId}
                       isPlayer={isPlayer}
                       cfg={cfg}
+                      eliminationStyle={eliminationStyle}
                     />
                   </div>
                 )}

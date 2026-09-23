@@ -12,23 +12,21 @@ const CORRECT_ANSWER_SOUND_SRC = '/sounds/Correct%20Answer.mp4';
 import { clientLogger } from '@/lib/clientLogger';
 import { breakSecondsFromEndsAt, resolveBreakWallClock } from '@/lib/breakWallClock';
 import { cn, toDisplayUpper } from '@/lib/utils';
-import { RoundIntroScoringLines } from '@/lib/roundIntroInstructions';
 import { formatQuestionPointsAtStake } from '@/lib/questionPointsDisplay';
-import { QRCodeSVG } from 'qrcode.react';
 import DynamicUnityGame from '@/components/mini-games/DynamicUnityGame';
 import { BreakTimerDisplay } from '@/components/shared/BreakTimerDisplay';
-import { QuestionTimerArch } from '@/components/shared/QuestionTimerArch';
 import { BreakScreenHeading } from '@/components/shared/BreakScreenHeading';
 import {
   resolveBreakUpNextLabel,
   resolveBreakUpNextLabelFromBreakStart,
 } from '@/lib/breakScreenCopy';
 import { VenueWagerCollectionScreen } from '@/components/venue/VenueWagerCollectionScreen';
-import { VenueAutoFitText } from '@/components/venue/VenueAutoFitText';
 import { emptyWagerDistributionCounts } from '@/lib/wagerGrid';
 import { VenueCodeOfConductScreen } from '@/components/venue/VenueCodeOfConductScreen';
-// import { VenuePracticeQuestionScreen } from '@/components/venue/VenuePracticeQuestionScreen';
-import { VenueLiveResponseBars } from '@/components/venue/VenueLiveResponseBars';
+import { VenueWelcomeScreen } from '@/components/venue/VenueWelcomeScreen';
+import { VenueLobbyScreen } from '@/components/venue/VenueLobbyScreen';
+import { VenueRoundIntroScreen } from '@/components/venue/VenueRoundIntroScreen';
+import { VenueQuestionScreen } from '@/components/venue/VenueQuestionScreen';
 import {
   DEFAULT_KANGAROO_NAMES,
   defaultKangarooNames,
@@ -130,29 +128,6 @@ interface RevealData {
   teams: Team[];
 }
 
-const OPTION_LETTERS = ['A', 'B', 'C', 'D', 'E', 'F'];
-const VENUE_OPTION_COLOR_CLASSES = [
-  'border-0 bg-linear-to-b from-[#0190F5] to-[#015FB4]',
-  'border-0 bg-linear-to-b from-[#FF6F00]  to-[#994200]',
-  'border-0 bg-linear-to-b from-[#2DA600]  to-[#227E00]',
-  'border-0 bg-linear-to-b from-[#F29B00]  to-[#B97700]',
-  'border-0 bg-linear-to-b from-[#460073]  to-[#5C0098]',
-  'border-0 bg-linear-to-b from-[#990003]  to-[#D20023]',
-];
-
-/** Venue question card — fixed media height + fixed option rows (matches TV mockup). */
-const VENUE_QUESTION_CARD_MEDIA = 'relative h-[400px] shrink-0 overflow-hidden rounded-t-2xl';
-const VENUE_MEDIA_FRAME = 'relative h-full w-full overflow-hidden bg-[#060818]';
-const VENUE_MEDIA_FILL = 'h-full w-full object-contain';
-const VENUE_QUESTION_CARD_OPTIONS =
-  'relative z-20 shrink-0 rounded-2xl border-t-2 border-t-white/50 bg-linear-to-b from-[#100048] to-[#000000] px-5 pb-4 pt-6';
-const VENUE_OPTION_GRID = 'grid grid-cols-2 gap-4';
-const VENUE_OPTION_CELL =
-  'flex h-[92px] min-w-0 items-center gap-4 overflow-hidden rounded-lg border px-6 py-3 font-normal text-white shadow-[0_8px_18px_rgba(0,0,0,0.35)]';
-const VENUE_CENTERED_QUESTION_TEXT =
-  'flex h-full w-full items-center justify-center text-center font-normal uppercase leading-[1.12] text-white drop-shadow-[0_0_18px_rgba(255,255,255,0.4)]';
-const VENUE_OPTIONS_QUESTION_TEXT = 'font-normal uppercase leading-tight text-white';
-const VENUE_OPTION_LETTER = 'shrink-0 text-[54px] font-normal leading-none text-white';
 const VENUE_MINI_GAME_FINISHED_LOGO =
   'mx-auto mb-8 h-[min(30rem,42cqh)] w-auto max-w-[min(92%,480px)] object-contain drop-shadow-[0_0_24px_rgba(0,229,255,0.28)]';
 
@@ -448,14 +423,6 @@ const normalizeRoundIntroTitle = (name?: string, roundType?: string, roundIndex?
 
   return toDisplayUpper(withoutPrefix);
 };
-
-/** Scale round-intro copy to stay inside the venue wheel circle. */
-function venueRoundIntroTitleSize(subtitle: string) {
-  const len = subtitle.length;
-  if (len > 16) return 'text-[clamp(1.85rem,4.6cqh,3.35rem)]';
-  if (len > 10) return 'text-[clamp(2rem,5.2cqh,3.65rem)]';
-  return 'text-[clamp(2.3rem,6cqh,4.15rem)]';
-}
 
 function VenueDisplayContent() {
   const router = useRouter();
@@ -2246,128 +2213,18 @@ function VenueDisplayContent() {
 
         {/* ── WELCOME ── */}
         {phase === 'welcome' && (
-          <div className="flex h-full w-full overflow-hidden animate-fadeIn">
-            {/* Left 70% — promo video (shared venue-stage-bg from parent) */}
-            <div className="relative flex h-full w-[70%] min-w-0 items-center justify-center overflow-hidden">
-              {!showIntroVideoFallback ? (
-                <video
-                  ref={promoVideoRef}
-                  src="/Promo Video.mp4"
-                  autoPlay
-                  loop
-                  muted
-                  playsInline
-                  className="h-[90%] w-[90%] max-h-none max-w-none"
-                  onPlay={armPromoAudioDelay}
-                  onError={() => setShowIntroVideoFallback(true)}
-                />
-              ) : null}
-            </div>
-
-            {/* Right 30% — QR + join info */}
-            <div className="relative flex h-full w-[30%] min-w-0 flex-col items-center justify-center gap-4 overflow-hidden px-4 py-6 sm:gap-5 sm:px-5 md:gap-6 md:px-6">
-              <div className="neon-border-strong rounded-xl bg-surface/90 p-2.5 shadow-[0_0_28px_rgba(0,229,255,0.2)] sm:rounded-2xl sm:p-3 md:p-4">
-                <div className="flex h-[min(35cqw,35cqh)] w-[min(35cqw,35cqh)] min-h-40 min-w-40 items-center justify-center rounded-lg bg-white p-2 sm:min-h-44 sm:min-w-44 md:min-h-48 md:min-w-48">
-                  <QRCodeSVG
-                    value={welcomeJoinUrl}
-                    size={280}
-                    className="h-full w-full max-h-full max-w-full"
-                  />
-                </div>
-              </div>
-
-              <div className="text-center">
-                <p className="text-neon-cyan text-xl font-bold tracking-wide sm:text-2xl md:text-3xl">
-                  Session PIN
-                </p>
-                {/* <p className="mt-1 text-sm text-foreground/50 sm:text-base md:text-lg">
-                    Session PIN
-                  </p> */}
-                <p className="mt-2 font-mono text-4xl font-black tracking-[0.12em] text-neon-cyan text-glow-cyan sm:text-5xl md:text-6xl">
-                  {sessionPin}
-                </p>
-              </div>
-
-              {/* {welcomeHold && !showVenueSplash ? (
-                  <div
-                    className="rounded-xl border-2 border-neon-cyan/80 bg-neon-cyan/10 px-5 py-3 text-center text-[11px] font-black uppercase tracking-[0.12em] text-neon-cyan shadow-[0_0_24px_rgba(0,229,255,0.35)] sm:px-6 sm:py-4 sm:text-xs md:text-sm"
-                    aria-live="polite"
-                  >
-                    Waiting for host…
-                  </div>
-                ) : null} */}
-            </div>
-          </div>
+          <VenueWelcomeScreen
+            sessionPin={sessionPin}
+            joinUrl={welcomeJoinUrl}
+            videoRef={promoVideoRef}
+            showVideo={!showIntroVideoFallback}
+            onVideoPlay={armPromoAudioDelay}
+            onVideoError={() => setShowIntroVideoFallback(true)}
+          />
         )}
 
         {/* ── LOBBY ── */}
-        {phase === 'lobby' && (
-          <div className="w-full h-full min-h-0 flex flex-col px-4 sm:px-5 md:px-6 lg:px-8 py-3 sm:py-4 md:py-5 animate-fadeIn">
-            <div className="text-center mb-2 sm:mb-3 md:mb-4 shrink-0">
-              <h2 className="text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-black tracking-wide text-white text-glow-cyan">
-                TEAM REGISTRATION
-              </h2>
-              <p className="text-sm sm:text-base md:text-lg lg:text-2xl text-neon-cyan font-semibold mt-1">
-                {teams.length} of {maxTeams} TEAMS JOINED
-              </p>
-            </div>
-
-            {sessionPin ? (
-              <div className="mx-auto mb-3 sm:mb-4 md:mb-5 shrink-0 rounded-xl border border-neon-cyan/45 bg-[#051230]/85 px-3 sm:px-4 py-2 sm:py-3 shadow-[0_0_20px_rgba(0,229,255,0.18)] flex items-center gap-2 sm:gap-3 max-w-full">
-                <div className="w-36 h-36 sm:w-44 sm:h-44 md:w-52 md:h-52 rounded bg-white p-1 flex items-center justify-center shrink-0">
-                  <QRCodeSVG value={playerJoinUrl} size={200} />
-                </div>
-                <div className="text-left min-w-0">
-                  <p className="text-neon-cyan font-bold text-xs sm:text-sm">SCAN TO JOIN</p>
-                  <p className="text-white/70 text-[10px] sm:text-xs mt-0.5">
-                    SESSION PIN: {sessionPin}
-                  </p>
-                </div>
-              </div>
-            ) : null}
-
-            <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden pr-1 pb-2 [scrollbar-gutter:stable]">
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2 sm:gap-2.5 md:gap-3 content-start mt-3 sm:mt-4 md:mt-5">
-                {Array.from({ length: maxTeams }).map((_, i) => {
-                  const team = teams[i];
-                  return (
-                    <div key={i} className="relative">
-                      <div className="absolute -top-1.5 sm:-top-2 right-0.5 z-10 w-4 h-4 sm:w-5 h-5 rounded-full bg-[#0c4ac4] border border-neon-cyan/40 text-[8px] sm:text-[10px] font-black text-white flex items-center justify-center shadow-[0_0_8px_rgba(0,229,255,0.25)]">
-                        {i + 1}
-                      </div>
-                      <div
-                        className={cn(
-                          'h-12 sm:h-14 md:h-16 rounded-lg sm:rounded-xl border px-2 sm:px-3 flex items-center gap-1.5 sm:gap-2 transition-all duration-500 backdrop-blur-sm text-xs sm:text-sm md:text-base',
-                          team
-                            ? 'bg-gradient-to-r from-[#0f4bc2]/85 via-[#0a2a92]/80 to-[#9f0ed2]/80 border-neon-cyan/65 shadow-[0_0_14px_rgba(0,229,255,0.25)]'
-                            : 'bg-[#130f2e]/55 border-white/25 border-dashed',
-                        )}
-                      >
-                        {team ? (
-                          <>
-                            <div className="w-4 h-4 sm:w-5 h-5 rounded-full bg-[#00be57] flex items-center justify-center text-white text-[9px] sm:text-[11px] font-black flex-shrink-0">
-                              {'\u2713'}
-                            </div>
-                            <div className="min-w-0 flex-1">
-                              <p className="font-bold text-white truncate uppercase">
-                                {toDisplayUpper(team.teamName)}
-                              </p>
-                              <p className="text-[9px] sm:text-[10px] text-[#66ffb2] font-semibold -mt-0.5">
-                                Ready
-                              </p>
-                            </div>
-                          </>
-                        ) : (
-                          <p className="w-full text-center text-white/70">Waiting...</p>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          </div>
-        )}
+        {phase === 'lobby' && <VenueLobbyScreen teams={teams} maxTeams={maxTeams} />}
 
         {phase === 'code_of_conduct' && <VenueCodeOfConductScreen />}
 
@@ -2375,92 +2232,30 @@ function VenueDisplayContent() {
 
         {/* Round Intro */}
         {phase === 'round_intro' && roundInfo && (
-          <div className="w-full h-full flex items-center justify-center animate-fadeIn px-4 sm:px-6">
-            {/* Wrapper matches the round-intro PNG's portrait aspect so percentage-based
-                overlays (title + scoring lines) land on the real image bounds rather than
-                spilling into the empty horizontal margins object-contain creates. */}
-            <div className="relative mx-auto aspect-[820/1024] h-full max-h-[min(92cqh,960px)]">
-              <img
-                src="/Venue Round Intro.png"
-                alt="Round intro background"
-                className="absolute inset-0 w-full h-full object-contain drop-shadow-[0_0_26px_rgba(0,0,0,0.6)]"
-              />
-
-              <div className="absolute inset-0 pointer-events-none text-center">
-                {(() => {
-                  const subtitle =
-                    (roundInfo.roundIndex || 0) !== 0
-                      ? normalizeRoundIntroTitle(
-                          roundInfo.round?.name,
-                          roundInfo.round?.type,
-                          roundInfo.roundIndex,
-                        )
-                      : '';
-                  const titleSize = venueRoundIntroTitleSize(subtitle);
-                  return (
-                    <div className="absolute left-1/2 top-[42%] w-[56%] -translate-x-1/2 -translate-y-1/2">
-                      <h1
-                        className={cn(
-                          titleSize,
-                          'leading-[0.92] font-black tracking-tight text-[#fff4c2]',
-                        )}
-                      >
-                        ROUND {(roundInfo.roundIndex || 0) + 1}
-                      </h1>
-                      {subtitle ? (
-                        <p
-                          className={cn(
-                            titleSize,
-                            'mt-1 uppercase leading-[0.92] font-black tracking-tight text-[#fff4c2]',
-                          )}
-                        >
-                          {subtitle}
-                        </p>
-                      ) : null}
-                    </div>
-                  );
-                })()}
-
-                <div className="absolute inset-x-[6%] top-[69%] bottom-[6%] flex flex-col items-stretch justify-center overflow-hidden">
-                  <RoundIntroScoringLines roundType={roundInfo.round?.type} variant="venue" />
-                </div>
-              </div>
-            </div>
-          </div>
+          <VenueRoundIntroScreen
+            roundNumber={(roundInfo.roundIndex || 0) + 1}
+            roundType={roundInfo.round?.type}
+            subtitle={
+              (roundInfo.roundIndex || 0) !== 0
+                ? normalizeRoundIntroTitle(
+                    roundInfo.round?.name,
+                    roundInfo.round?.type,
+                    roundInfo.roundIndex,
+                  )
+                : undefined
+            }
+          />
         )}
 
         {/* Wager Collection */}
         {phase === 'wager_collection' && (
-          <div className="flex h-full min-h-0 w-full animate-fadeIn flex-col px-4 py-3 md:px-20 md:py-4 lg:px-40 lg:py-5">
-            <div className="mx-auto mb-3 w-full shrink-0 rounded-2xl">
-              <div className="mb-2 rounded-xl px-3 py-2 md:px-4">
-                <VenueLiveResponseBars
-                  variant="inline"
-                  className="w-full flex-1 lg:max-w-2xl"
-                  roundType={roundInfo?.round?.type ?? question?.roundType}
-                  stats={{
-                    correct: wagerLockedCount,
-                    incorrect: Math.max(
-                      0,
-                      Math.max(1, wagerLockedTotal || liveTotalTeams || 1) - wagerLockedCount,
-                    ),
-                    noAnswer: 0,
-                    total: Math.max(1, wagerLockedTotal || liveTotalTeams || 1),
-                  }}
-                />
-              </div>
-            </div>
-
-            <div className="flex flex-1 items-center justify-center px-[2%] pb-[2%]">
-              <VenueWagerCollectionScreen
-                category={question?.question?.category ?? wagerCollectionCategory}
-                roundType={roundInfo?.round?.type ?? question?.roundType}
-                wagerLockedCount={wagerLockedCount}
-                wagerLockedTotal={Math.max(1, wagerLockedTotal || liveTotalTeams || 1)}
-                wagerDistributionCounts={wagerDistributionCounts}
-              />
-            </div>
-          </div>
+          <VenueWagerCollectionScreen
+            category={question?.question?.category ?? wagerCollectionCategory}
+            roundType={roundInfo?.round?.type ?? question?.roundType}
+            wagerLockedCount={wagerLockedCount}
+            wagerLockedTotal={Math.max(1, wagerLockedTotal || liveTotalTeams || 1)}
+            wagerDistributionCounts={wagerDistributionCounts}
+          />
         )}
 
         {/* Question Stats */}
@@ -2474,144 +2269,33 @@ function VenueDisplayContent() {
 
         {/* Question */}
         {phase === 'question' && question && (
-          <div className="flex h-full min-h-0 w-full animate-fadeIn flex-col overflow-hidden px-4 py-[clamp(0.5rem,1.5cqh,1.25rem)] md:px-20 lg:px-40">
-            {/* Response Stats */}
-            <div className="mx-auto mb-1 w-full shrink-0 rounded-2xl">
-              <div className="rounded-xl flex flex-col lg:flex-row items-start lg:items-center gap-2 lg:gap-3 justify-between px-3 md:px-4 py-1">
-                <VenueLiveResponseBars
-                  variant="inline"
-                  className="flex-1 w-full lg:max-w-2xl"
-                  roundType={question?.roundType}
-                  stats={{
-                    correct: liveResponses.correct,
-                    incorrect: liveResponses.incorrect,
-                    noAnswer: liveResponses.noAnswer,
-                    total: Math.max(1, liveResponses.total || totalTeams || 1),
-                  }}
-                />
-
-                <div className="flex items-center gap-3 md:gap-4 lg:gap-5 shrink-0 pr-1">
-                  <div className="flex items-center gap-2">
-                    <div className="w-10 h-10 rounded-full border border-[#1de8ff]/70 bg-[#11154f] flex items-center justify-center shadow-[0_0_12px_rgba(29,232,255,0.35)]">
-                      <svg
-                        viewBox="0 0 24 24"
-                        className="w-5 h-5 text-[#1de8ff]"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                      >
-                        <path d="M17 21v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2" />
-                        <circle cx="9" cy="7" r="3" />
-                        <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
-                        <path d="M16 3.13a4 4 0 0 1 0 7.75" />
-                      </svg>
-                    </div>
-                    <span className="text-3xl md:text-4xl lg:text-5xl font-black text-white leading-none">
-                      {liveTotalTeams}
-                    </span>
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    <div className="w-10 h-10 rounded-full border border-[#1de8ff]/70 bg-[#11154f] flex items-center justify-center shadow-[0_0_12px_rgba(29,232,255,0.35)]">
-                      <svg
-                        viewBox="0 0 24 24"
-                        className="w-5 h-5 text-[#19d9ff]"
-                        fill="currentColor"
-                      >
-                        <path d="M19 4h-3V2H8v2H5a1 1 0 0 0-1 1v3a5 5 0 0 0 4 4.9V16H6v2h12v-2h-2v-3.1A5 5 0 0 0 20 8V5a1 1 0 0 0-1-1Zm-1 4a3 3 0 0 1-2 2.82V6h2v2ZM6 8V6h2v4.82A3 3 0 0 1 6 8Z" />
-                      </svg>
-                    </div>
-                    <span className="text-3xl md:text-4xl lg:text-5xl font-black text-white leading-none">
-                      {liveQuestionPoints}
-                    </span>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* ── QUESTION ── */}
-            <div className="flex min-h-0 w-full flex-1 flex-col justify-start overflow-hidden animate-fadeIn">
-              <div className="mx-auto w-full shrink-0 overflow-hidden rounded-2xl border">
-                <div className={VENUE_QUESTION_CARD_MEDIA}>
-                  <div className="absolute left-4 top-3 z-10 text-2xl font-semibold text-white/90">
-                    QUESTION {(question.questionIndex || 0) + 1}/{question.totalQuestions}
-                  </div>
-                  <div className={VENUE_MEDIA_FRAME}>
-                    {venueQuestionHasVisualMedia(question.question) &&
-                    (question.question.mediaType || '').toLowerCase() === 'image' ? (
-                      <img
-                        src={resolveMediaUrl(question.question.mediaUrl)}
-                        className={VENUE_MEDIA_FILL}
-                        alt="media"
-                      />
-                    ) : venueQuestionHasVisualMedia(question.question) &&
-                      (question.question.mediaType || '').toLowerCase() === 'mp4' ? (
-                      <video
-                        ref={venueMp4Ref}
-                        key={resolveMediaUrl(question.question.mediaUrl)}
-                        src={resolveMediaUrl(question.question.mediaUrl)}
-                        className={VENUE_MEDIA_FILL}
-                        playsInline
-                        preload="auto"
-                      />
-                    ) : (
-                      <div className="flex h-full w-full items-center justify-center px-6 py-8 md:px-12 md:py-10">
-                        <VenueAutoFitText
-                          className={VENUE_CENTERED_QUESTION_TEXT}
-                          minFontSize={32}
-                          maxFontSize={72}
-                          step={2}
-                        >
-                          {toDisplayUpper(question.question.text)}
-                        </VenueAutoFitText>
-                      </div>
-                    )}
-                  </div>
-
-                  <QuestionTimerArch
-                    remainingSeconds={timerRemaining}
-                    totalSeconds={timerDuration}
-                    size="venue"
-                  />
-                </div>
-
-                <div className={VENUE_QUESTION_CARD_OPTIONS}>
-                  {venueQuestionHasVisualMedia(question.question) ? (
-                    <VenueAutoFitText
-                      className={cn(VENUE_OPTIONS_QUESTION_TEXT, 'mb-4 h-[90px] shrink-0')}
-                      minFontSize={24}
-                      maxFontSize={48}
-                    >
-                      Q{(question.questionIndex || 0) + 1}. {toDisplayUpper(question.question.text)}
-                    </VenueAutoFitText>
-                  ) : null}
-
-                  <div className={VENUE_OPTION_GRID}>
-                    {question.question.options.map((opt, i) => (
-                      <div
-                        key={i}
-                        className={cn(
-                          VENUE_OPTION_CELL,
-                          VENUE_OPTION_COLOR_CLASSES[i % VENUE_OPTION_COLOR_CLASSES.length],
-                        )}
-                      >
-                        <span className={VENUE_OPTION_LETTER}>{OPTION_LETTERS[i]}.</span>
-                        <VenueAutoFitText
-                          className="flex h-full min-w-0 flex-1 items-center break-words uppercase leading-none text-white"
-                          minFontSize={22}
-                          maxFontSize={54}
-                        >
-                          {toDisplayUpper(opt.text)}
-                        </VenueAutoFitText>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
+          <VenueQuestionScreen
+            questionText={question.question.text}
+            questionIndex={question.questionIndex || 0}
+            totalQuestions={question.totalQuestions}
+            options={question.question.options}
+            timerRemaining={timerRemaining}
+            timerDuration={timerDuration}
+            stats={{
+              correct: liveResponses.correct,
+              incorrect: liveResponses.incorrect,
+              noAnswer: liveResponses.noAnswer,
+              total: Math.max(1, liveResponses.total || totalTeams || 1),
+            }}
+            roundType={question.roundType}
+            teamCount={liveTotalTeams}
+            pointsLabel={liveQuestionPoints}
+            media={
+              venueQuestionHasVisualMedia(question.question)
+                ? {
+                    type: question.question.mediaType,
+                    url: resolveMediaUrl(question.question.mediaUrl),
+                  }
+                : null
+            }
+            videoRef={venueMp4Ref}
+          />
         )}
-
         {/* Processing Results */}
         {phase === 'reveal' && (!revealData || !question) && (
           <div className="w-full h-full flex flex-col items-center justify-center animate-fadeIn z-10 relative">
@@ -2623,175 +2307,44 @@ function VenueDisplayContent() {
 
         {/* Reveal */}
         {phase === 'reveal' && revealData && question && (
-          <div className="flex h-full min-h-0 w-full animate-fadeIn flex-col overflow-hidden px-4 py-[clamp(0.5rem,1.5cqh,1.25rem)] md:px-20 lg:px-40">
-            {/* Response Stats */}
-            <div className="mx-auto mb-1 w-full shrink-0 rounded-2xl">
-              <div className="rounded-xl flex flex-col lg:flex-row items-start lg:items-center gap-2 lg:gap-3 justify-between px-3 md:px-4 py-1 md:py-1.5">
-                <VenueLiveResponseBars
-                  variant="inline"
-                  className="flex-1 w-full lg:max-w-2xl"
-                  roundType={question?.roundType}
-                  stats={{
-                    correct: liveResponses.correct,
-                    incorrect: liveResponses.incorrect,
-                    noAnswer: liveResponses.noAnswer,
-                    total: Math.max(1, liveResponses.total || totalTeams || 1),
-                  }}
-                />
-
-                <div className="flex items-center gap-2 md:gap-3 lg:gap-5 shrink-0 pr-1 flex-wrap justify-end">
-                  <div className="flex items-center gap-1 md:gap-2 lg:gap-2">
-                    <div className="w-7 md:w-8 lg:w-10 h-7 md:h-8 lg:h-10 rounded-full border border-[#1de8ff]/70 bg-[#11154f] flex items-center justify-center shadow-[0_0_12px_rgba(29,232,255,0.35)]">
-                      <svg
-                        viewBox="0 0 24 24"
-                        className="w-3 md:w-4 lg:w-5 h-3 md:h-4 lg:h-5 text-[#1de8ff]"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                      >
-                        <path d="M17 21v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2" />
-                        <circle cx="9" cy="7" r="3" />
-                        <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
-                        <path d="M16 3.13a4 4 0 0 1 0 7.75" />
-                      </svg>
-                    </div>
-                    <span className="text-xl md:text-2xl lg:text-5xl font-black text-white leading-none">
-                      {liveTotalTeams}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-1 md:gap-2 lg:gap-2">
-                    <div className="w-7 md:w-8 lg:w-10 h-7 md:h-8 lg:h-10 rounded-full border border-[#1de8ff]/70 bg-[#11154f] flex items-center justify-center shadow-[0_0_12px_rgba(29,232,255,0.35)]">
-                      <svg
-                        viewBox="0 0 24 24"
-                        className="w-3 md:w-4 lg:w-5 h-3 md:h-4 lg:h-5 text-[#19d9ff]"
-                        fill="currentColor"
-                      >
-                        <path d="M19 4h-3V2H8v2H5a1 1 0 0 0-1 1v3a5 5 0 0 0 4 4.9V16H6v2h12v-2h-2v-3.1A5 5 0 0 0 20 8V5a1 1 0 0 0-1-1Zm-1 4a3 3 0 0 1-2 2.82V6h2v2ZM6 8V6h2v4.82A3 3 0 0 1 6 8Z" />
-                      </svg>
-                    </div>
-                    <span className="text-xl md:text-2xl lg:text-5xl font-black text-white leading-none">
-                      {liveQuestionPoints}
-                    </span>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* ── QUESTION CARD ── */}
-            <div className="flex min-h-0 w-full flex-1 flex-col justify-start overflow-hidden animate-fadeIn">
-              <div className="mx-auto w-full shrink-0 overflow-hidden rounded-2xl border border-white/20">
-                <div className={VENUE_QUESTION_CARD_MEDIA}>
-                  <div className="absolute left-4 top-3 z-10 text-2xl font-semibold text-white drop-shadow-md">
-                    Question {(question.questionIndex || 0) + 1}/{question.totalQuestions}
-                  </div>
-                  <div className={VENUE_MEDIA_FRAME}>
-                    {venueQuestionHasVisualMedia(question.question) &&
-                    (question.question.mediaType || '').toLowerCase() === 'image' ? (
-                      <img
-                        src={resolveMediaUrl(question.question.mediaUrl)}
-                        className={VENUE_MEDIA_FILL}
-                        alt="media"
-                      />
-                    ) : venueQuestionHasVisualMedia(question.question) &&
-                      (question.question.mediaType || '').toLowerCase() === 'mp4' ? (
-                      <video
-                        key={`reveal-${resolveMediaUrl(question.question.mediaUrl)}`}
-                        src={resolveMediaUrl(question.question.mediaUrl)}
-                        className={VENUE_MEDIA_FILL}
-                        playsInline
-                        preload="auto"
-                      />
-                    ) : (
-                      <div className="flex h-full w-full items-center justify-center px-6 py-8 md:px-12 md:py-10">
-                        <VenueAutoFitText
-                          className={VENUE_CENTERED_QUESTION_TEXT}
-                          minFontSize={32}
-                          maxFontSize={72}
-                          step={2}
-                        >
-                          {toDisplayUpper(question.question.text)}
-                        </VenueAutoFitText>
-                      </div>
-                    )}
-                  </div>
-
-                  <QuestionTimerArch
-                    remainingSeconds={timerRemaining}
-                    totalSeconds={timerDuration}
-                    size="venue"
-                  />
-                </div>
-
-                <div className={VENUE_QUESTION_CARD_OPTIONS}>
-                  {venueQuestionHasVisualMedia(question.question) ? (
-                    <VenueAutoFitText
-                      className={cn(VENUE_OPTIONS_QUESTION_TEXT, 'mb-4 h-[90px] shrink-0')}
-                      minFontSize={24}
-                      maxFontSize={48}
-                    >
-                      Q{(question.questionIndex || 0) + 1}. {toDisplayUpper(question.question.text)}
-                    </VenueAutoFitText>
-                  ) : null}
-                  {question.question.isOrdering && revealData && (
-                    <div className="mb-3 shrink-0 text-center md:mb-4">
-                      <span className="inline-block rounded-full border border-green-500/50 bg-green-500/20 px-4 py-1.5 text-xl font-bold uppercase tracking-wider text-green-400 shadow-[0_0_15px_rgba(57,255,74,0.2)]">
-                        Correct Order:{' '}
-                        {(revealData.correctOrderArray || [])
-                          .map((idx: number) =>
-                            toDisplayUpper(question.question.options[idx]?.text),
-                          )
-                          .join(' → ')}
-                      </span>
-                    </div>
-                  )}
-                  <div className={VENUE_OPTION_GRID}>
-                    {question.question.options.map((opt, i) => {
-                      const isMajorityRulesRound =
-                        (question.roundType || '').toUpperCase() === 'MAJORITY_RULES';
-                      const majorityOptionIndexes = new Set(
-                        revealData?.majorityOptionIndexes || [],
-                      );
-                      const isRevealedWinner = revealData
-                        ? isMajorityRulesRound
-                          ? majorityOptionIndexes.has(i)
-                          : i === revealData.correctOptionIndex
-                        : false;
-
-                      return (
-                        <div
-                          key={i}
-                          className={cn(
-                            VENUE_OPTION_CELL,
-                            'transition-all duration-500',
-                            VENUE_OPTION_COLOR_CLASSES[i % VENUE_OPTION_COLOR_CLASSES.length],
-                            revealData && isRevealedWinner
-                              ? 'z-10 scale-[1.02] shadow-[0_0_8px_8px_rgba(57,255,74,0.9)]'
-                              : revealData && !isRevealedWinner
-                                ? 'scale-[0.98] opacity-30 brightness-50 contrast-75'
-                                : '',
-                          )}
-                        >
-                          <span className={VENUE_OPTION_LETTER}>{OPTION_LETTERS[i]}.</span>
-                          <VenueAutoFitText
-                            className="flex h-full min-w-0 flex-1 items-center break-words uppercase leading-none text-white"
-                            minFontSize={22}
-                            maxFontSize={54}
-                          >
-                            {toDisplayUpper(opt.text)}
-                          </VenueAutoFitText>
-                          {isRevealedWinner && !isMajorityRulesRound && (
-                            <div className="ml-auto flex h-8 w-8 shrink-0 items-center justify-center rounded-full border-2 border-white bg-green-500 shadow-lg">
-                              <span className="text-lg text-white">✓</span>
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
+          <VenueQuestionScreen
+            questionText={question.question.text}
+            questionIndex={question.questionIndex || 0}
+            totalQuestions={question.totalQuestions}
+            options={question.question.options}
+            timerRemaining={timerRemaining}
+            timerDuration={timerDuration}
+            stats={{
+              correct: liveResponses.correct,
+              incorrect: liveResponses.incorrect,
+              noAnswer: liveResponses.noAnswer,
+              total: Math.max(1, liveResponses.total || totalTeams || 1),
+            }}
+            roundType={question.roundType}
+            teamCount={liveTotalTeams}
+            pointsLabel={liveQuestionPoints}
+            media={
+              venueQuestionHasVisualMedia(question.question)
+                ? {
+                    type: question.question.mediaType,
+                    url: resolveMediaUrl(question.question.mediaUrl),
+                  }
+                : null
+            }
+            revealed
+            winnerIndexes={
+              (question.roundType || '').toUpperCase() === 'MAJORITY_RULES'
+                ? revealData.majorityOptionIndexes || []
+                : [revealData.correctOptionIndex]
+            }
+            correctOrderLabel={
+              question.question.isOrdering
+                ? `Correct Order: ${(revealData.correctOrderArray || [])
+                    .map((idx: number) => toDisplayUpper(question.question.options[idx]?.text))
+                    .join(' → ')}`
+                : null
+            }
+          />
         )}
 
         {/* Round Over (audience-facing transition screen between the last reveal and scoreboard) */}
@@ -3117,20 +2670,16 @@ function BreakView({
   }, [breakEndsAtMs, clockSkewMs, totalSeconds]);
 
   return (
-    <div className="relative w-full h-full flex flex-col items-center justify-center text-center animate-fadeIn overflow-hidden">
-      <div className="pointer-events-none absolute left-0 top-0 h-[280px] w-[280px] bg-[radial-gradient(circle_at_30%_20%,rgba(255,245,170,0.38),rgba(255,245,170,0.04)_38%,transparent_68%)] opacity-60" />
-      <div className="pointer-events-none absolute right-0 top-0 h-[280px] w-[280px] bg-[radial-gradient(circle_at_70%_20%,rgba(255,245,170,0.38),rgba(255,245,170,0.04)_38%,transparent_68%)] opacity-60" />
-
-      <BreakScreenHeading size="venue" className="mb-10" />
-      <BreakTimerDisplay remainingSeconds={remaining} totalSeconds={totalSeconds} size="venue" />
-
-      <div className="relative z-10 mt-10 flex w-full justify-center px-6">
-        <img
-          src="/logo.png"
-          alt="Max Showdown Trivia"
-          className="h-auto w-[min(340px,42cqw)] max-w-full object-contain drop-shadow-[0_8px_32px_rgba(0,0,0,0.45)]"
-        />
+    <div className="relative h-full w-full overflow-hidden text-center animate-fadeIn">
+      <BreakScreenHeading size="venue" className="absolute left-1/2 top-[24px] z-10 -translate-x-1/2" />
+      <div className="absolute left-1/2 top-[157px] z-10 -translate-x-1/2">
+        <BreakTimerDisplay remainingSeconds={remaining} totalSeconds={totalSeconds} size="venue" />
       </div>
+      <img
+        src="/logo.png"
+        alt="Max Showdown Trivia"
+        className="absolute bottom-0 left-1/2 z-10 h-auto w-[584px] -translate-x-1/2 object-contain"
+      />
     </div>
   );
 }

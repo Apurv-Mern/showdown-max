@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { motion } from 'framer-motion';
 import { useSocket } from '@/hooks/useSocket';
 import { usePlayerSession } from '../playerSession';
-import { Button } from '@/components/shared/Button';
+import { PlayerScreenShell } from '@/components/player/PlayerScreenShell';
 import { PUBLIC_API_URL } from '@/lib/env';
 
 const TEAM_NAME_MAX_LENGTH = 20;
@@ -170,38 +170,26 @@ function JoinContent() {
   };
 
   return (
-    <div className="flex-1 h-full min-h-0 w-full bg-[#050017]">
-      <motion.div
-        initial={{ opacity: 0, y: 24 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.45, ease: 'easeOut' }}
-        className="relative h-full min-h-0 w-full overflow-hidden mobile-play-bg px-4 pt-[clamp(4.5rem,14vh,7rem)] sm:px-6 sm:pt-24 md:px-8 md:pt-28"
-        style={{
-          backgroundImage: "url('/Mobile_BG.png')",
-          backgroundSize: '100% 100%',
-          backgroundPosition: 'center',
-          backgroundRepeat: 'no-repeat',
-        }}
-      >
+    <div className="flex-1 h-full min-h-0 w-full bg-[#00010a]">
+      <PlayerScreenShell>
         {showSplash ? (
           <motion.div
             key="join-splash"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
-            className="relative z-10 flex justify-center  h-full flex-col"
+            className="flex h-full flex-col items-center justify-center px-5"
           >
-            <div className="" />
             <img
               src="/logo.png"
               alt="Max Showdown logo"
-              className="mx-auto w-[min(92%,28rem)] max-w-full drop-shadow-[0_0_18px_rgba(0,229,255,0.22)] sm:w-[88%] md:max-w-md"
+              className="w-[min(91%,400px)] object-contain"
             />
-            <div className="px-1 pb-12 pt-4 text-center sm:pb-14 sm:pt-5">
-              <h1 className="text-[clamp(1.25rem,5vw,1.9rem)] font-black uppercase leading-none text-[#00d8ff] sm:text-3xl md:text-4xl">
-                LIVE TRIVIA EXPERIENCE
+            <div className="mt-6 px-1 text-center [text-shadow:0_2px_2px_rgba(0,0,0,0.5)]">
+              <h1 className="text-[30px] font-extrabold uppercase leading-none text-white">
+                Live Trivia Experience
               </h1>
-              <p className="mt-2 text-[clamp(1.1rem,4.2vw,1.7rem)] font-semibold leading-[1.15] text-white sm:text-2xl md:text-3xl">
-                GET READY-THE GAME IS ABOUT TO BEGIN
+              <p className="mt-2 text-[18px] font-extrabold uppercase leading-snug text-white">
+                Get ready-the game is about to begin
               </p>
             </div>
           </motion.div>
@@ -211,31 +199,28 @@ function JoinContent() {
             initial={{ opacity: 0, y: 14 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.35, ease: 'easeOut' }}
-            className="relative z-10 mx-auto w-full max-w-md md:max-w-lg"
+            className="mx-auto flex h-full w-full max-w-[400px] flex-col items-center px-[30px] pt-[112px]"
           >
-            <motion.img
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              transition={{ delay: 0.1, duration: 0.4 }}
+            <img
               src="/logo.png"
               alt="Max Showdown logo"
-              className="mx-auto w-[min(94%,26rem)] max-w-full drop-shadow-[0_0_18px_rgba(0,229,255,0.22)] sm:w-[90%]"
+              className="w-[400px] max-w-full object-contain object-bottom"
             />
 
-            <div className="mt-6 space-y-4 text-left sm:mt-8 sm:space-y-5">
+            <div className="mt-10 flex w-full flex-col gap-[30px]">
               {error && (
                 <motion.div
                   initial={{ opacity: 0, height: 0 }}
                   animate={{ opacity: 1, height: 'auto' }}
-                  className="rounded-xl border border-[#ff3d6f]/40 bg-[#ff3d6f]/10 px-4 py-2.5 text-sm text-[#ff6f94]"
+                  className="rounded-[10px] border border-[#ff0000]/50 bg-[#250000] px-4 py-2.5 text-center text-sm text-white"
                 >
                   {error}
                 </motion.div>
               )}
 
-              <div>
-                <label className="mb-2 block text-base font-semibold leading-none text-white sm:text-lg">
-                  ENTER SESSION PIN
+              <div className="flex flex-col items-center">
+                <label className="mb-2 text-center text-[20px] font-bold uppercase leading-6 text-white">
+                  Enter Session PIN
                 </label>
                 <input
                   type="text"
@@ -245,21 +230,17 @@ function JoinContent() {
                   onChange={(e) => {
                     const next = e.target.value.replace(/\D/g, '').slice(0, 6);
                     setPin(next);
-                    // Clear any leftover error/flash banner the moment the user starts editing
-                    // a new PIN — otherwise a stale "Session not found" or kicked-by-host
-                    // message lingers above the input until the next submit, which looks like
-                    // a spurious error appearing for valid PINs.
                     if (error) setError('');
                   }}
-                  className="h-12 w-full rounded-[10px] border border-[#00d8ff]/70 bg-[rgba(10,18,40,0.92)] px-4 text-base font-medium tracking-[0.06em] text-white placeholder:text-[#93a0b5] focus:outline-none focus:shadow-[0_0_14px_rgba(0,216,255,0.35)] sm:h-14 sm:text-[17px]"
+                  className="player-input text-center"
                   maxLength={6}
                   autoFocus
                 />
               </div>
 
-              <div>
-                <label className="mb-2 block text-base font-semibold leading-none text-white sm:text-lg">
-                  ENTER TEAM NAME
+              <div className="flex flex-col items-center">
+                <label className="mb-2 text-center text-[20px] font-bold uppercase leading-6 text-white">
+                  Enter your Team Name
                 </label>
                 <input
                   type="text"
@@ -270,25 +251,26 @@ function JoinContent() {
                       e.target.value.replace(/\s{2,}/g, ' ').slice(0, TEAM_NAME_MAX_LENGTH),
                     )
                   }
-                  className="h-12 w-full rounded-[10px] border border-[#00d8ff]/70 bg-[rgba(10,18,40,0.92)] px-4 text-base font-medium text-white placeholder:text-[#93a0b5] focus:outline-none focus:shadow-[0_0_14px_rgba(0,216,255,0.35)] sm:h-14 sm:text-[17px]"
+                  className="player-input text-center"
                   maxLength={TEAM_NAME_MAX_LENGTH}
                 />
-                <p className="mt-1 text-right text-xs text-white/50">
+                <p className="sr-only">
                   {sanitizeTeamName(teamName).length}/{TEAM_NAME_MAX_LENGTH}
                 </p>
               </div>
 
-              <Button
+              <button
+                type="button"
                 onClick={handleJoin}
                 disabled={joining || !pin || !teamName.trim()}
-                className="h-12 w-full rounded-[10px] border border-[#ff4d4d] bg-gradient-to-b from-[#ff001f] to-[#7f0010] text-base font-bold uppercase tracking-[0.04em] text-white shadow-[0_4px_16px_rgba(255,0,31,0.32)] hover:brightness-110 disabled:opacity-45 sm:h-14 sm:text-lg"
+                className="player-join-btn disabled:opacity-45"
               >
                 {joining ? 'Joining...' : 'JOIN GAME'}
-              </Button>
+              </button>
 
-              <div className="pt-1 flex items-center justify-center gap-2">
+              <div className="flex items-center justify-center gap-2">
                 <div
-                  className={`h-2.5 w-2.5 rounded-full ${isConnected ? 'bg-[#00ff6a] shadow-[0_0_6px_rgba(0,255,106,0.6)]' : 'bg-[#ff1744] shadow-[0_0_6px_rgba(255,23,68,0.6)]'}`}
+                  className={`h-2.5 w-2.5 rounded-full ${isConnected ? 'bg-[#38ff00] shadow-[0_0_6px_rgba(56,255,0,0.6)]' : 'bg-[#ff0000] shadow-[0_0_6px_rgba(255,0,0,0.6)]'}`}
                 />
                 <span className="text-xs text-white/50">
                   {isConnected ? 'Connected' : 'Connecting...'}
@@ -297,7 +279,7 @@ function JoinContent() {
             </div>
           </motion.div>
         )}
-      </motion.div>
+      </PlayerScreenShell>
     </div>
   );
 }

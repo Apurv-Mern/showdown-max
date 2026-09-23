@@ -126,8 +126,12 @@ const hydrateFromSession = async (session) => {
     : checkpoint.lobbyTeams || [];
   for (const team of teams) {
     if (!team?.teamId) continue;
-    await redisStore.addTeamToLobby(pin, team);
     await redisStore.updateTeamData(pin, team.teamId, team);
+    // Parked teams stay in the score hash only. Putting them back in the lobby
+    // made leftover joins look connected after a server restart.
+    if (team.isConnected !== false) {
+      await redisStore.addTeamToLobby(pin, team);
+    }
   }
 
   const responsesByQuestion = checkpoint.responses || {};

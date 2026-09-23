@@ -283,6 +283,12 @@ const getAllTeamsData = async (pin) => {
   );
 };
 
+/** Currently joined devices — lobby only. Parked/disconnected rows stay in the teams hash. */
+const getConnectedTeamsData = async (pin) => {
+  const lobby = await getLobbyTeams(pin);
+  return lobby.filter((team) => team && team.isConnected !== false);
+};
+
 const recordResponse = async (pin, questionId, teamId, selectedOptionIndex) => {
   rememberPinMode(pin);
   await withFallback(
@@ -665,6 +671,7 @@ module.exports = {
   getLobbyTeams,
   updateTeamData,
   getAllTeamsData,
+  getConnectedTeamsData,
   getHostRemovalBlocklist,
   appendHostRemovalBlocklist,
   removeHostRemovalBlocklistNormalizedNames,

@@ -230,13 +230,17 @@ const parseSelectedOptionIndex = (rawResponse) => {
 
 /** Teams eligible to answer — prefer `activeTeamIds`, fall back to `teams` map (break resume, legacy state). */
 const resolveActiveTeamIdsForStats = (gameState) => {
+  const isLive = (id) => {
+    const row = gameState?.teams?.[id] ?? gameState?.teams?.[String(id)];
+    return !row || row.isConnected !== false;
+  };
   const fromActive = (Array.isArray(gameState?.activeTeamIds) ? gameState.activeTeamIds : [])
     .map(Number)
-    .filter((id) => Number.isFinite(id));
+    .filter((id) => Number.isFinite(id) && isLive(id));
   if (fromActive.length > 0) return fromActive;
   return Object.keys(gameState?.teams || {})
     .map(Number)
-    .filter((id) => Number.isFinite(id));
+    .filter((id) => Number.isFinite(id) && isLive(id));
 };
 
 const isTeamEliminatedInState = (gameState, teamId) =>
@@ -446,7 +450,7 @@ const createHorseRaceState = (kangarooNames = DEFAULT_KANGAROO_NAMES) => ({
  */
 const startGame = async (io, pin, quiz, sessionId) => {
   const gameState = stateMachine.createInitialState(sessionId, quiz);
-  const teams = await redisStore.getAllTeamsData(pin);
+  const teams = await redisStore.getConnectedTeamsData(pin);
   const session = await Session.findByPk(sessionId);
 
   gameState.totalTeams = teams.length;
@@ -2300,7 +2304,7 @@ const launchMiniGame = async (io, pin, gameType, config = {}) => {
 
   // If launching from LOBBY, gameState might not exist yet
   if (!gameState) {
-    const lobbyTeams = await redisStore.getAllTeamsData(pin);
+    const lobbyTeams = await redisStore.getConnectedTeamsData(pin);
     const teamsObj = {};
     for (const t of lobbyTeams) {
       teamsObj[t.teamId] = t;

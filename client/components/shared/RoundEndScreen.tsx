@@ -20,9 +20,9 @@ const SIZE_CONFIG: Record<
     pad: 'px-6 py-8',
   },
   venue: {
-    box: 'w-[min(92cqw,1060px)] min-h-[min(72cqh,640px)] rounded-[20px] border-2 border-[#00d9ff]/70 shadow-[0_0_40px_rgba(0,217,255,0.3)]',
-    logo: 'h-auto w-[min(380px,42cqw)] max-w-[460px]',
-    pad: 'px-8 py-10 sm:px-10 sm:py-12',
+    box: 'w-full min-h-0 bg-transparent shadow-none border-0',
+    logo: 'h-auto w-[807px] max-w-[807px]',
+    pad: 'px-0 py-0',
   },
 };
 
@@ -54,8 +54,13 @@ export function RoundEndScreen({
       )}
     >
       <div
-        className={cn('relative flex flex-col overflow-hidden', cfg.box, cfg.pad)}
-        style={{ background: ROUND_END_BOX_GRADIENT }}
+        className={cn(
+          'relative flex flex-col',
+          size === 'venue' ? 'overflow-visible' : 'overflow-hidden',
+          cfg.box,
+          cfg.pad,
+        )}
+        style={size === 'venue' ? undefined : { background: ROUND_END_BOX_GRADIENT }}
       >
         <div
           className={cn(

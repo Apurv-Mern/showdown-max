@@ -33,10 +33,10 @@ const SIZE_CONFIG: Record<
     ringInset: 'inset-[12%]',
   },
   venue: {
-    box: 'h-[420px] w-[420px]',
-    canvasSize: 420,
-    time: 'text-[60px]',
-    label: 'text-[24px]',
+    box: 'h-[518px] w-[518px]',
+    canvasSize: 518,
+    time: 'text-[120px]',
+    label: 'text-[35px]',
     innerInset: 'inset-[28%]',
     ringInset: 'inset-[12%]',
   },
@@ -177,8 +177,11 @@ export function BreakTimerDisplay({
           {minutes}:{String(seconds).padStart(2, '0')}
         </p>
         <p
-          className={cn('mt-1 font-extrabold tracking-[0.1em] text-[#1ee6ff] sm:mt-2', cfg.label)}
-          style={{ textShadow: '0 0 8px rgba(30,230,255,0.6)' }}
+          className={cn(
+            'mt-1 font-extrabold uppercase tracking-[1px] text-white sm:mt-2',
+            cfg.label,
+          )}
+          style={{ textShadow: '0 5px 2px black' }}
         >
           TIME REMAINING
         </p>

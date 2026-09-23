@@ -21,9 +21,9 @@ const SIZE_CONFIG: Record<
     titleGap: 'gap-0',
   },
   venue: {
-    line: 'text-[clamp(3rem,5.5cqw,72px)] font-black leading-[1.05] tracking-[0.04em]',
-    sub: 'mt-4 text-[clamp(1.35rem,2.2cqw,32px)] font-extrabold leading-tight tracking-[0.05em]',
-    wrapper: 'max-w-[980px] px-6',
+    line: 'whitespace-nowrap text-[80px] font-black leading-[50px] tracking-normal',
+    sub: 'mt-4 text-[35px] font-extrabold leading-tight tracking-[0.05em]',
+    wrapper: 'max-w-none px-6',
     titleGap: 'gap-0',
   },
 };
@@ -44,7 +44,7 @@ export function BreakScreenHeading({
     <header className={cn('text-center', cfg.wrapper, className)}>
       <div className={cn('flex flex-col items-center', cfg.titleGap)}>
         <p className={cn('text-white drop-shadow-[0_0_14px_rgba(255,255,255,0.35)]', cfg.line)}>
-          BREAK TIME
+          {size === 'host' ? 'BREAK TIME' : 'SEE YOU AFTER THE BREAK !!'}
         </p>
       </div>
     </header>

@@ -24,6 +24,7 @@ import { clientLogger } from '@/lib/clientLogger';
 import { breakSecondsFromEndsAt, resolveBreakWallClock } from '@/lib/breakWallClock';
 import { cn } from '@/lib/utils';
 import { RoundIntroScoringLines } from '@/lib/roundIntroInstructions';
+import { RoundIntroHeadline } from '@/components/shared/RoundIntroHeadline';
 import { useAuth } from '@/lib/auth';
 import { PUBLIC_API_URL } from '@/lib/env';
 import {
@@ -200,14 +201,24 @@ interface RevealData {
   teams: Team[];
 }
 
+function isHostTeamConnected(team?: Team | null): boolean {
+  return Boolean(team) && team.isConnected !== false;
+}
+
+function countConnectedHostTeams(teams?: Record<string | number, Team>): number {
+  if (!teams) return 0;
+  return Object.values(teams).filter(isHostTeamConnected).length;
+}
+
 function resolveHostRosterCount(
   activeTeamIds?: number[],
   teams?: Record<string | number, Team>,
   totalTeams?: number,
 ): number {
+  const connectedCount = countConnectedHostTeams(teams);
+  if (connectedCount > 0) return connectedCount;
   const activeCount = Array.isArray(activeTeamIds) ? activeTeamIds.length : 0;
-  const teamMapCount = teams ? Object.keys(teams).length : 0;
-  return activeCount > 0 ? activeCount : teamMapCount || Math.max(0, Number(totalTeams || 0));
+  return activeCount > 0 ? activeCount : Math.max(0, Number(totalTeams || 0));
 }
 
 type LiveResponsesState = {
@@ -2253,12 +2264,16 @@ function HostDashboardContent() {
     gameStateRef.current?.currentRoundIndex ?? gameState?.currentRoundIndex ?? 0;
   const isLastRound = totalRounds > 0 && currentRoundIndex === totalRounds - 1;
   const teamList = gameState?.teams ? Object.values(gameState.teams) : [];
+  const connectedTeamList = teamList.filter(isHostTeamConnected);
   const eliminationLeaderboardStyle = isEliminationRoundType(currentRound?.type);
   const sortedTeams = eliminationLeaderboardStyle
     ? prepareLeaderboardTeams(teamList, true)
     : [...teamList].sort((a, b) => b.score - a.score);
-  /** Roster rows come from `teams`; never trust `totalTeams` alone (reconnect could inflate it). */
-  const rosterTeamCount = Math.max(0, teamList.length);
+  const sortedConnectedTeams = eliminationLeaderboardStyle
+    ? prepareLeaderboardTeams(connectedTeamList, true)
+    : [...connectedTeamList].sort((a, b) => b.score - a.score);
+  /** Live roster is connected devices only — parked leftover joins stay off this count. */
+  const rosterTeamCount = Math.max(0, connectedTeamList.length);
   const kangarooSelectedTotal = kangarooBetCounts.reduce((sum, n) => sum + Number(n || 0), 0);
   const activeTeamCountForLive =
     Array.isArray(gameState?.activeTeamIds) && gameState.activeTeamIds.length > 0
@@ -3334,19 +3349,20 @@ function HostDashboardContent() {
                       />
 
                       <div className="absolute inset-0 pointer-events-none text-center">
-                        <div className="absolute left-1/2 top-[40%] w-[70%] -translate-x-1/2 -translate-y-1/2 sm:w-[62%]">
-                          <h2 className="text-4xl leading-[0.95] font-black text-[#fff4c2] sm:text-5xl md:text-6xl lg:text-[35px]">
-                            ROUND {(gameState?.currentRoundIndex || 0) + 1}
-                          </h2>
-                          {(gameState?.currentRoundIndex ?? 0) !== 0 ? (
-                            <p className="mt-1 text-4xl font-black uppercase leading-[0.95] text-[#fff4c2]   sm:text-5xl md:text-6xl lg:text-[35px]">
-                              {normalizeRoundIntroTitle(
-                                currentRound?.name,
-                                currentRound?.type,
-                                gameState?.currentRoundIndex,
-                              )}
-                            </p>
-                          ) : null}
+                        <div className="absolute left-1/2 top-[38%] flex h-[36%] w-[64%] -translate-x-1/2 -translate-y-1/2 items-center justify-center overflow-hidden">
+                          <RoundIntroHeadline
+                            size="host"
+                            roundNumber={(gameState?.currentRoundIndex || 0) + 1}
+                            subtitle={
+                              (gameState?.currentRoundIndex ?? 0) !== 0
+                                ? normalizeRoundIntroTitle(
+                                    currentRound?.name,
+                                    currentRound?.type,
+                                    gameState?.currentRoundIndex,
+                                  )
+                                : undefined
+                            }
+                          />
                         </div>
 
                         <div className="absolute inset-x-[6%] top-[69%] bottom-[6%] flex flex-col items-stretch justify-center overflow-hidden">
@@ -3653,10 +3669,10 @@ function HostDashboardContent() {
                 className="max-h-[min(45vh,22rem)] overflow-y-auto overscroll-y-contain rounded-lg border border-white/20 [scrollbar-color:rgba(255,255,255,0.25)_transparent]"
                 data-name="Leaderboard Container"
               >
-                {sortedTeams.length === 0 ? (
+                {sortedConnectedTeams.length === 0 ? (
                   <p className="px-4 py-6 text-center text-sm text-white/40">No teams yet</p>
                 ) : (
-                  sortedTeams.map((team, idx) => (
+                  sortedConnectedTeams.map((team, idx) => (
                     <div
                       key={team.teamId}
                       className={cn(
@@ -4114,19 +4130,20 @@ function HostDashboardContent() {
                     />
 
                     <div className="pointer-events-none absolute inset-0 text-center">
-                      <div className="absolute left-1/2 top-[34%] w-[64%] -translate-x-1/2 -translate-y-1/2">
-                        <h2 className="text-[55px] leading-none font-black text-[#fff4c2]  ">
-                          ROUND {(gameState?.currentRoundIndex ?? 0) + 1}
-                        </h2>
-                        {(gameState?.currentRoundIndex ?? 0) !== 0 ? (
-                          <p className="mt-2 text-[55px] font-black uppercase leading-none text-[#fff4c2]  ">
-                            {normalizeRoundIntroTitle(
-                              currentRound?.name,
-                              currentRound?.type,
-                              gameState?.currentRoundIndex,
-                            )}
-                          </p>
-                        ) : null}
+                      <div className="absolute left-1/2 top-[34%] flex h-[38%] w-[64%] -translate-x-1/2 -translate-y-1/2 items-center justify-center overflow-hidden">
+                        <RoundIntroHeadline
+                          size="hostModal"
+                          roundNumber={(gameState?.currentRoundIndex ?? 0) + 1}
+                          subtitle={
+                            (gameState?.currentRoundIndex ?? 0) !== 0
+                              ? normalizeRoundIntroTitle(
+                                  currentRound?.name,
+                                  currentRound?.type,
+                                  gameState?.currentRoundIndex,
+                                )
+                              : undefined
+                          }
+                        />
                       </div>
 
                       <div className="absolute inset-x-[6%] top-[69%] bottom-[6%] flex flex-col items-stretch justify-center overflow-hidden">

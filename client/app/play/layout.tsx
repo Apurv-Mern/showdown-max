@@ -102,8 +102,8 @@ export default function PlayerLayout({ children }: { children: React.ReactNode }
   return (
     <PlayerContext.Provider value={{ session, setSession, clearSession }}>
       <PlayerSessionDeletedBridge />
-      <div className="flex h-[100dvh] min-h-0 w-full flex-col overflow-hidden bg-[#050017] pt-[env(safe-area-inset-top,0px)] pb-[env(safe-area-inset-bottom,0px)] pl-[env(safe-area-inset-left,0px)] pr-[env(safe-area-inset-right,0px)]">
-        <div className="mx-auto flex h-full min-h-0 w-full max-w-full flex-1 flex-col overflow-hidden sm:max-w-lg md:max-w-xl lg:max-w-2xl xl:max-w-3xl">
+      <div className="flex h-[100dvh] min-h-0 w-full flex-col overflow-hidden bg-[#00010a] pt-[env(safe-area-inset-top,0px)] pb-[env(safe-area-inset-bottom,0px)] pl-[env(safe-area-inset-left,0px)] pr-[env(safe-area-inset-right,0px)]">
+        <div className="mx-auto flex h-full min-h-0 w-full max-w-[440px] flex-1 flex-col overflow-hidden">
           {children}
           {session.pin && session.teamId && (
             <PlayerReconnector

@@ -19,14 +19,13 @@ export { WAGER_POINT_OPTIONS, FINAL_WAGER_PERCENT_OPTIONS };
 
 function PlayerWagerBackground() {
   return (
-    <div
-      className="pointer-events-none absolute inset-0 bg-[#050017] bg-center bg-no-repeat"
-      style={{
-        backgroundImage: "url('/mobilebackground.png')",
-        backgroundSize: '100% 100%',
-      }}
-      aria-hidden
-    />
+    <div className="player-figma-bg pointer-events-none absolute inset-0" aria-hidden>
+      <img
+        src="/figma/player-dot-halo.png"
+        alt=""
+        className="absolute left-1/2 top-[81%] h-[46%] w-[99%] -translate-x-1/2 object-contain object-bottom opacity-10"
+      />
+    </div>
   );
 }
 
@@ -67,30 +66,38 @@ function WagerSelectionView({
       className="relative z-10 flex min-h-0 w-full flex-1 flex-col px-5 pb-5 pt-5 sm:px-6 sm:pb-6 sm:pt-6"
     >
       <header className="shrink-0 text-center">
-        <h1 className="text-[clamp(1.35rem,5.8vw,1.85rem)] font-black uppercase leading-tight tracking-[0.04em] text-[#1de8ff] drop-shadow-[0_0_14px_rgba(29,232,255,0.45)]">
+        <h1 className="text-[25px] font-extrabold uppercase leading-[0.7] text-white">
           {toDisplayUpper(playerWagerTitle(isFinalWagerRound))}
         </h1>
-        <p className="mx-auto mt-2 max-w-[18rem] text-[clamp(0.68rem,3vw,0.82rem)] font-bold uppercase leading-snug tracking-[0.06em] text-white sm:max-w-xs">
+        <p className="mx-auto mt-4 max-w-[389px] text-[18px] font-extrabold uppercase leading-[1.1] text-white">
           {toDisplayUpper(playerWagerSubtitle(isFinalWagerRound))}
         </p>
       </header>
 
-      <div className="mt-2 flex shrink-0 flex-col items-center sm:mt-2.5">
-        <p className="text-[clamp(0.95rem,4vw,1.15rem)] font-black uppercase tracking-[0.12em] text-white">
-          {categoryLabel}
+      <div className="mt-4 flex shrink-0 flex-col items-center">
+        <p
+          className="text-[40px] font-extrabold uppercase leading-none text-white"
+          style={{ textShadow: '0 0 6px #0010FF' }}
+        >
+          YOUR BET
         </p>
         <div
-          className="mt-1.5 flex h-[clamp(5.75rem,23vw,7.25rem)] w-[clamp(5.75rem,23vw,7.25rem)] items-center justify-center rounded-full bg-black shadow-[0_0_28px_rgba(29,232,255,0.7)] ring-[3px] ring-[#1de8ff]"
+          className="mt-3 flex size-[160px] items-center justify-center rounded-full"
+          style={{
+            background: 'radial-gradient(circle, #1A00FF 20%, #000010 70%, #040040 100%)',
+            boxShadow: '0 0 18px #00D9FF',
+            border: '2px solid #00D9FF',
+          }}
           aria-live="polite"
-          aria-label={`Selected wager ${formatWagerCircleValue(wagerAmount)}`}
+          aria-label={`Selected wager ${formatWagerCircleValue(wagerAmount)} ${categoryLabel}`}
         >
-          <span className="text-[clamp(3.25rem,13vw,4.25rem)] font-black leading-none text-white">
+          <span className="text-[60px] font-black leading-none text-white">
             {formatWagerCircleValue(wagerAmount)}
           </span>
         </div>
       </div>
 
-      <div className="mx-auto mt-6 flex w-full max-w-[min(20rem,90vw)] shrink-0 flex-col gap-2.5 sm:max-w-[22rem] sm:gap-3">
+      <div className="mx-auto mt-6 flex w-full max-w-[400px] shrink-0 flex-col gap-5">
         {gridValues.map((value) => {
           const enabled = wagerChoiceValues.includes(value);
           const selected = wagerAmount === value;
@@ -101,9 +108,9 @@ function WagerSelectionView({
               disabled={!enabled}
               onClick={() => onSelectAmount(value)}
               className={cn(
-                'flex w-full items-center justify-center rounded-xl py-2.5',
-                'text-[clamp(1.35rem,5.5vw,1.65rem)] font-black leading-none text-white touch-manipulation',
-                'shadow-[inset_0_2px_0_rgba(255,255,255,0.28),0_4px_12px_rgba(0,0,0,0.4)] transition-all active:scale-[0.99]',
+                'flex h-[65px] w-full items-center justify-center rounded-full',
+                'text-[45px] font-extrabold leading-none text-white touch-manipulation',
+                '[text-shadow:0_4px_4px_rgba(0,0,0,0.7)] transition-all active:scale-[0.99]',
                 tileClassForWagerValue(value, isFinalWagerRound),
                 !enabled && 'pointer-events-none opacity-40',
                 selected && SELECTED_BUTTON,

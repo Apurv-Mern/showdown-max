@@ -40,11 +40,13 @@ export function wagerInstructionText(isFinalWager: boolean): string {
 }
 
 export function playerWagerTitle(isFinalWager: boolean): string {
-  return isFinalWager ? 'Final Question' : 'Place your wager';
+  return isFinalWager ? 'PLACE YOUR FINAL BETS' : 'PLACE YOUR WAGER';
 }
 
 export function playerWagerSubtitle(isFinalWager: boolean): string {
-  return isFinalWager ? 'How much are you risking?' : 'Select how many points you want to wager';
+  return isFinalWager
+    ? 'WHAT PERCENTAGE OF OUR OVERALL SCORES ARE WE WILLING TO RISK?'
+    : 'SELECT HOW MANY POINTS YOU WANT TO WAGER';
 }
 
 /** Circle display — numeric only (no % suffix), matching player mock. */

@@ -1,31 +1,38 @@
 @import 'tailwindcss';
 
 :root {
-  --background: #030818;
-  --foreground: #e0e8ff;
+  --background: #00010a;
+  --foreground: #ffffff;
   --font-geist-sans: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
     'Helvetica Neue', Arial, sans-serif;
   --font-geist-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono',
     'Courier New', monospace;
   --font-montserrat: var(--font-geist-sans);
-  --primary: #6eefff;
-  --primary-light: #9af4ff;
-  --primary-dark: #4bc4de;
+  --primary: #00d9ff;
+  --primary-light: #6eefff;
+  --primary-dark: #0085ff;
   --accent: #6706ab;
-  --success: #00ff6a;
-  --danger: #ff1744;
-  --warning: #ffc400;
-  --surface: #0a1628;
-  --surface-light: #122040;
-  --border: #1a3060;
-  --neon-cyan: #6eefff;
-  --neon-green: #00ff6a;
-  --neon-red: #ff1744;
-  --neon-purple: #b44aff;
-  --neon-gold: #ffd700;
-  --glow-cyan: 0 0 8px rgba(110, 239, 255, 0.35);
-  --glow-green: 0 0 15px rgba(0, 255, 106, 0.5), 0 0 30px rgba(0, 255, 106, 0.2);
-  --glow-red: 0 0 15px rgba(255, 23, 68, 0.5), 0 0 30px rgba(255, 23, 68, 0.2);
+  --success: #38ff00;
+  --danger: #ff0000;
+  --warning: #ffcc00;
+  --surface: #00072f;
+  --surface-light: #001040;
+  --border: #00d9ff;
+  --neon-cyan: #00d9ff;
+  --neon-green: #38ff00;
+  --neon-red: #ff0000;
+  --neon-purple: #8b00ff;
+  --neon-gold: #ffcc00;
+  --figma-bg-from: #00072f;
+  --figma-bg-to: #00010a;
+  --figma-cyan: #00d9ff;
+  --figma-cyan-deep: #0010ff;
+  --figma-green: #38ff00;
+  --figma-join-from: #ff0000;
+  --figma-join-to: #250000;
+  --glow-cyan: 0 0 8px rgba(0, 217, 255, 0.35);
+  --glow-green: 0 0 15px rgba(56, 255, 0, 0.5), 0 0 30px rgba(56, 255, 0, 0.2);
+  --glow-red: 0 0 15px rgba(255, 0, 0, 0.5), 0 0 30px rgba(255, 0, 0, 0.2);
 }
 
 @theme inline {
@@ -119,15 +126,42 @@ input[type='range']::-webkit-slider-thumb {
   }
 }
 
-/* ── Sci-fi background pattern ── */
-.mobile-play-bg {
-  background: #050017 url('/mobilebackground.png') no-repeat center center !important;
-  background-size: 100% 100% !important;
+/* ── Sci-fi / Figma player background ── */
+.player-figma-bg,
+.mobile-play-bg,
+.sci-fi-bg {
+  background: linear-gradient(180deg, var(--figma-bg-from) 0%, var(--figma-bg-to) 50%, var(--figma-bg-to) 100%);
 }
 
-.sci-fi-bg {
-  background: #050017 url('/mobilebackground.png') no-repeat center center !important;
-  background-size: 100% 100% !important;
+.player-input {
+  height: 56px;
+  width: 100%;
+  border-radius: 10px;
+  border: 1px solid #00d9ff;
+  background: linear-gradient(180deg, #00072f 0%, #00010a 100%);
+  box-shadow: 0 0 5px 5px rgba(0, 217, 255, 0.2);
+  padding: 0 16px;
+  font-size: 14px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #ffffff;
+}
+
+.player-input::placeholder {
+  color: rgba(255, 255, 255, 0.72);
+}
+
+.player-join-btn {
+  height: 60px;
+  width: 100%;
+  border-radius: 10px;
+  border: 1px solid #ffffff;
+  background: linear-gradient(180deg, #ff0000 0%, #250000 100%);
+  font-size: 20px;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: #ffffff;
 }
 
 /* ── Neon border glow ── */

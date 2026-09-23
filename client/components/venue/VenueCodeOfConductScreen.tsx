@@ -1,96 +1,83 @@
 'use client';
 
+import { FIGMA_OPTION_ACCENTS } from '@/lib/designTokens';
+import { VenueLogo } from '@/components/venue/VenueLogo';
+
 const RULES = [
   {
     number: 1,
     text: 'NO CHEATING ALLOWED DURNING GAMESHOW',
-    accent: '#0085FF',
-    numberFrom: '#0085FF',
-    numberTo: '#002BB5',
+    ...FIGMA_OPTION_ACCENTS[0],
   },
   {
     number: 2,
     text: 'NOT NECCESSARY ANYWAY, PLAYERS ARE SMART ENOUGH',
-    accent: '#FF6F00',
-    numberFrom: '#FF6F00',
-    numberTo: '#994200',
+    ...FIGMA_OPTION_ACCENTS[1],
   },
   {
     number: 3,
     text: 'HOST IS ALWAYS RIGHT, EVEN IF HE/SHE NEVER STARTS ON TIME',
-    accent: '#38FF00',
-    numberFrom: '#38FF00',
-    numberTo: '#007B00',
-  },
-  {
-    number: 4,
-    text: 'BRIBES ALLOWED (CASH AND MAJOR CREDIT CARDS ACCEPTED)',
-    accent: '#FFCC00',
-    numberFrom: '#FFCC00',
-    numberTo: '#FFA600',
+    ...FIGMA_OPTION_ACCENTS[2],
   },
 ] as const;
 
 export function VenueCodeOfConductScreen() {
   return (
     <section
-      className="absolute inset-0 z-20 animate-fadeIn overflow-hidden"
+      className="absolute inset-0 z-20 flex flex-col items-center animate-fadeIn"
       aria-labelledby="venue-code-of-conduct-title"
     >
-      <img
-        src="/venue-splash.png"
-        alt=""
-        className="absolute inset-0 h-full w-full object-cover object-center"
-        draggable={false}
-      />
-
-      <div className="relative z-10 flex h-full w-full flex-col items-center px-[6%] py-[3%]">
-        <h1 id="venue-code-of-conduct-title" className="sr-only">
-          Code of Conduct
+      <div
+        className="relative mt-[27px] flex h-[208px] w-[1322px] items-center justify-center"
+        style={{
+          clipPath: 'polygon(7% 0%, 93% 0%, 100% 50%, 93% 100%, 7% 100%, 0% 50%)',
+          background: 'linear-gradient(180deg, #0010FF 0%, #00072F 100%)',
+          boxShadow: '0 0 28px rgba(0, 16, 255, 0.55)',
+        }}
+      >
+        <h1
+          id="venue-code-of-conduct-title"
+          className="text-center text-[90px] font-extrabold uppercase leading-[80px] text-white [text-shadow:0_10px_10px_black]"
+        >
+          CODE OF CONDUCT
         </h1>
-        <img
-          src="/coc.png"
-          alt=""
-          className="h-auto w-[min(68cqw,1180px)] shrink-0 object-contain drop-shadow-[0_8px_18px_rgba(0,0,0,0.55)]"
-          draggable={false}
-        />
+      </div>
 
-        <ol className="mt-[3.2cqh] flex w-full max-w-[min(52cqw,980px)] flex-col gap-[2.4cqh]">
-          {RULES.map((rule) => (
-            <li
-              key={rule.number}
-              className="relative isolate flex h-[min(9.2cqh,100px)] w-full items-center overflow-hidden rounded-full"
-              style={{
-                background: 'linear-gradient(180deg, #00072F 0%, #00010A 100%)',
-                border: `3px solid ${rule.accent}`,
-                boxShadow: `0 0 14px ${rule.accent}`,
-              }}
+      <ol className="mt-[69px] flex w-[1072px] flex-col gap-[50px]">
+        {RULES.map((rule) => (
+          <li
+            key={rule.number}
+            className="relative flex h-[110px] w-full items-center overflow-hidden rounded-full"
+            style={{
+              background: 'linear-gradient(180deg, #00072F 0%, #00010A 100%)',
+              border: `2px solid ${rule.accent}`,
+              boxShadow: `0 0 14px ${rule.accent}`,
+            }}
+          >
+            <span
+              className="flex h-full w-[112px] shrink-0 items-center justify-center"
+              style={{ background: `linear-gradient(180deg, ${rule.from} 0%, ${rule.to} 100%)` }}
             >
-              <div
-                className="absolute inset-y-0 left-0 w-[102px] rounded-l-full"
+              <span
+                className="flex size-[77px] items-center justify-center rounded-full"
                 style={{
-                  background: `linear-gradient(180deg, ${rule.numberFrom} 0%, ${rule.numberTo} 100%)`,
+                  background: 'radial-gradient(circle at 50% 50%, #001040 0%, #00010A 90%)',
+                  boxShadow: `0 0 10px ${rule.accent}`,
                 }}
-              />
-              <div className="relative z-10 ml-[16px] flex size-[70px] shrink-0 items-center justify-center rounded-full bg-[#000027] shadow-[0_0_8px_#00D0FF]">
-                <span className="text-[40px] font-extrabold leading-none text-white [text-shadow:0_2px_4px_rgba(0,0,0,0.5)]">
+              >
+                <span className="text-[40px] font-extrabold text-white [text-shadow:0_2px_4px_rgba(0,0,0,0.5)]">
                   {rule.number}
                 </span>
-              </div>
-              <p className="relative z-10 ml-6 mr-6 min-w-0 flex-1 text-[clamp(1.05rem,1.55cqw,1.875rem)] font-extrabold uppercase leading-tight text-white [text-shadow:0_2px_4px_rgba(0,0,0,0.5)]">
-                {rule.text}
-              </p>
-            </li>
-          ))}
-        </ol>
+              </span>
+            </span>
+            <p className="px-8 text-[30px] font-extrabold uppercase leading-tight text-white [text-shadow:0_2px_4px_rgba(0,0,0,0.5)]">
+              {rule.text}
+            </p>
+          </li>
+        ))}
+      </ol>
 
-        <img
-          src="/logo.png"
-          alt="Max Showdown Live"
-          className="mt-auto h-auto w-[min(32cqw,607px)] shrink-0 object-contain drop-shadow-[0_8px_28px_rgba(0,0,0,0.55)]"
-          draggable={false}
-        />
-      </div>
+      <VenueLogo width={607} className="mt-auto mb-0" />
     </section>
   );
 }

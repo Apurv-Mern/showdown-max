@@ -4,10 +4,10 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
 import { useSocket } from '@/hooks/useSocket';
-import { cn } from '@/lib/utils';
 import { usePlayerSession } from '../playerSession';
 import { LoadingDots } from '../LoadingDots';
 import { PlayerCodeOfConductScreen } from '@/components/player/PlayerCodeOfConductScreen';
+import { PlayerScreenShell } from '@/components/player/PlayerScreenShell';
 // import { PlayerPracticeQuestionScreen } from '@/components/player/PlayerPracticeQuestionScreen';
 
 type LobbyPhase = 'registration' | 'code_of_conduct' | 'practice_question';
@@ -17,8 +17,6 @@ const resolveLobbyPhase = (raw: unknown): LobbyPhase => {
   if (raw === 'code_of_conduct') return raw;
   return 'registration';
 };
-
-const MOBILE_BG = "url('/Mobile_BG.png')";
 
 export default function LobbyPage() {
   const router = useRouter();
@@ -124,18 +122,6 @@ export default function LobbyPage() {
     session.teamId,
   ]);
 
-  const shellClassName = cn(
-    'relative h-full min-h-0 w-full overflow-hidden mobile-play-bg text-center',
-    'flex min-h-0 w-full flex-1 flex-col',
-    '-mt-[env(safe-area-inset-top,0px)] min-h-[calc(100%+env(safe-area-inset-top,0px))] pt-[env(safe-area-inset-top,0px)]',
-  );
-  const shellStyle = {
-    backgroundImage: MOBILE_BG,
-    backgroundSize: '100% 100%',
-    backgroundPosition: 'center',
-    backgroundRepeat: 'no-repeat',
-  } as const;
-
   const leaveButton = (
     <motion.button
       initial={{ opacity: 0 }}
@@ -184,16 +170,17 @@ export default function LobbyPage() {
   if (lobbyPhase === 'code_of_conduct') {
     return (
       <>
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ duration: 0.35 }}
-          className={cn(shellClassName, 'px-4 py-5 pb-14 sm:px-5')}
-          style={shellStyle}
-        >
-          <PlayerCodeOfConductScreen />
-          {leaveButton}
-        </motion.div>
+        <PlayerScreenShell className="flex-1 text-center">
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ duration: 0.35 }}
+            className="relative flex min-h-0 flex-1 flex-col px-5 py-5 pb-14"
+          >
+            <PlayerCodeOfConductScreen />
+            {leaveButton}
+          </motion.div>
+        </PlayerScreenShell>
         {exitModal}
       </>
     );
@@ -221,44 +208,59 @@ export default function LobbyPage() {
 
   return (
     <>
-      <motion.div
-        initial={{ opacity: 0, y: 30 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.5 }}
-        className={shellClassName}
-        style={shellStyle}
-      >
-        <div className="relative z-10 flex h-full flex-col">
-          <div className="flex flex-1 flex-col items-center justify-center px-4 sm:px-6 md:px-8">
+      <PlayerScreenShell className="flex-1 text-center">
+        <motion.div
+          initial={{ opacity: 0, y: 30 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5 }}
+          className="relative flex h-full flex-col"
+        >
+          <div className="flex flex-1 flex-col items-center justify-center px-[35px]">
             <motion.div
               initial={{ opacity: 0, scale: 0.85 }}
               animate={{ opacity: 1, scale: 1 }}
               transition={{ delay: 0.2, duration: 0.35 }}
+              className="relative size-20"
             >
-              <img src="/greentick.png" alt="" className="object-cover w-25 h-25 mb-5" />
+              <img
+                src="/figma/lobby-check-ring.svg"
+                alt=""
+                className="absolute inset-0 size-full"
+              />
+              <img
+                src="/figma/lobby-check.svg"
+                alt=""
+                className="absolute left-1/2 top-1/2 h-[45px] w-[58px] -translate-x-1/2 -translate-y-[42%]"
+              />
             </motion.div>
-            <motion.h1
+            <motion.p
               initial={{ opacity: 0, y: 8 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.28 }}
-              className="text-[clamp(1.75rem,6vw,2.6rem)] font-bold leading-[1.05] md:text-[clamp(2rem,4vw,2.75rem)] text-[#38FF00]"
+              className="mt-7 text-center text-[25px] font-extrabold uppercase leading-[30px] text-[#38FF00]"
             >
-              YOU ARE IN
-            </motion.h1>
+              You are in
+              <br />
+              {session.teamName || 'Your team'}
+            </motion.p>
             <motion.p
               initial={{ opacity: 0, y: 8 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.38 }}
-              className="mt-2 text-base font-medium leading-[1.2] text-white sm:text-lg md:text-xl"
+              className="mt-1 text-[16px] font-extrabold uppercase leading-[30px] text-white"
             >
-              THE HOST WILL START THE GAME SHORTLY
+              The host will start the game shortly
             </motion.p>
-            <LoadingDots className="mt-6 sm:mt-8" />
-            <img src="/logo.png" width={400} height={100} alt="Max Showdown" className="mt-40" />
+            <LoadingDots className="mt-5" gapClass="gap-[10px]" />
           </div>
-        </div>
-        {leaveButton}
-      </motion.div>
+          <img
+            src="/logo.png"
+            alt="Max Showdown"
+            className="mx-auto mb-[37px] h-[191px] w-[380px] max-w-[86%] object-contain object-bottom"
+          />
+          {leaveButton}
+        </motion.div>
+      </PlayerScreenShell>
       {exitModal}
     </>
   );

@@ -41,7 +41,7 @@ export function VenueStage({ children }: { children: ReactNode }) {
         style={{ backgroundImage: "url('/venue-stage-bg.png')" }}
         aria-hidden
       />
-      <div className="pointer-events-none absolute inset-0 bg-[#030818]/70" aria-hidden />
+      <div className="pointer-events-none absolute inset-0 bg-black/40" aria-hidden />
       <div
         className="absolute left-1/2 top-1/2 isolate overflow-hidden"
         data-venue-stage

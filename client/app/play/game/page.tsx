@@ -10,6 +10,7 @@ import { clientLogger } from '@/lib/clientLogger';
 import { breakSecondsFromEndsAt, resolveBreakWallClock } from '@/lib/breakWallClock';
 import { cn, toDisplayUpper } from '@/lib/utils';
 import { RoundIntroScoringLines } from '@/lib/roundIntroInstructions';
+import { RoundIntroHeadline } from '@/components/shared/RoundIntroHeadline';
 import { RoundEndTitle } from '@/components/shared/RoundEndTitle';
 import { GameshowEndPlayerView } from '@/components/shared/GameshowEndPlayerView';
 import { LeaderboardScreen } from '@/components/shared/LeaderboardScreen';
@@ -20,6 +21,9 @@ import {
   QUESTION_STAKE_POINTS,
 } from '@/lib/questionPointsDisplay';
 import { QuestionStagePanel } from '@/components/shared/QuestionStagePanel';
+import { PlayerScreenShell } from '@/components/player/PlayerScreenShell';
+import { PlayerChoiceBar } from '@/components/player/PlayerChoiceBar';
+import { FIGMA_OPTION_LETTERS } from '@/lib/designTokens';
 import { BreakTimerDisplay } from '@/components/shared/BreakTimerDisplay';
 import { BreakScreenHeading } from '@/components/shared/BreakScreenHeading';
 import {
@@ -727,6 +731,8 @@ const formatRoundTypeLabel = (roundType?: string) => {
       return toDisplayUpper('Wager');
     case 'FINAL_WAGER':
       return toDisplayUpper('Final Wager');
+    case 'FINAL_MULTIPLE_CHOICE':
+      return toDisplayUpper('Final Multiple Choice');
     case 'MAJORITY_RULES':
       return toDisplayUpper('Majority Rules');
     default:
@@ -2434,16 +2440,9 @@ export default function GamePage() {
   })();
 
   return (
-    <div className="flex-1 h-full min-h-0 w-full bg-[#050017]">
-      <div
-        className="relative flex flex-col min-h-0 h-full w-full overflow-hidden mobile-play-bg"
-        style={{
-          backgroundImage: "url('/Mobile_BG.png')",
-          backgroundSize: '100% 100%',
-          backgroundPosition: 'center',
-          backgroundRepeat: 'no-repeat',
-        }}
-      >
+    <div className="flex-1 h-full min-h-0 w-full bg-[#00010a]">
+      <PlayerScreenShell className="flex min-h-0 h-full w-full flex-col">
+      <div className="relative flex min-h-0 h-full w-full flex-col overflow-hidden">
         {showBreakEndedNotice ? (
           <div className="absolute top-4 left-1/2 -translate-x-1/2 z-50 rounded-xl border border-[#2bdcff]/60 bg-[rgba(8,20,56,0.9)] px-4 py-2 shadow-[0_0_18px_rgba(43,220,255,0.32)]">
             <p className="text-sm font-extrabold tracking-wide text-[#2be9ff]">Break Ended</p>
@@ -2468,19 +2467,20 @@ export default function GamePage() {
 
                   <div className="pointer-events-none absolute inset-0">
                     {/* Solid fill masks baked-in "ROUND N" text inside round intro.png so only live data shows */}
-                    <div className="absolute left-1/2 top-[22%] flex h-[40%] w-[58%] -translate-x-1/2 flex-col items-center justify-center rounded-full px-2 text-center sm:px-3">
-                      <p className="relative z-10 bg-linear-to-b from-[#FFFFFF] to-[#FFC870] bg-clip-text text-[clamp(1.65rem,5.2vw,2.65rem)] font-extrabold uppercase leading-[0.95] text-transparent md:text-[clamp(2rem,4vw,2.85rem)]">
-                        ROUND {(roundInfo.roundIndex || 0) + 1}
-                      </p>
-                      {(roundInfo.roundIndex || 0) !== 0 ? (
-                        <p className="relative z-10 mt-1 max-w-[92%] bg-linear-to-b from-[#FFFFFF] to-[#FFC870] bg-clip-text text-[clamp(1.65rem,5.2vw,2.65rem)] font-extrabold uppercase leading-[0.95] text-transparent sm:max-w-[90%] md:text-[clamp(2rem,4vw,2.85rem)]">
-                          {normalizeRoundIntroTitle(
-                            roundInfo.round?.name,
-                            roundInfo.round?.type,
-                            roundInfo.roundIndex,
-                          )}
-                        </p>
-                      ) : null}
+                    <div className="absolute left-1/2 top-[20%] flex h-[42%] w-[64%] -translate-x-1/2 items-center justify-center overflow-hidden rounded-full">
+                      <RoundIntroHeadline
+                        size="player"
+                        roundNumber={(roundInfo.roundIndex || 0) + 1}
+                        subtitle={
+                          (roundInfo.roundIndex || 0) !== 0
+                            ? normalizeRoundIntroTitle(
+                                roundInfo.round?.name,
+                                roundInfo.round?.type,
+                                roundInfo.roundIndex,
+                              )
+                            : undefined
+                        }
+                      />
                     </div>
 
                     <div className="absolute inset-x-[7%] top-[68%] bottom-[8%] flex flex-col items-stretch justify-center overflow-hidden px-0">
@@ -2601,9 +2601,11 @@ export default function GamePage() {
               >
                 <QuestionStagePanel
                   className="mb-3 sm:mb-4"
-                  timerDisplay={timerRemaining.toString().padStart(2, '0')}
+                  timerDisplay={timerRemaining}
                   questionIndex={question.questionIndex || 0}
                   totalQuestions={question.totalQuestions}
+                  teamName={session.teamName}
+                  score={session.score}
                   pointsDisplay={formatQuestionPointsHeader(
                     question,
                     wagerSubmitted ? wagerAmount : question.lockedWagerAmount,
@@ -2619,7 +2621,7 @@ export default function GamePage() {
                     variants={staggerContainer}
                     initial="initial"
                     animate="animate"
-                    className="mt-3 flex flex-col gap-3 sm:mt-4 sm:gap-4"
+                    className="mt-5 flex flex-col gap-5"
                   >
                     {(() => {
                       if (question.question.isOrdering) {
@@ -2720,29 +2722,19 @@ export default function GamePage() {
                         const isLocked = isAnswerSelectionLocked;
 
                         return (
-                          <motion.button
-                            key={i}
-                            variants={staggerItem}
-                            whileTap={!isLocked ? { scale: 0.98 } : undefined}
-                            onClick={() => handleSelectOption(i)}
-                            disabled={isLocked}
-                            className={cn(
-                              'flex min-h-14 w-full items-start justify-start gap-2 rounded-xl px-4 py-3 text-white font-bold shadow-[0_4px_10px_rgba(0,0,0,0.5),inset_0_1px_1px_rgba(255,255,255,0.2)] sm:min-h-16 sm:px-6 sm:py-4 md:min-h-[4.75rem]',
-                              'touch-manipulation select-none transition-all',
-                              OPTION_BG[i] || 'bg-[#1565c0]',
-                              isSelected &&
-                                'ring-4 ring-[#00D9FF] shadow-[0_0_25px_rgba(0,217,255,0.55)]',
-                              isLocked && !isSelected && 'opacity-60 grayscale-[0.3]',
-                              isLocked && 'cursor-not-allowed',
-                            )}
-                          >
-                            <span className="shrink-0 text-lg font-black leading-tight drop-shadow-md sm:text-xl md:text-2xl">
-                              {OPTION_LETTERS[i]}.
-                            </span>
-                            <span className="min-w-0 flex-1 break-words text-left text-lg font-black leading-tight drop-shadow-md sm:text-xl md:text-2xl">
-                              {toDisplayUpper(opt.text)}
-                            </span>
-                          </motion.button>
+                          <motion.div key={i} variants={staggerItem}>
+                            <PlayerChoiceBar
+                              index={i}
+                              letter={FIGMA_OPTION_LETTERS[i] || OPTION_LETTERS[i]}
+                              label={toDisplayUpper(opt.text)}
+                              selected={isSelected}
+                              disabled={isLocked}
+                              onClick={() => handleSelectOption(i)}
+                              className={cn(
+                                isLocked && !isSelected && 'opacity-60 grayscale-[0.3]',
+                              )}
+                            />
+                          </motion.div>
                         );
                       });
                     })()}
@@ -2784,9 +2776,11 @@ export default function GamePage() {
               >
                 <QuestionStagePanel
                   className="mb-3 sm:mb-4"
-                  timerDisplay="00:00"
+                  timerDisplay={0}
                   questionIndex={question.questionIndex || 0}
                   totalQuestions={question.totalQuestions}
+                  teamName={session.teamName}
+                  score={session.score}
                   pointsDisplay={formatQuestionPointsHeader(
                     question,
                     wagerSubmitted ? wagerAmount : question.lockedWagerAmount,
@@ -2802,7 +2796,7 @@ export default function GamePage() {
                     variants={staggerContainer}
                     initial="initial"
                     animate="animate"
-                    className="mt-3 flex flex-col gap-3 sm:mt-4 sm:gap-4"
+                    className="mt-5 flex flex-col gap-5"
                   >
                     {(() => {
                       if (question.question.isOrdering) {
@@ -2912,26 +2906,27 @@ export default function GamePage() {
                             key={i}
                             variants={staggerItem}
                             className={cn(
-                              'flex min-h-14 w-full items-start justify-between gap-2 rounded-xl border border-white/20 px-4 py-3 text-white font-bold sm:min-h-16 sm:px-6 sm:py-4 md:min-h-[4.75rem]',
-                              'touch-manipulation select-none transition-all',
-                              OPTION_BG[i] || 'bg-[#1565c0]',
+                              'relative',
                               showCorrectRing &&
-                                'ring-2 ring-[#39ff14] shadow-[0_0_18px_4px_rgba(57,255,20,0.7)]',
+                                'rounded-[10px] ring-2 ring-[#39ff14] shadow-[0_0_18px_4px_rgba(57,255,20,0.7)]',
                               showWrongRing &&
-                                'ring-2 ring-[#ff2525] shadow-[0_0_18px_4px_rgba(255,37,37,0.7)]',
+                                'rounded-[10px] ring-2 ring-[#ff2525] shadow-[0_0_18px_4px_rgba(255,37,37,0.7)]',
                               shouldDim && 'opacity-30 brightness-50 contrast-75 scale-[0.98]',
                             )}
                           >
-                            <div className="flex min-w-0 flex-1 items-start gap-2">
-                              <span className="shrink-0 text-lg font-black leading-tight drop-shadow-md sm:text-xl md:text-2xl">
-                                {OPTION_LETTERS[i]}.
+                            <PlayerChoiceBar
+                              as="div"
+                              index={i}
+                              letter={FIGMA_OPTION_LETTERS[i] || OPTION_LETTERS[i]}
+                              label={toDisplayUpper(opt.text)}
+                              selected={isSelectedOption}
+                            />
+                            {(showCorrectIcon || showWrongIcon) && (
+                              <span className="absolute right-2.5 top-1/2 -translate-y-1/2">
+                                {showCorrectIcon && <RevealOptionStatusIcon variant="correct" />}
+                                {showWrongIcon && <RevealOptionStatusIcon variant="wrong" />}
                               </span>
-                              <span className="min-w-0 flex-1 break-words text-left text-lg font-black leading-tight drop-shadow-md sm:text-xl md:text-2xl">
-                                {toDisplayUpper(opt.text)}
-                              </span>
-                            </div>
-                            {showCorrectIcon && <RevealOptionStatusIcon variant="correct" />}
-                            {showWrongIcon && <RevealOptionStatusIcon variant="wrong" />}
+                            )}
                           </motion.div>
                         );
                       });
@@ -3146,90 +3141,16 @@ export default function GamePage() {
                 {...pageTransition}
                 className="mt-2 flex min-h-0 flex-1 flex-col px-3 pb-4 pt-2 sm:mt-4 sm:px-4 md:px-6"
               >
-                {scoreboardEliminationStyle ? (
-                  <LeaderboardScreen
-                    teams={scoreboard}
-                    size="player"
-                    highlightTeamId={
-                      session.teamId != null ? Number(session.teamId) : null
-                    }
-                    eliminationStyle
-                    className="min-h-0 flex-1"
-                  />
-                ) : (
-                  <>
-                    <div className="mb-3 flex items-center justify-center gap-10 text-center sm:mb-4">
-                      <img src="/leaderboardIcon.png" alt="Leaderboard" className="h-15 w-15" />
-                      <h2 className="text-[clamp(1.75rem,6vw,3.25rem)] font-extrabold leading-none tracking-wide text-white drop-shadow-[0_0_10px_rgba(255,255,255,0.2)]">
-                        LEADERBOARD
-                      </h2>
-                      <img src="/leaderboardIcon.png" alt="Leaderboard" className="h-15 w-15" />
-                    </div>
-                    <motion.div
-                      variants={staggerContainer}
-                      initial="initial"
-                      animate="animate"
-                      className="flex-1 space-y-3"
-                    >
-                      {scoreboard.map((team, idx) => {
-                        const isMe = team.teamId === session.teamId;
-                        return (
-                          <motion.div
-                            key={team.teamId}
-                            variants={staggerItem}
-                            className={cn(
-                              'relative flex items-center justify-between rounded-2xl border px-2 py-3 shadow-[0_0_18px_rgba(0,229,255,0.3)] sm:px-3 sm:py-4',
-                              'border-[#12ddff]/70 bg-[linear-gradient(90deg,#2d12a0_0%,#9a0dbd_100%)]',
-                              isMe &&
-                                'z-10 scale-[1.03] border-[#35f6ff] ring-4 ring-[#35f6ff] ring-offset-2 ring-offset-[#0b0524] shadow-[0_0_36px_rgba(53,246,255,0.85),0_0_72px_rgba(53,246,255,0.45)] animate-pulse-me',
-                            )}
-                          >
-                            {isMe ? (
-                              <span className="pointer-events-none absolute -top-2 right-3 rounded-full border border-[#35f6ff] bg-[#0b0524] px-2 py-[2px] text-[10px] font-black uppercase tracking-[0.18em] text-[#8af7ff] shadow-[0_0_12px_rgba(53,246,255,0.7)] sm:text-xs">
-                                You
-                              </span>
-                            ) : null}
-                            <div className="flex min-w-0 items-center gap-2 sm:gap-3">
-                              <span
-                                className={cn(
-                                  'flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border text-lg font-black sm:h-11 sm:w-11 sm:text-2xl',
-                                  idx === 0 &&
-                                    'border-[#ffdf7f] bg-[linear-gradient(180deg,#ffd35e_0%,#ff9f0a_100%)] text-white',
-                                  idx === 1 &&
-                                    'border-[#d4e4ff] bg-[linear-gradient(180deg,#b7c8e6_0%,#6f88b5_100%)] text-white',
-                                  idx === 2 &&
-                                    'border-[#f3b07a] bg-[linear-gradient(180deg,#df8f49_0%,#a45a21_100%)] text-white',
-                                  idx > 2 && 'border-[#281d72] bg-[#100a3d] text-white',
-                                )}
-                              >
-                                {idx + 1}
-                              </span>
-                              <span
-                                className={cn(
-                                  'truncate text-xl font-bold text-white sm:text-2xl md:text-3xl',
-                                  isMe &&
-                                    'text-[#bff8ff] drop-shadow-[0_0_8px_rgba(53,246,255,0.85)]',
-                                )}
-                              >
-                                {toDisplayUpper(team.teamName)}
-                              </span>
-                            </div>
-                            <span
-                              className={cn(
-                                'shrink-0 pl-2 text-2xl font-extrabold leading-none text-white sm:text-3xl md:text-4xl',
-                                isMe &&
-                                  'text-[#bff8ff] drop-shadow-[0_0_8px_rgba(53,246,255,0.85)]',
-                              )}
-                            >
-                              {team.score >= 0 ? '+' : ''}
-                              {team.score}
-                            </span>
-                          </motion.div>
-                        );
-                      })}
-                    </motion.div>
-                  </>
-                )}
+                <LeaderboardScreen
+                  teams={scoreboard}
+                  size="player"
+                  highlightTeamId={
+                    session.teamId != null ? Number(session.teamId) : null
+                  }
+                  eliminationStyle={scoreboardEliminationStyle}
+                  showScene={false}
+                  className="min-h-0 flex-1"
+                />
               </motion.div>
             )}
 
@@ -3400,6 +3321,7 @@ export default function GamePage() {
           </div>
         )}
       </div>
+      </PlayerScreenShell>
     </div>
   );
   // changes

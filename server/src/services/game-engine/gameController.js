@@ -1655,9 +1655,12 @@ const proceedFromGameShowEnd = async (io, pin) => {
 };
 
 /**
- * Advance to the next round
+ * Advance to the next round.
+ *
+ * `skipAhead` drops that many upcoming rounds from the show (host "Skip Next Round"), so
+ * `skipAhead: 1` lands on the round after the one that was next up.
  */
-const advanceToNextRound = async (io, pin) => {
+const advanceToNextRound = async (io, pin, { skipAhead = 0 } = {}) => {
   let gameState = await redisStore.getGameState(pin);
   if (!gameState) return;
 
@@ -1669,7 +1672,7 @@ const advanceToNextRound = async (io, pin) => {
   }
 
   if (gameState.state === GAME_STATES.ROUND_END) {
-    const nextIdx = Number(gameState.currentRoundIndex) + 1;
+    const nextIdx = Number(gameState.currentRoundIndex) + 1 + skipAhead;
     const isFinalRound = nextIdx >= gameState.rounds.length;
     if (isFinalRound) {
       await proceedFromRoundEnd(io, pin);
@@ -1695,8 +1698,17 @@ const advanceToNextRound = async (io, pin) => {
     }
   }
 
+  // Read before the skip bump below so elimination flags are cleared based on the round the
+  // host actually played, not on a round that is being dropped.
   const previousRound = stateMachine.getCurrentRound(gameState);
   const leavingEliminationRound = previousRound?.type === ROUND_TYPES.ELIMINATION;
+
+  if (skipAhead > 0) {
+    gameState = {
+      ...gameState,
+      currentRoundIndex: Number(gameState.currentRoundIndex) + skipAhead,
+    };
+  }
 
   const advance = stateMachine.advanceRound(gameState);
 
@@ -1796,6 +1808,61 @@ const advanceToNextRound = async (io, pin) => {
     SOCKET_EVENTS.SESSION_STATE,
     clientPayloadFromGameState(roundIntroState),
   );
+};
+
+/**
+ * Host drops the round that is up next (running late, content cut, etc.) from a between-rounds
+ * screen. Scores already earned are untouched; the dropped round is never played.
+ */
+const skipNextRound = async (io, pin) => {
+  const gameState = await redisStore.getGameState(pin);
+  if (!gameState) return;
+
+  const betweenRounds =
+    gameState.state === GAME_STATES.ROUND_END || gameState.state === GAME_STATES.SCOREBOARD;
+  if (!betweenRounds) {
+    logger.debug('skip_next_round ignored outside a between-rounds screen', {
+      pin,
+      state: gameState.state,
+    });
+    return;
+  }
+
+  const skipIdx = Number(gameState.currentRoundIndex) + 1;
+  const skippedRound = gameState.rounds?.[skipIdx];
+  if (!skippedRound) {
+    logger.debug('skip_next_round ignored — no upcoming round to skip', { pin });
+    return;
+  }
+
+  logger.info('Skipping upcoming round', {
+    pin,
+    skippedRoundIndex: skipIdx,
+    skippedRoundName: skippedRound.name || `Round ${skipIdx + 1}`,
+  });
+
+  timerManager.stopTimer(pin);
+
+  // Dropping the last remaining round ends the show: go to the closing screen instead of
+  // advancing, otherwise the host would land back on a leaderboard that still offers the
+  // round they just skipped.
+  if (skipIdx + 1 >= gameState.rounds.length) {
+    const result = stateMachine.transition(
+      { ...gameState, currentRoundIndex: skipIdx },
+      GAME_STATES.GAME_SHOW_END,
+    );
+    if (!result.valid) return;
+
+    await redisStore.setGameState(pin, result.gameState);
+    io.to(`session:${pin}`).emit(SOCKET_EVENTS.GAME_SHOW_END, {});
+    io.to(`session:${pin}`).emit(
+      SOCKET_EVENTS.SESSION_STATE,
+      clientPayloadFromGameState(result.gameState),
+    );
+    return;
+  }
+
+  await advanceToNextRound(io, pin, { skipAhead: 1 });
 };
 
 /**
@@ -2800,6 +2867,7 @@ module.exports = {
   revealAnswer,
   endRound,
   advanceToNextRound,
+  skipNextRound,
   handlePlayerSocketDisconnect,
   cancelScheduledDisconnectPurge,
   cleanupInMemorySession,

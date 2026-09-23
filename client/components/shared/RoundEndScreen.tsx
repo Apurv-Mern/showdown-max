@@ -20,8 +20,8 @@ const SIZE_CONFIG: Record<
     pad: 'px-6 py-8',
   },
   venue: {
-    box: 'w-[min(92vw,1060px)] min-h-[min(72vh,640px)] rounded-[20px] border-2 border-[#00d9ff]/70 shadow-[0_0_40px_rgba(0,217,255,0.3)]',
-    logo: 'h-auto w-[min(380px,42vw)] max-w-[460px]',
+    box: 'w-[min(92cqw,1060px)] min-h-[min(72cqh,640px)] rounded-[20px] border-2 border-[#00d9ff]/70 shadow-[0_0_40px_rgba(0,217,255,0.3)]',
+    logo: 'h-auto w-[min(380px,42cqw)] max-w-[460px]',
     pad: 'px-8 py-10 sm:px-10 sm:py-12',
   },
 };

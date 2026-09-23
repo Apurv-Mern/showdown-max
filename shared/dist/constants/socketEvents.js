@@ -30,6 +30,7 @@ const SOCKET_EVENTS = Object.freeze({
   REMOVE_TEAM: 'remove_team',
   EDIT_TEAM_SCORE: 'edit_team_score',
   ADVANCE_ROUND: 'advance_round',
+  SKIP_NEXT_ROUND: 'skip_next_round',
   COLLECT_WAGERS: 'collect_wagers',
   END_GAME: 'end_game',
   MUSIC_CONTROL: 'music_control',
@@ -41,6 +42,8 @@ const SOCKET_EVENTS = Object.freeze({
   UPDATE_LIVE_QUESTION: 'update_live_question',
   SKIP_QUESTION: 'skip_question',
   JUMP_TO_QUESTION: 'jump_to_question',
+  VENUE_LEADERBOARD_SCROLL: 'venue_leaderboard_scroll',
+  VENUE_LEADERBOARD_STATE: 'venue_leaderboard_state',
 
   // Server → Client
   SESSION_STATE: 'session_state',

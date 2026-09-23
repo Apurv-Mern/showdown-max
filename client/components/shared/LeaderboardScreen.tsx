@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   eliminationLeaderboardRowClasses,
   prepareLeaderboardTeams,
@@ -46,22 +46,21 @@ const SIZE_CONFIG: Record<
     nameText: 'text-sm sm:text-base',
     scoreText: 'text-sm sm:text-base',
   },
+  // Venue renders inside the fixed 1920×1080 stage, so sizes are absolute: viewport
+  // breakpoints would resolve against the physical screen and desync from the stage.
   venue: {
-    wrapper: 'p-4 sm:p-6 md:p-8',
-    title: 'text-[clamp(2.25rem,4.5vh,3.75rem)]',
-    medal: 'h-10 w-10 sm:h-12 sm:w-12 md:h-14 md:w-14',
-    panel: 'w-full max-w-[min(98vw,88rem)]',
-    panelPad: 'px-4 py-4 sm:px-6 sm:py-5 md:px-8 md:py-6',
-    colHeader: 'text-sm sm:text-base md:text-lg',
-    rowGap: 'gap-2.5 sm:gap-3 md:gap-4',
-    rowPy: 'py-3.5 sm:py-4 md:py-5',
-    rowPx: 'px-4 sm:px-5 md:px-6',
-    nameText:
-      'text-2xl font-normal leading-none sm:text-3xl md:text-4xl min-[1920px]:text-5xl drop-shadow-[0_0_10px_rgba(255,255,255,0.35)]',
-    scoreText:
-      'text-2xl font-normal leading-none sm:text-3xl md:text-4xl min-[1920px]:text-5xl drop-shadow-[0_0_10px_rgba(255,255,255,0.35)]',
-    rankText:
-      'text-2xl font-normal leading-none sm:text-3xl md:text-4xl min-[1920px]:text-5xl drop-shadow-[0_0_10px_rgba(255,255,255,0.35)]',
+    wrapper: 'p-8',
+    title: 'text-[clamp(2.25rem,4.5cqh,3.75rem)]',
+    medal: 'h-14 w-14',
+    panel: 'w-full max-w-[min(98cqw,88rem)]',
+    panelPad: 'px-8 py-6',
+    colHeader: 'text-lg',
+    rowGap: 'gap-4',
+    rowPy: 'py-5',
+    rowPx: 'px-6',
+    nameText: 'text-5xl font-normal leading-none drop-shadow-[0_0_10px_rgba(255,255,255,0.35)]',
+    scoreText: 'text-5xl font-normal leading-none drop-shadow-[0_0_10px_rgba(255,255,255,0.35)]',
+    rankText: 'text-5xl font-normal leading-none drop-shadow-[0_0_10px_rgba(255,255,255,0.35)]',
   },
   host: {
     wrapper: 'px-0 py-0',
@@ -146,6 +145,7 @@ function LeaderboardColumn({
         return (
           <div
             key={team.teamId}
+            data-leaderboard-row
             className={cn(
               'relative items-center rounded-xl border border-white/20 bg-white/5',
               isVenue
@@ -167,10 +167,7 @@ function LeaderboardColumn({
 
             {isVenue ? (
               <div
-                className={cn(
-                  'text-center tabular-nums text-white',
-                  cfg.rankText ?? cfg.scoreText,
-                )}
+                className={cn('text-center tabular-nums text-white', cfg.rankText ?? cfg.scoreText)}
               >
                 {rank}
               </div>
@@ -204,6 +201,18 @@ function LeaderboardColumn({
   );
 }
 
+/** `refresh` reports position without moving — used when the host reloads mid-leaderboard. */
+export type LeaderboardScrollDirection = 'up' | 'down' | 'top' | 'bottom' | 'refresh';
+
+/** Reported to the host so remote scroll buttons know when they'd be a no-op. */
+export type LeaderboardScrollState = {
+  canScrollUp: boolean;
+  canScrollDown: boolean;
+  firstVisibleRow: number;
+  lastVisibleRow: number;
+  totalRows: number;
+};
+
 export interface LeaderboardScreenProps {
   teams: LeaderboardTeam[];
   size?: LeaderboardScreenSize;
@@ -215,6 +224,12 @@ export interface LeaderboardScreenProps {
   titleId?: string;
   /** Elimination round only: survivor/neon + grey knockouts and special sort. */
   eliminationStyle?: boolean;
+  /**
+   * Venue: remote scroll driven by the host. `nonce` must change per press so repeating the
+   * same direction scrolls again.
+   */
+  scrollRequest?: { direction: LeaderboardScrollDirection; nonce: number } | null;
+  onScrollStateChange?: (state: LeaderboardScrollState) => void;
 }
 
 export function LeaderboardScreen({
@@ -226,6 +241,8 @@ export function LeaderboardScreen({
   emptyMessage = 'No teams on the leaderboard yet',
   titleId,
   eliminationStyle = false,
+  scrollRequest = null,
+  onScrollStateChange,
 }: LeaderboardScreenProps) {
   const cfg = SIZE_CONFIG[size];
   const isPlayer = size === 'player';
@@ -233,6 +250,8 @@ export function LeaderboardScreen({
   const [venueSplit, setVenueSplit] = useState(false);
   const listAreaRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
+  const scrollAreaRef = useRef<HTMLDivElement>(null);
+  const appliedScrollNonceRef = useRef<number | null>(null);
   const teamsKeyRef = useRef('');
   const displayTeams = useMemo(
     () => prepareLeaderboardTeams(teams, eliminationStyle),
@@ -296,6 +315,112 @@ export function LeaderboardScreen({
     return () => window.removeEventListener('resize', onResize);
   }, [isVenue]);
 
+  /**
+   * Row pitch in px (row height + gap). Rows are uniform inside the fixed venue stage, so
+   * stepping by whole rows guarantees the projector never shows a half-cut row.
+   */
+  const measureRowPitch = useCallback(() => {
+    const area = scrollAreaRef.current;
+    if (!area) return 0;
+    const rows = area.querySelectorAll<HTMLElement>('[data-leaderboard-row]');
+    const first = rows[0];
+    if (!first) return 0;
+    // In split mode the next row may sit in the right column at the same offset — find the
+    // first row that is genuinely lower.
+    for (let i = 1; i < rows.length; i += 1) {
+      const delta = rows[i].offsetTop - first.offsetTop;
+      if (delta > 0) return delta;
+    }
+    return first.offsetHeight;
+  }, []);
+
+  const reportScrollState = useCallback(() => {
+    const area = scrollAreaRef.current;
+    if (!area || !onScrollStateChange) return;
+    const pitch = measureRowPitch();
+    const maxScroll = Math.max(0, area.scrollHeight - area.clientHeight);
+    const totalRows = pitch > 0 ? Math.max(1, Math.round(area.scrollHeight / pitch)) : 0;
+    const rowsPerView = pitch > 0 ? Math.max(1, Math.floor(area.clientHeight / pitch)) : 0;
+    const firstVisibleRow = pitch > 0 ? Math.round(area.scrollTop / pitch) + 1 : 0;
+    onScrollStateChange({
+      canScrollUp: area.scrollTop > 1,
+      canScrollDown: area.scrollTop < maxScroll - 1,
+      firstVisibleRow,
+      lastVisibleRow: Math.min(totalRows, firstVisibleRow + rowsPerView - 1),
+      totalRows,
+    });
+  }, [measureRowPitch, onScrollStateChange]);
+
+  useEffect(() => {
+    const area = scrollAreaRef.current;
+    if (!area || !onScrollStateChange) return;
+
+    let frame = 0;
+    const schedule = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(reportScrollState);
+    };
+
+    area.addEventListener('scroll', schedule, { passive: true });
+    const ro = new ResizeObserver(schedule);
+    ro.observe(area);
+    schedule();
+
+    return () => {
+      cancelAnimationFrame(frame);
+      area.removeEventListener('scroll', schedule);
+      ro.disconnect();
+    };
+  }, [onScrollStateChange, reportScrollState, teamsKey, useVenueSplit]);
+
+  /** New standings always start from the top — the host shouldn't have to scroll back. */
+  useEffect(() => {
+    scrollAreaRef.current?.scrollTo({ top: 0 });
+  }, [teamsKey]);
+
+  useEffect(() => {
+    const area = scrollAreaRef.current;
+    if (!area || !scrollRequest) return;
+    if (appliedScrollNonceRef.current === scrollRequest.nonce) return;
+    appliedScrollNonceRef.current = scrollRequest.nonce;
+
+    if (scrollRequest.direction === 'refresh') {
+      reportScrollState();
+      return;
+    }
+
+    const maxScroll = Math.max(0, area.scrollHeight - area.clientHeight);
+    if (maxScroll <= 0) {
+      reportScrollState();
+      return;
+    }
+
+    const pitch = measureRowPitch();
+    const step =
+      pitch > 0 ? Math.max(1, Math.floor(area.clientHeight / pitch)) * pitch : area.clientHeight;
+
+    let target: number;
+    switch (scrollRequest.direction) {
+      case 'top':
+        target = 0;
+        break;
+      case 'bottom':
+        target = maxScroll;
+        break;
+      case 'up':
+        target = area.scrollTop - step;
+        break;
+      default:
+        target = area.scrollTop + step;
+    }
+
+    if (pitch > 0 && (scrollRequest.direction === 'up' || scrollRequest.direction === 'down')) {
+      target = Math.round(target / pitch) * pitch;
+    }
+
+    area.scrollTo({ top: Math.min(maxScroll, Math.max(0, target)), behavior: 'smooth' });
+  }, [scrollRequest, measureRowPitch, reportScrollState]);
+
   return (
     <div
       className={cn(
@@ -304,21 +429,15 @@ export function LeaderboardScreen({
         className,
       )}
     >
-      {isVenue ? (
-        <>
-          <div
-            className="pointer-events-none absolute inset-0 bg-cover bg-center"
-            style={{ backgroundImage: "url('/venue-stage-bg.png')" }}
-            aria-hidden
-          />
-          <div className="pointer-events-none absolute inset-0 bg-black/10" aria-hidden />
-        </>
-      ) : null}
-
       <LeaderboardScene showScene={showScene} size={size} />
 
       <div className="relative z-10 flex h-full min-h-0 w-full max-h-full flex-col items-center">
-        <div className="mb-3 flex shrink-0 items-center justify-center gap-3 sm:mb-4 sm:gap-5 md:gap-6">
+        <div
+          className={cn(
+            'flex shrink-0 items-center justify-center',
+            isVenue ? 'mb-4 gap-6' : 'mb-3 gap-3 sm:mb-4 sm:gap-5 md:gap-6',
+          )}
+        >
           <img
             src="/leaderboardIcon.png"
             alt=""
@@ -369,12 +488,12 @@ export function LeaderboardScreen({
             <p className="py-8 text-center text-sm text-white/45">{emptyMessage}</p>
           ) : (
             <div ref={listAreaRef} className="min-h-0 flex-1 overflow-hidden">
-              <div className="h-full min-h-0 overflow-y-auto overflow-x-hidden pr-1 [scrollbar-gutter:stable]">
+              <div
+                ref={scrollAreaRef}
+                className="h-full min-h-0 overflow-y-auto overflow-x-hidden pr-1 [scrollbar-gutter:stable]"
+              >
                 {useVenueSplit ? (
-                  <div
-                    ref={contentRef}
-                    className="grid grid-cols-2 items-start gap-6 lg:gap-8"
-                  >
+                  <div ref={contentRef} className="grid grid-cols-2 items-start gap-8">
                     <LeaderboardColumn
                       teams={leftTeams}
                       size={size}

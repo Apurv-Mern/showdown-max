@@ -21,8 +21,8 @@ const SIZE_CONFIG: Record<
     titleGap: 'gap-0',
   },
   venue: {
-    line: 'text-[clamp(3rem,5.5vw,72px)] font-black leading-[1.05] tracking-[0.04em]',
-    sub: 'mt-4 text-[clamp(1.35rem,2.2vw,32px)] font-extrabold leading-tight tracking-[0.05em]',
+    line: 'text-[clamp(3rem,5.5cqw,72px)] font-black leading-[1.05] tracking-[0.04em]',
+    sub: 'mt-4 text-[clamp(1.35rem,2.2cqw,32px)] font-extrabold leading-tight tracking-[0.05em]',
     wrapper: 'max-w-[980px] px-6',
     titleGap: 'gap-0',
   },

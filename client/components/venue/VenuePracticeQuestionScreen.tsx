@@ -21,7 +21,7 @@ export function VenuePracticeQuestionScreen() {
         <img
           src="/pratice%20question.png"
           alt="Practice Question"
-          className="w-full max-w-[min(1040px,96vw)] object-contain drop-shadow-[0_0_22px_rgba(0,217,255,0.35)]"
+          className="w-full max-w-[min(1040px,96cqw)] object-contain drop-shadow-[0_0_22px_rgba(0,217,255,0.35)]"
           draggable={false}
         />
       </header>
@@ -30,8 +30,8 @@ export function VenuePracticeQuestionScreen() {
         <QuestionTimerArch remainingSeconds={30} totalSeconds={30} size="venue" />
       </div>
 
-      <div className="mx-auto flex min-h-0 w-full max-w-[min(1040px,96vw)] flex-1 flex-col rounded-2xl border border-[#4a6fa5]/70 bg-[linear-gradient(180deg,rgba(18,28,68,0.95)_0%,rgba(6,8,28,0.98)_100%)] p-4 shadow-[0_0_28px_rgba(0,0,0,0.45)] sm:p-5 md:p-6">
-        <h2 className="mb-4 text-center text-[clamp(1rem,2.2vw,1.65rem)] font-black uppercase leading-snug tracking-wide text-white sm:mb-5">
+      <div className="mx-auto flex min-h-0 w-full max-w-[min(1040px,96cqw)] flex-1 flex-col rounded-2xl border border-[#4a6fa5]/70 bg-[linear-gradient(180deg,rgba(18,28,68,0.95)_0%,rgba(6,8,28,0.98)_100%)] p-4 shadow-[0_0_28px_rgba(0,0,0,0.45)] sm:p-5 md:p-6">
+        <h2 className="mb-4 text-center text-[clamp(1rem,2.2cqw,1.65rem)] font-black uppercase leading-snug tracking-wide text-white sm:mb-5">
           {toDisplayUpper(PRACTICE_QUESTION)}
         </h2>
         <div className="grid flex-1 grid-cols-1 gap-2.5 sm:grid-cols-2 sm:gap-3">
@@ -43,7 +43,7 @@ export function VenuePracticeQuestionScreen() {
                 opt.tone,
               )}
             >
-              <span className="text-[clamp(0.78rem,1.5vw,1.05rem)] font-black uppercase leading-tight text-white drop-shadow-md">
+              <span className="text-[clamp(0.78rem,1.5cqw,1.05rem)] font-black uppercase leading-tight text-white drop-shadow-md">
                 {opt.letter}. {opt.text}
               </span>
             </div>

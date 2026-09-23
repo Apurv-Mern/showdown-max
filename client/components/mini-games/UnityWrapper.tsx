@@ -19,6 +19,13 @@ export interface UnityWrapperProps {
   onGameComplete?: (result: unknown) => void;
   onReady?: (gameType: UnityGameType) => void;
   command?: MiniGameUnityCommand | null;
+  /** Live kangaroo pick total, forwarded to Racemanager the same way MINIGAME_START is. */
+  selectionUpdate?: {
+    nonce: number;
+    totalSelected: number;
+    totalTeams: number;
+    pickCounts: Record<string, number>;
+  } | null;
   className?: string;
 }
 
@@ -31,7 +38,7 @@ function toCardUnityMessage(
 }
 
 function toKangarooUnityMessage(
-  type: 'MINIGAME_START',
+  type: 'MINIGAME_START' | 'SELECTION_COUNT',
   payload: Record<string, unknown> = {},
 ): string {
   // Kangaroo build test harness uses Racemanager.OnMessageFromReact with payload as string.
@@ -75,6 +82,7 @@ export default function UnityWrapper({
   onGameComplete,
   onReady,
   command,
+  selectionUpdate = null,
   className,
 }: UnityWrapperProps) {
   const config = GAME_CONFIGS[gameType];
@@ -284,6 +292,28 @@ export default function UnityWrapper({
       timestamp: Date.now(),
     });
   }, [command, gameType, isLoaded, startGame]);
+
+  useEffect(() => {
+    if (
+      !isLoaded ||
+      gameType !== 'Kangaroo_race' ||
+      !selectionUpdate ||
+      selectionUpdate.nonce <= 0
+    ) {
+      return;
+    }
+
+    sendUnityMessageDeferred(
+      'Racemanager',
+      'OnMessageFromReact',
+      toKangarooUnityMessage('SELECTION_COUNT', {
+        totalSelected: selectionUpdate.totalSelected,
+        totalTeams: selectionUpdate.totalTeams,
+        pickCounts: selectionUpdate.pickCounts,
+        timestamp: Date.now(),
+      }),
+    );
+  }, [gameType, isLoaded, selectionUpdate, sendUnityMessageDeferred]);
 
   useEffect(() => {
     const timer = setTimeout(() => {

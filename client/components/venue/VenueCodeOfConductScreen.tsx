@@ -51,15 +51,15 @@ export function VenueCodeOfConductScreen() {
         <img
           src="/coc.png"
           alt=""
-          className="h-auto w-[min(68vw,1180px)] shrink-0 object-contain drop-shadow-[0_8px_18px_rgba(0,0,0,0.55)]"
+          className="h-auto w-[min(68cqw,1180px)] shrink-0 object-contain drop-shadow-[0_8px_18px_rgba(0,0,0,0.55)]"
           draggable={false}
         />
 
-        <ol className="mt-[3.2vh] flex w-full max-w-[min(52vw,980px)] flex-col gap-[2.4vh]">
+        <ol className="mt-[3.2cqh] flex w-full max-w-[min(52cqw,980px)] flex-col gap-[2.4cqh]">
           {RULES.map((rule) => (
             <li
               key={rule.number}
-              className="relative isolate flex h-[min(9.2vh,100px)] w-full items-center overflow-hidden rounded-full"
+              className="relative isolate flex h-[min(9.2cqh,100px)] w-full items-center overflow-hidden rounded-full"
               style={{
                 background: 'linear-gradient(180deg, #00072F 0%, #00010A 100%)',
                 border: `3px solid ${rule.accent}`,
@@ -77,7 +77,7 @@ export function VenueCodeOfConductScreen() {
                   {rule.number}
                 </span>
               </div>
-              <p className="relative z-10 ml-6 mr-6 min-w-0 flex-1 text-[clamp(1.05rem,1.55vw,1.875rem)] font-extrabold uppercase leading-tight text-white [text-shadow:0_2px_4px_rgba(0,0,0,0.5)]">
+              <p className="relative z-10 ml-6 mr-6 min-w-0 flex-1 text-[clamp(1.05rem,1.55cqw,1.875rem)] font-extrabold uppercase leading-tight text-white [text-shadow:0_2px_4px_rgba(0,0,0,0.5)]">
                 {rule.text}
               </p>
             </li>
@@ -87,7 +87,7 @@ export function VenueCodeOfConductScreen() {
         <img
           src="/logo.png"
           alt="Max Showdown Live"
-          className="mt-auto h-auto w-[min(32vw,607px)] shrink-0 object-contain drop-shadow-[0_8px_28px_rgba(0,0,0,0.55)]"
+          className="mt-auto h-auto w-[min(32cqw,607px)] shrink-0 object-contain drop-shadow-[0_8px_28px_rgba(0,0,0,0.55)]"
           draggable={false}
         />
       </div>

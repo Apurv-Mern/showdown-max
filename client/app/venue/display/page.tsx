@@ -24,6 +24,7 @@ import {
   resolveBreakUpNextLabelFromBreakStart,
 } from '@/lib/breakScreenCopy';
 import { VenueWagerCollectionScreen } from '@/components/venue/VenueWagerCollectionScreen';
+import { VenueAutoFitText } from '@/components/venue/VenueAutoFitText';
 import { emptyWagerDistributionCounts } from '@/lib/wagerGrid';
 import { VenueCodeOfConductScreen } from '@/components/venue/VenueCodeOfConductScreen';
 // import { VenuePracticeQuestionScreen } from '@/components/venue/VenuePracticeQuestionScreen';
@@ -34,7 +35,11 @@ import {
   resolveKangarooNames,
 } from '@/lib/kangarooRaceDefaults';
 import { shouldWaitForHostAudioTimer } from '@/lib/questionMedia';
-import { LeaderboardScreen } from '@/components/shared/LeaderboardScreen';
+import {
+  LeaderboardScreen,
+  type LeaderboardScrollDirection,
+  type LeaderboardScrollState,
+} from '@/components/shared/LeaderboardScreen';
 import { isEliminationRoundType } from '@/lib/eliminationLeaderboard';
 import { RoundEndScreen } from '@/components/shared/RoundEndScreen';
 import { GameshowEndScreen } from '@/components/shared/GameshowEndScreen';
@@ -136,23 +141,20 @@ const VENUE_OPTION_COLOR_CLASSES = [
 ];
 
 /** Venue question card — fixed media height + fixed option rows (matches TV mockup). */
-const VENUE_QUESTION_CARD_MEDIA =
-  'relative shrink-0 overflow-hidden rounded-t-2xl h-[min(42vh,480px)] min-h-[180px]';
+const VENUE_QUESTION_CARD_MEDIA = 'relative h-[400px] shrink-0 overflow-hidden rounded-t-2xl';
 const VENUE_MEDIA_FRAME = 'relative h-full w-full overflow-hidden bg-[#060818]';
 const VENUE_MEDIA_FILL = 'h-full w-full object-contain';
 const VENUE_QUESTION_CARD_OPTIONS =
-  'relative z-20 shrink-0 rounded-2xl border-t-2 border-t-white/50 bg-linear-to-b from-[#100048] to-[#000000] px-3 pt-5 pb-3 sm:px-4 md:px-5 md:pt-7 md:pb-4';
-const VENUE_OPTION_GRID = 'grid grid-cols-2 gap-2.5 md:gap-4';
+  'relative z-20 shrink-0 rounded-2xl border-t-2 border-t-white/50 bg-linear-to-b from-[#100048] to-[#000000] px-5 pb-4 pt-6';
+const VENUE_OPTION_GRID = 'grid grid-cols-2 gap-4';
 const VENUE_OPTION_CELL =
-  'flex min-h-[5.5rem] items-center gap-3 rounded-lg border px-4 py-4 text-4xl font-normal text-white shadow-[0_8px_18px_rgba(0,0,0,0.35)] md:min-h-[6rem] md:px-6 md:py-4 md:text-5xl min-[1920px]:min-h-[6.5rem] min-[1920px]:text-6xl';
+  'flex h-[92px] min-w-0 items-center gap-4 overflow-hidden rounded-lg border px-6 py-3 font-normal text-white shadow-[0_8px_18px_rgba(0,0,0,0.35)]';
 const VENUE_CENTERED_QUESTION_TEXT =
-  'text-center text-4xl font-normal uppercase leading-[1.12] text-white drop-shadow-[0_0_18px_rgba(255,255,255,0.4)] md:text-5xl lg:text-6xl min-[1920px]:text-7xl';
-const VENUE_OPTIONS_QUESTION_TEXT =
-  'text-3xl font-normal uppercase leading-tight text-white md:text-4xl min-[1920px]:text-5xl';
-const VENUE_OPTION_LETTER = 'shrink-0 font-normal leading-none text-white';
-const VENUE_OPTION_TEXT = 'min-w-0 flex-1 break-words leading-none uppercase text-white';
+  'flex h-full w-full items-center justify-center text-center font-normal uppercase leading-[1.12] text-white drop-shadow-[0_0_18px_rgba(255,255,255,0.4)]';
+const VENUE_OPTIONS_QUESTION_TEXT = 'font-normal uppercase leading-tight text-white';
+const VENUE_OPTION_LETTER = 'shrink-0 text-[54px] font-normal leading-none text-white';
 const VENUE_MINI_GAME_FINISHED_LOGO =
-  'mx-auto mb-8 h-[min(30rem,42vh)] w-auto max-w-[min(92%,480px)] object-contain drop-shadow-[0_0_24px_rgba(0,229,255,0.28)]';
+  'mx-auto mb-8 h-[min(30rem,42cqh)] w-auto max-w-[min(92%,480px)] object-contain drop-shadow-[0_0_24px_rgba(0,229,255,0.28)]';
 
 const resolveMediaUrl = (mediaUrl?: string) => {
   if (!mediaUrl) return '';
@@ -279,6 +281,26 @@ type MiniGameReveal = {
 };
 
 type VenueMiniGameType = 'Kangaroo_race' | 'card_shuffle';
+
+function kangarooPickCountsFromState(
+  pickCounts?: Record<string, number> | null,
+): Record<string, number> {
+  const next: Record<string, number> = { '1': 0, '2': 0, '3': 0, '4': 0, '5': 0, '6': 0 };
+  if (pickCounts && typeof pickCounts === 'object') {
+    for (const slot of [1, 2, 3, 4, 5, 6]) {
+      next[String(slot)] = Number(pickCounts[slot] || pickCounts[String(slot)] || 0);
+    }
+  }
+  return next;
+}
+
+function kangarooSelectionTotal(
+  pickCounts?: Record<string, number> | null,
+  selections?: Record<string, unknown> | null,
+) {
+  if (selections && typeof selections === 'object') return Object.keys(selections).length;
+  return Object.values(kangarooPickCountsFromState(pickCounts)).reduce((sum, n) => sum + n, 0);
+}
 
 const normalizeVenueMiniGameType = (game: unknown): VenueMiniGameType | null => {
   const g = game == null || game === '' ? '' : String(game).toLowerCase().replace(/-/g, '_');
@@ -430,9 +452,9 @@ const normalizeRoundIntroTitle = (name?: string, roundType?: string, roundIndex?
 /** Scale round-intro copy to stay inside the venue wheel circle. */
 function venueRoundIntroTitleSize(subtitle: string) {
   const len = subtitle.length;
-  if (len > 16) return 'text-[clamp(1.85rem,4.6vh,3.35rem)]';
-  if (len > 10) return 'text-[clamp(2rem,5.2vh,3.65rem)]';
-  return 'text-[clamp(2.3rem,6vh,4.15rem)]';
+  if (len > 16) return 'text-[clamp(1.85rem,4.6cqh,3.35rem)]';
+  if (len > 10) return 'text-[clamp(2rem,5.2cqh,3.65rem)]';
+  return 'text-[clamp(2.3rem,6cqh,4.15rem)]';
 }
 
 function VenueDisplayContent() {
@@ -476,6 +498,12 @@ function VenueDisplayContent() {
   const [wagerDistributionCounts, setWagerDistributionCounts] = useState<Record<string, number>>(
     () => emptyWagerDistributionCounts(false),
   );
+  /** Host-driven leaderboard scrolling; nonce lets the same direction fire repeatedly. */
+  const [leaderboardScrollRequest, setLeaderboardScrollRequest] = useState<{
+    direction: LeaderboardScrollDirection;
+    nonce: number;
+  } | null>(null);
+  const leaderboardScrollNonceRef = useRef(0);
   // Drives the venue's "round is over" transition screen between the last
   // question reveal and the scoreboard. Cleared on phase change away from round_end.
   const [roundEndInfo, setRoundEndInfo] = useState<RoundEndInfo | null>(null);
@@ -498,6 +526,17 @@ function VenueDisplayContent() {
   // first mount/reconnect and would falsely show the intro mid-game.
   const [cardShuffleVenueStarted, setCardShuffleVenueStarted] = useState(false);
   const [venueKangarooNames, setVenueKangarooNames] = useState<string[]>(defaultKangarooNames());
+  const [kangarooSelectedCount, setKangarooSelectedCount] = useState(0);
+  const [kangarooPickCounts, setKangarooPickCounts] = useState<Record<string, number>>({
+    '1': 0,
+    '2': 0,
+    '3': 0,
+    '4': 0,
+    '5': 0,
+    '6': 0,
+  });
+  const [kangarooSelectionNonce, setKangarooSelectionNonce] = useState(0);
+  const kangarooSelectionNonceRef = useRef(0);
   const [miniGameResult, setMiniGameResult] = useState<{
     game: VenueMiniGameType;
     winningCard?: number;
@@ -555,6 +594,26 @@ function VenueDisplayContent() {
     const pin = encodeURIComponent(sessionPin);
     return `${VENUE_JOIN_BASE_URL}?pin=${pin}`;
   }, [sessionPin]);
+
+  const reportLeaderboardScrollState = useCallback(
+    (scrollState: LeaderboardScrollState) => {
+      if (!socket || !sessionPin) return;
+      socket.emit('venue_leaderboard_state', { pin: sessionPin, ...scrollState });
+    },
+    [socket, sessionPin],
+  );
+
+  /** Leaderboard is off screen — tell the host its scroll buttons have nothing to act on. */
+  useEffect(() => {
+    if (phase === 'scoreboard') return;
+    reportLeaderboardScrollState({
+      canScrollUp: false,
+      canScrollDown: false,
+      firstVisibleRow: 0,
+      lastVisibleRow: 0,
+      totalRows: 0,
+    });
+  }, [phase, reportLeaderboardScrollState]);
 
   /** Merge late joiners from `teams` into the post-round leaderboard without waiting for a resync. */
   const scoreboardEliminationStyle = useMemo(
@@ -1207,6 +1266,14 @@ function VenueDisplayContent() {
           if (names?.length >= 6) {
             setVenueKangarooNames(resolveKangarooNames(names));
           }
+          const restoredCount = kangarooSelectionTotal(
+            data.miniGameState?.pickCounts,
+            data.miniGameState?.selections,
+          );
+          setKangarooSelectedCount(restoredCount);
+          setKangarooPickCounts(kangarooPickCountsFromState(data.miniGameState?.pickCounts));
+          kangarooSelectionNonceRef.current += 1;
+          setKangarooSelectionNonce(kangarooSelectionNonceRef.current);
         }
         if (data.miniGameState?.game === 'card_shuffle' && data.miniGameState?.revealed) {
           setMiniGameReveal({
@@ -1757,6 +1824,12 @@ function VenueDisplayContent() {
       setMiniGameReveal(null);
       setMiniGameResult(null);
       setCardShuffleVenueStarted(false);
+      if (normalizedGame === 'Kangaroo_race' && !data.rejoinReplay) {
+        setKangarooSelectedCount(0);
+        setKangarooPickCounts({ '1': 0, '2': 0, '3': 0, '4': 0, '5': 0, '6': 0 });
+        kangarooSelectionNonceRef.current += 1;
+        setKangarooSelectionNonce(kangarooSelectionNonceRef.current);
+      }
       if (data.venueReload || !data.rejoinReplay) {
         setUnityMountKey((k) => k + 1);
       }
@@ -1921,6 +1994,7 @@ function VenueDisplayContent() {
       if (data.holdScreen) {
         // Show the "Game Finished" result screen until the host manually
         // advances — used by Finish Race / Finish Card Shuffle buttons.
+        setKangarooSelectedCount(0);
         setMiniGameResult({
           game: normalizedGame,
           holdScreen: true,
@@ -1955,6 +2029,42 @@ function VenueDisplayContent() {
       applyVenuePhaseFromSession(lobbyPhaseToVenuePhase(data.phase));
     };
 
+    const onLeaderboardScroll = (data: { direction?: string }) => {
+      const direction = data?.direction;
+      if (
+        direction !== 'up' &&
+        direction !== 'down' &&
+        direction !== 'top' &&
+        direction !== 'bottom' &&
+        direction !== 'refresh'
+      ) {
+        return;
+      }
+      leaderboardScrollNonceRef.current += 1;
+      setLeaderboardScrollRequest({ direction, nonce: leaderboardScrollNonceRef.current });
+    };
+
+    const onMiniGameUpdate = (data: {
+      game?: string;
+      action?: string;
+      value?: number;
+      pickCounts?: Record<string, number>;
+      totalSelected?: number;
+    }) => {
+      const gid = normalizeVenueMiniGameId(data?.game);
+      if (gid !== 'kangaroo_race') return;
+      if (data.action !== 'select') return;
+      const nextCount = Number.isFinite(Number(data.totalSelected))
+        ? Number(data.totalSelected)
+        : kangarooSelectionTotal(data.pickCounts);
+      setKangarooSelectedCount(nextCount);
+      if (data.pickCounts) {
+        setKangarooPickCounts(kangarooPickCountsFromState(data.pickCounts));
+      }
+      kangarooSelectionNonceRef.current += 1;
+      setKangarooSelectionNonce(kangarooSelectionNonceRef.current);
+    };
+
     socket.on('session_state', onSessionState);
     socket.on('team_joined', onTeamJoined);
     socket.on('team_updated', onTeamUpdated);
@@ -1977,11 +2087,13 @@ function VenueDisplayContent() {
     socket.on('mini_game_start', onMiniGameStart);
     socket.on('mini_game_command', onMiniGameCommand);
     socket.on('mini_game_reveal', onMiniGameReveal);
+    socket.on('mini_game_update', onMiniGameUpdate);
     socket.on('music_control', onMusicControl);
     socket.on('mini_game_end', onMiniGameEnd);
     socket.on('game_end', onGameEnd);
     socket.on('venue_welcome_dismiss', handleWelcomeContinue);
     socket.on('venue_lobby_phase', onVenueLobbyPhase);
+    socket.on('venue_leaderboard_scroll', onLeaderboardScroll);
 
     joinVenue();
 
@@ -2012,10 +2124,12 @@ function VenueDisplayContent() {
       socket.off('mini_game_start', onMiniGameStart);
       socket.off('mini_game_command', onMiniGameCommand);
       socket.off('mini_game_reveal', onMiniGameReveal);
+      socket.off('mini_game_update', onMiniGameUpdate);
       socket.off('mini_game_end', onMiniGameEnd);
       socket.off('game_end', onGameEnd);
       socket.off('venue_welcome_dismiss', handleWelcomeContinue);
       socket.off('venue_lobby_phase', onVenueLobbyPhase);
+      socket.off('venue_leaderboard_scroll', onLeaderboardScroll);
     };
   }, [
     socket,
@@ -2028,6 +2142,26 @@ function VenueDisplayContent() {
     stopMp3,
     handleWelcomeContinue,
   ]);
+
+  const kangarooSelectionUpdate = useMemo(
+    () =>
+      miniGameType === 'Kangaroo_race'
+        ? {
+            nonce: kangarooSelectionNonce,
+            totalSelected: kangarooSelectedCount,
+            totalTeams: Math.max(kangarooSelectedCount, totalTeams, teams.length),
+            pickCounts: kangarooPickCounts,
+          }
+        : null,
+    [
+      miniGameType,
+      kangarooSelectionNonce,
+      kangarooSelectedCount,
+      totalTeams,
+      teams.length,
+      kangarooPickCounts,
+    ],
+  );
 
   const QROverlay = () => {
     if (
@@ -2076,11 +2210,6 @@ function VenueDisplayContent() {
 
   return (
     <div className="w-full h-full relative overflow-hidden">
-      <div
-        className="absolute inset-0 bg-cover bg-center"
-        style={{ backgroundImage: "url('/venue-stage-bg.png')" }}
-      />
-      <div className="absolute inset-0 bg-[#030818]/70" />
       <div className="relative z-10 w-full h-full">
         <ConnectionDot />
         <QROverlay />
@@ -2138,7 +2267,7 @@ function VenueDisplayContent() {
             {/* Right 30% — QR + join info */}
             <div className="relative flex h-full w-[30%] min-w-0 flex-col items-center justify-center gap-4 overflow-hidden px-4 py-6 sm:gap-5 sm:px-5 md:gap-6 md:px-6">
               <div className="neon-border-strong rounded-xl bg-surface/90 p-2.5 shadow-[0_0_28px_rgba(0,229,255,0.2)] sm:rounded-2xl sm:p-3 md:p-4">
-                <div className="flex h-[min(35vw,35vh)] w-[min(35vw,35vh)] min-h-40 min-w-40 items-center justify-center rounded-lg bg-white p-2 sm:min-h-44 sm:min-w-44 md:min-h-48 md:min-w-48">
+                <div className="flex h-[min(35cqw,35cqh)] w-[min(35cqw,35cqh)] min-h-40 min-w-40 items-center justify-center rounded-lg bg-white p-2 sm:min-h-44 sm:min-w-44 md:min-h-48 md:min-w-48">
                   <QRCodeSVG
                     value={welcomeJoinUrl}
                     size={280}
@@ -2250,7 +2379,7 @@ function VenueDisplayContent() {
             {/* Wrapper matches the round-intro PNG's portrait aspect so percentage-based
                 overlays (title + scoring lines) land on the real image bounds rather than
                 spilling into the empty horizontal margins object-contain creates. */}
-            <div className="relative h-full max-h-[min(92vh,960px)] aspect-[820/1024] mx-auto">
+            <div className="relative mx-auto aspect-[820/1024] h-full max-h-[min(92cqh,960px)]">
               <img
                 src="/Venue Round Intro.png"
                 alt="Round intro background"
@@ -2345,7 +2474,7 @@ function VenueDisplayContent() {
 
         {/* Question */}
         {phase === 'question' && question && (
-          <div className="flex h-full min-h-0 w-full animate-fadeIn flex-col overflow-hidden px-4 py-[clamp(0.5rem,1.5vh,1.25rem)] md:px-20 lg:px-40">
+          <div className="flex h-full min-h-0 w-full animate-fadeIn flex-col overflow-hidden px-4 py-[clamp(0.5rem,1.5cqh,1.25rem)] md:px-20 lg:px-40">
             {/* Response Stats */}
             <div className="mx-auto mb-1 w-full shrink-0 rounded-2xl">
               <div className="rounded-xl flex flex-col lg:flex-row items-start lg:items-center gap-2 lg:gap-3 justify-between px-3 md:px-4 py-1">
@@ -2404,7 +2533,7 @@ function VenueDisplayContent() {
             <div className="flex min-h-0 w-full flex-1 flex-col justify-start overflow-hidden animate-fadeIn">
               <div className="mx-auto w-full shrink-0 overflow-hidden rounded-2xl border">
                 <div className={VENUE_QUESTION_CARD_MEDIA}>
-                  <div className="absolute left-4 top-3 z-10 text-lg font-semibold text-white/90 min-[1920px]:text-2xl">
+                  <div className="absolute left-4 top-3 z-10 text-2xl font-semibold text-white/90">
                     QUESTION {(question.questionIndex || 0) + 1}/{question.totalQuestions}
                   </div>
                   <div className={VENUE_MEDIA_FRAME}>
@@ -2427,9 +2556,14 @@ function VenueDisplayContent() {
                       />
                     ) : (
                       <div className="flex h-full w-full items-center justify-center px-6 py-8 md:px-12 md:py-10">
-                        <p className={VENUE_CENTERED_QUESTION_TEXT}>
+                        <VenueAutoFitText
+                          className={VENUE_CENTERED_QUESTION_TEXT}
+                          minFontSize={32}
+                          maxFontSize={72}
+                          step={2}
+                        >
                           {toDisplayUpper(question.question.text)}
-                        </p>
+                        </VenueAutoFitText>
                       </div>
                     )}
                   </div>
@@ -2443,12 +2577,13 @@ function VenueDisplayContent() {
 
                 <div className={VENUE_QUESTION_CARD_OPTIONS}>
                   {venueQuestionHasVisualMedia(question.question) ? (
-                    <div className="mb-3 shrink-0 md:mb-4">
-                      <p className={cn(VENUE_OPTIONS_QUESTION_TEXT, 'line-clamp-3')}>
-                        Q{(question.questionIndex || 0) + 1}.{' '}
-                        {toDisplayUpper(question.question.text)}
-                      </p>
-                    </div>
+                    <VenueAutoFitText
+                      className={cn(VENUE_OPTIONS_QUESTION_TEXT, 'mb-4 h-[90px] shrink-0')}
+                      minFontSize={24}
+                      maxFontSize={48}
+                    >
+                      Q{(question.questionIndex || 0) + 1}. {toDisplayUpper(question.question.text)}
+                    </VenueAutoFitText>
                   ) : null}
 
                   <div className={VENUE_OPTION_GRID}>
@@ -2461,7 +2596,13 @@ function VenueDisplayContent() {
                         )}
                       >
                         <span className={VENUE_OPTION_LETTER}>{OPTION_LETTERS[i]}.</span>
-                        <span className={VENUE_OPTION_TEXT}>{toDisplayUpper(opt.text)}</span>
+                        <VenueAutoFitText
+                          className="flex h-full min-w-0 flex-1 items-center break-words uppercase leading-none text-white"
+                          minFontSize={22}
+                          maxFontSize={54}
+                        >
+                          {toDisplayUpper(opt.text)}
+                        </VenueAutoFitText>
                       </div>
                     ))}
                   </div>
@@ -2482,7 +2623,7 @@ function VenueDisplayContent() {
 
         {/* Reveal */}
         {phase === 'reveal' && revealData && question && (
-          <div className="flex h-full min-h-0 w-full animate-fadeIn flex-col overflow-hidden px-4 py-[clamp(0.5rem,1.5vh,1.25rem)] md:px-20 lg:px-40">
+          <div className="flex h-full min-h-0 w-full animate-fadeIn flex-col overflow-hidden px-4 py-[clamp(0.5rem,1.5cqh,1.25rem)] md:px-20 lg:px-40">
             {/* Response Stats */}
             <div className="mx-auto mb-1 w-full shrink-0 rounded-2xl">
               <div className="rounded-xl flex flex-col lg:flex-row items-start lg:items-center gap-2 lg:gap-3 justify-between px-3 md:px-4 py-1 md:py-1.5">
@@ -2540,7 +2681,7 @@ function VenueDisplayContent() {
             <div className="flex min-h-0 w-full flex-1 flex-col justify-start overflow-hidden animate-fadeIn">
               <div className="mx-auto w-full shrink-0 overflow-hidden rounded-2xl border border-white/20">
                 <div className={VENUE_QUESTION_CARD_MEDIA}>
-                  <div className="absolute left-3 top-2 z-10 text-sm font-semibold text-white drop-shadow-md md:left-4 md:top-3 md:text-lg min-[1920px]:text-2xl">
+                  <div className="absolute left-4 top-3 z-10 text-2xl font-semibold text-white drop-shadow-md">
                     Question {(question.questionIndex || 0) + 1}/{question.totalQuestions}
                   </div>
                   <div className={VENUE_MEDIA_FRAME}>
@@ -2562,9 +2703,14 @@ function VenueDisplayContent() {
                       />
                     ) : (
                       <div className="flex h-full w-full items-center justify-center px-6 py-8 md:px-12 md:py-10">
-                        <p className={VENUE_CENTERED_QUESTION_TEXT}>
+                        <VenueAutoFitText
+                          className={VENUE_CENTERED_QUESTION_TEXT}
+                          minFontSize={32}
+                          maxFontSize={72}
+                          step={2}
+                        >
                           {toDisplayUpper(question.question.text)}
-                        </p>
+                        </VenueAutoFitText>
                       </div>
                     )}
                   </div>
@@ -2578,16 +2724,17 @@ function VenueDisplayContent() {
 
                 <div className={VENUE_QUESTION_CARD_OPTIONS}>
                   {venueQuestionHasVisualMedia(question.question) ? (
-                    <div className="mb-3 shrink-0 md:mb-4">
-                      <p className={cn(VENUE_OPTIONS_QUESTION_TEXT, 'line-clamp-3')}>
-                        Q{(question.questionIndex || 0) + 1}.{' '}
-                        {toDisplayUpper(question.question.text)}
-                      </p>
-                    </div>
+                    <VenueAutoFitText
+                      className={cn(VENUE_OPTIONS_QUESTION_TEXT, 'mb-4 h-[90px] shrink-0')}
+                      minFontSize={24}
+                      maxFontSize={48}
+                    >
+                      Q{(question.questionIndex || 0) + 1}. {toDisplayUpper(question.question.text)}
+                    </VenueAutoFitText>
                   ) : null}
                   {question.question.isOrdering && revealData && (
                     <div className="mb-3 shrink-0 text-center md:mb-4">
-                      <span className="inline-block rounded-full border border-green-500/50 bg-green-500/20 px-4 py-1.5 text-sm font-bold uppercase tracking-wider text-green-400 shadow-[0_0_15px_rgba(57,255,74,0.2)] min-[1920px]:text-xl">
+                      <span className="inline-block rounded-full border border-green-500/50 bg-green-500/20 px-4 py-1.5 text-xl font-bold uppercase tracking-wider text-green-400 shadow-[0_0_15px_rgba(57,255,74,0.2)]">
                         Correct Order:{' '}
                         {(revealData.correctOrderArray || [])
                           .map((idx: number) =>
@@ -2625,10 +2772,16 @@ function VenueDisplayContent() {
                           )}
                         >
                           <span className={VENUE_OPTION_LETTER}>{OPTION_LETTERS[i]}.</span>
-                          <span className={VENUE_OPTION_TEXT}>{toDisplayUpper(opt.text)}</span>
+                          <VenueAutoFitText
+                            className="flex h-full min-w-0 flex-1 items-center break-words uppercase leading-none text-white"
+                            minFontSize={22}
+                            maxFontSize={54}
+                          >
+                            {toDisplayUpper(opt.text)}
+                          </VenueAutoFitText>
                           {isRevealedWinner && !isMajorityRulesRound && (
-                            <div className="ml-auto flex h-7 w-7 shrink-0 items-center justify-center rounded-full border-2 border-white bg-green-500 shadow-lg min-[1920px]:h-8 min-[1920px]:w-8">
-                              <span className="text-sm text-white min-[1920px]:text-lg">✓</span>
+                            <div className="ml-auto flex h-8 w-8 shrink-0 items-center justify-center rounded-full border-2 border-white bg-green-500 shadow-lg">
+                              <span className="text-lg text-white">✓</span>
                             </div>
                           )}
                         </div>
@@ -2666,6 +2819,8 @@ function VenueDisplayContent() {
               size="venue"
               showScene={false}
               eliminationStyle={scoreboardEliminationStyle}
+              scrollRequest={leaderboardScrollRequest}
+              onScrollStateChange={reportLeaderboardScrollState}
             />
           </div>
         )}
@@ -2719,7 +2874,21 @@ function VenueDisplayContent() {
                 </div>
               </div>
             ) : null} */}
-            <div className="flex min-h-0 flex-1 flex-col px-3 py-3 sm:px-4 sm:py-4">
+            <div className="relative flex min-h-0 flex-1 flex-col px-3 py-3 sm:px-4 sm:py-4">
+              {miniGameType === 'Kangaroo_race' ? (
+                <div className="pointer-events-none absolute left-1/2 top-4 z-20 -translate-x-1/2 rounded-full border border-[#00d9ff]/40 bg-[#080d1c]/85 px-8 py-3 text-center shadow-[0_0_24px_rgba(0,217,255,0.25)]">
+                  <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-[#00d9ff]">
+                    Teams selected
+                  </p>
+                  <p className="mt-1 text-4xl font-black tabular-nums text-white">
+                    {kangarooSelectedCount}
+                    <span className="text-2xl font-bold text-white/45">
+                      {' '}
+                      / {Math.max(kangarooSelectedCount, totalTeams, teams.length)}
+                    </span>
+                  </p>
+                </div>
+              ) : null}
               <DynamicUnityGame
                 key={`${miniGameType}-${unityMountKey}`}
                 gameType={miniGameType as 'Kangaroo_race' | 'card_shuffle'}
@@ -2727,6 +2896,7 @@ function VenueDisplayContent() {
                 onGameComplete={handleUnityGameComplete}
                 onReady={handleUnityReady}
                 command={miniGameCommand}
+                selectionUpdate={kangarooSelectionUpdate}
                 className="min-h-0 flex-1 overflow-hidden rounded-2xl bg-black"
               />
             </div>
@@ -2958,7 +3128,7 @@ function BreakView({
         <img
           src="/logo.png"
           alt="Max Showdown Trivia"
-          className="h-auto w-[min(340px,42vw)] max-w-full object-contain drop-shadow-[0_8px_32px_rgba(0,0,0,0.45)]"
+          className="h-auto w-[min(340px,42cqw)] max-w-full object-contain drop-shadow-[0_8px_32px_rgba(0,0,0,0.45)]"
         />
       </div>
     </div>

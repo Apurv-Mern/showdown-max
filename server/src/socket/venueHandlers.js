@@ -168,6 +168,23 @@ const venueHandlers = (io, socket) => {
     }
   });
 
+  /** Venue reports how far its leaderboard can scroll so the host can enable/disable controls. */
+  socket.on(SOCKET_EVENTS.VENUE_LEADERBOARD_STATE, (data) => {
+    try {
+      const pin = data?.pin || socket.data?.pin;
+      if (!pin) return;
+      io.to(`session:${pin}`).emit(SOCKET_EVENTS.VENUE_LEADERBOARD_STATE, {
+        canScrollUp: Boolean(data?.canScrollUp),
+        canScrollDown: Boolean(data?.canScrollDown),
+        firstVisibleRow: Number(data?.firstVisibleRow) || 0,
+        lastVisibleRow: Number(data?.lastVisibleRow) || 0,
+        totalRows: Number(data?.totalRows) || 0,
+      });
+    } catch (err) {
+      logger.error('venue_leaderboard_state error', { error: err.message });
+    }
+  });
+
   socket.on('host_connect', async (data) => {
     try {
       const { pin } = data;

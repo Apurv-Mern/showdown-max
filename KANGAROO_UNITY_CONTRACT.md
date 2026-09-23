@@ -2,6 +2,43 @@
 
 This document is the handoff contract for the Unity developer.
 
+## Live selection count (web → Unity)
+
+Players pick on phones. The server broadcasts Socket.IO event:
+
+- Event name: `mini_game_update`
+- Typical payload:
+
+```json
+{
+  "game": "kangaroo_race",
+  "action": "select",
+  "value": 3,
+  "teamId": 12,
+  "teamName": "Table 4",
+  "totalSelected": 18,
+  "pickCounts": { "1": 2, "2": 4, "3": 5, "4": 1, "5": 3, "6": 3 }
+}
+```
+
+Unity does **not** connect to Socket.IO. The venue page listens to `mini_game_update` and forwards the live total through the same React → Unity path as start:
+
+- `SendMessage("Racemanager", "OnMessageFromReact", jsonString)`
+
+```json
+{
+  "type": "SELECTION_COUNT",
+  "payload": "{\"totalSelected\":18,\"totalTeams\":24,\"pickCounts\":{\"1\":2,\"2\":4,\"3\":5,\"4\":1,\"5\":3,\"6\":6},\"timestamp\":1710000000000}"
+}
+```
+
+Notes:
+
+- Parse twice (outer then inner), same as `MINIGAME_START`.
+- `totalSelected` is the number of teams that have locked a kangaroo. Use this for the on-screen total.
+- `pickCounts` is optional per-lane detail. The venue overlay only shows the total.
+- This message can fire many times while betting is open. After the host starts the race, new picks are rejected.
+
 ## Incoming message from web (host start)
 
 Unity receives the host start payload through:

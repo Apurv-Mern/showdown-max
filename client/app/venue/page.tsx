@@ -91,10 +91,10 @@ export default function VenueSessionLoginPage() {
 
         <main className="z-10 flex w-full max-w-180 flex-col items-center justify-center">
           <div className="flex w-full flex-col items-center">
-            <h1 className="text-center text-[clamp(1.5rem,4vw,2.25rem)] font-bold text-white">
+            <h1 className="text-center text-[clamp(1.5rem,4cqw,2.25rem)] font-bold text-white">
               VENUE LOGIN
             </h1>
-            <p className="mt-2 text-center text-[clamp(0.875rem,2.2vw,1.125rem)] font-medium text-[#00d1ff]">
+            <p className="mt-2 text-center text-[clamp(0.875rem,2.2cqw,1.125rem)] font-medium text-[#00d1ff]">
               ENTER THE 6-DIGIT SESSION PIN TO ACTIVATE THIS VENUE SCREEN
             </p>
 

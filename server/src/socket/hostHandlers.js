@@ -143,6 +143,26 @@ const hostHandlers = (io, socket) => {
     }
   });
 
+  /**
+   * Host scrolls the venue leaderboard remotely. Pure display control — no game state — so it
+   * only relays the direction to the room; the venue applies the row-aligned scroll and reports
+   * back via VENUE_LEADERBOARD_STATE.
+   */
+  socket.on(SOCKET_EVENTS.VENUE_LEADERBOARD_SCROLL, (data) => {
+    try {
+      const pin = data?.pin;
+      if (!assertHostForPin(socket, pin)) {
+        socket.emit(SOCKET_EVENTS.ERROR, { message: 'Unauthorized' });
+        return;
+      }
+      const direction = String(data?.direction || '');
+      if (!['up', 'down', 'top', 'bottom', 'refresh'].includes(direction)) return;
+      io.to(`session:${pin}`).emit(SOCKET_EVENTS.VENUE_LEADERBOARD_SCROLL, { direction });
+    } catch (err) {
+      logger.error('venue_leaderboard_scroll error', { error: err.message });
+    }
+  });
+
   socket.on(SOCKET_EVENTS.ADVANCE_LOBBY, async (data) => {
     try {
       const pin = data?.pin;
@@ -215,6 +235,19 @@ const hostHandlers = (io, socket) => {
       await gameController.advanceToNextRound(io, data.pin);
     } catch (err) {
       logger.error('advance_round error', { error: err.message });
+    }
+  });
+
+  socket.on(SOCKET_EVENTS.SKIP_NEXT_ROUND, async (data) => {
+    try {
+      const pin = data?.pin;
+      if (!assertHostForPin(socket, pin)) {
+        socket.emit(SOCKET_EVENTS.ERROR, { message: 'Unauthorized' });
+        return;
+      }
+      await gameController.skipNextRound(io, pin);
+    } catch (err) {
+      logger.error('skip_next_round error', { error: err.message });
     }
   });
 

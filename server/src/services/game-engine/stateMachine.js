@@ -42,6 +42,8 @@ const VALID_TRANSITIONS = {
     GAME_STATES.FINAL_WAGER,
     GAME_STATES.FINAL_RESULTS,
     GAME_STATES.WAGER_COLLECTION,
+    // Host skipped the last remaining round from the post-round leaderboard.
+    GAME_STATES.GAME_SHOW_END,
   ],
   [GAME_STATES.BREAK]: [
     GAME_STATES.ROUND_INTRO,

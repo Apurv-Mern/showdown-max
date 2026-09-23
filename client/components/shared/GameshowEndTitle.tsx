@@ -26,7 +26,7 @@ const PLAYER_TITLE_LINE_CLASS =
 const TITLE_VARIANT_CLASS: Record<GameshowEndTitleVariant, string> = {
   player: 'mt-[clamp(4rem,22vh,10rem)]',
   venue:
-    'text-[clamp(2.25rem,6.5vw,5rem)] leading-[0.92] tracking-[0.03em] drop-shadow-[0_0_28px_rgba(71,234,255,0.4)]',
+    'text-[clamp(2.25rem,6.5cqw,5rem)] leading-[0.92] tracking-[0.03em] drop-shadow-[0_0_28px_rgba(71,234,255,0.4)]',
   host: 'text-[clamp(1.5rem,4vw,2.5rem)] leading-[0.92] tracking-[0.03em] drop-shadow-[0_0_18px_rgba(71,234,255,0.32)]',
 };
 
@@ -34,7 +34,7 @@ const SUBTITLE_VARIANT_CLASS: Record<GameshowEndTitleVariant, string> = {
   player:
     'mt-6 text-[clamp(1.2rem,5.2vw,1.9rem)] leading-[1.12] tracking-[0.06em] text-white drop-shadow-[0_0_12px_rgba(255,255,255,0.25)]',
   venue:
-    'mt-6 text-[clamp(1.25rem,2.8vw,2rem)] leading-[1.12] tracking-[0.08em] text-white drop-shadow-[0_0_14px_rgba(255,255,255,0.28)]',
+    'mt-6 text-[clamp(1.25rem,2.8cqw,2rem)] leading-[1.12] tracking-[0.08em] text-white drop-shadow-[0_0_14px_rgba(255,255,255,0.28)]',
   host: 'mt-4 text-[clamp(0.95rem,2vw,1.35rem)] leading-[1.12] tracking-[0.07em] text-white/95',
 };
 

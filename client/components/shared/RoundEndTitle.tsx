@@ -27,7 +27,7 @@ const VARIANT_CLASS: Record<RoundEndTitleVariant, string> = {
   player:
     'mt-[clamp(4rem,22vh,10rem)] text-[clamp(2.85rem,14vw,4.75rem)] leading-[0.86] tracking-[0.02em] drop-shadow-[0_0_28px_rgba(71,234,255,0.45)]',
   venue:
-    'text-[clamp(2.75rem,7.5vw,5.5rem)] leading-none tracking-[0.04em] drop-shadow-[0_0_28px_rgba(71,234,255,0.4)]',
+    'text-[clamp(2.75rem,7.5cqw,5.5rem)] leading-none tracking-[0.04em] drop-shadow-[0_0_28px_rgba(71,234,255,0.4)]',
   host: 'text-[clamp(1.75rem,4.5vw,2.75rem)] leading-none tracking-[0.04em] drop-shadow-[0_0_18px_rgba(71,234,255,0.32)]',
 };
 

@@ -421,6 +421,53 @@ function HostSidebarTile({
   );
 }
 
+type VenueLeaderboardScrollState = {
+  canScrollUp: boolean;
+  canScrollDown: boolean;
+  firstVisibleRow: number;
+  lastVisibleRow: number;
+  totalRows: number;
+};
+
+const EMPTY_VENUE_LEADERBOARD_SCROLL: VenueLeaderboardScrollState = {
+  canScrollUp: false,
+  canScrollDown: false,
+  firstVisibleRow: 0,
+  lastVisibleRow: 0,
+  totalRows: 0,
+};
+
+/** Compact arrow button for the venue-leaderboard scroll cluster in the host footer. */
+function HostScrollBtn({
+  label,
+  disabled,
+  onClick,
+  children,
+}: {
+  label: string;
+  disabled?: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      title={label}
+      disabled={disabled}
+      onClick={onClick}
+      onKeyDown={(e) => {
+        if (e.key === ' ' || e.key === 'Spacebar') e.preventDefault();
+      }}
+      className="inline-flex size-8 items-center justify-center rounded-md border border-white/15 bg-white/5 text-[#00d9ff] transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-30 disabled:grayscale"
+    >
+      <svg viewBox="0 0 24 24" fill="currentColor" className="size-4">
+        {children}
+      </svg>
+    </button>
+  );
+}
+
 function HostFooterBtn({
   icon,
   children,
@@ -543,6 +590,10 @@ function HostDashboardContent() {
   >(null);
   const [teamPendingRemoval, setTeamPendingRemoval] = useState<Team | null>(null);
   const [isScoreboardVisible, setIsScoreboardVisible] = useState(false);
+  // Reported by the venue so the remote scroll buttons only light up when they'd do something.
+  const [venueLeaderboardScroll, setVenueLeaderboardScroll] = useState<VenueLeaderboardScrollState>(
+    EMPTY_VENUE_LEADERBOARD_SCROLL,
+  );
   // Set on `round_end`; drives the "Round X is Over" transition screen between the last
   // question's REVEAL and the SCOREBOARD. Cleared once we move past ROUND_END.
   const [roundEndInfo, setRoundEndInfo] = useState<{
@@ -1061,8 +1112,19 @@ function HostDashboardContent() {
       });
     };
 
+    const onVenueLeaderboardState = (data: Partial<VenueLeaderboardScrollState>) => {
+      setVenueLeaderboardScroll({
+        canScrollUp: Boolean(data?.canScrollUp),
+        canScrollDown: Boolean(data?.canScrollDown),
+        firstVisibleRow: Number(data?.firstVisibleRow) || 0,
+        lastVisibleRow: Number(data?.lastVisibleRow) || 0,
+        totalRows: Number(data?.totalRows) || 0,
+      });
+    };
+
     const onScoreboardHidden = () => {
       setIsScoreboardVisible(false);
+      setVenueLeaderboardScroll(EMPTY_VENUE_LEADERBOARD_SCROLL);
       setGameState((prev) => {
         if (!prev) return prev;
         // Overlay hide only — server stays on SCOREBOARD after round-end flow.
@@ -1422,6 +1484,7 @@ function HostDashboardContent() {
     socket.on('venue_lobby_phase', onVenueLobbyPhase);
     socket.on('scoreboard', onScoreboard);
     socket.on('scoreboard_hidden', onScoreboardHidden);
+    socket.on('venue_leaderboard_state', onVenueLeaderboardState);
     socket.on('round_end', onRoundEnd);
     socket.on('game_show_end', onGameShowEnd);
     socket.on('break_start', onBreakStart);
@@ -1437,12 +1500,24 @@ function HostDashboardContent() {
     socket.on('mini_game_reveal', onMiniGameReveal);
     socket.on('mini_game_end', onMiniGameEnd);
 
-    const onMiniGameUpdate = (data: { action?: string; value?: number }) => {
+    const onMiniGameUpdate = (data: {
+      action?: string;
+      value?: number;
+      game?: string;
+      pickCounts?: Record<string, number>;
+      totalSelected?: number;
+    }) => {
       if (data.action !== 'select' || typeof data.value !== 'number') return;
       const ag = gameStateRef.current?.activeMiniGame;
       const isHorse = ag === 'kangaroo_race' || ag === 'kangaroo-race';
       const isCards = ag === 'card_shuffle';
       if (isHorse) {
+        if (data.pickCounts && typeof data.pickCounts === 'object') {
+          setKangarooBetCounts(
+            [1, 2, 3, 4, 5, 6].map((slot) => Number(data.pickCounts?.[slot] || 0)),
+          );
+          return;
+        }
         const idx = data.value - 1;
         if (idx < 0 || idx > 5) return;
         setKangarooBetCounts((prev) => {
@@ -1519,6 +1594,7 @@ function HostDashboardContent() {
       socket.off('venue_lobby_phase', onVenueLobbyPhase);
       socket.off('scoreboard', onScoreboard);
       socket.off('scoreboard_hidden', onScoreboardHidden);
+      socket.off('venue_leaderboard_state', onVenueLeaderboardState);
       socket.off('round_end', onRoundEnd);
       socket.off('game_show_end', onGameShowEnd);
       socket.off('break_start', onBreakStart);
@@ -1628,7 +1704,14 @@ function HostDashboardContent() {
       setShowScoreboardModal(true);
     }
   };
+  const handleScrollVenueLeaderboard = (
+    direction: 'up' | 'down' | 'top' | 'bottom' | 'refresh',
+  ) => {
+    if (!isScoreboardVisible) return;
+    emit('venue_leaderboard_scroll', { direction });
+  };
   const handleAdvanceRound = () => emit('advance_round');
+  const handleSkipNextRound = () => emit('skip_next_round');
   const handleSkipQuestion = () => emit('skip_question');
   const handleStartBreak = () => {
     if (state === 'LOBBY' || state === 'FINAL_RESULTS' || state === 'BREAK') return;
@@ -2051,7 +2134,22 @@ function HostDashboardContent() {
     p: handleToggleTimer,
     s: handleShowScoreboard,
     q: handleRevealAnswer,
+    // Registered only while the venue leaderboard is up, so arrow keys keep their normal
+    // behaviour everywhere else on the dashboard.
+    ...(isScoreboardVisible
+      ? {
+          arrowup: () => handleScrollVenueLeaderboard('up'),
+          arrowdown: () => handleScrollVenueLeaderboard('down'),
+        }
+      : {}),
   });
+
+  // The host may have reloaded while the venue leaderboard was already up; ask the venue to
+  // re-report its scroll position so the controls aren't stuck disabled.
+  useEffect(() => {
+    if (!isScoreboardVisible) return;
+    emit('venue_leaderboard_scroll', { direction: 'refresh' });
+  }, [isScoreboardVisible, emit]);
 
   useEffect(() => {
     if (!showAddTeam) return;
@@ -2161,6 +2259,7 @@ function HostDashboardContent() {
     : [...teamList].sort((a, b) => b.score - a.score);
   /** Roster rows come from `teams`; never trust `totalTeams` alone (reconnect could inflate it). */
   const rosterTeamCount = Math.max(0, teamList.length);
+  const kangarooSelectedTotal = kangarooBetCounts.reduce((sum, n) => sum + Number(n || 0), 0);
   const activeTeamCountForLive =
     Array.isArray(gameState?.activeTeamIds) && gameState.activeTeamIds.length > 0
       ? gameState.activeTeamIds.length
@@ -2234,6 +2333,9 @@ function HostDashboardContent() {
   // automatically once the mini-game finish action resets activeMiniGameLocal.
   const miniGameLive =
     activeMiniGameLocal === 'kangaroo_race' || activeMiniGameLocal === 'card_shuffle';
+  // Dropping a round is only offered between rounds, and only when one is actually queued up.
+  const canSkipNextRound =
+    (state === 'ROUND_END' || state === 'SCOREBOARD') && Boolean(nextRound) && !miniGameLive;
   const canSkipQuestion =
     state === 'QUESTION' &&
     questionState !== 'REVEALED' &&
@@ -3010,6 +3112,19 @@ function HostDashboardContent() {
                     </div>
                   </div>
 
+                  <div className="mt-2 w-full max-w-3xl rounded-xl border border-[#00d9ff]/30 bg-[#00d9ff]/10 px-4 py-3 text-center">
+                    <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-[#00d9ff]">
+                      Teams selected
+                    </p>
+                    <p className="mt-1 text-3xl font-black tabular-nums text-white">
+                      {kangarooSelectedTotal}
+                      <span className="text-lg font-bold text-white/45">
+                        {' '}
+                        / {Math.max(rosterTeamCount, kangarooSelectedTotal)}
+                      </span>
+                    </p>
+                  </div>
+
                   <div className="mt-2 flex flex-wrap justify-center gap-3">
                     {KANGAROO_SLOTS.map((n, i) => (
                       <div
@@ -3659,13 +3774,16 @@ function HostDashboardContent() {
             >
               Skip Question
             </HostFooterBtn>
-            {state === 'ROUND_END' ? (
-              <HostFooterBtn emphasis icon={
-                <svg viewBox="0 0 24 24" fill="currentColor" className="text-[#00d9ff]">
-                  <path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z" />
-                </svg>
-              } onClick={handleAdvanceRound}>
-                Skip Round
+            {canSkipNextRound ? (
+              <HostFooterBtn
+                icon={
+                  <svg viewBox="0 0 24 24" fill="currentColor" className="text-[#00d9ff]">
+                    <path d="M4 18l8.5-6L4 6v12zm9 0l8.5-6L13 6v12z" />
+                  </svg>
+                }
+                onClick={handleSkipNextRound}
+              >
+                Skip Next Round
               </HostFooterBtn>
             ) : null}
             {timerPausedAwaitingResume ? (
@@ -3717,6 +3835,35 @@ function HostDashboardContent() {
             >
               {isScoreboardVisible ? 'Hide Leaderboard' : 'Show Leaderboard'}
             </HostFooterBtn>
+            {isScoreboardVisible ? (
+              <div className="inline-flex h-12.5 shrink-0 items-center gap-1.5 rounded-lg border border-white/15 bg-[linear-gradient(180deg,#2e354c_0%,#1a2030_100%)] px-2 shadow-[0_4px_12px_rgba(0,0,0,0.35)]">
+                <span className="text-[9px] font-bold uppercase leading-[1.1] tracking-wide text-white/55">
+                  Venue
+                  <br />
+                  Scroll
+                </span>
+                <HostScrollBtn
+                  label="Scroll venue leaderboard up (Arrow Up)"
+                  disabled={!venueLeaderboardScroll.canScrollUp}
+                  onClick={() => handleScrollVenueLeaderboard('up')}
+                >
+                  <path d="M12 8l6 6H6l6-6z" />
+                </HostScrollBtn>
+                <HostScrollBtn
+                  label="Scroll venue leaderboard down (Arrow Down)"
+                  disabled={!venueLeaderboardScroll.canScrollDown}
+                  onClick={() => handleScrollVenueLeaderboard('down')}
+                >
+                  <path d="M12 16l-6-6h12l-6 6z" />
+                </HostScrollBtn>
+                {venueLeaderboardScroll.totalRows > 0 ? (
+                  <span className="min-w-14 text-center text-[10px] font-bold tabular-nums text-white/70">
+                    {venueLeaderboardScroll.firstVisibleRow}–{venueLeaderboardScroll.lastVisibleRow}
+                    <span className="text-white/40"> / {venueLeaderboardScroll.totalRows}</span>
+                  </span>
+                ) : null}
+              </div>
+            ) : null}
             <HostFooterBtn
               emphasis={
                 state === 'SCOREBOARD' ||

@@ -65,14 +65,14 @@ export function WagerDistributionGrid({
           <div
             key={value}
             className={cn(
-              'relative flex min-h-[clamp(4.5rem,0vh,6.5rem)] flex-col items-center justify-center rounded-[10px]',
-              'text-[clamp(2.5rem,5.5vw,2rem)] font-black leading-none text-white',
+              'relative flex min-h-[clamp(4.5rem,0cqh,6.5rem)] flex-col items-center justify-center rounded-[10px]',
+              'text-[clamp(2rem,5.5cqw,2.5rem)] font-black leading-none text-white',
               'shadow-[inset_0_2px_0_rgba(255,255,255,0.32),inset_0_-3px_0_rgba(0,0,0,0.32),0_6px_18px_rgba(0,0,0,0.45)]',
               tileClassForWagerValue(value, isFinalWager),
             )}
           >
             {label}
-            <span className="absolute bottom-[clamp(0.35rem,0.8vh,0.55rem)] text-[clamp(0.75rem,1.2vw,0.95rem)] font-bold uppercase tracking-wide text-white/90 drop-shadow-md">
+            <span className="absolute bottom-[clamp(0.35rem,0.8cqh,0.55rem)] text-[clamp(0.75rem,1.2cqw,0.95rem)] font-bold uppercase tracking-wide text-white/90 drop-shadow-md">
               {n} {n === 1 ? 'team' : 'teams'}
             </span>
           </div>

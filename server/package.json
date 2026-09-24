@@ -9,7 +9,8 @@
     "start:prod": "node dist/src/index.js",
     "build": "node ./scripts/build.cjs",
     "logs:clear:local": "node ./scripts/clearLogs.cjs",
-    "db:migrate": "npx sequelize-cli db:migrate",
+    "db:migrate": "node ./scripts/run-migrate.cjs development",
+    "db:migrate:staging": "node ./scripts/run-migrate.cjs staging",
     "db:seed": "npx sequelize-cli db:seed:all",
     "db:undo": "npx sequelize-cli db:migrate:undo",
     "migrate:uploads-to-s3": "node ./scripts/migrate-uploads-to-s3.cjs"

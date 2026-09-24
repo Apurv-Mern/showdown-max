@@ -12,12 +12,6 @@ const gradientTextStyle = {
   fontWeight: 900,
 } as const;
 
-const playerGradientTextStyle = {
-  ...gradientTextStyle,
-  WebkitTextStroke: '1.5px rgba(9, 127, 255, 0.55)',
-  paintOrder: 'stroke fill' as const,
-};
-
 export type GameshowEndTitleVariant = 'player' | 'venue' | 'host';
 
 const PLAYER_TITLE_LINE_CLASS =
@@ -50,7 +44,7 @@ function GradientLine({
   return (
     <span
       className={cn('block font-black', className)}
-      style={variant === 'player' ? playerGradientTextStyle : gradientTextStyle}
+      style={gradientTextStyle}
     >
       {children}
     </span>

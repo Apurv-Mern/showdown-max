@@ -15,19 +15,13 @@ const gradientTextStyle = {
   fontWeight: 900,
 } as const;
 
-const playerGradientTextStyle = {
-  ...gradientTextStyle,
-  WebkitTextStroke: '1.5px rgba(9, 127, 255, 0.55)',
-  paintOrder: 'stroke fill' as const,
-};
-
 export type RoundEndTitleVariant = 'player' | 'venue' | 'host';
 
 const VARIANT_CLASS: Record<RoundEndTitleVariant, string> = {
   player:
     'mt-[clamp(3.5rem,18vh,8rem)] pt-2 text-[clamp(2.85rem,14vw,4.75rem)] leading-[1.05] tracking-[0.02em] drop-shadow-[0_0_28px_rgba(71,234,255,0.45)]',
   venue:
-    'pt-4 text-[150px] leading-none tracking-[0.02em] text-white [text-shadow:0_10px_10px_black,0_0_20px_#0010FF]',
+    'pt-4 text-[150px] leading-none tracking-[0.02em] text-white [text-shadow:0_6px_16px_rgba(0,0,0,0.55)]',
   host: 'pt-1 text-[clamp(1.75rem,4.5vw,2.75rem)] leading-tight tracking-[0.04em] drop-shadow-[0_0_18px_rgba(71,234,255,0.32)]',
 };
 
@@ -43,7 +37,7 @@ function GradientLine({
   return (
     <span
       className={cn('block font-black', nowrap && 'whitespace-nowrap')}
-      style={variant === 'player' ? playerGradientTextStyle : gradientTextStyle}
+      style={gradientTextStyle}
     >
       {children}
     </span>

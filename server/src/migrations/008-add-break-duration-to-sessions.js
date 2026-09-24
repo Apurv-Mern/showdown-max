@@ -1,7 +1,11 @@
 'use strict';
 
+const { columnExists } = require('./lib/schemaGuards');
+
 module.exports = {
   async up(queryInterface, Sequelize) {
+    if (await columnExists(queryInterface, 'sessions', 'breakDuration')) return;
+
     await queryInterface.addColumn('sessions', 'breakDuration', {
       type: Sequelize.INTEGER,
       allowNull: false,
@@ -11,6 +15,7 @@ module.exports = {
   },
 
   async down(queryInterface) {
+    if (!(await columnExists(queryInterface, 'sessions', 'breakDuration'))) return;
     await queryInterface.removeColumn('sessions', 'breakDuration');
   },
 };

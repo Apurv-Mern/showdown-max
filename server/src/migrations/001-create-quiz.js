@@ -1,7 +1,11 @@
 'use strict';
 
+const { tableExists } = require('./lib/schemaGuards');
+
 module.exports = {
   async up(queryInterface, Sequelize) {
+    if (await tableExists(queryInterface, 'quizzes')) return;
+
     await queryInterface.createTable('quizzes', {
       id: {
         type: Sequelize.INTEGER,

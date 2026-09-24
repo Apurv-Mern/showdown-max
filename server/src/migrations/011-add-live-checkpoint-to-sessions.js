@@ -1,7 +1,11 @@
 'use strict';
 
+const { columnExists } = require('./lib/schemaGuards');
+
 module.exports = {
   async up(queryInterface, Sequelize) {
+    if (await columnExists(queryInterface, 'sessions', 'liveCheckpoint')) return;
+
     await queryInterface.addColumn('sessions', 'liveCheckpoint', {
       type: Sequelize.JSON,
       allowNull: true,
@@ -10,6 +14,7 @@ module.exports = {
   },
 
   async down(queryInterface) {
+    if (!(await columnExists(queryInterface, 'sessions', 'liveCheckpoint'))) return;
     await queryInterface.removeColumn('sessions', 'liveCheckpoint');
   },
 };

@@ -1,7 +1,11 @@
 'use strict';
 
+const { tableExists } = require('./lib/schemaGuards');
+
 module.exports = {
   async up(queryInterface, Sequelize) {
+    if (await tableExists(queryInterface, 'questions')) return;
+
     await queryInterface.createTable('questions', {
       id: {
         type: Sequelize.INTEGER,
@@ -34,6 +38,11 @@ module.exports = {
       mediaType: {
         type: Sequelize.ENUM('mp3', 'mp4', 'image'),
         allowNull: true,
+      },
+      timerDuration: {
+        type: Sequelize.INTEGER,
+        allowNull: true,
+        comment: 'Per-question timer override in seconds; null = use round default',
       },
       order: {
         type: Sequelize.INTEGER,

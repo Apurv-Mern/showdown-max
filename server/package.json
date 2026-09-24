@@ -11,7 +11,7 @@
     "logs:clear:local": "node ./scripts/clearLogs.cjs",
     "db:migrate": "npx sequelize-cli db:migrate",
     "db:seed": "npx sequelize-cli db:seed:all",
-    "db:undo": "npx sequelize-cli db:migrate:undo:all",
+    "db:undo": "npx sequelize-cli db:migrate:undo",
     "migrate:uploads-to-s3": "node ./scripts/migrate-uploads-to-s3.cjs"
   },
   "dependencies": {

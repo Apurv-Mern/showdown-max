@@ -202,7 +202,7 @@ interface RevealData {
 }
 
 function isHostTeamConnected(team?: Team | null): boolean {
-  return Boolean(team) && team.isConnected !== false;
+  return Boolean(team && team.isConnected !== false);
 }
 
 function countConnectedHostTeams(teams?: Record<string | number, Team>): number {

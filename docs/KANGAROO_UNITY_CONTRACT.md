@@ -1,20 +1,21 @@
-# Kangaroo Race — Unity Handoff
+# Mini-Game 1: 3D Kangaroo Race API
 
-This is the contract between the web venue (React) and the Kangaroo Race Unity WebGL build.
+Contract between the web venue (React) and the Kangaroo Race Unity WebGL build.
 
-Unity does **not** open a Socket.IO connection. Phones and the host talk to the Node server over sockets. The venue page receives those events and forwards what Unity needs through `SendMessage`.
+Unity does **not** open a Socket.IO connection. Phones and the host talk to the Node server. The venue page forwards Unity traffic through `SendMessage` / WebBridge.
 
 ```
-Phone / Host  --Socket.IO-->  Node server  --Socket.IO-->  Venue React  --SendMessage-->  Unity
+Phone / Host  --Socket.IO-->  Node  --Socket.IO-->  Venue React  --SendMessage-->  Unity
+Unity  --postMessage / JSLib-->  Venue React  --Socket.IO-->  Node
 ```
 
-Unity object and method (same for every incoming message):
+Unity object and method (every incoming message):
 
 ```
 SendMessage("Racemanager", "OnMessageFromReact", jsonString)
 ```
 
-`jsonString` is always:
+`jsonString` is always double-encoded:
 
 ```json
 {
@@ -27,107 +28,81 @@ Parse **twice**: outer object first, then `payload` as JSON.
 
 ---
 
-## Messages Unity must handle
+## A. React / Web Backend → Unity
 
-### 1. `MINIGAME_START` — host starts the race
+### Event: `MINIGAME_START`
 
-Fired when the host presses **Start Race**.
+Sent when the host presses **Start Race**.
 
 ```json
 {
   "type": "MINIGAME_START",
-  "payload": "{\"kangarooNames\":[\"Deep Impact\",\"Eclipse\",\"Exterminator\",\"Rocker\",\"Northern Dancer\",\"Jambalaya Jazz\"],\"triggeredBy\":\"host_start\",\"timestamp\":1710000000000}"
+  "payload": "{\"kangarooNames\":[\"Team Alpha\",\"Team Beta\",\"Team Gamma\",\"Team Delta\",\"Team Epsilon\",\"Team Zeta\"],\"teamResponse\":\"18/25\",\"winnerKangaroo\":3}"
+}
+```
+
+| Field | Type | Meaning |
+|---|---|---|
+| `kangarooNames` | string[6] | Team / kangaroo names edited by the host. Shown on the starting lineup bars. Index 0 = bib 1. |
+| `teamResponse` | string | Response count at start, e.g. `"18/25"` or `"18 Teams"`. Shown on the lineup screen. |
+| `winnerKangaroo` | integer 1–6, optional | Force that bib to win. `0` or omit = random winner. |
+
+Live betting still happens **before** Start Race. Until start, the venue may also send `SELECTION_COUNT` (same envelope) with `teamResponse` plus `totalSelected` / `totalTeams` so the lineup badge can update. After `MINIGAME_START`, new phone picks are rejected.
+
+---
+
+## B. Unity → React / Web Backend
+
+### 1. Event: `MINIGAME_READY`
+
+Sent automatically by Unity as soon as the WebGL canvas finishes loading.
+
+```json
+{
+  "type": "MINIGAME_READY",
+  "payload": "{}"
+}
+```
+
+Venue treats this as Unity ready (host **Start Race** unlocks). The React wrapper also reports ready after the canvas loads, as a fallback.
+
+### 2. Event: `RACE_FINISH`
+
+Sent automatically by Unity when the 30-second race finishes and the winning kangaroo crosses the line.
+
+```json
+{
+  "type": "RACE_FINISH",
+  "payload": "{\"finishOrderSlots\":[2,0,4,1,3,5]}"
 }
 ```
 
 | Field | Meaning |
 |---|---|
-| `kangarooNames` | 6 names, lane order, slot 1 → 6 |
-| `triggeredBy` | `"host_start"` |
-| `timestamp` | Unix ms |
+| `finishOrderSlots` | Final rank order of all 6 kangaroos, 1st → 6th. **0-based slot index.** |
 
----
+Example `[2,0,4,1,3,5]`: slot 2 (index 0) is the winner → bib **3**.
 
-### 2. `SELECTION_COUNT` — live team response (betting screen)
+Web converts that array to 1-based lanes internally (`[3,1,5,2,4,6]`) for scoring. Rank points: **+50, +40, +30, +20, +10, +0**. A team scores the rank of the kangaroo they selected.
 
-This is the counter on the Unity “PLEASE CHOOSE YOUR WINNING KANGAROO” screen (`18/25`).
-
-It is sent every time a team locks a kangaroo on their phone, and again if the venue reloads mid-bet.
-
-```json
-{
-  "type": "SELECTION_COUNT",
-  "payload": "{\"totalSelected\":18,\"totalTeams\":25,\"pickCounts\":{\"1\":2,\"2\":4,\"3\":5,\"4\":1,\"5\":3,\"6\":3},\"timestamp\":1710000000000}"
-}
-```
-
-| Field | Use on Unity UI |
-|---|---|
-| `totalSelected` | Teams that have locked a pick (the **18**) |
-| `totalTeams` | Teams in the session (the **25**) |
-| `pickCounts` | Optional. Teams per lane (`"1"` … `"6"`). Not required for the total badge |
-| `timestamp` | Unix ms |
-
-**LIVE TEAM RESPONSE** = `totalSelected` / `totalTeams`.
-
-Rules:
-
-- First pick per team is final. Repeat picks from the same team are ignored.
-- After `MINIGAME_START`, new picks are rejected. The last `SELECTION_COUNT` stays valid.
-- This message can arrive many times. Always replace the on-screen numbers with the latest payload. Do not increment locally.
-
----
-
-## Message Unity must send (race finished)
-
-Use the existing JSLib bridge (`SendGameResult` / WebBridge `postMessage`):
-
-```json
-{
-  "type": "RACE_FINISH",
-  "payload": {
-    "finishOrderSlots": [3, 1, 4, 2, 5, 6]
-  }
-}
-```
-
-- `finishOrderSlots[0]` = 1st place (slot 1–6)
-- `finishOrderSlots[5]` = 6th place
-
-Also accepted: `finishOrder` as `[3,1,4,2,5,6]`, or `[{ "slot": 3 }, ...]`. Legacy `winner_index` still works but full scoring needs the full order.
-
-Server points by finish rank: **+50, +40, +30, +20, +10, +0**. A team scores the rank of the kangaroo they selected.
+Also accepted for older builds: `finishOrder` as 1-based `[3,1,4,2,5,6]`, or `[{ "slot": 3 }, ...]`.
 
 ---
 
 ## Socket.IO reference (web / server only)
 
-Unity developers can ignore this section. It is here so the web team and Unity stay aligned.
+Unity developers can ignore this section.
 
 | Direction | Event | When |
 |---|---|---|
 | Phone → server | `mini_game_action` | `{ action: "select", value: 1–6 }` |
 | Server → venue / host | `mini_game_update` | After a valid pick. Includes `totalSelected` and `pickCounts` |
-| Host → server | `mini_game_command` | `{ command: "start_game", kangarooNames: [...] }` |
+| Host → server | `mini_game_command` | `{ command: "start_game", kangarooNames, teamResponse, winnerKangaroo }` |
 | Server → venue | `mini_game_command` | Venue forwards this as Unity `MINIGAME_START` |
-| Venue → Unity | `SendMessage` `SELECTION_COUNT` | Built from `mini_game_update` |
-| Venue → Unity | `SendMessage` `MINIGAME_START` | Built from host start |
-
-Example `mini_game_update` from the server:
-
-```json
-{
-  "game": "kangaroo_race",
-  "action": "select",
-  "value": 3,
-  "teamId": 12,
-  "teamName": "Table 4",
-  "totalSelected": 18,
-  "pickCounts": { "1": 2, "2": 4, "3": 5, "4": 1, "5": 3, "6": 3 }
-}
-```
-
-Do **not** add a second Socket.IO event for the counter. `mini_game_update` → `SELECTION_COUNT` is the live path.
+| Venue → server | `mini_game_ready` | After Unity `MINIGAME_READY` or canvas load |
+| Venue → Unity | `SendMessage` `SELECTION_COUNT` | Live lineup count before start |
+| Venue → Unity | `SendMessage` `MINIGAME_START` | Host Start Race |
+| Unity → venue | `MINIGAME_READY` / `RACE_FINISH` | WebBridge or JSLib |
 
 ---
 
@@ -138,12 +113,13 @@ using UnityEngine;
 using System;
 
 [Serializable] class OuterMessage { public string type; public string payload; }
-[Serializable] class SelectionCount {
-  public int totalSelected;
-  public int totalTeams;
-}
 [Serializable] class MiniGameStart {
-  public string[] kangarooNames;
+    public string[] kangarooNames;
+    public string teamResponse;
+    public int winnerKangaroo;
+}
+[Serializable] class RaceFinish {
+    public int[] finishOrderSlots;
 }
 
 public class Racemanager : MonoBehaviour
@@ -153,21 +129,14 @@ public class Racemanager : MonoBehaviour
         var outer = JsonUtility.FromJson<OuterMessage>(jsonString);
         if (outer == null || string.IsNullOrEmpty(outer.type)) return;
 
-        if (outer.type == "SELECTION_COUNT")
-        {
-            var data = JsonUtility.FromJson<SelectionCount>(outer.payload);
-            // LIVE TEAM RESPONSE: data.totalSelected / data.totalTeams
-            return;
-        }
-
         if (outer.type == "MINIGAME_START")
         {
             var data = JsonUtility.FromJson<MiniGameStart>(outer.payload);
-            // data.kangarooNames[0] == slot 1
+            // data.kangarooNames[0] == bib 1
+            // data.teamResponse == "18/25"
+            // data.winnerKangaroo 1–6 forces a winner; 0 = random
             return;
         }
     }
 }
 ```
-
-`JsonUtility` does not parse `pickCounts` as a dictionary. If Unity needs per-lane counts, use `Newtonsoft.Json` or a small wrapper. The total badge only needs `totalSelected` and `totalTeams`.

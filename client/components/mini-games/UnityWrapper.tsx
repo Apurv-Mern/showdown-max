@@ -1,7 +1,11 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Unity, useUnityContext } from 'react-unity-webgl';
+import {
+  formatKangarooTeamResponse,
+  normalizeWinnerKangaroo,
+} from '@/lib/kangarooRaceDefaults';
 
 type UnityGameType = 'Kangaroo_race' | 'card_shuffle';
 
@@ -11,6 +15,8 @@ export interface MiniGameUnityCommand {
   command: 'start_game' | 'next_round' | 'reveal_cards' | 'reveal_winner';
   roundNumber?: 1 | 2 | 3 | 4;
   kangarooNames?: string[];
+  teamResponse?: string;
+  winnerKangaroo?: number;
 }
 
 export interface UnityWrapperProps {
@@ -41,8 +47,30 @@ function toKangarooUnityMessage(
   type: 'MINIGAME_START' | 'SELECTION_COUNT',
   payload: Record<string, unknown> = {},
 ): string {
-  // Kangaroo build test harness uses Racemanager.OnMessageFromReact with payload as string.
+  // Official contract: payload is a JSON string, not a nested object.
   return JSON.stringify({ type, payload: JSON.stringify(payload) });
+}
+
+function parseUnityEnvelope(raw: unknown): { type: string; payload: unknown } | null {
+  const unwrap = (value: unknown, depth = 0): Record<string, unknown> | null => {
+    if (depth > 6 || value == null) return null;
+    if (typeof value === 'string') {
+      const trimmed = value.trim();
+      if (!trimmed) return null;
+      try {
+        return unwrap(JSON.parse(trimmed), depth + 1);
+      } catch {
+        return null;
+      }
+    }
+    return typeof value === 'object' ? (value as Record<string, unknown>) : null;
+  };
+
+  const root = unwrap(raw);
+  if (!root) return null;
+  const type = String(root.type || root.action || '').toUpperCase();
+  if (!type) return null;
+  return { type, payload: root.payload !== undefined ? root.payload : root };
 }
 
 const GAME_CONFIGS: Record<
@@ -124,9 +152,20 @@ export default function UnityWrapper({
     };
   }, []);
 
+  const onReadyRef = useRef(onReady);
+  onReadyRef.current = onReady;
+  const selectionUpdateRef = useRef(selectionUpdate);
+  selectionUpdateRef.current = selectionUpdate;
+
   /* ─── Unity → Web: JSLib callbacks ─── */
   const handlePlayerAction = useCallback(
     (jsonPayload: string) => {
+      const envelope = parseUnityEnvelope(jsonPayload);
+      if (envelope?.type === 'MINIGAME_READY') {
+        onReadyRef.current?.(gameType);
+        onPlayerAction?.('MINIGAME_READY', envelope.payload ?? {});
+        return;
+      }
       try {
         const data = JSON.parse(jsonPayload);
         const action =
@@ -146,11 +185,17 @@ export default function UnityWrapper({
         onPlayerAction?.('raw', jsonPayload);
       }
     },
-    [onPlayerAction],
+    [gameType, onPlayerAction],
   );
 
   const handleGameResult = useCallback(
     (jsonPayload: string) => {
+      const envelope = parseUnityEnvelope(jsonPayload);
+      if (envelope?.type === 'MINIGAME_READY') {
+        onReadyRef.current?.(gameType);
+        onGameComplete?.({ type: 'MINIGAME_READY', payload: envelope.payload ?? {} });
+        return;
+      }
       try {
         const data = JSON.parse(jsonPayload);
         onGameComplete?.(data);
@@ -158,7 +203,7 @@ export default function UnityWrapper({
         onGameComplete?.(jsonPayload);
       }
     },
-    [onGameComplete],
+    [gameType, onGameComplete],
   );
 
   useEffect(() => {
@@ -169,6 +214,17 @@ export default function UnityWrapper({
       removeEventListener('SendGameResult', handleGameResult);
     };
   }, [addEventListener, removeEventListener, handlePlayerAction, handleGameResult]);
+
+  useEffect(() => {
+    if (gameType !== 'Kangaroo_race') return;
+    const onBridgeReady = (event: MessageEvent) => {
+      const envelope = parseUnityEnvelope(event.data);
+      if (envelope?.type !== 'MINIGAME_READY') return;
+      onReadyRef.current?.(gameType);
+    };
+    window.addEventListener('message', onBridgeReady);
+    return () => window.removeEventListener('message', onBridgeReady);
+  }, [gameType]);
 
   useEffect(() => {
     return () => {
@@ -286,10 +342,16 @@ export default function UnityWrapper({
 
     if (command.command !== 'start_game') return;
 
+    const latestSelection = selectionUpdateRef.current;
+    const selected = Number(latestSelection?.totalSelected || 0);
+    const teams = Number(latestSelection?.totalTeams || 0);
     startGame({
       kangarooNames: Array.isArray(command.kangarooNames) ? command.kangarooNames : [],
-      triggeredBy: 'host_start',
-      timestamp: Date.now(),
+      teamResponse:
+        typeof command.teamResponse === 'string' && command.teamResponse.trim()
+          ? command.teamResponse.trim()
+          : formatKangarooTeamResponse(selected, teams),
+      winnerKangaroo: normalizeWinnerKangaroo(command.winnerKangaroo),
     });
   }, [command, gameType, isLoaded, startGame]);
 
@@ -307,6 +369,10 @@ export default function UnityWrapper({
       'Racemanager',
       'OnMessageFromReact',
       toKangarooUnityMessage('SELECTION_COUNT', {
+        teamResponse: formatKangarooTeamResponse(
+          selectionUpdate.totalSelected,
+          selectionUpdate.totalTeams,
+        ),
         totalSelected: selectionUpdate.totalSelected,
         totalTeams: selectionUpdate.totalTeams,
         pickCounts: selectionUpdate.pickCounts,

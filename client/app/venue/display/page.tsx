@@ -30,6 +30,8 @@ import { VenueQuestionScreen } from '@/components/venue/VenueQuestionScreen';
 import {
   DEFAULT_KANGAROO_NAMES,
   defaultKangarooNames,
+  formatKangarooTeamResponse,
+  normalizeWinnerKangaroo,
   resolveKangarooNames,
 } from '@/lib/kangarooRaceDefaults';
 import { shouldWaitForHostAudioTimer } from '@/lib/questionMedia';
@@ -246,6 +248,8 @@ type MiniGameCommand = {
   command: 'start_game' | 'next_round' | 'reveal_cards' | 'reveal_winner';
   roundNumber?: 1 | 2 | 3 | 4;
   kangarooNames?: string[];
+  teamResponse?: string;
+  winnerKangaroo?: number;
 };
 
 type MiniGameReveal = {
@@ -355,15 +359,6 @@ function parseKangarooRoundResult(
     inner.results && typeof inner.results === 'object'
       ? (inner.results as Record<string, unknown>)
       : {};
-  const normalizeSlot = (rawSlot: unknown) => {
-    const n = Number(rawSlot);
-    if (!Number.isFinite(n)) return NaN;
-    const t = Math.trunc(n);
-    if (t >= 1 && t <= 6) return t;
-    if (t >= 0 && t <= 5) return t + 1;
-    return NaN;
-  };
-
   const finishOrderRaw =
     inner.finishOrderSlots ??
     inner.finishOrder ??
@@ -371,26 +366,44 @@ function parseKangarooRoundResult(
     root.finishOrder ??
     innerResults.finishOrderSlots ??
     innerResults.finishOrder;
-  const finishOrderSlots = Array.isArray(finishOrderRaw)
+  const rawNumericSlots = Array.isArray(finishOrderRaw)
     ? finishOrderRaw
         .map((entry) => {
           if (entry && typeof entry === 'object') {
-            return normalizeSlot(
+            return Number(
               (entry as Record<string, unknown>).slot ??
                 (entry as Record<string, unknown>).kangaroo_index ??
                 (entry as Record<string, unknown>).index,
             );
           }
-          return normalizeSlot(entry);
+          return Number(entry);
         })
-        .filter((slot, idx, arr) => Number.isFinite(slot) && arr.indexOf(slot) === idx)
+        .filter((n) => Number.isFinite(n))
+        .map((n) => Math.trunc(n))
     : [];
+  // Official Unity contract is 0-based: [2,0,4,1,3,5] means slot 2 wins (bib 3).
+  const treatAsZeroBased =
+    rawNumericSlots.length > 0 &&
+    rawNumericSlots.every((n) => n >= 0 && n <= 5) &&
+    rawNumericSlots.includes(0);
+  const normalizeSlot = (rawSlot: unknown) => {
+    const n = Number(rawSlot);
+    if (!Number.isFinite(n)) return NaN;
+    const t = Math.trunc(n);
+    if (treatAsZeroBased) return t >= 0 && t <= 5 ? t + 1 : NaN;
+    if (t >= 1 && t <= 6) return t;
+    if (t >= 0 && t <= 5) return t + 1;
+    return NaN;
+  };
+  const finishOrderSlots = rawNumericSlots
+    .map((slot) => normalizeSlot(slot))
+    .filter((slot, idx, arr) => Number.isFinite(slot) && arr.indexOf(slot) === idx);
 
   const raw = inner.winner_index ?? inner.winnerIndex ?? root.winner_index ?? root.winnerIndex;
   const winner = normalizeSlot(raw);
   if (finishOrderSlots.length > 0) {
     return {
-      winner_index: Number.isFinite(winner) ? winner : Number(finishOrderSlots[0]),
+      winner_index: Number(finishOrderSlots[0]),
       finishOrderSlots,
     };
   }
@@ -504,6 +517,8 @@ function VenueDisplayContent() {
   });
   const [kangarooSelectionNonce, setKangarooSelectionNonce] = useState(0);
   const kangarooSelectionNonceRef = useRef(0);
+  const kangarooSelectedCountRef = useRef(0);
+  const kangarooRosterCountRef = useRef(0);
   const [miniGameResult, setMiniGameResult] = useState<{
     game: VenueMiniGameType;
     winningCard?: number;
@@ -561,6 +576,9 @@ function VenueDisplayContent() {
     const pin = encodeURIComponent(sessionPin);
     return `${VENUE_JOIN_BASE_URL}?pin=${pin}`;
   }, [sessionPin]);
+
+  kangarooSelectedCountRef.current = kangarooSelectedCount;
+  kangarooRosterCountRef.current = Math.max(kangarooSelectedCount, totalTeams, teams.length);
 
   const reportLeaderboardScrollState = useCallback(
     (scrollState: LeaderboardScrollState) => {
@@ -883,10 +901,26 @@ function VenueDisplayContent() {
     };
   }, [question?.question?.mediaUrl, question?.question?.mediaType, setMp3Source, stopMp3]);
 
+  const handleUnityReady = useCallback(
+    (gameType: 'Kangaroo_race' | 'card_shuffle') => {
+      if (!socket) return;
+      if (gameType === 'card_shuffle') {
+        socket.emit('mini_game_ready', { game: 'card_shuffle', ready: true, source: 'venue' });
+        return;
+      }
+      socket.emit('mini_game_ready', { game: 'kangaroo_race', ready: true, source: 'venue' });
+    },
+    [socket],
+  );
+
   const handleUnityPlayerAction = useCallback(
     (action: string, value: unknown) => {
       if (!socket) return;
       const a = String(action || '').toUpperCase();
+      if (a === 'MINIGAME_READY') {
+        handleUnityReady(miniGameType === 'card_shuffle' ? 'card_shuffle' : 'Kangaroo_race');
+        return;
+      }
       if (a === 'SHUFFLE_COMPLETE') {
         const parsed = parseUnityShuffleComplete(value);
         if (parsed) {
@@ -896,7 +930,7 @@ function VenueDisplayContent() {
       }
       socket.emit('mini_game_action', { action, value, source: 'unity' });
     },
-    [socket],
+    [handleUnityReady, miniGameType, socket],
   );
 
   const handleUnityGameComplete = useCallback(
@@ -905,6 +939,10 @@ function VenueDisplayContent() {
       const payload =
         result && typeof result === 'object' ? (result as Record<string, unknown>) : {};
       const resultType = String(payload.type || '').toUpperCase();
+      if (resultType === 'MINIGAME_READY') {
+        handleUnityReady(miniGameType === 'card_shuffle' ? 'card_shuffle' : 'Kangaroo_race');
+        return;
+      }
       if (resultType === 'SHUFFLE_COMPLETE') {
         const parsed = parseUnityShuffleComplete(payload.payload ?? payload);
         if (parsed) {
@@ -927,19 +965,7 @@ function VenueDisplayContent() {
         });
       }
     },
-    [socket, miniGameType],
-  );
-
-  const handleUnityReady = useCallback(
-    (gameType: 'Kangaroo_race' | 'card_shuffle') => {
-      if (!socket) return;
-      if (gameType === 'card_shuffle') {
-        socket.emit('mini_game_ready', { game: 'card_shuffle', ready: true, source: 'venue' });
-        return;
-      }
-      socket.emit('mini_game_ready', { game: 'kangaroo_race', ready: true, source: 'venue' });
-    },
-    [socket],
+    [handleUnityReady, socket, miniGameType],
   );
 
   /**
@@ -1044,6 +1070,10 @@ function VenueDisplayContent() {
       if (!data || typeof data !== 'object') return;
 
       const msgType = String(data.type || '').toUpperCase();
+      if (msgType === 'MINIGAME_READY') {
+        handleUnityReady('Kangaroo_race');
+        return;
+      }
       if (
         msgType !== 'ROUND_RESULT' &&
         msgType !== 'ROUND_COMPLETE' &&
@@ -1124,7 +1154,7 @@ function VenueDisplayContent() {
       console.log = originalLog;
       console.warn = originalWarn;
     };
-  }, [socket, miniGameType]);
+  }, [handleUnityReady, socket, miniGameType]);
 
   useEffect(() => {
     if (!socket || !sessionPin || !isPinReady) return;
@@ -1808,6 +1838,8 @@ function VenueDisplayContent() {
       command?: 'start_game' | 'next_round' | 'reveal_cards' | 'reveal_winner';
       roundNumber?: 1 | 2 | 3 | 4;
       kangarooNames?: string[];
+      teamResponse?: string;
+      winnerKangaroo?: number;
     }) => {
       const gid = normalizeVenueMiniGameId(data?.game);
       if (!gid || !data.command) return;
@@ -1816,10 +1848,19 @@ function VenueDisplayContent() {
         if (Array.isArray(data.kangarooNames) && data.kangarooNames.length >= 6) {
           setVenueKangarooNames(resolveKangarooNames(data.kangarooNames));
         }
+        const teamResponse =
+          typeof data.teamResponse === 'string' && data.teamResponse.trim()
+            ? data.teamResponse.trim()
+            : formatKangarooTeamResponse(
+                kangarooSelectedCountRef.current,
+                kangarooRosterCountRef.current,
+              );
         setMiniGameCommand({
           id: Date.now(),
           game: 'kangaroo_race',
           command: data.command,
+          teamResponse,
+          winnerKangaroo: normalizeWinnerKangaroo(data.winnerKangaroo),
           ...(Array.isArray(data.kangarooNames) ? { kangarooNames: data.kangarooNames } : {}),
         });
         return;

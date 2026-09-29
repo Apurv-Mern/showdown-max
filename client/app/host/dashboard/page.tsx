@@ -1754,6 +1754,8 @@ function HostDashboardContent() {
   };
   const handleKangarooRaceStart = () => {
     if (activeMiniGameLocal !== 'kangaroo_race' || !kangarooVenueReady) return;
+    const selected = kangarooBetCounts.reduce((sum, n) => sum + Number(n || 0), 0);
+    const roster = gameState?.teams ? Object.values(gameState.teams).length : 0;
     setKangarooBetCounts([0, 0, 0, 0, 0, 0]);
     setKangarooRaceStarted(true);
     setKangarooRaceRevealed(false);
@@ -1763,6 +1765,8 @@ function HostDashboardContent() {
       game: 'kangaroo_race',
       command: 'start_game',
       kangarooNames: normalizedKangarooNames,
+      teamResponse: `${selected}/${Math.max(roster, selected)}`,
+      winnerKangaroo: 0,
     });
   };
 

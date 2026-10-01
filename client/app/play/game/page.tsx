@@ -31,6 +31,7 @@ import {
   FINAL_WAGER_PERCENT_OPTIONS,
   WAGER_POINT_OPTIONS,
 } from '@/components/player/PlayerWagerSelectionScreen';
+import { normalizeRoundIntroTitle } from '@/lib/roundDisplayLabels';
 import {
   resolveBreakUpNextLabel,
   resolveBreakUpNextLabelFromBreakStart,
@@ -714,56 +715,6 @@ const staggerContainer = {
 const staggerItem = {
   initial: { opacity: 0, scale: 0.92 },
   animate: { opacity: 1, scale: 1 },
-};
-
-const formatRoundTypeLabel = (roundType?: string) => {
-  const type = (roundType || '').toUpperCase();
-  switch (type) {
-    case 'MULTIPLE_CHOICE':
-      return toDisplayUpper('Multiple Choice');
-    case 'AUDIO_VIDEO':
-      return toDisplayUpper('Audio/Video');
-    case 'MUSIC':
-      return toDisplayUpper('Music');
-    case 'ELIMINATION':
-      return toDisplayUpper('Elimination Round');
-    case 'WAGER':
-      return toDisplayUpper('Wager');
-    case 'FINAL_WAGER':
-      return toDisplayUpper('Final Wager');
-    case 'FINAL_MULTIPLE_CHOICE':
-      return toDisplayUpper('Final Multiple Choice');
-    case 'MAJORITY_RULES':
-      return toDisplayUpper('Majority Rules');
-    default:
-      return toDisplayUpper((roundType || 'Round').replace(/_/g, ' '));
-  }
-};
-
-const normalizeRoundIntroTitle = (name?: string, roundType?: string, roundIndex?: number) => {
-  if ((roundType || '').toUpperCase() === 'FINAL_WAGER') return toDisplayUpper('FINAL QUESTION');
-  const raw = (name || '').trim();
-  const fallback = formatRoundTypeLabel(roundType);
-  if (!raw) return toDisplayUpper(fallback || `Round ${(roundIndex || 0) + 1}`);
-
-  const withoutPrefix = raw
-    .replace(new RegExp(`^round\\s*${(roundIndex || 0) + 1}\\s*[-:–]*\\s*`, 'i'), '')
-    .replace(/^round\s*\d+\s*[-:–]*\s*/i, '')
-    .trim();
-
-  if (!withoutPrefix) return toDisplayUpper(fallback || `Round ${(roundIndex || 0) + 1}`);
-
-  const normalizedRaw = withoutPrefix.replace(/\s+/g, ' ').toLowerCase();
-  const normalizedFallback = fallback.replace(/\s+/g, ' ').toLowerCase();
-
-  if (
-    normalizedFallback &&
-    (normalizedRaw.includes(normalizedFallback) || normalizedFallback.includes(normalizedRaw))
-  ) {
-    return toDisplayUpper(fallback);
-  }
-
-  return toDisplayUpper(withoutPrefix);
 };
 
 const toTimerEndsAt = (value: unknown): number | null => {
@@ -1665,9 +1616,7 @@ export default function GamePage() {
       const nextQid = data.question?.id;
       const sameQuestion =
         prevQid != null && nextQid != null && Number(prevQid) === Number(nextQid);
-      const submissionReset = Boolean(
-        (data as { submissionReset?: boolean }).submissionReset,
-      );
+      const submissionReset = Boolean((data as { submissionReset?: boolean }).submissionReset);
 
       if (!sameQuestion || submissionReset) {
         setRevealData(null);
@@ -1741,12 +1690,7 @@ export default function GamePage() {
           setWagerAmount(amount);
           setWagerSubmitted(true);
           if (session.pin && session.teamId != null && data.question?.id != null) {
-            persistWagerLockCache(
-              session.pin,
-              Number(session.teamId),
-              data.question.id,
-              amount,
-            );
+            persistWagerLockCache(session.pin, Number(session.teamId), data.question.id, amount);
           }
         } else {
           // Host started the question without this team locking — default 0 and show the question.
@@ -1781,14 +1725,19 @@ export default function GamePage() {
     }) => {
       if (typeof data.timerRunning === 'boolean') {
         setTimerRunning(data.timerRunning);
-        if (data.timerRunning && shouldWaitForHostAudioTimer(questionRef.current?.roundType, questionRef.current?.question)) {
+        if (
+          data.timerRunning &&
+          shouldWaitForHostAudioTimer(questionRef.current?.roundType, questionRef.current?.question)
+        ) {
           setMusicVenuePlaybackStarted(true);
         }
       } else if (data.paused === true) {
         setTimerRunning(false);
       } else if (data.paused === false) {
         setTimerRunning(true);
-        if (shouldWaitForHostAudioTimer(questionRef.current?.roundType, questionRef.current?.question)) {
+        if (
+          shouldWaitForHostAudioTimer(questionRef.current?.roundType, questionRef.current?.question)
+        ) {
           setMusicVenuePlaybackStarted(true);
         }
       }
@@ -2427,7 +2376,8 @@ export default function GamePage() {
     selectedOption === null;
 
   const questionMusicBanner: 'none' | 'waiting' | 'playing' = (() => {
-    if (!question || !shouldWaitForHostAudioTimer(question.roundType, question.question)) return 'none';
+    if (!question || !shouldWaitForHostAudioTimer(question.roundType, question.question))
+      return 'none';
     if (phase !== 'question' && phase !== 'answered') return 'none';
     // Once the answer is on its way / revealed, never show "Waiting for host to play music" —
     // even if the player UI hasn't transitioned to the reveal phase yet (race between
@@ -2442,407 +2392,422 @@ export default function GamePage() {
   return (
     <div className="flex-1 h-full min-h-0 w-full bg-[#00010a]">
       <PlayerScreenShell className="flex min-h-0 h-full w-full flex-col">
-      <div className="relative flex min-h-0 h-full w-full flex-col overflow-hidden">
-        {showBreakEndedNotice ? (
-          <div className="absolute top-4 left-1/2 -translate-x-1/2 z-50 rounded-xl border border-[#2bdcff]/60 bg-[rgba(8,20,56,0.9)] px-4 py-2 shadow-[0_0_18px_rgba(43,220,255,0.32)]">
-            <p className="text-sm font-extrabold tracking-wide text-[#2be9ff]">Break Ended</p>
-          </div>
-        ) : null}
-        <div className="flex-1 flex flex-col min-h-0 overflow-y-auto">
-          <AnimatePresence mode="wait">
-            {/* ── ROUND INTRO ── */}
-            {phase === 'round_intro' && roundInfo && (
-              <motion.div
-                key="round_intro"
-                {...pageTransition}
-                className="flex flex-1 items-center justify-center p-3 sm:p-4 md:p-6"
-              >
+        <div className="relative flex min-h-0 h-full w-full flex-col overflow-hidden">
+          {showBreakEndedNotice ? (
+            <div className="absolute top-4 left-1/2 -translate-x-1/2 z-50 rounded-xl border border-[#2bdcff]/60 bg-[rgba(8,20,56,0.9)] px-4 py-2 shadow-[0_0_18px_rgba(43,220,255,0.32)]">
+              <p className="text-sm font-extrabold tracking-wide text-[#2be9ff]">Break Ended</p>
+            </div>
+          ) : null}
+          <div className="flex-1 flex flex-col min-h-0 overflow-y-auto">
+            <AnimatePresence mode="wait">
+              {/* ── ROUND INTRO ── */}
+              {phase === 'round_intro' && roundInfo && (
                 <motion.div
-                  initial={{ opacity: 0, scale: 0.94 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  transition={{ delay: 0.1 }}
-                  className="relative w-full max-w-[min(26rem,92vw)] md:max-w-[34rem] lg:max-w-[38rem]"
+                  key="round_intro"
+                  {...pageTransition}
+                  className="flex flex-1 items-center justify-center p-3 sm:p-4 md:p-6"
                 >
-                  <img src="/Venue Round Intro.png" alt="Round intro" className="w-full h-auto" />
+                  <motion.div
+                    initial={{ opacity: 0, scale: 0.94 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    transition={{ delay: 0.1 }}
+                    className="relative w-full max-w-[min(26rem,92vw)] md:max-w-[34rem] lg:max-w-[38rem]"
+                  >
+                    <img src="/Venue Round Intro.png" alt="Round intro" className="w-full h-auto" />
 
-                  <div className="pointer-events-none absolute inset-0">
-                    {/* Solid fill masks baked-in "ROUND N" text inside round intro.png so only live data shows */}
-                    <div className="absolute left-1/2 top-[20%] flex h-[42%] w-[64%] -translate-x-1/2 items-center justify-center overflow-hidden rounded-full">
-                      <RoundIntroHeadline
-                        size="player"
-                        roundNumber={(roundInfo.roundIndex || 0) + 1}
-                        subtitle={
-                          (roundInfo.roundIndex || 0) !== 0
-                            ? normalizeRoundIntroTitle(
-                                roundInfo.round?.name,
-                                roundInfo.round?.type,
-                                roundInfo.roundIndex,
-                              )
-                            : undefined
-                        }
-                      />
+                    <div className="pointer-events-none absolute inset-0">
+                      {/* Solid fill masks baked-in "ROUND N" text inside round intro.png so only live data shows */}
+                      <div className="absolute left-1/2 top-[20%] flex h-[42%] w-[64%] -translate-x-1/2 items-center justify-center overflow-hidden rounded-full">
+                        <RoundIntroHeadline
+                          size="player"
+                          roundNumber={(roundInfo.roundIndex || 0) + 1}
+                          roundType={roundInfo.round?.type}
+                          subtitle={
+                            (roundInfo.roundIndex || 0) !== 0
+                              ? normalizeRoundIntroTitle(
+                                  roundInfo.round?.name,
+                                  roundInfo.round?.type,
+                                  roundInfo.roundIndex,
+                                )
+                              : undefined
+                          }
+                        />
+                      </div>
+
+                      <div
+                        className={cn(
+                          'absolute inset-x-[7%] flex flex-col items-stretch overflow-hidden px-0',
+                          (roundInfo.round?.type || '').toUpperCase() === 'ELIMINATION'
+                            ? 'top-[71%] bottom-[6.5%] justify-start pt-1.5 sm:pt-2'
+                            : 'top-[68%] bottom-[8%] justify-center',
+                        )}
+                      >
+                        <RoundIntroScoringLines
+                          roundType={roundInfo.round?.type}
+                          variant="player"
+                        />
+                      </div>
                     </div>
+                  </motion.div>
+                </motion.div>
+              )}
 
-                    <div className="absolute inset-x-[7%] top-[68%] bottom-[8%] flex flex-col items-stretch justify-center overflow-hidden px-0">
-                      <RoundIntroScoringLines roundType={roundInfo.round?.type} variant="player" />
+              {/* ── WAITING ── */}
+              {phase === 'waiting' && hasInitialState && (
+                <motion.div
+                  key="waiting"
+                  {...pageTransition}
+                  className="flex-1 relative overflow-hidden mobile-play-bg"
+                >
+                  <div className="absolute inset-0 opacity-25 bg-[radial-gradient(circle_at_22%_16%,rgba(145,105,255,0.36)_0_4px,transparent_4px)] [background-size:110px_110px]" />
+                  <div className="absolute bottom-0 left-1/2 h-42.5 w-[min(92vw,280px)] -translate-x-1/2 opacity-55 bg-[radial-gradient(circle,rgba(0,229,255,0.26)_0_2px,transparent_2px)] [background-size:14px_14px] md:w-[min(92vw,360px)]" />
+
+                  <div className="relative z-10 flex h-full items-center justify-center p-3 sm:p-4 md:p-6">
+                    <div className="w-full max-w-sm border-2 border-[#00d8ff] bg-[linear-gradient(180deg,rgba(45,13,121,0.72)_0%,rgba(15,8,66,0.82)_100%)] px-5 py-7 text-center shadow-[0_0_26px_rgba(0,216,255,0.24)] sm:max-w-md sm:px-6 sm:py-8 md:max-w-lg">
+                      <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-full border-2 border-[#00d8ff] bg-[rgba(5,14,34,0.75)] shadow-[0_0_18px_rgba(0,216,255,0.35)] sm:mb-6 sm:h-20 sm:w-20 md:h-[5.25rem] md:w-[5.25rem]">
+                        <svg
+                          className="h-10 w-10 sm:h-11 sm:w-11 md:h-12 md:w-12"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                        >
+                          <path
+                            d="M16 21v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2"
+                            stroke="#00d8ff"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          />
+                          <circle cx="9.5" cy="7" r="3" stroke="#00d8ff" strokeWidth="2" />
+                          <path
+                            d="M22 21v-2a4 4 0 0 0-3-3.87"
+                            stroke="#00d8ff"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          />
+                          <path
+                            d="M16 3.13a4 4 0 0 1 0 7.75"
+                            stroke="#00d8ff"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          />
+                        </svg>
+                      </div>
+
+                      <h2 className="text-[clamp(2rem,7vw,3.4rem)] font-extrabold uppercase leading-[0.95] text-white sm:text-[clamp(2.25rem,5.5vw,3.5rem)] md:text-6xl">
+                        Waiting for game
+                        <br />
+                        to start
+                      </h2>
+                      <p className="mt-3 text-base uppercase leading-tight text-white/70 sm:text-lg md:text-xl">
+                        The host will start the game shortly
+                      </p>
+
+                      <button
+                        onClick={() => setShowExitConfirm(true)}
+                        className="mt-5 text-base font-medium text-[#ff4f61] sm:text-lg"
+                      >
+                        Leave Game
+                      </button>
+
+                      <LoadingDots className="mt-3" gapClass="gap-2" />
                     </div>
                   </div>
                 </motion.div>
-              </motion.div>
-            )}
+              )}
 
-            {/* ── WAITING ── */}
-            {phase === 'waiting' && hasInitialState && (
-              <motion.div
-                key="waiting"
-                {...pageTransition}
-                className="flex-1 relative overflow-hidden mobile-play-bg"
-              >
-                <div className="absolute inset-0 opacity-25 bg-[radial-gradient(circle_at_22%_16%,rgba(145,105,255,0.36)_0_4px,transparent_4px)] [background-size:110px_110px]" />
-                <div className="absolute bottom-0 left-1/2 h-42.5 w-[min(92vw,280px)] -translate-x-1/2 opacity-55 bg-[radial-gradient(circle,rgba(0,229,255,0.26)_0_2px,transparent_2px)] [background-size:14px_14px] md:w-[min(92vw,360px)]" />
-
-                <div className="relative z-10 flex h-full items-center justify-center p-3 sm:p-4 md:p-6">
-                  <div className="w-full max-w-sm border-2 border-[#00d8ff] bg-[linear-gradient(180deg,rgba(45,13,121,0.72)_0%,rgba(15,8,66,0.82)_100%)] px-5 py-7 text-center shadow-[0_0_26px_rgba(0,216,255,0.24)] sm:max-w-md sm:px-6 sm:py-8 md:max-w-lg">
-                    <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-full border-2 border-[#00d8ff] bg-[rgba(5,14,34,0.75)] shadow-[0_0_18px_rgba(0,216,255,0.35)] sm:mb-6 sm:h-20 sm:w-20 md:h-[5.25rem] md:w-[5.25rem]">
-                      <svg
-                        className="h-10 w-10 sm:h-11 sm:w-11 md:h-12 md:w-12"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                      >
-                        <path
-                          d="M16 21v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2"
-                          stroke="#00d8ff"
-                          strokeWidth="2"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        />
-                        <circle cx="9.5" cy="7" r="3" stroke="#00d8ff" strokeWidth="2" />
-                        <path
-                          d="M22 21v-2a4 4 0 0 0-3-3.87"
-                          stroke="#00d8ff"
-                          strokeWidth="2"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        />
-                        <path
-                          d="M16 3.13a4 4 0 0 1 0 7.75"
-                          stroke="#00d8ff"
-                          strokeWidth="2"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        />
-                      </svg>
-                    </div>
-
-                    <h2 className="text-[clamp(2rem,7vw,3.4rem)] font-extrabold uppercase leading-[0.95] text-white sm:text-[clamp(2.25rem,5.5vw,3.5rem)] md:text-6xl">
-                      Waiting for game
-                      <br />
-                      to start
-                    </h2>
-                    <p className="mt-3 text-base uppercase leading-tight text-white/70 sm:text-lg md:text-xl">
-                      The host will start the game shortly
-                    </p>
-
-                    <button
-                      onClick={() => setShowExitConfirm(true)}
-                      className="mt-5 text-base font-medium text-[#ff4f61] sm:text-lg"
-                    >
-                      Leave Game
-                    </button>
-
-                    <LoadingDots className="mt-3" gapClass="gap-2" />
-                  </div>
-                </div>
-              </motion.div>
-            )}
-
-            {/* ── CONNECTING ── While we wait for the first session_state after a refresh,
+              {/* ── CONNECTING ── While we wait for the first session_state after a refresh,
                 show a neutral reconnecting splash instead of the LOBBY-flavoured "Waiting for
                 game to start" text — that copy is reserved for the legitimate pre-game state. */}
-            {phase === 'waiting' && !hasInitialState && (
-              <motion.div
-                key="connecting"
-                {...pageTransition}
-                className="flex-1 relative overflow-hidden mobile-play-bg"
-              >
-                <div className="relative z-10 flex h-full items-center justify-center p-4">
-                  <div className="flex flex-col items-center gap-4 text-white/80">
-                    <div className="h-10 w-10 animate-spin rounded-full border-2 border-white/20 border-t-[#00d8ff]" />
-                    <p className="text-sm font-medium tracking-wide sm:text-base">Reconnecting…</p>
+              {phase === 'waiting' && !hasInitialState && (
+                <motion.div
+                  key="connecting"
+                  {...pageTransition}
+                  className="flex-1 relative overflow-hidden mobile-play-bg"
+                >
+                  <div className="relative z-10 flex h-full items-center justify-center p-4">
+                    <div className="flex flex-col items-center gap-4 text-white/80">
+                      <div className="h-10 w-10 animate-spin rounded-full border-2 border-white/20 border-t-[#00d8ff]" />
+                      <p className="text-sm font-medium tracking-wide sm:text-base">
+                        Reconnecting…
+                      </p>
+                    </div>
                   </div>
-                </div>
-              </motion.div>
-            )}
+                </motion.div>
+              )}
 
-            {/* ── WAGER INPUT ── */}
-            {phase === 'wager_input' && (
-              <motion.div
-                key="wager"
-                {...pageTransition}
-                className="relative flex min-h-0 flex-1 flex-col overflow-hidden"
-              >
-                <PlayerWagerSelectionScreen
-                  category={question?.question?.category ?? wagerCollectionCategory}
-                  isFinalWagerRound={isFinalWagerRound}
-                  wagerAmount={wagerAmount}
-                  wagerSubmitted={wagerSubmitted}
-                  wagerChoiceValues={wagerChoiceValues}
-                  onSelectAmount={handleSelectWagerAmount}
-                />
-              </motion.div>
-            )}
+              {/* ── WAGER INPUT ── */}
+              {phase === 'wager_input' && (
+                <motion.div
+                  key="wager"
+                  {...pageTransition}
+                  className="relative flex min-h-0 flex-1 flex-col overflow-hidden"
+                >
+                  <PlayerWagerSelectionScreen
+                    category={question?.question?.category ?? wagerCollectionCategory}
+                    isFinalWagerRound={isFinalWagerRound}
+                    wagerAmount={wagerAmount}
+                    wagerSubmitted={wagerSubmitted}
+                    wagerChoiceValues={wagerChoiceValues}
+                    onSelectAmount={handleSelectWagerAmount}
+                  />
+                </motion.div>
+              )}
 
-            {/* ── QUESTION / ANSWERED ── */}
-            {(phase === 'question' || phase === 'answered') && question && (
-              <motion.div
-                key="question"
-                {...pageTransition}
-                className="mt-2 flex flex-1 flex-col px-3 pb-4 pt-2 sm:mt-4 sm:px-4 sm:pb-6 md:px-6"
-              >
-                <QuestionStagePanel
-                  className="mb-3 sm:mb-4"
-                  timerDisplay={timerRemaining}
-                  questionIndex={question.questionIndex || 0}
-                  totalQuestions={question.totalQuestions}
-                  teamName={session.teamName}
-                  score={session.score}
-                  pointsDisplay={formatQuestionPointsHeader(
-                    question,
-                    wagerSubmitted ? wagerAmount : question.lockedWagerAmount,
-                  )}
-                  questionText={question.question.text}
-                />
+              {/* ── QUESTION / ANSWERED ── */}
+              {(phase === 'question' || phase === 'answered') && question && (
+                <motion.div
+                  key="question"
+                  {...pageTransition}
+                  className="mt-2 flex flex-1 flex-col px-3 pb-4 pt-2 sm:mt-4 sm:px-4 sm:pb-6 md:px-6"
+                >
+                  <QuestionStagePanel
+                    className="mb-3 sm:mb-4"
+                    timerDisplay={timerRemaining}
+                    timerDuration={timerDuration}
+                    questionIndex={question.questionIndex || 0}
+                    totalQuestions={question.totalQuestions}
+                    teamName={session.teamName}
+                    score={session.score}
+                    pointsDisplay={formatQuestionPointsHeader(
+                      question,
+                      wagerSubmitted ? wagerAmount : question.lockedWagerAmount,
+                    )}
+                    questionText={question.question.text}
+                  />
 
-                <div className="flex flex-col gap-3 sm:gap-4">
-                  <QuestionMediaVisual question={question} musicBanner={questionMusicBanner} />
+                  <div className="flex flex-col gap-3 sm:gap-4">
+                    <QuestionMediaVisual question={question} musicBanner={questionMusicBanner} />
 
-                  {/* Options - Single column vertical list */}
-                  <motion.div
-                    variants={staggerContainer}
-                    initial="initial"
-                    animate="animate"
-                    className="mt-5 flex flex-col gap-5"
-                  >
-                    {(() => {
-                      if (question.question.isOrdering) {
-                        return (
-                          <div className="flex flex-col gap-3">
-                            <div className="mb-1 flex items-center justify-center gap-2 text-sm font-bold text-[#00e5ff] drop-shadow-[0_0_5px_rgba(0,229,255,0.5)] sm:text-base">
-                              <span aria-hidden>☰</span>
-                              <span>Drag tiles or use arrows to reorder</span>
-                            </div>
-                            {orderingSelection.map((optIdx, index) => {
-                              const opt = question.question.options[optIdx];
-                              if (!opt) return null;
-                              const isLocked = isAnswerSelectionLocked;
-                              return (
-                                <div
-                                  key={`${optIdx}-${index}`}
-                                  draggable={!isLocked}
-                                  onDragStart={(e) => {
-                                    if (isLocked) return;
-                                    setOrderingDragIndex(index);
-                                    e.dataTransfer.effectAllowed = 'move';
-                                    e.dataTransfer.setData('text/plain', String(index));
-                                  }}
-                                  onDragEnd={() => setOrderingDragIndex(null)}
-                                  onDragOver={(e) => {
-                                    if (isLocked) return;
-                                    e.preventDefault();
-                                    e.dataTransfer.dropEffect = 'move';
-                                  }}
-                                  onDrop={(e) => {
-                                    if (isLocked) return;
-                                    e.preventDefault();
-                                    const from = Number(e.dataTransfer.getData('text/plain'));
-                                    if (Number.isFinite(from)) reorderOrdering(from, index);
-                                    setOrderingDragIndex(null);
-                                  }}
-                                  className={cn(
-                                    'flex min-h-14 w-full items-center justify-between rounded-xl px-3 py-3 text-white font-bold shadow-[0_4px_10px_rgba(0,0,0,0.5),inset_0_1px_1px_rgba(255,255,255,0.2)] sm:min-h-16 sm:px-4 sm:py-4 md:min-h-[4.75rem]',
-                                    OPTION_BG[optIdx] || 'bg-[#1565c0]',
-                                    isLocked && 'opacity-60 grayscale-[0.3] cursor-not-allowed',
-                                    !isLocked && 'cursor-grab active:cursor-grabbing',
-                                    orderingDragIndex === index && 'ring-2 ring-white/80',
-                                  )}
-                                >
-                                  <span className="flex min-w-0 flex-1 items-center gap-2 text-left text-lg font-black leading-tight drop-shadow-md sm:gap-3 sm:text-xl md:text-2xl">
-                                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-black/40 text-sm shadow-inner">
-                                      {index + 1}
-                                    </span>
-                                    <span className="min-w-0 flex-1">
-                                      {toDisplayUpper(opt.text)}
-                                    </span>
-                                  </span>
-                                  {!isLocked && (
-                                    <div className="ml-2 flex shrink-0 flex-col gap-1">
-                                      <button
-                                        type="button"
-                                        aria-label="Move up"
-                                        className="rounded bg-black/30 px-3 py-1.5 text-xs transition hover:bg-black/50 active:bg-white/20"
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          if (index === 0) return;
-                                          reorderOrdering(index, index - 1);
-                                        }}
-                                      >
-                                        ▲
-                                      </button>
-                                      <button
-                                        type="button"
-                                        aria-label="Move down"
-                                        className="rounded bg-black/30 px-3 py-1.5 text-xs transition hover:bg-black/50 active:bg-white/20"
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          if (index === orderingSelection.length - 1) return;
-                                          reorderOrdering(index, index + 1);
-                                        }}
-                                      >
-                                        ▼
-                                      </button>
-                                    </div>
-                                  )}
-                                </div>
-                              );
-                            })}
-                            {!isAnswerSelectionLocked && (
-                              <button
-                                onClick={handleLockOrdering}
-                                className="mt-2 w-full py-3.5 rounded-xl bg-[#00e5ff]/20 text-[#00e5ff] border border-[#00e5ff]/50 font-bold text-lg hover:bg-[#00e5ff]/30 transition-colors"
-                              >
-                                Lock Answer
-                              </button>
-                            )}
-                          </div>
-                        );
-                      }
-
-                      return question.question.options.map((opt, i) => {
-                        const isSelected = selectedOption === i;
-                        const isLocked = isAnswerSelectionLocked;
-
-                        return (
-                          <motion.div key={i} variants={staggerItem}>
-                            <PlayerChoiceBar
-                              index={i}
-                              letter={FIGMA_OPTION_LETTERS[i] || OPTION_LETTERS[i]}
-                              label={toDisplayUpper(opt.text)}
-                              selected={isSelected}
-                              disabled={isLocked}
-                              onClick={() => handleSelectOption(i)}
-                              className={cn(
-                                isLocked && !isSelected && 'opacity-60 grayscale-[0.3]',
-                              )}
-                            />
-                          </motion.div>
-                        );
-                      });
-                    })()}
-                  </motion.div>
-                </div>
-
-                {showTimeExpiredState && (
-                  <motion.div
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    className="text-center mt-6"
-                  >
-                    <p className="text-2xl font-black leading-none text-[#ff5252] drop-shadow-[0_0_10px_rgba(255,82,82,0.6)] sm:text-3xl md:text-4xl">
-                      TIME IS OVER
-                    </p>
-                  </motion.div>
-                )}
-
-                {phase === 'answered' && (
-                  <motion.div
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    className="text-center mt-6"
-                  >
-                    <p className="text-2xl font-black leading-none text-[#00D9FF] drop-shadow-[0_0_10px_rgba(255,255,255,0.4)] sm:text-3xl md:text-4xl">
-                      ANSWER LOCKED IN !!
-                    </p>
-                  </motion.div>
-                )}
-              </motion.div>
-            )}
-
-            {/* ── REVEAL ── */}
-            {phase === 'reveal' && revealData && question && (
-              <motion.div
-                key="reveal"
-                {...pageTransition}
-                className="mt-2 flex flex-1 flex-col px-3 pb-4 pt-2 sm:mt-4 sm:px-4 sm:pb-6 md:px-6"
-              >
-                <QuestionStagePanel
-                  className="mb-3 sm:mb-4"
-                  timerDisplay={0}
-                  questionIndex={question.questionIndex || 0}
-                  totalQuestions={question.totalQuestions}
-                  teamName={session.teamName}
-                  score={session.score}
-                  pointsDisplay={formatQuestionPointsHeader(
-                    question,
-                    wagerSubmitted ? wagerAmount : question.lockedWagerAmount,
-                  )}
-                  questionText={question.question.text}
-                />
-
-                <div className="flex flex-col gap-3 sm:gap-4">
-                  <QuestionMediaVisual question={question} musicBanner={questionMusicBanner} />
-
-                  {/* Options - Single column vertical list */}
-                  <motion.div
-                    variants={staggerContainer}
-                    initial="initial"
-                    animate="animate"
-                    className="mt-5 flex flex-col gap-5"
-                  >
-                    {(() => {
-                      if (question.question.isOrdering) {
-                        return (
-                          <div className="flex flex-col gap-3">
-                            <div className="mb-2 text-center">
-                              <span className="inline-block px-4 py-2 rounded-lg bg-black/40 border border-green-500/50 text-green-400 font-bold text-sm sm:text-base md:text-lg uppercase tracking-wider shadow-inner">
-                                Correct Order:{' '}
-                                {(revealData.correctOrderArray || [])
-                                  .map((idx: number) =>
-                                    toDisplayUpper(question.question.options[idx]?.text),
-                                  )
-                                  .join(' → ')}
-                              </span>
-                            </div>
-                            {(() => {
-                              const userArr =
-                                Array.isArray(selectedOption) &&
-                                selectedOption.length === question.question.options.length
-                                  ? selectedOption
-                                  : question.question.options.map((_, i) => i);
-                              const correctArr =
-                                revealData.correctOrderArray ||
-                                question.question.options.map((_, i) => i);
-
-                              return userArr.map((optIdx: number, userPos: number) => {
+                    {/* Options - Single column vertical list */}
+                    <motion.div
+                      variants={staggerContainer}
+                      initial="initial"
+                      animate="animate"
+                      className="mt-5 flex flex-col gap-5"
+                    >
+                      {(() => {
+                        if (question.question.isOrdering) {
+                          return (
+                            <div className="flex flex-col gap-3">
+                              <div className="mb-1 flex items-center justify-center gap-2 text-sm font-bold text-[#00e5ff] drop-shadow-[0_0_5px_rgba(0,229,255,0.5)] sm:text-base">
+                                <span aria-hidden>☰</span>
+                                <span>Drag tiles or use arrows to reorder</span>
+                              </div>
+                              {orderingSelection.map((optIdx, index) => {
                                 const opt = question.question.options[optIdx];
-                                const expectedPos = correctArr.indexOf(optIdx);
-                                const isCorrectPos = userPos === expectedPos;
+                                if (!opt) return null;
+                                const isLocked = isAnswerSelectionLocked;
                                 return (
-                                  <motion.div
-                                    key={optIdx}
-                                    variants={staggerItem}
+                                  <div
+                                    key={`${optIdx}-${index}`}
+                                    draggable={!isLocked}
+                                    onDragStart={(e) => {
+                                      if (isLocked) return;
+                                      setOrderingDragIndex(index);
+                                      e.dataTransfer.effectAllowed = 'move';
+                                      e.dataTransfer.setData('text/plain', String(index));
+                                    }}
+                                    onDragEnd={() => setOrderingDragIndex(null)}
+                                    onDragOver={(e) => {
+                                      if (isLocked) return;
+                                      e.preventDefault();
+                                      e.dataTransfer.dropEffect = 'move';
+                                    }}
+                                    onDrop={(e) => {
+                                      if (isLocked) return;
+                                      e.preventDefault();
+                                      const from = Number(e.dataTransfer.getData('text/plain'));
+                                      if (Number.isFinite(from)) reorderOrdering(from, index);
+                                      setOrderingDragIndex(null);
+                                    }}
                                     className={cn(
-                                      'flex min-h-14 w-full items-center justify-between gap-3 rounded-xl border border-white/20 px-4 py-3 text-white font-bold sm:min-h-16 sm:px-6 sm:py-4 md:min-h-[4.75rem]',
-                                      'touch-manipulation select-none transition-all',
+                                      'flex min-h-14 w-full items-center justify-between rounded-xl px-3 py-3 text-white font-bold shadow-[0_4px_10px_rgba(0,0,0,0.5),inset_0_1px_1px_rgba(255,255,255,0.2)] sm:min-h-16 sm:px-4 sm:py-4 md:min-h-[4.75rem]',
                                       OPTION_BG[optIdx] || 'bg-[#1565c0]',
+                                      isLocked && 'opacity-60 grayscale-[0.3] cursor-not-allowed',
+                                      !isLocked && 'cursor-grab active:cursor-grabbing',
+                                      orderingDragIndex === index && 'ring-2 ring-white/80',
                                     )}
                                   >
-                                    <span className="min-w-0 flex-1 text-left text-lg font-black leading-tight drop-shadow-md flex items-center gap-2 sm:text-xl md:text-2xl">
-                                      <span className="w-7 h-7 flex items-center justify-center bg-black/40 rounded-full text-sm shrink-0 shadow-inner">
-                                        {userPos + 1}
+                                    <span className="flex min-w-0 flex-1 items-center gap-2 text-left text-lg font-black leading-tight drop-shadow-md sm:gap-3 sm:text-xl md:text-2xl">
+                                      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-black/40 text-sm shadow-inner">
+                                        {index + 1}
                                       </span>
-                                      {toDisplayUpper(opt.text)}
+                                      <span className="min-w-0 flex-1">
+                                        {toDisplayUpper(opt.text)}
+                                      </span>
                                     </span>
-                                    {/* <span
+                                    {!isLocked && (
+                                      <div className="ml-2 flex shrink-0 flex-col gap-1">
+                                        <button
+                                          type="button"
+                                          aria-label="Move up"
+                                          className="rounded bg-black/30 px-3 py-1.5 text-xs transition hover:bg-black/50 active:bg-white/20"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            if (index === 0) return;
+                                            reorderOrdering(index, index - 1);
+                                          }}
+                                        >
+                                          ▲
+                                        </button>
+                                        <button
+                                          type="button"
+                                          aria-label="Move down"
+                                          className="rounded bg-black/30 px-3 py-1.5 text-xs transition hover:bg-black/50 active:bg-white/20"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            if (index === orderingSelection.length - 1) return;
+                                            reorderOrdering(index, index + 1);
+                                          }}
+                                        >
+                                          ▼
+                                        </button>
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                              {!isAnswerSelectionLocked && (
+                                <button
+                                  onClick={handleLockOrdering}
+                                  className="mt-2 w-full py-3.5 rounded-xl bg-[#00e5ff]/20 text-[#00e5ff] border border-[#00e5ff]/50 font-bold text-lg hover:bg-[#00e5ff]/30 transition-colors"
+                                >
+                                  Lock Answer
+                                </button>
+                              )}
+                            </div>
+                          );
+                        }
+
+                        return question.question.options.map((opt, i) => {
+                          const isSelected = selectedOption === i;
+                          const isLocked = isAnswerSelectionLocked;
+
+                          return (
+                            <motion.div key={i} variants={staggerItem}>
+                              <PlayerChoiceBar
+                                index={i}
+                                letter={FIGMA_OPTION_LETTERS[i] || OPTION_LETTERS[i]}
+                                label={toDisplayUpper(opt.text)}
+                                selected={isSelected}
+                                disabled={isLocked}
+                                onClick={() => handleSelectOption(i)}
+                                className={cn(
+                                  isLocked && !isSelected && 'opacity-60 grayscale-[0.3]',
+                                )}
+                              />
+                            </motion.div>
+                          );
+                        });
+                      })()}
+                    </motion.div>
+                  </div>
+
+                  {showTimeExpiredState && (
+                    <motion.div
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className="text-center mt-6"
+                    >
+                      <p className="text-2xl font-black leading-none text-[#ff5252] drop-shadow-[0_0_10px_rgba(255,82,82,0.6)] sm:text-3xl md:text-4xl">
+                        TIME IS OVER
+                      </p>
+                    </motion.div>
+                  )}
+
+                  {phase === 'answered' && (
+                    <motion.div
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className="text-center mt-6"
+                    >
+                      <p className="text-2xl font-black leading-none text-[#ffffff] drop-shadow-[0_0_10px_rgba(255,255,255,0.4)] sm:text-2xl md:text-3xl">
+                        ANSWER LOCKED IN !!
+                      </p>
+                    </motion.div>
+                  )}
+                </motion.div>
+              )}
+
+              {/* ── REVEAL ── */}
+              {phase === 'reveal' && revealData && question && (
+                <motion.div
+                  key="reveal"
+                  {...pageTransition}
+                  className="mt-2 flex flex-1 flex-col px-3 pb-4 pt-2 sm:mt-4 sm:px-4 sm:pb-6 md:px-6"
+                >
+                  <QuestionStagePanel
+                    className="mb-3 sm:mb-4"
+                    timerDisplay={0}
+                    timerDuration={timerDuration}
+                    questionIndex={question.questionIndex || 0}
+                    totalQuestions={question.totalQuestions}
+                    teamName={session.teamName}
+                    score={session.score}
+                    pointsDisplay={formatQuestionPointsHeader(
+                      question,
+                      wagerSubmitted ? wagerAmount : question.lockedWagerAmount,
+                    )}
+                    questionText={question.question.text}
+                  />
+
+                  <div className="flex flex-col gap-3 sm:gap-4">
+                    <QuestionMediaVisual question={question} musicBanner={questionMusicBanner} />
+
+                    {/* Options - Single column vertical list */}
+                    <motion.div
+                      variants={staggerContainer}
+                      initial="initial"
+                      animate="animate"
+                      className="mt-5 flex flex-col gap-5"
+                    >
+                      {(() => {
+                        if (question.question.isOrdering) {
+                          return (
+                            <div className="flex flex-col gap-3">
+                              <div className="mb-2 text-center">
+                                <span className="inline-block px-4 py-2 rounded-lg bg-black/40 border border-green-500/50 text-green-400 font-bold text-sm sm:text-base md:text-lg uppercase tracking-wider shadow-inner">
+                                  Correct Order:{' '}
+                                  {(revealData.correctOrderArray || [])
+                                    .map((idx: number) =>
+                                      toDisplayUpper(question.question.options[idx]?.text),
+                                    )
+                                    .join(' → ')}
+                                </span>
+                              </div>
+                              {(() => {
+                                const userArr =
+                                  Array.isArray(selectedOption) &&
+                                  selectedOption.length === question.question.options.length
+                                    ? selectedOption
+                                    : question.question.options.map((_, i) => i);
+                                const correctArr =
+                                  revealData.correctOrderArray ||
+                                  question.question.options.map((_, i) => i);
+
+                                return userArr.map((optIdx: number, userPos: number) => {
+                                  const opt = question.question.options[optIdx];
+                                  const expectedPos = correctArr.indexOf(optIdx);
+                                  const isCorrectPos = userPos === expectedPos;
+                                  return (
+                                    <motion.div
+                                      key={optIdx}
+                                      variants={staggerItem}
+                                      className={cn(
+                                        'flex min-h-14 w-full items-center justify-between gap-3 rounded-xl border border-white/20 px-4 py-3 text-white font-bold sm:min-h-16 sm:px-6 sm:py-4 md:min-h-[4.75rem]',
+                                        'touch-manipulation select-none transition-all',
+                                        OPTION_BG[optIdx] || 'bg-[#1565c0]',
+                                      )}
+                                    >
+                                      <span className="min-w-0 flex-1 text-left text-lg font-black leading-tight drop-shadow-md flex items-center gap-2 sm:text-xl md:text-2xl">
+                                        <span className="w-7 h-7 flex items-center justify-center bg-black/40 rounded-full text-sm shrink-0 shadow-inner">
+                                          {userPos + 1}
+                                        </span>
+                                        {toDisplayUpper(opt.text)}
+                                      </span>
+                                      {/* <span
                                       className={cn(
                                         'text-xs font-bold px-2 py-1.5 rounded-md bg-black/40 shadow-inner whitespace-nowrap',
                                         isCorrectPos ? 'text-[#39ff14]' : 'text-[#ff2525]',
@@ -2850,232 +2815,235 @@ export default function GamePage() {
                                     >
                                       Correct Pos: {expectedPos >= 0 ? expectedPos + 1 : '-'}
                                     </span> */}
-                                  </motion.div>
-                                );
-                              });
-                            })()}
-                          </div>
+                                    </motion.div>
+                                  );
+                                });
+                              })()}
+                            </div>
+                          );
+                        }
+
+                        const isMajorityRulesRound =
+                          (question.roundType || '').toUpperCase() === 'MAJORITY_RULES';
+
+                        return question.question.options.map((opt, i) => {
+                          const majorityWinners = new Set(
+                            (revealData.majorityOptionIndexes || [])
+                              .map(Number)
+                              .filter(Number.isFinite),
+                          );
+                          const fallbackIdx = Number(revealData.correctOptionIndex);
+                          if (
+                            isMajorityRulesRound &&
+                            majorityWinners.size === 0 &&
+                            Number.isFinite(fallbackIdx) &&
+                            fallbackIdx >= 0
+                          ) {
+                            majorityWinners.add(fallbackIdx);
+                          }
+                          const isVoteWinner = majorityWinners.has(i);
+
+                          const correctIdxNum = Number(revealData.correctOptionIndex);
+                          const isCorrectOption =
+                            Number.isFinite(correctIdxNum) &&
+                            correctIdxNum >= 0 &&
+                            i === correctIdxNum;
+                          const selNum = Number(selectedOption);
+                          const isSelectedOption =
+                            selectedOption !== null &&
+                            selectedOption !== undefined &&
+                            Number.isFinite(selNum) &&
+                            selNum === i;
+                          const isSelectedWrong = isSelectedOption && !isCorrectOption;
+
+                          const shouldDim = isMajorityRulesRound
+                            ? !isVoteWinner
+                            : !isCorrectOption && !isSelectedWrong;
+                          const showCorrectRing = isMajorityRulesRound
+                            ? isVoteWinner
+                            : isCorrectOption;
+                          const showWrongRing = isMajorityRulesRound ? false : isSelectedWrong;
+                          const showCorrectIcon = isMajorityRulesRound ? false : isCorrectOption;
+                          const showWrongIcon = isMajorityRulesRound ? false : isSelectedWrong;
+
+                          return (
+                            <motion.div
+                              key={i}
+                              variants={staggerItem}
+                              className={cn(
+                                'relative',
+                                showCorrectRing &&
+                                  'rounded-[10px] ring-2 ring-[#39ff14] shadow-[0_0_18px_4px_rgba(57,255,20,0.7)]',
+                                showWrongRing &&
+                                  'rounded-[10px] ring-2 ring-[#ff2525] shadow-[0_0_18px_4px_rgba(255,37,37,0.7)]',
+                                shouldDim && 'opacity-30 brightness-50 contrast-75 scale-[0.98]',
+                              )}
+                            >
+                              <PlayerChoiceBar
+                                as="div"
+                                index={i}
+                                letter={FIGMA_OPTION_LETTERS[i] || OPTION_LETTERS[i]}
+                                label={toDisplayUpper(opt.text)}
+                                selected={isSelectedOption}
+                                trailing={
+                                  showCorrectIcon ? (
+                                    <RevealOptionStatusIcon variant="correct" />
+                                  ) : showWrongIcon ? (
+                                    <RevealOptionStatusIcon variant="wrong" />
+                                  ) : null
+                                }
+                              />
+                            </motion.div>
+                          );
+                        });
+                      })()}
+                    </motion.div>
+                  </div>
+
+                  <motion.div
+                    initial={{ opacity: 0, y: 15 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.2 }}
+                    className="mt-8 text-center"
+                  >
+                    {(() => {
+                      const isMajorityRulesRound =
+                        (question.roundType || '').toUpperCase() === 'MAJORITY_RULES';
+                      const isOrdering = question.question.isOrdering;
+                      const usesServerPtsLabel = revealUsesServerPointsLabel(question.roundType);
+                      const usesFixedTenTwo = revealUsesFixedTenTwoLabel(
+                        question.roundType,
+                        isMajorityRulesRound,
+                      );
+                      const myRevealResponse = revealData.responseDetails?.find((r) =>
+                        sameTeamId(r.teamId, session.teamId),
+                      );
+                      const fromRevealIdx = myRevealResponse
+                        ? parseSubmittedIdxFromMineRaw(myRevealResponse.selectedOptionIndex)
+                        : null;
+                      const fromUiIdx = parseSubmittedIdxFromMineRaw(selectedOption);
+                      // Server row wins when present; otherwise trust local only if this team has no row
+                      // (late join / resync). Never treat `null` as option 0 — `Number(null) === 0`.
+                      const didSubmitOnReveal = myRevealResponse
+                        ? hasSelectionIdx(fromRevealIdx)
+                        : hasSelectionIdx(fromUiIdx);
+                      const resolvedSelectedOption = hasSelectionIdx(fromRevealIdx)
+                        ? Array.isArray(fromRevealIdx)
+                          ? null
+                          : Number(fromRevealIdx)
+                        : hasSelectionIdx(fromUiIdx) && !Array.isArray(fromUiIdx)
+                          ? Number(fromUiIdx)
+                          : null;
+                      const correctIdxReveal = Number(revealData.correctOptionIndex);
+                      const answeredCorrectly = didSubmitOnReveal
+                        ? resolvedSelectedOption !== null &&
+                          Number.isFinite(correctIdxReveal) &&
+                          correctIdxReveal >= 0
+                          ? resolvedSelectedOption === correctIdxReveal
+                          : Number(pointsGained ?? 0) > 0
+                        : false;
+                      const fixedCorrectFallback = getStandardRoundCorrectPoints(
+                        question.roundType,
+                      );
+                      const correctPointsDisplay = usesServerPtsLabel
+                        ? Math.max(Number(pointsGained ?? 0), 0)
+                        : usesFixedTenTwo && answeredCorrectly
+                          ? Math.max(Number(pointsGained ?? fixedCorrectFallback), 0)
+                          : Math.max(Number(pointsGained ?? 0), 0);
+                      const incorrectPointsDisplay = usesServerPtsLabel
+                        ? Number(pointsGained ?? 0)
+                        : usesFixedTenTwo
+                          ? Number(pointsGained ?? REVEAL_FIXED_WRONG_PTS)
+                          : Number(pointsGained ?? 0);
+                      if (isOrdering) {
+                        const ordSel = Array.isArray(selectedOption)
+                          ? selectedOption
+                          : Array.isArray(myRevealResponse?.selectedOptionIndex)
+                            ? myRevealResponse.selectedOptionIndex
+                            : null;
+                        const expected = revealData.correctOrderArray;
+                        const isCorrect =
+                          Array.isArray(expected) &&
+                          Array.isArray(ordSel) &&
+                          ordSel.length === expected.length &&
+                          ordSel.every((v, i) => Number(v) === Number(expected[i]))
+                            ? true
+                            : (pointsGained ?? 0) > 0;
+                        return (
+                          <p
+                            className={cn(
+                              'text-lg font-black leading-none sm:text-xl md:text-2xl',
+                              !didSubmitOnReveal
+                                ? 'text-[#00D9FF] drop-shadow-[0_0_15px_rgba(255,255,255,0.4)]'
+                                : isCorrect
+                                  ? 'text-[#53ff57] drop-shadow-[0_0_15px_rgba(83,255,87,0.8)]'
+                                  : 'text-[#ff2525] drop-shadow-[0_0_15px_rgba(255,37,37,0.8)]',
+                            )}
+                          >
+                            {!didSubmitOnReveal
+                              ? 'NO ANSWER SUBMITTED !! (0)'
+                              : isCorrect
+                                ? `CORRECT ANSWER !!`
+                                : `OOPS - WRONG ANSWER !!`}
+                          </p>
                         );
                       }
 
-                      const isMajorityRulesRound =
-                        (question.roundType || '').toUpperCase() === 'MAJORITY_RULES';
-
-                      return question.question.options.map((opt, i) => {
-                        const majorityWinners = new Set(
-                          (revealData.majorityOptionIndexes || [])
-                            .map(Number)
-                            .filter(Number.isFinite),
-                        );
-                        const fallbackIdx = Number(revealData.correctOptionIndex);
-                        if (
-                          isMajorityRulesRound &&
-                          majorityWinners.size === 0 &&
-                          Number.isFinite(fallbackIdx) &&
-                          fallbackIdx >= 0
-                        ) {
-                          majorityWinners.add(fallbackIdx);
-                        }
-                        const isVoteWinner = majorityWinners.has(i);
-
-                        const correctIdxNum = Number(revealData.correctOptionIndex);
-                        const isCorrectOption =
-                          Number.isFinite(correctIdxNum) &&
-                          correctIdxNum >= 0 &&
-                          i === correctIdxNum;
-                        const selNum = Number(selectedOption);
-                        const isSelectedOption =
-                          selectedOption !== null &&
-                          selectedOption !== undefined &&
-                          Number.isFinite(selNum) &&
-                          selNum === i;
-                        const isSelectedWrong = isSelectedOption && !isCorrectOption;
-
-                        const shouldDim = isMajorityRulesRound
-                          ? !isVoteWinner
-                          : !isCorrectOption && !isSelectedWrong;
-                        const showCorrectRing = isMajorityRulesRound
-                          ? isVoteWinner
-                          : isCorrectOption;
-                        const showWrongRing = isMajorityRulesRound ? false : isSelectedWrong;
-                        const showCorrectIcon = isMajorityRulesRound ? false : isCorrectOption;
-                        const showWrongIcon = isMajorityRulesRound ? false : isSelectedWrong;
-
+                      if (!isMajorityRulesRound) {
                         return (
-                          <motion.div
-                            key={i}
-                            variants={staggerItem}
+                          <p
                             className={cn(
-                              'relative',
-                              showCorrectRing &&
-                                'rounded-[10px] ring-2 ring-[#39ff14] shadow-[0_0_18px_4px_rgba(57,255,20,0.7)]',
-                              showWrongRing &&
-                                'rounded-[10px] ring-2 ring-[#ff2525] shadow-[0_0_18px_4px_rgba(255,37,37,0.7)]',
-                              shouldDim && 'opacity-30 brightness-50 contrast-75 scale-[0.98]',
+                              'text-lg font-black leading-none sm:text-xl md:text-2xl',
+                              !didSubmitOnReveal
+                                ? 'text-[#00D9FF] drop-shadow-[0_0_15px_rgba(255,255,255,0.4)]'
+                                : answeredCorrectly
+                                  ? 'text-[#53ff57] drop-shadow-[0_0_15px_rgba(83,255,87,0.8)]'
+                                  : 'text-[#ff2525] drop-shadow-[0_0_15px_rgba(255,37,37,0.8)]',
                             )}
                           >
-                            <PlayerChoiceBar
-                              as="div"
-                              index={i}
-                              letter={FIGMA_OPTION_LETTERS[i] || OPTION_LETTERS[i]}
-                              label={toDisplayUpper(opt.text)}
-                              selected={isSelectedOption}
-                            />
-                            {(showCorrectIcon || showWrongIcon) && (
-                              <span className="absolute right-2.5 top-1/2 -translate-y-1/2">
-                                {showCorrectIcon && <RevealOptionStatusIcon variant="correct" />}
-                                {showWrongIcon && <RevealOptionStatusIcon variant="wrong" />}
-                              </span>
-                            )}
-                          </motion.div>
-                        );
-                      });
-                    })()}
-                  </motion.div>
-                </div>
-
-                <motion.div
-                  initial={{ opacity: 0, y: 15 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 0.2 }}
-                  className="mt-8 text-center"
-                >
-                  {(() => {
-                    const isMajorityRulesRound =
-                      (question.roundType || '').toUpperCase() === 'MAJORITY_RULES';
-                    const isOrdering = question.question.isOrdering;
-                    const usesServerPtsLabel = revealUsesServerPointsLabel(question.roundType);
-                    const usesFixedTenTwo = revealUsesFixedTenTwoLabel(
-                      question.roundType,
-                      isMajorityRulesRound,
-                    );
-                    const myRevealResponse = revealData.responseDetails?.find((r) =>
-                      sameTeamId(r.teamId, session.teamId),
-                    );
-                    const fromRevealIdx = myRevealResponse
-                      ? parseSubmittedIdxFromMineRaw(myRevealResponse.selectedOptionIndex)
-                      : null;
-                    const fromUiIdx = parseSubmittedIdxFromMineRaw(selectedOption);
-                    // Server row wins when present; otherwise trust local only if this team has no row
-                    // (late join / resync). Never treat `null` as option 0 — `Number(null) === 0`.
-                    const didSubmitOnReveal = myRevealResponse
-                      ? hasSelectionIdx(fromRevealIdx)
-                      : hasSelectionIdx(fromUiIdx);
-                    const resolvedSelectedOption = hasSelectionIdx(fromRevealIdx)
-                      ? Array.isArray(fromRevealIdx)
-                        ? null
-                        : Number(fromRevealIdx)
-                      : hasSelectionIdx(fromUiIdx) && !Array.isArray(fromUiIdx)
-                        ? Number(fromUiIdx)
-                        : null;
-                    const correctIdxReveal = Number(revealData.correctOptionIndex);
-                    const answeredCorrectly = didSubmitOnReveal
-                      ? resolvedSelectedOption !== null &&
-                        Number.isFinite(correctIdxReveal) &&
-                        correctIdxReveal >= 0
-                        ? resolvedSelectedOption === correctIdxReveal
-                        : Number(pointsGained ?? 0) > 0
-                      : false;
-                    const fixedCorrectFallback = getStandardRoundCorrectPoints(question.roundType);
-                    const correctPointsDisplay = usesServerPtsLabel
-                      ? Math.max(Number(pointsGained ?? 0), 0)
-                      : usesFixedTenTwo && answeredCorrectly
-                        ? Math.max(Number(pointsGained ?? fixedCorrectFallback), 0)
-                        : Math.max(Number(pointsGained ?? 0), 0);
-                    const incorrectPointsDisplay = usesServerPtsLabel
-                      ? Number(pointsGained ?? 0)
-                      : usesFixedTenTwo
-                        ? Number(pointsGained ?? REVEAL_FIXED_WRONG_PTS)
-                        : Number(pointsGained ?? 0);
-                    if (isOrdering) {
-                      const ordSel = Array.isArray(selectedOption)
-                        ? selectedOption
-                        : Array.isArray(myRevealResponse?.selectedOptionIndex)
-                          ? myRevealResponse.selectedOptionIndex
-                          : null;
-                      const expected = revealData.correctOrderArray;
-                      const isCorrect =
-                        Array.isArray(expected) &&
-                        Array.isArray(ordSel) &&
-                        ordSel.length === expected.length &&
-                        ordSel.every((v, i) => Number(v) === Number(expected[i]))
-                          ? true
-                          : (pointsGained ?? 0) > 0;
-                      return (
-                        <p
-                          className={cn(
-                            'text-lg font-black leading-none sm:text-xl md:text-2xl',
-                            !didSubmitOnReveal
-                              ? 'text-[#00D9FF] drop-shadow-[0_0_15px_rgba(255,255,255,0.4)]'
-                              : isCorrect
-                                ? 'text-[#53ff57] drop-shadow-[0_0_15px_rgba(83,255,87,0.8)]'
-                                : 'text-[#ff2525] drop-shadow-[0_0_15px_rgba(255,37,37,0.8)]',
-                          )}
-                        >
-                          {!didSubmitOnReveal
-                            ? 'NO ANSWER SUBMITTED !! (0)'
-                            : isCorrect
-                              ? `CORRECT ANSWER !!`
-                              : `OOPS - WRONG ANSWER !!`}
-                        </p>
-                      );
-                    }
-
-                    if (!isMajorityRulesRound) {
-                      return (
-                        <p
-                          className={cn(
-                            'text-lg font-black leading-none sm:text-xl md:text-2xl',
-                            !didSubmitOnReveal
-                              ? 'text-[#00D9FF] drop-shadow-[0_0_15px_rgba(255,255,255,0.4)]'
+                            {!didSubmitOnReveal
+                              ? 'NO ANSWER SUBMITTED !!'
                               : answeredCorrectly
+                                ? `CORRECT ANSWER !!`
+                                : `OOPS - WRONG ANSWER !!`}
+                          </p>
+                        );
+                      }
+
+                      // Majority Rules: only the vote winner is highlighted; wrong picks get no
+                      // red ring. Scoring (+50 / −50) still comes from the server via pointsGained.
+                      return (
+                        <p
+                          className={cn(
+                            'text-lg font-black leading-none sm:text-xl md:text-2xl',
+                            !didSubmitOnReveal
+                              ? 'text-[#00D9FF] drop-shadow-[0_0_15px_rgba(255,255,255,0.4)]'
+                              : (pointsGained ?? 0) > 0
                                 ? 'text-[#53ff57] drop-shadow-[0_0_15px_rgba(83,255,87,0.8)]'
                                 : 'text-[#ff2525] drop-shadow-[0_0_15px_rgba(255,37,37,0.8)]',
                           )}
                         >
                           {!didSubmitOnReveal
                             ? 'NO ANSWER SUBMITTED !!'
-                            : answeredCorrectly
-                              ? `CORRECT ANSWER !!`
-                              : `OOPS - WRONG ANSWER !!`}
+                            : (pointsGained ?? 0) > 0
+                              ? 'CORRECT ANSWER !!'
+                              : 'OOPS - WRONG ANSWER !!'}
                         </p>
                       );
-                    }
-
-                    // Majority Rules: only the vote winner is highlighted; wrong picks get no
-                    // red ring. Scoring (+50 / −50) still comes from the server via pointsGained.
-                    return (
-                      <p
-                        className={cn(
-                          'text-lg font-black leading-none sm:text-xl md:text-2xl',
-                          !didSubmitOnReveal
-                            ? 'text-[#00D9FF] drop-shadow-[0_0_15px_rgba(255,255,255,0.4)]'
-                            : (pointsGained ?? 0) > 0
-                              ? 'text-[#53ff57] drop-shadow-[0_0_15px_rgba(83,255,87,0.8)]'
-                              : 'text-[#ff2525] drop-shadow-[0_0_15px_rgba(255,37,37,0.8)]',
-                        )}
-                      >
-                        {!didSubmitOnReveal
-                          ? 'NO ANSWER SUBMITTED !!'
-                          : (pointsGained ?? 0) > 0
-                            ? 'CORRECT ANSWER !!'
-                            : 'OOPS - WRONG ANSWER !!'}
-                      </p>
-                    );
-                  })()}
+                    })()}
+                  </motion.div>
                 </motion.div>
-              </motion.div>
-            )}
+              )}
 
-            {/* ELIMINATED */}
-            {phase === 'eliminated' && (
-              <motion.div
-                key="eliminated"
-                {...pageTransition}
-                className="flex-1 flex items-center justify-center p-6 text-center"
-              >
-                <div>
-                  {/* <motion.div
+              {/* ELIMINATED */}
+              {phase === 'eliminated' && (
+                <motion.div
+                  key="eliminated"
+                  {...pageTransition}
+                  className="flex-1 flex items-center justify-center p-6 text-center"
+                >
+                  <div>
+                    {/* <motion.div
                     initial={{ scale: 0 }}
                     animate={{ scale: 1 }}
                     transition={{ type: 'spring', stiffness: 200 }}
@@ -3083,244 +3051,242 @@ export default function GamePage() {
                   >
                     💀
                   </motion.div> */}
-                  <h2 className="text-2xl font-bold uppercase text-neon-red text-glow-red mb-2">
-                    Knocked Out!
-                  </h2>
-                  <p className="text-foreground/50 text-sm uppercase max-w-xs">
-                    You are knocked out for this round. You can play in the next round.
-                  </p>
-                  <div className="neon-border rounded-xl p-4 mt-6 bg-surface/80">
-                    <p className="text-foreground/40 text-xs mb-1">Your Score</p>
-                    <p className="text-2xl font-mono font-bold text-neon-cyan text-glow-cyan">
-                      {session.score}
+                    <h2 className="text-2xl font-bold uppercase text-neon-red text-glow-red mb-2">
+                      Knocked Out!
+                    </h2>
+                    <p className="text-foreground/50 text-sm uppercase max-w-xs">
+                      You are knocked out for this round. You can play in the next round.
                     </p>
+                    <div className="neon-border rounded-xl p-4 mt-6 bg-surface/80">
+                      <p className="text-foreground/40 text-xs mb-1">Your Score</p>
+                      <p className="text-2xl font-mono font-bold text-neon-cyan text-glow-cyan">
+                        {session.score}
+                      </p>
+                    </div>
                   </div>
-                </div>
-              </motion.div>
-            )}
+                </motion.div>
+              )}
 
-            {/* ── Round Over (transition screen between last reveal and leaderboard) ── */}
-            {phase === 'round_end' && (
-              <motion.div
-                key="round-end"
-                {...pageTransition}
-                className="flex min-h-0 flex-1 flex-col px-4 pb-[max(1.25rem,env(safe-area-inset-bottom))]"
-              >
-                <RoundEndTitle
-                  variant="player"
-                  roundNumber={(roundEndInfo?.roundIndex ?? roundInfo?.roundIndex ?? 0) + 1}
-                />
-
-                <div className="min-h-[2rem] flex-1" aria-hidden />
-
-                <div className="flex shrink-0 justify-center">
-                  <img
-                    src="/logo.png"
-                    alt="Max Showdown Trivia"
-                    className="h-auto w-[min(88vw,360px)] max-w-full object-contain drop-shadow-[0_8px_28px_rgba(0,0,0,0.5)]"
+              {/* ── Round Over (transition screen between last reveal and leaderboard) ── */}
+              {phase === 'round_end' && (
+                <motion.div
+                  key="round-end"
+                  {...pageTransition}
+                  className="flex min-h-0 flex-1 flex-col px-4 pb-[max(1.25rem,env(safe-area-inset-bottom))]"
+                >
+                  <RoundEndTitle
+                    variant="player"
+                    roundNumber={(roundEndInfo?.roundIndex ?? roundInfo?.roundIndex ?? 0) + 1}
                   />
-                </div>
-              </motion.div>
-            )}
 
-            {/* ── Gameshow closing (after final round, before final leaderboard) ── */}
-            {phase === 'game_show_end' && (
-              <motion.div
-                key="game-show-end"
-                {...pageTransition}
-                className="flex min-h-0 flex-1 flex-col"
-              >
-                <GameshowEndPlayerView />
-              </motion.div>
-            )}
+                  <div className="min-h-[2rem] flex-1" aria-hidden />
 
-            {/* ── Leaderboard ── */}
-            {phase === 'scoreboard' && (
-              <motion.div
-                key="scoreboard"
-                {...pageTransition}
-                className="mt-2 flex min-h-0 flex-1 flex-col px-3 pb-4 pt-2 sm:mt-4 sm:px-4 md:px-6"
-              >
-                <LeaderboardScreen
-                  teams={scoreboard}
-                  size="player"
-                  highlightTeamId={
-                    session.teamId != null ? Number(session.teamId) : null
-                  }
-                  eliminationStyle={scoreboardEliminationStyle}
-                  showScene={false}
-                  className="min-h-0 flex-1"
-                />
-              </motion.div>
-            )}
-
-            {/* Break */}
-            {phase === 'break' && (
-              <motion.div
-                key="break"
-                {...pageTransition}
-                className="relative min-h-0 flex-1 overflow-hidden mobile-play-bg"
-              >
-                <div className="absolute inset-0 opacity-25 bg-[radial-gradient(circle_at_22%_16%,rgba(145,105,255,0.36)_0_4px,transparent_4px)] [background-size:110px_110px]" />
-
-                <div className="absolute inset-0 z-10 flex items-center justify-center overflow-y-auto px-4 py-4 text-center sm:px-6 sm:py-6">
-                  <div className="flex w-full max-w-md flex-col items-center">
-                    <BreakScreenHeading size="player" />
-                    <BreakTimerDisplay
-                      remainingSeconds={breakRemaining}
-                      totalSeconds={breakDuration}
-                      size="player"
-                      className="mt-4 shrink-0 sm:mt-6"
-                    />
-
+                  <div className="flex shrink-0 justify-center">
                     <img
                       src="/logo.png"
                       alt="Max Showdown Trivia"
-                      className="relative z-10 mt-4 h-auto w-[min(68vw,220px)] max-w-[260px] shrink-0 object-contain drop-shadow-[0_6px_24px_rgba(0,0,0,0.4)] sm:mt-6 sm:w-[min(48vw,240px)] sm:max-w-[320px]"
+                      className="h-auto w-[min(88vw,360px)] max-w-full object-contain drop-shadow-[0_8px_28px_rgba(0,0,0,0.5)]"
                     />
                   </div>
-                </div>
-              </motion.div>
-            )}
+                </motion.div>
+              )}
 
-            {/* ── GAME END ── */}
-            {phase === 'game_end' && (
-              <motion.div
-                key="game_end"
-                {...pageTransition}
-                className="flex flex-1 flex-col items-center justify-center p-4 text-center sm:p-6 md:p-8"
-              >
-                <div className="w-full max-w-sm md:max-w-md">
-                  <motion.div
-                    initial={{ scale: 0, rotate: -30 }}
-                    animate={{ scale: 1, rotate: 0 }}
-                    transition={{ type: 'spring', stiffness: 200, delay: 0.1 }}
-                    className="mb-4 text-5xl sm:text-6xl"
-                  >
-                    🏆
-                  </motion.div>
-                  <motion.h2
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    transition={{ delay: 0.3 }}
-                    className="mb-2 text-2xl font-bold text-glow-cyan sm:text-3xl md:text-4xl"
-                  >
-                    Thank You For Playing!
-                  </motion.h2>
-                  {myRank === 1 && (
-                    <motion.p
-                      initial={{ opacity: 0, scale: 1.5 }}
-                      animate={{ opacity: 1, scale: 1 }}
-                      transition={{ delay: 0.5 }}
-                      className="text-neon-gold text-glow-gold text-lg font-bold mb-4"
+              {/* ── Gameshow closing (after final round, before final leaderboard) ── */}
+              {phase === 'game_show_end' && (
+                <motion.div
+                  key="game-show-end"
+                  {...pageTransition}
+                  className="flex min-h-0 flex-1 flex-col"
+                >
+                  <GameshowEndPlayerView />
+                </motion.div>
+              )}
+
+              {/* ── Leaderboard ── */}
+              {phase === 'scoreboard' && (
+                <motion.div
+                  key="scoreboard"
+                  {...pageTransition}
+                  className="mt-2 flex min-h-0 flex-1 flex-col px-3 pb-4 pt-2 sm:mt-4 sm:px-4 md:px-6"
+                >
+                  <LeaderboardScreen
+                    teams={scoreboard}
+                    size="player"
+                    highlightTeamId={session.teamId != null ? Number(session.teamId) : null}
+                    eliminationStyle={scoreboardEliminationStyle}
+                    showScene={false}
+                    className="min-h-0 flex-1"
+                  />
+                </motion.div>
+              )}
+
+              {/* Break */}
+              {phase === 'break' && (
+                <motion.div
+                  key="break"
+                  {...pageTransition}
+                  className="relative min-h-0 flex-1 overflow-hidden mobile-play-bg"
+                >
+                  <div className="absolute inset-0 opacity-25 bg-[radial-gradient(circle_at_22%_16%,rgba(145,105,255,0.36)_0_4px,transparent_4px)] [background-size:110px_110px]" />
+
+                  <div className="absolute inset-0 z-10 flex items-center justify-center overflow-y-auto px-4 py-4 text-center sm:px-6 sm:py-6">
+                    <div className="flex w-full max-w-md flex-col items-center">
+                      <BreakScreenHeading size="player" />
+                      <BreakTimerDisplay
+                        remainingSeconds={breakRemaining}
+                        totalSeconds={breakDuration}
+                        size="player"
+                        className="mt-4 shrink-0 sm:mt-6"
+                      />
+
+                      <img
+                        src="/logo.png"
+                        alt="Max Showdown Trivia"
+                        className="relative z-10 mt-4 h-auto w-[min(68vw,220px)] max-w-[260px] shrink-0 object-contain drop-shadow-[0_6px_24px_rgba(0,0,0,0.4)] sm:mt-6 sm:w-[min(48vw,240px)] sm:max-w-[320px]"
+                      />
+                    </div>
+                  </div>
+                </motion.div>
+              )}
+
+              {/* ── GAME END ── */}
+              {phase === 'game_end' && (
+                <motion.div
+                  key="game_end"
+                  {...pageTransition}
+                  className="flex flex-1 flex-col items-center justify-center p-4 text-center sm:p-6 md:p-8"
+                >
+                  <div className="w-full max-w-sm md:max-w-md">
+                    <motion.div
+                      initial={{ scale: 0, rotate: -30 }}
+                      animate={{ scale: 1, rotate: 0 }}
+                      transition={{ type: 'spring', stiffness: 200, delay: 0.1 }}
+                      className="mb-4 text-5xl sm:text-6xl"
                     >
-                      You Won! 🎉
-                    </motion.p>
-                  )}
-                  {myRank > 1 && (
-                    <motion.p
+                      🏆
+                    </motion.div>
+                    <motion.h2
                       initial={{ opacity: 0 }}
                       animate={{ opacity: 1 }}
-                      transition={{ delay: 0.5 }}
-                      className="text-foreground/50 mb-4"
+                      transition={{ delay: 0.3 }}
+                      className="mb-2 text-2xl font-bold text-glow-cyan sm:text-3xl md:text-4xl"
                     >
-                      You finished in{' '}
-                      <span className="font-bold text-neon-cyan">
-                        {myRank}
-                        {myRank === 2 ? 'nd' : myRank === 3 ? 'rd' : 'th'}
-                      </span>{' '}
-                      place
-                    </motion.p>
-                  )}
-                  <motion.div
-                    initial={{ opacity: 0, y: 15 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: 0.6 }}
-                    className="neon-border rounded-xl p-5 mb-6 bg-surface/80"
-                  >
-                    <p className="text-foreground/40 text-xs mb-1">Final Score</p>
-                    <p className="text-4xl font-mono font-bold text-neon-cyan text-glow-cyan">
-                      {session.score}
-                    </p>
-                  </motion.div>
-                  <motion.div
-                    variants={staggerContainer}
-                    initial="initial"
-                    animate="animate"
-                    className="space-y-2 mb-6 overflow-y-auto max-h-[40vh] pr-1"
-                  >
-                    {scoreboard.map((team, idx) => (
-                      <motion.div
-                        key={team.teamId}
-                        variants={staggerItem}
-                        className={cn(
-                          'flex items-center justify-between px-4 py-2 rounded-lg',
-                          team.teamId === session.teamId
-                            ? 'bg-neon-cyan/10 border border-neon-cyan/30'
-                            : 'bg-surface/80',
-                        )}
+                      Thank You For Playing!
+                    </motion.h2>
+                    {myRank === 1 && (
+                      <motion.p
+                        initial={{ opacity: 0, scale: 1.5 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        transition={{ delay: 0.5 }}
+                        className="text-neon-gold text-glow-gold text-lg font-bold mb-4"
                       >
-                        <div className="flex items-center gap-2">
-                          <span className="text-sm font-bold text-foreground/40">{idx + 1}</span>
-                          <span className="text-sm font-medium uppercase">
-                            {toDisplayUpper(team.teamName)}
+                        You Won! 🎉
+                      </motion.p>
+                    )}
+                    {myRank > 1 && (
+                      <motion.p
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        transition={{ delay: 0.5 }}
+                        className="text-foreground/50 mb-4"
+                      >
+                        You finished in{' '}
+                        <span className="font-bold text-neon-cyan">
+                          {myRank}
+                          {myRank === 2 ? 'nd' : myRank === 3 ? 'rd' : 'th'}
+                        </span>{' '}
+                        place
+                      </motion.p>
+                    )}
+                    <motion.div
+                      initial={{ opacity: 0, y: 15 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: 0.6 }}
+                      className="neon-border rounded-xl p-5 mb-6 bg-surface/80"
+                    >
+                      <p className="text-foreground/40 text-xs mb-1">Final Score</p>
+                      <p className="text-4xl font-mono font-bold text-neon-cyan text-glow-cyan">
+                        {session.score}
+                      </p>
+                    </motion.div>
+                    <motion.div
+                      variants={staggerContainer}
+                      initial="initial"
+                      animate="animate"
+                      className="space-y-2 mb-6 overflow-y-auto max-h-[40vh] pr-1"
+                    >
+                      {scoreboard.map((team, idx) => (
+                        <motion.div
+                          key={team.teamId}
+                          variants={staggerItem}
+                          className={cn(
+                            'flex items-center justify-between px-4 py-2 rounded-lg',
+                            team.teamId === session.teamId
+                              ? 'bg-neon-cyan/10 border border-neon-cyan/30'
+                              : 'bg-surface/80',
+                          )}
+                        >
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm font-bold text-foreground/40">{idx + 1}</span>
+                            <span className="text-sm font-medium uppercase">
+                              {toDisplayUpper(team.teamName)}
+                            </span>
+                          </div>
+                          <span className="font-mono text-sm font-bold text-neon-cyan">
+                            {team.score}
                           </span>
-                        </div>
-                        <span className="font-mono text-sm font-bold text-neon-cyan">
-                          {team.score}
-                        </span>
-                      </motion.div>
-                    ))}
-                  </motion.div>
+                        </motion.div>
+                      ))}
+                    </motion.div>
+                    <button
+                      onClick={() => {
+                        clearSession();
+                        router.push('/play/join');
+                      }}
+                      className="w-full py-3 rounded-xl bg-neon-cyan/20 text-neon-cyan border border-neon-cyan/50 font-bold hover:bg-neon-cyan/30 transition-colors touch-manipulation"
+                    >
+                      Leave Game
+                    </button>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+
+          {/* Exit confirmation */}
+          {showExitConfirm && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
+              <motion.div
+                initial={{ opacity: 0, scale: 0.9 }}
+                animate={{ opacity: 1, scale: 1 }}
+                className="neon-border bg-surface w-full max-w-xs rounded-2xl p-5 text-center sm:max-w-sm sm:p-6"
+              >
+                <h3 className="mb-2 text-lg font-bold sm:text-xl">Leave Game?</h3>
+                <p className="text-foreground/50 text-sm mb-6">
+                  You will be removed from the active game. You can rejoin with the same team name.
+                </p>
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => setShowExitConfirm(false)}
+                    className="flex-1 py-2.5 rounded-lg border border-border text-sm font-medium hover:bg-surface-light transition-colors"
+                  >
+                    Stay
+                  </button>
                   <button
                     onClick={() => {
+                      socket?.emit('leave_session');
                       clearSession();
-                      router.push('/play/join');
+                      router.replace('/play/join');
                     }}
-                    className="w-full py-3 rounded-xl bg-neon-cyan/20 text-neon-cyan border border-neon-cyan/50 font-bold hover:bg-neon-cyan/30 transition-colors touch-manipulation"
+                    className="flex-1 py-2.5 rounded-lg bg-neon-red/20 text-neon-red border border-neon-red/40 text-sm font-medium hover:bg-neon-red/30 transition-colors"
                   >
-                    Leave Game
+                    Leave
                   </button>
                 </div>
               </motion.div>
-            )}
-          </AnimatePresence>
+            </div>
+          )}
         </div>
-
-        {/* Exit confirmation */}
-        {showExitConfirm && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
-            <motion.div
-              initial={{ opacity: 0, scale: 0.9 }}
-              animate={{ opacity: 1, scale: 1 }}
-              className="neon-border bg-surface w-full max-w-xs rounded-2xl p-5 text-center sm:max-w-sm sm:p-6"
-            >
-              <h3 className="mb-2 text-lg font-bold sm:text-xl">Leave Game?</h3>
-              <p className="text-foreground/50 text-sm mb-6">
-                You will be removed from the active game. You can rejoin with the same team name.
-              </p>
-              <div className="flex gap-3">
-                <button
-                  onClick={() => setShowExitConfirm(false)}
-                  className="flex-1 py-2.5 rounded-lg border border-border text-sm font-medium hover:bg-surface-light transition-colors"
-                >
-                  Stay
-                </button>
-                <button
-                  onClick={() => {
-                    socket?.emit('leave_session');
-                    clearSession();
-                    router.replace('/play/join');
-                  }}
-                  className="flex-1 py-2.5 rounded-lg bg-neon-red/20 text-neon-red border border-neon-red/40 text-sm font-medium hover:bg-neon-red/30 transition-colors"
-                >
-                  Leave
-                </button>
-              </div>
-            </motion.div>
-          </div>
-        )}
-      </div>
       </PlayerScreenShell>
     </div>
   );

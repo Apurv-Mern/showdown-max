@@ -60,7 +60,7 @@ export function VenueAutoFitText({
 
   return (
     <div ref={boxRef} className={cn('min-h-0 min-w-0 overflow-hidden', className)} style={style}>
-      <span ref={textRef} className="block max-w-full">
+      <span ref={textRef} className="block max-w-full text-center">
         {children}
       </span>
     </div>

@@ -25,12 +25,13 @@ export interface UnityWrapperProps {
   onGameComplete?: (result: unknown) => void;
   onReady?: (gameType: UnityGameType) => void;
   command?: MiniGameUnityCommand | null;
-  /** Live kangaroo pick total, forwarded to Racemanager the same way MINIGAME_START is. */
+  /** Lineup + live pick total. Sent on Load (names + 0/N) and after each phone pick. */
   selectionUpdate?: {
     nonce: number;
     totalSelected: number;
     totalTeams: number;
     pickCounts: Record<string, number>;
+    kangarooNames?: string[];
   } | null;
   className?: string;
 }
@@ -156,6 +157,7 @@ export default function UnityWrapper({
   onReadyRef.current = onReady;
   const selectionUpdateRef = useRef(selectionUpdate);
   selectionUpdateRef.current = selectionUpdate;
+  const pushLineupRef = useRef<() => void>(() => {});
 
   /* ─── Unity → Web: JSLib callbacks ─── */
   const handlePlayerAction = useCallback(
@@ -164,6 +166,7 @@ export default function UnityWrapper({
       if (envelope?.type === 'MINIGAME_READY') {
         onReadyRef.current?.(gameType);
         onPlayerAction?.('MINIGAME_READY', envelope.payload ?? {});
+        pushLineupRef.current();
         return;
       }
       try {
@@ -194,6 +197,7 @@ export default function UnityWrapper({
       if (envelope?.type === 'MINIGAME_READY') {
         onReadyRef.current?.(gameType);
         onGameComplete?.({ type: 'MINIGAME_READY', payload: envelope.payload ?? {} });
+        pushLineupRef.current();
         return;
       }
       try {
@@ -221,6 +225,7 @@ export default function UnityWrapper({
       const envelope = parseUnityEnvelope(event.data);
       if (envelope?.type !== 'MINIGAME_READY') return;
       onReadyRef.current?.(gameType);
+      pushLineupRef.current();
     };
     window.addEventListener('message', onBridgeReady);
     return () => window.removeEventListener('message', onBridgeReady);
@@ -265,6 +270,28 @@ export default function UnityWrapper({
     },
     [gameType, isLoaded, sendMessage],
   );
+
+  const pushLineupToUnity = useCallback(() => {
+    if (!isLoaded || gameType !== 'Kangaroo_race') return;
+    const sel = selectionUpdateRef.current;
+    const names = Array.isArray(sel?.kangarooNames) ? sel.kangarooNames : [];
+    const selected = Number(sel?.totalSelected || 0);
+    const teams = Number(sel?.totalTeams || 0);
+    sendUnityMessageDeferred(
+      'Racemanager',
+      'OnMessageFromReact',
+      toKangarooUnityMessage('SELECTION_COUNT', {
+        kangarooNames: names,
+        teamResponse: formatKangarooTeamResponse(selected, teams),
+        totalSelected: selected,
+        totalTeams: teams,
+        pickCounts: sel?.pickCounts ?? {},
+        timestamp: Date.now(),
+      }),
+    );
+  }, [gameType, isLoaded, sendUnityMessageDeferred]);
+
+  pushLineupRef.current = pushLineupToUnity;
 
   const startGame = useCallback(
     (config: Record<string, unknown>) => {
@@ -356,30 +383,9 @@ export default function UnityWrapper({
   }, [command, gameType, isLoaded, startGame]);
 
   useEffect(() => {
-    if (
-      !isLoaded ||
-      gameType !== 'Kangaroo_race' ||
-      !selectionUpdate ||
-      selectionUpdate.nonce <= 0
-    ) {
-      return;
-    }
-
-    sendUnityMessageDeferred(
-      'Racemanager',
-      'OnMessageFromReact',
-      toKangarooUnityMessage('SELECTION_COUNT', {
-        teamResponse: formatKangarooTeamResponse(
-          selectionUpdate.totalSelected,
-          selectionUpdate.totalTeams,
-        ),
-        totalSelected: selectionUpdate.totalSelected,
-        totalTeams: selectionUpdate.totalTeams,
-        pickCounts: selectionUpdate.pickCounts,
-        timestamp: Date.now(),
-      }),
-    );
-  }, [gameType, isLoaded, selectionUpdate, sendUnityMessageDeferred]);
+    if (!isLoaded || gameType !== 'Kangaroo_race' || !selectionUpdate) return;
+    pushLineupToUnity();
+  }, [gameType, isLoaded, selectionUpdate, pushLineupToUnity]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -423,11 +429,11 @@ export default function UnityWrapper({
 
       {/* Slot fills the black host; canvas is absolutely stretched so it matches the box bounds
           (no inner letterboxing below the WebGL view). */}
-      <div className="relative min-h-0 w-full flex-1 basis-0">
+      <div className="absolute inset-0 h-full w-full">
         <Unity
           unityProvider={unityProvider}
-          className="absolute inset-0 h-full w-full max-h-full max-w-full"
-          style={{ width: '100%', height: '100%' }}
+          className="absolute inset-0 block h-full w-full"
+          style={{ width: '100%', height: '100%', display: 'block' }}
         />
       </div>
     </div>

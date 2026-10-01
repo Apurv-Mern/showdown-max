@@ -26,7 +26,12 @@ export function VenueRoundIntroScreen({
 
         <div className="pointer-events-none absolute inset-0">
           <div className="absolute left-1/2 top-[20%] flex h-[42%] w-[64%] -translate-x-1/2 items-center justify-center overflow-hidden rounded-full">
-            <RoundIntroHeadline size="venue" roundNumber={roundNumber} subtitle={subtitle} />
+            <RoundIntroHeadline
+              size="venue"
+              roundNumber={roundNumber}
+              roundType={roundType}
+              subtitle={subtitle}
+            />
           </div>
 
           <div className="absolute inset-x-[7%] top-[68%] bottom-[8%] flex flex-col items-stretch justify-center overflow-hidden">

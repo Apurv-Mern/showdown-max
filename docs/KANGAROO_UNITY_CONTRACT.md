@@ -30,6 +30,25 @@ Parse **twice**: outer object first, then `payload` as JSON.
 
 ## A. React / Web Backend → Unity
 
+### Event: `SELECTION_COUNT` — Load + live lineup
+
+Sent as soon as Unity is ready after **Load on Venue**, then again after every phone pick. This is the lineup screen (names + `10/25`). It does **not** start the race.
+
+```json
+{
+  "type": "SELECTION_COUNT",
+  "payload": "{\"kangarooNames\":[\"Team Alpha\",\"Team Beta\",\"Team Gamma\",\"Team Delta\",\"Team Epsilon\",\"Team Zeta\"],\"teamResponse\":\"10/25\",\"totalSelected\":10,\"totalTeams\":25}"
+}
+```
+
+| Field | Meaning |
+|---|---|
+| `kangarooNames` | 6 names for the starting-line bars. Index 0 = bib 1. |
+| `teamResponse` | Badge text, e.g. `"10/25"` or `"0/25"` on first load. |
+| `totalSelected` / `totalTeams` | Same count as numbers, if easier than parsing the string. |
+
+Replace the on-screen names and badge with the latest payload. Do not increment locally.
+
 ### Event: `MINIGAME_START`
 
 Sent when the host presses **Start Race**.
@@ -47,7 +66,7 @@ Sent when the host presses **Start Race**.
 | `teamResponse` | string | Response count at start, e.g. `"18/25"` or `"18 Teams"`. Shown on the lineup screen. |
 | `winnerKangaroo` | integer 1–6, optional | Force that bib to win. `0` or omit = random winner. |
 
-Live betting still happens **before** Start Race. Until start, the venue may also send `SELECTION_COUNT` (same envelope) with `teamResponse` plus `totalSelected` / `totalTeams` so the lineup badge can update. After `MINIGAME_START`, new phone picks are rejected.
+After `MINIGAME_START`, new phone picks are rejected. The last `SELECTION_COUNT` stays valid.
 
 ---
 

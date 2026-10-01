@@ -2,6 +2,7 @@
 
 import { cn, toDisplayUpper } from '@/lib/utils';
 import { VenueAutoFitText } from '@/components/venue/VenueAutoFitText';
+import { formatRoundTypeDisplayLabel } from '@/lib/roundDisplayLabels';
 
 export function splitRoundIntroSubtitle(title: string): string[] {
   const words = toDisplayUpper(title)
@@ -17,6 +18,11 @@ export function splitRoundIntroSubtitle(title: string): string[] {
 }
 
 type HeadlineSize = 'player' | 'host' | 'hostModal' | 'venue';
+
+function isMusicRoundTitleOnly(roundType?: string): boolean {
+  const type = (roundType || '').toUpperCase();
+  return type === 'MUSIC' || type === 'AUDIO_VIDEO';
+}
 
 const SIZE = {
   player: {
@@ -59,6 +65,7 @@ const SIZE = {
 type RoundIntroHeadlineProps = {
   roundNumber: number;
   subtitle?: string;
+  roundType?: string;
   size?: HeadlineSize;
   className?: string;
 };
@@ -66,21 +73,58 @@ type RoundIntroHeadlineProps = {
 export function RoundIntroHeadline({
   roundNumber,
   subtitle,
+  roundType,
   size = 'player',
   className,
 }: RoundIntroHeadlineProps) {
   const cfg = SIZE[size];
-  const lines = subtitle ? splitRoundIntroSubtitle(subtitle) : [];
+  const musicTitleOnly = isMusicRoundTitleOnly(roundType);
+  const venueMusicOnly = musicTitleOnly && size === 'venue';
+  const playerMusicOnly = musicTitleOnly && size === 'player';
+  const titleSource = musicTitleOnly
+    ? subtitle || formatRoundTypeDisplayLabel(roundType)
+    : subtitle;
+  const lines = titleSource ? splitRoundIntroSubtitle(titleSource) : [];
 
   return (
     <div
       className={cn(
         'flex min-h-0 min-w-0 flex-col items-center justify-center text-center',
         cfg.wrap,
+        venueMusicOnly && 'px-[10%]',
         className,
       )}
     >
-      {size === 'venue' ? (
+      {playerMusicOnly ? (
+        <VenueAutoFitText
+          className={cn(cfg.subtitle, 'mt-0 max-h-full w-full')}
+          minFontSize={cfg.min}
+          maxFontSize={cfg.max}
+          step={1}
+        >
+          {lines.map((line) => (
+            <span key={line} className={cn('block', cfg.line || undefined)}>
+              {line}
+            </span>
+          ))}
+        </VenueAutoFitText>
+      ) : venueMusicOnly ? (
+        <VenueAutoFitText
+          className={cn(
+            'flex h-full w-full items-center justify-center text-center font-extrabold uppercase leading-[0.88] text-white',
+            '[text-shadow:0_8px_10px_rgba(0,0,0,0.8)]',
+          )}
+          minFontSize={56}
+          maxFontSize={150}
+          step={2}
+        >
+          {lines.map((line) => (
+            <span key={line} className="block w-full text-center">
+              {line}
+            </span>
+          ))}
+        </VenueAutoFitText>
+      ) : size === 'venue' ? (
         <>
           <p className={cfg.round} style={{ textShadow: '0 8px 10px rgba(0,0,0,0.8)' }}>
             ROUND
@@ -93,7 +137,7 @@ export function RoundIntroHeadline({
         <p className={cfg.round}>ROUND {roundNumber}</p>
       )}
 
-      {lines.length ? (
+      {!musicTitleOnly && lines.length ? (
         <VenueAutoFitText
           className={cfg.subtitle}
           minFontSize={cfg.min}

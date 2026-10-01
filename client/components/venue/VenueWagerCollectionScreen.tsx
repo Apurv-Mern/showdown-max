@@ -9,6 +9,7 @@ import {
 } from '@/lib/wagerGrid';
 import { VenueLogo } from '@/components/venue/VenueLogo';
 import { VenueWagerHud } from '@/components/venue/VenueLiveResponseHud';
+import { formatRoundTypeDisplayLabel } from '@/lib/roundDisplayLabels';
 
 export function VenueWagerCollectionScreen({
   category,
@@ -28,7 +29,7 @@ export function VenueWagerCollectionScreen({
     ? 'FINAL QUESTION'
     : category
       ? toDisplayUpper(category)
-      : 'WAGER ROUND';
+      : formatRoundTypeDisplayLabel('WAGER');
   const gridValues = isFinalWager ? FINAL_WAGER_GRID : STANDARD_WAGER_GRID;
   const totalTeams = Math.max(1, wagerLockedTotal);
 

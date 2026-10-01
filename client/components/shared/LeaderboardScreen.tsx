@@ -34,9 +34,9 @@ const SIZE_CONFIG: Record<
   }
 > = {
   player: {
-    wrapper: 'px-0 py-1',
-    title: 'text-[30px] font-bold leading-none tracking-normal',
-    medal: 'h-[46px] w-[46px]',
+    wrapper: 'px-0 py-2',
+    title: 'min-w-0 text-[clamp(22px,7vw,30px)] font-bold leading-none tracking-normal',
+    medal: 'h-[46px] w-[46px] shrink-0',
     panel: 'w-full max-w-[400px]',
     panelPad: 'px-0 py-0',
     colHeader: 'text-[10px] sm:text-xs',
@@ -52,7 +52,7 @@ const SIZE_CONFIG: Record<
   venue: {
     wrapper: 'px-[75px] pb-[12px] pt-[28px]',
     title: 'text-[40px] font-black leading-none tracking-normal drop-shadow-none',
-    medal: 'h-[66px] w-[66px]',
+    medal: 'h-[66px] w-[66px] shrink-0',
     panel: 'w-full max-w-[1770px]',
     panelPad: 'px-[40px] py-[24px]',
     colHeader: 'text-lg',
@@ -66,7 +66,7 @@ const SIZE_CONFIG: Record<
   host: {
     wrapper: 'px-0 py-0',
     title: 'text-xl sm:text-2xl',
-    medal: 'h-8 w-8',
+    medal: 'h-8 w-8 shrink-0',
     panel: 'w-full',
     panelPad: 'px-0 py-0',
     colHeader: 'text-xs',
@@ -236,7 +236,7 @@ function LeaderboardColumn({
               {isEmptySlot
                 ? ''
                 : isVenue
-                  ? `${score} Points`
+                  ? `${score} POINTS`
                   : `${score >= 0 ? '+' : ''}${score}`}
             </div>
           </div>
@@ -298,25 +298,13 @@ export function LeaderboardScreen({
   const appliedScrollNonceRef = useRef<number | null>(null);
   const VENUE_COLUMN_SIZE = 10;
   const VENUE_PAGE_SIZE = VENUE_COLUMN_SIZE * 2;
-  const displayTeams = useMemo(() => {
-    const prepared = prepareLeaderboardTeams(teams, eliminationStyle);
-    if (size !== 'venue') return prepared;
-    // Figma 776:18374 is always 2×10. Extra teams become the next 2×10 page.
-    const padTo = Math.max(
-      VENUE_PAGE_SIZE,
-      Math.ceil(prepared.length / VENUE_PAGE_SIZE) * VENUE_PAGE_SIZE,
-    );
-    if (prepared.length >= padTo) return prepared;
-    return [
-      ...prepared,
-      ...Array.from({ length: padTo - prepared.length }, (_, i) => ({
-        teamId: -1000 - i,
-        teamName: '',
-        score: 0,
-        isEliminated: false,
-      })),
-    ];
-  }, [teams, eliminationStyle, size]);
+  const displayTeams = useMemo(
+    () =>
+      prepareLeaderboardTeams(teams, eliminationStyle).filter((team) =>
+        String(team.teamName || '').trim(),
+      ),
+    [teams, eliminationStyle],
+  );
   const teamsKey = displayTeams
     .map((t) => `${t.teamId}:${t.score}:${t.isEliminated ? 1 : 0}`)
     .join('|');
@@ -444,7 +432,7 @@ export function LeaderboardScreen({
   return (
     <div
       className={cn(
-        'relative flex h-full min-h-0 w-full flex-col items-center justify-center overflow-hidden',
+        'relative flex h-full min-h-0 w-full flex-col items-center justify-center overflow-x-hidden',
         cfg.wrapper,
         className,
       )}
@@ -454,22 +442,26 @@ export function LeaderboardScreen({
       <div className="relative z-10 flex h-full min-h-0 w-full max-h-full flex-col items-center">
         <div
           className={cn(
-            'flex shrink-0 items-center justify-center',
-            isVenue ? 'mb-5 gap-5' : isPlayer ? 'mb-8 gap-3' : 'mb-3 gap-3 sm:mb-4 sm:gap-5 md:gap-6',
+            'flex w-full shrink-0 items-center justify-center overflow-visible',
+            isVenue
+              ? 'mb-5 gap-5 px-2'
+              : isPlayer
+                ? 'mb-5 gap-2 px-1'
+                : 'mb-3 gap-3 px-1 sm:mb-4 sm:gap-5 md:gap-6',
           )}
         >
           <img
             src="/leaderboardIcon.png"
             alt=""
             className={cn(
-              'object-contain drop-shadow-[0_4px_12px_rgba(255,200,60,0.45)]',
+              'object-contain object-center drop-shadow-[0_4px_12px_rgba(255,200,60,0.45)]',
               cfg.medal,
             )}
           />
           <h2
             id={titleId}
             className={cn(
-              'font-black uppercase tracking-[0.08em] text-white drop-shadow-[0_0_14px_rgba(255,255,255,0.25)]',
+              'shrink font-black uppercase tracking-[0.08em] text-white drop-shadow-[0_0_14px_rgba(255,255,255,0.25)]',
               cfg.title,
             )}
           >
@@ -479,7 +471,7 @@ export function LeaderboardScreen({
             src="/leaderboardIcon.png"
             alt=""
             className={cn(
-              'object-contain drop-shadow-[0_4px_12px_rgba(255,200,60,0.45)]',
+              'object-contain object-center drop-shadow-[0_4px_12px_rgba(255,200,60,0.45)]',
               cfg.medal,
             )}
           />

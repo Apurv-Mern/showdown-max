@@ -76,10 +76,10 @@ function WagerSelectionView({
 
       <div className="mt-4 flex shrink-0 flex-col items-center">
         <p
-          className="text-[40px] font-extrabold uppercase leading-none text-white"
+          className="text-[30px] font-extrabold uppercase leading-none text-white"
           style={{ textShadow: '0 0 6px #0010FF' }}
         >
-          YOUR BET
+          {categoryLabel}
         </p>
         <div
           className="mt-3 flex size-[160px] items-center justify-center rounded-full"
@@ -108,7 +108,7 @@ function WagerSelectionView({
               disabled={!enabled}
               onClick={() => onSelectAmount(value)}
               className={cn(
-                'flex h-[65px] w-full items-center justify-center rounded-full',
+                'flex h-[65px] w-full items-center justify-center rounded-[20px]',
                 'text-[45px] font-extrabold leading-none text-white touch-manipulation',
                 '[text-shadow:0_4px_4px_rgba(0,0,0,0.7)] transition-all active:scale-[0.99]',
                 tileClassForWagerValue(value, isFinalWagerRound),

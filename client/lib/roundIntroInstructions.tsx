@@ -172,6 +172,7 @@ function InstructionBlock({
   row,
   density,
   playerWagerRound = false,
+  playerEliminationRound = false,
 }: {
   lines: InstructionPart[][];
   iconSrc: string;
@@ -179,6 +180,7 @@ function InstructionBlock({
   row: 'positive' | 'negative';
   density: RoundIntroInstructions['density'];
   playerWagerRound?: boolean;
+  playerEliminationRound?: boolean;
 }) {
   const isPlayer = variant === 'player';
   const isWide = variant === 'venue' || variant === 'host';
@@ -189,13 +191,15 @@ function InstructionBlock({
   const lineTextClass = cn(
     'block w-full text-center text-pretty font-bold leading-[1.12] wrap-anywhere',
     isPlayer
-      ? playerWagerRound
-        ? 'text-[clamp(0.5rem,1.9vw+0.12rem,0.75rem)] sm:text-[clamp(0.52rem,1.35vw+0.15rem,0.8rem)]'
-        : isRelaxed
-          ? 'text-[clamp(0.68rem,2.9vw+0.25rem,1.05rem)] sm:text-[clamp(0.75rem,2vw+0.35rem,1.18rem)]'
-          : isCompact
-            ? 'text-[clamp(0.58rem,2.4vw+0.2rem,0.92rem)] sm:text-[clamp(0.62rem,1.6vw+0.25rem,1rem)]'
-            : 'text-[clamp(0.72rem,2.6vw+0.3rem,1.15rem)] sm:text-[clamp(0.8rem,1.8vw+0.3rem,1.3rem)]'
+      ? playerEliminationRound
+        ? 'text-[clamp(0.46rem,1.75vw+0.08rem,0.68rem)] sm:text-[clamp(0.48rem,1.25vw+0.1rem,0.72rem)] leading-[1.08]'
+        : playerWagerRound
+          ? 'text-[clamp(0.5rem,1.9vw+0.12rem,0.75rem)] sm:text-[clamp(0.52rem,1.35vw+0.15rem,0.8rem)]'
+          : isRelaxed
+            ? 'text-[clamp(0.68rem,2.9vw+0.25rem,1.05rem)] sm:text-[clamp(0.75rem,2vw+0.35rem,1.18rem)]'
+            : isCompact
+              ? 'text-[clamp(0.58rem,2.4vw+0.2rem,0.92rem)] sm:text-[clamp(0.62rem,1.6vw+0.25rem,1rem)]'
+              : 'text-[clamp(0.72rem,2.6vw+0.3rem,1.15rem)] sm:text-[clamp(0.8rem,1.8vw+0.3rem,1.3rem)]'
       : isLargeVenue
         ? isRelaxed
           ? 'text-[clamp(1.05rem,2.65vh,1.8rem)] font-black'
@@ -210,15 +214,17 @@ function InstructionBlock({
   );
 
   const lineGap =
-    isRelaxed && isWide
-      ? 'gap-1 sm:gap-1.5'
-      : isCompact
-        ? isWide
-          ? 'gap-0.5'
-          : 'gap-px sm:gap-0.5'
-        : isWide
-          ? 'gap-1'
-          : 'gap-0.5 sm:gap-1';
+    playerEliminationRound && isPlayer
+      ? 'gap-0'
+      : isRelaxed && isWide
+        ? 'gap-1 sm:gap-1.5'
+        : isCompact
+          ? isWide
+            ? 'gap-0.5'
+            : 'gap-px sm:gap-0.5'
+          : isWide
+            ? 'gap-1'
+            : 'gap-0.5 sm:gap-1';
   const sidePad = 'px-2 sm:px-3';
 
   return (
@@ -260,6 +266,7 @@ export function RoundIntroScoringLines({
   const rt = (roundType || '').toUpperCase();
   const isFinalWager = rt === 'FINAL_WAGER';
   const isPlayerWagerRound = isPlayer && (rt === 'WAGER' || rt === 'FINAL_WAGER');
+  const isPlayerEliminationRound = isPlayer && rt === 'ELIMINATION';
   /** Final Wager uses compact typography on host only — venue keeps normal sizing. */
   const effectiveDensity =
     isPlayerWagerRound || (isFinalWager && density === 'compact' && !isHost)
@@ -323,8 +330,8 @@ export function RoundIntroScoringLines({
     <div
       className={cn(
         'flex w-full max-w-full flex-col items-stretch',
-        blockGap,
-        isPlayer && 'mt-[15px]',
+        isPlayerEliminationRound ? 'gap-0.5 sm:gap-1' : blockGap,
+        isPlayer && !isPlayerEliminationRound && 'mt-[15px]',
       )}
     >
       {bannerLines.length ? (
@@ -353,6 +360,7 @@ export function RoundIntroScoringLines({
         row="positive"
         density={effectiveDensity}
         playerWagerRound={isPlayerWagerRound}
+        playerEliminationRound={isPlayerEliminationRound}
       />
 
       <InstructionBlock
@@ -362,6 +370,7 @@ export function RoundIntroScoringLines({
         row="negative"
         density={effectiveDensity}
         playerWagerRound={isPlayerWagerRound}
+        playerEliminationRound={isPlayerEliminationRound}
       />
     </div>
   );

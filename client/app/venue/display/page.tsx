@@ -28,7 +28,6 @@ import { VenueLobbyScreen } from '@/components/venue/VenueLobbyScreen';
 import { VenueRoundIntroScreen } from '@/components/venue/VenueRoundIntroScreen';
 import { VenueQuestionScreen } from '@/components/venue/VenueQuestionScreen';
 import {
-  DEFAULT_KANGAROO_NAMES,
   defaultKangarooNames,
   formatKangarooTeamResponse,
   normalizeWinnerKangaroo,
@@ -41,6 +40,7 @@ import {
   type LeaderboardScrollState,
 } from '@/components/shared/LeaderboardScreen';
 import { isEliminationRoundType } from '@/lib/eliminationLeaderboard';
+import { normalizeRoundIntroTitle } from '@/lib/roundDisplayLabels';
 import { RoundEndScreen } from '@/components/shared/RoundEndScreen';
 import { GameshowEndScreen } from '@/components/shared/GameshowEndScreen';
 import { PUBLIC_API_URL } from '@/lib/env';
@@ -220,28 +220,6 @@ function liveStatsFromRevealPayload(
   return { correct, incorrect, noAnswer, total };
 }
 
-const formatRoundTypeLabel = (roundType?: string) => {
-  const type = (roundType || '').toUpperCase();
-  switch (type) {
-    case 'MULTIPLE_CHOICE':
-      return toDisplayUpper('Multiple Choice');
-    case 'MUSIC':
-      return toDisplayUpper('Music');
-    case 'ELIMINATION':
-      return toDisplayUpper('Elimination Round');
-    case 'WAGER':
-      return toDisplayUpper('Wager');
-    case 'FINAL_WAGER':
-      return toDisplayUpper('Final Wager');
-    case 'MAJORITY_RULES':
-      return toDisplayUpper('Majority Rules');
-    case 'FINAL_MULTIPLE_CHOICE':
-      return toDisplayUpper('Final Multiple Choice');
-    default:
-      return toDisplayUpper((roundType || 'Round').replace(/_/g, ' '));
-  }
-};
-
 type MiniGameCommand = {
   id: number;
   game: 'card_shuffle' | 'kangaroo_race';
@@ -410,32 +388,6 @@ function parseKangarooRoundResult(
   if (!Number.isFinite(winner)) return {};
   return { winner_index: winner };
 }
-
-const normalizeRoundIntroTitle = (name?: string, roundType?: string, roundIndex?: number) => {
-  if ((roundType || '').toUpperCase() === 'FINAL_WAGER') return toDisplayUpper('FINAL QUESTION');
-  const raw = (name || '').trim();
-  const fallback = formatRoundTypeLabel(roundType);
-  if (!raw) return toDisplayUpper(fallback || `Round ${(roundIndex || 0) + 1}`);
-
-  const withoutPrefix = raw
-    .replace(new RegExp(`^round\\s*${(roundIndex || 0) + 1}\\s*[-:–]*\\s*`, 'i'), '')
-    .replace(/^round\s*\d+\s*[-:–]*\s*/i, '')
-    .trim();
-
-  if (!withoutPrefix) return toDisplayUpper(fallback || `Round ${(roundIndex || 0) + 1}`);
-
-  const normalizedRaw = withoutPrefix.replace(/\s+/g, ' ').toLowerCase();
-  const normalizedFallback = fallback.replace(/\s+/g, ' ').toLowerCase();
-
-  if (
-    normalizedFallback &&
-    (normalizedRaw.includes(normalizedFallback) || normalizedFallback.includes(normalizedRaw))
-  ) {
-    return toDisplayUpper(fallback);
-  }
-
-  return toDisplayUpper(withoutPrefix);
-};
 
 function VenueDisplayContent() {
   const router = useRouter();
@@ -2159,6 +2111,7 @@ function VenueDisplayContent() {
             totalSelected: kangarooSelectedCount,
             totalTeams: Math.max(kangarooSelectedCount, totalTeams, teams.length),
             pickCounts: kangarooPickCounts,
+            kangarooNames: venueKangarooNames,
           }
         : null,
     [
@@ -2168,6 +2121,7 @@ function VenueDisplayContent() {
       totalTeams,
       teams.length,
       kangarooPickCounts,
+      venueKangarooNames,
     ],
   );
 
@@ -2433,67 +2387,17 @@ function VenueDisplayContent() {
 
         {/* ── MINI GAME ── */}
         {phase === 'mini_game' && miniGameType && (
-          <div className="flex h-full min-h-0 w-full flex-col animate-fadeIn">
-            <div className="shrink-0 px-6">
-              {/* <h2 className="flex items-center gap-2 text-2xl font-black text-neon-cyan text-glow-cyan">
-                {miniGameType === 'Kangaroo_race' ? (
-                  <>
-                    <img
-                      src="/KangarooPic.png"
-                      alt=""
-                      className="h-9 w-9 shrink-0 object-contain sm:h-10 sm:w-10"
-                    />
-                    <span>Kangaroo Race</span>
-                  </>
-                ) : (
-                  <>
-                    <span aria-hidden>🃏</span>
-                    <span>Card Shuffle</span>
-                  </>
-                )}
-              </h2> */}
-              {/* <p className="text-foreground/40 text-sm">Players pick on their devices</p> */}
-            </div>
-            {/* {miniGameType === 'Kangaroo_race' ? (
-              <div className="border-b border-border/20 bg-black/25 px-6 py-2">
-                <div className="grid grid-cols-3 gap-2 text-xs font-bold text-white/85 xl:grid-cols-6">
-                  {venueKangarooNames.map((name, idx) => (
-                    <div
-                      key={`${idx}-${name}`}
-                      className="truncate rounded-lg border border-[#00d9ff]/25 bg-[#080d1c]/75 px-3 py-2 text-center"
-                    >
-                      #{idx + 1} {name || DEFAULT_KANGAROO_NAMES[idx]}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ) : null} */}
-            <div className="relative flex min-h-0 flex-1 flex-col px-3 py-3 sm:px-4 sm:py-4">
-              {miniGameType === 'Kangaroo_race' ? (
-                <div className="pointer-events-none absolute left-1/2 top-4 z-20 -translate-x-1/2 rounded-full border border-[#00d9ff]/40 bg-[#080d1c]/85 px-8 py-3 text-center shadow-[0_0_24px_rgba(0,217,255,0.25)]">
-                  <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-[#00d9ff]">
-                    Teams selected
-                  </p>
-                  <p className="mt-1 text-4xl font-black tabular-nums text-white">
-                    {kangarooSelectedCount}
-                    <span className="text-2xl font-bold text-white/45">
-                      {' '}
-                      / {Math.max(kangarooSelectedCount, totalTeams, teams.length)}
-                    </span>
-                  </p>
-                </div>
-              ) : null}
-              <DynamicUnityGame
-                key={`${miniGameType}-${unityMountKey}`}
-                gameType={miniGameType as 'Kangaroo_race' | 'card_shuffle'}
-                onPlayerAction={handleUnityPlayerAction}
-                onGameComplete={handleUnityGameComplete}
-                onReady={handleUnityReady}
-                command={miniGameCommand}
-                selectionUpdate={kangarooSelectionUpdate}
-                className="min-h-0 flex-1 overflow-hidden rounded-2xl bg-black"
-              />
-            </div>
+          <div className="absolute inset-0 h-full w-full animate-fadeIn">
+            <DynamicUnityGame
+              key={`${miniGameType}-${unityMountKey}`}
+              gameType={miniGameType as 'Kangaroo_race' | 'card_shuffle'}
+              onPlayerAction={handleUnityPlayerAction}
+              onGameComplete={handleUnityGameComplete}
+              onReady={handleUnityReady}
+              command={miniGameCommand}
+              selectionUpdate={kangarooSelectionUpdate}
+              className="h-full w-full overflow-hidden bg-black"
+            />
           </div>
         )}
 

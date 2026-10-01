@@ -1,5 +1,6 @@
 'use client';
 
+import type { ReactNode } from 'react';
 import { cn } from '@/lib/utils';
 import { optionAccent } from '@/lib/designTokens';
 
@@ -12,10 +13,12 @@ type PlayerChoiceBarProps = {
   onClick?: () => void;
   className?: string;
   as?: 'button' | 'div';
+  trailing?: ReactNode;
 };
 
 /**
  * Figma choice row: dark navy pill, colored letter block, matching outline glow.
+ * Label wraps so the full option text stays visible on phone.
  */
 export function PlayerChoiceBar({
   index,
@@ -26,6 +29,7 @@ export function PlayerChoiceBar({
   onClick,
   className,
   as = 'button',
+  trailing,
 }: PlayerChoiceBarProps) {
   const tone = optionAccent(index);
   const Comp = as;
@@ -35,7 +39,7 @@ export function PlayerChoiceBar({
       onClick={onClick}
       disabled={as === 'button' ? disabled : undefined}
       className={cn(
-        'relative flex h-[50px] w-full items-center overflow-hidden rounded-[10px]',
+        'relative flex min-h-[50px] w-full items-stretch overflow-hidden rounded-[10px]',
         'touch-manipulation select-none text-left transition-transform',
         !disabled && as === 'button' && 'active:scale-[0.99]',
         disabled && 'cursor-not-allowed',
@@ -50,7 +54,7 @@ export function PlayerChoiceBar({
       }}
     >
       <span
-        className="flex h-full w-[50px] shrink-0 items-center justify-center rounded-l-[10px]"
+        className="flex w-[50px] shrink-0 items-center justify-center rounded-l-[10px]"
         style={{
           background: `linear-gradient(180deg, ${tone.from} 0%, ${tone.to} 100%)`,
         }}
@@ -59,9 +63,12 @@ export function PlayerChoiceBar({
           {letter}
         </span>
       </span>
-      <span className="min-w-0 flex-1 truncate px-2.5 text-[20px] font-extrabold uppercase leading-none text-white [text-shadow:0_2px_4px_rgba(0,0,0,0.5)]">
+      <span className="min-w-0 flex-1 whitespace-normal break-words px-2.5 py-2 text-[18px] font-extrabold uppercase leading-snug text-white [text-shadow:0_2px_4px_rgba(0,0,0,0.5)] sm:text-[20px]">
         {label}
       </span>
+      {trailing ? (
+        <span className="mr-2 flex shrink-0 items-center self-center">{trailing}</span>
+      ) : null}
     </Comp>
   );
 }

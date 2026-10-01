@@ -199,15 +199,15 @@ function JoinContent() {
             initial={{ opacity: 0, y: 14 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.35, ease: 'easeOut' }}
-            className="mx-auto flex h-full w-full max-w-[400px] flex-col items-center px-[30px] pt-[112px]"
+            className="mx-auto flex h-full min-h-0 w-full max-w-[400px] flex-col items-center overflow-y-auto px-[30px] pb-6 pt-8"
           >
             <img
               src="/logo.png"
               alt="Max Showdown logo"
-              className="w-[400px] max-w-full object-contain object-bottom"
+              className="w-[min(100%,280px)] shrink-0 object-contain object-bottom"
             />
 
-            <div className="mt-10 flex w-full flex-col gap-[30px]">
+            <div className="mt-6 flex w-full flex-col gap-5 pb-[max(1rem,env(safe-area-inset-bottom))]">
               {error && (
                 <motion.div
                   initial={{ opacity: 0, height: 0 }}

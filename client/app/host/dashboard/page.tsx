@@ -41,44 +41,14 @@ import {
   isEliminationRoundType,
   prepareLeaderboardTeams,
 } from '@/lib/eliminationLeaderboard';
+import {
+  formatRoundTypeLabel,
+  formatRoundTypeStartButtonLabel,
+  formatRoundTypeWithRoundSuffix,
+  normalizeRoundIntroTitle,
+} from '@/lib/roundDisplayLabels';
 
 const API_URL = PUBLIC_API_URL;
-
-function formatRoundTypeLabel(type?: string): string {
-  return (type || 'Round')
-    .split('_')
-    .map((w) => w.charAt(0) + w.slice(1).toLowerCase())
-    .join(' ');
-}
-
-function normalizeRoundIntroTitle(name?: string, roundType?: string, roundIndex?: number): string {
-  if ((roundType || '').toUpperCase() === 'FINAL_WAGER') return 'FINAL QUESTION';
-  const raw = (name || '').trim();
-  const fallback =
-    (roundType || '').toUpperCase() === 'ELIMINATION'
-      ? 'Elimination Round'
-      : formatRoundTypeLabel(roundType);
-  if (!raw) return fallback || `Round ${(roundIndex || 0) + 1}`;
-
-  const withoutPrefix = raw
-    .replace(new RegExp(`^round\\s*${(roundIndex || 0) + 1}\\s*[-:–]*\\s*`, 'i'), '')
-    .replace(/^round\s*\d+\s*[-:–]*\s*/i, '')
-    .trim();
-
-  if (!withoutPrefix) return fallback || `Round ${(roundIndex || 0) + 1}`;
-
-  const normalizedRaw = withoutPrefix.replace(/\s+/g, ' ').toLowerCase();
-  const normalizedFallback = fallback.replace(/\s+/g, ' ').toLowerCase();
-
-  if (
-    normalizedFallback &&
-    (normalizedRaw.includes(normalizedFallback) || normalizedFallback.includes(normalizedRaw))
-  ) {
-    return fallback;
-  }
-
-  return withoutPrefix;
-}
 
 function getNextRoundIntroBlurb(nextType?: string): string {
   const t = (nextType || '').toUpperCase();
@@ -3439,13 +3409,13 @@ function HostDashboardContent() {
                       : (roundEndInfo?.nextRound?.type || nextRound?.type || '').toUpperCase() ===
                             'FINAL_WAGER' ||
                           (currentRound?.type || '').toUpperCase() === 'FINAL_MULTIPLE_CHOICE'
-                        ? `Continue to begin the ${formatRoundTypeLabel(
+                        ? `Continue to begin the ${formatRoundTypeWithRoundSuffix(
                             roundEndInfo?.nextRound?.type || nextRound?.type || 'FINAL_WAGER',
-                          )} Round (no scoreboard this time).`
+                          )} (no scoreboard this time).`
                         : roundEndInfo?.nextRound
-                          ? `Up next: ${formatRoundTypeLabel(roundEndInfo.nextRound.type)} Round.`
+                          ? `Up next: ${formatRoundTypeWithRoundSuffix(roundEndInfo.nextRound.type)}.`
                           : nextRound
-                            ? `Up next: ${formatRoundTypeLabel(nextRound.type)} Round.`
+                            ? `Up next: ${formatRoundTypeWithRoundSuffix(nextRound.type)}.`
                             : 'Continue to view the scoreboard.'}
                   </p>
                   <button
@@ -3478,7 +3448,7 @@ function HostDashboardContent() {
                     {isLastRound
                       ? 'All Rounds Finished'
                       : nextRound
-                        ? `NEXT: ${formatRoundTypeLabel(nextRound.type)} Round`
+                        ? `NEXT: ${formatRoundTypeWithRoundSuffix(nextRound.type).toUpperCase()}`
                         : currentRound
                           ? normalizeRoundIntroTitle(
                               currentRound.name,
@@ -3491,7 +3461,7 @@ function HostDashboardContent() {
                     {isLastRound
                       ? 'All questions have been answered. View the final results.'
                       : nextRound && currentRound
-                        ? `All questions for ${formatRoundTypeLabel(currentRound.type)} are done. Click below to begin the ${formatRoundTypeLabel(nextRound.type)} Round, ${getNextRoundIntroBlurb(nextRound.type)}`
+                        ? `All questions for ${formatRoundTypeLabel(currentRound.type)} are done. Click below to begin ${formatRoundTypeWithRoundSuffix(nextRound.type)}, ${getNextRoundIntroBlurb(nextRound.type)}`
                         : 'All questions in this round are done. When you are ready, go to the next round.'}
                   </p>
                   <button
@@ -3507,7 +3477,7 @@ function HostDashboardContent() {
                     {isLastRound
                       ? 'Finish Game'
                       : nextRound
-                        ? `START ${formatRoundTypeLabel(nextRound.type).toUpperCase()} ROUND`
+                        ? formatRoundTypeStartButtonLabel(nextRound.type)
                         : 'Start next round'}
                   </button>
                 </div>

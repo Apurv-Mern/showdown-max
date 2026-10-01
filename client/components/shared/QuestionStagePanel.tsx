@@ -1,4 +1,7 @@
+'use client';
+
 import { cn, toDisplayUpper } from '@/lib/utils';
+import { VenueTimerRing } from '@/components/venue/VenueTimerRing';
 
 type QuestionStagePanelProps = {
   timerDisplay: string | number;
@@ -8,6 +11,7 @@ type QuestionStagePanelProps = {
   teamName?: string;
   score?: string | number;
   pointsDisplay?: string | number;
+  timerDuration?: number;
   className?: string;
 };
 
@@ -22,9 +26,12 @@ export function QuestionStagePanel({
   teamName,
   score,
   pointsDisplay,
+  timerDuration = 30,
   className,
 }: QuestionStagePanelProps) {
   const scoreValue = score ?? pointsDisplay ?? '0';
+  const remainingSeconds = Number(timerDisplay);
+  const remaining = Number.isFinite(remainingSeconds) ? remainingSeconds : 0;
 
   return (
     <div className={cn('flex w-full flex-col gap-5', className)}>
@@ -33,23 +40,9 @@ export function QuestionStagePanel({
         style={{
           background: 'linear-gradient(103deg, #00072F 0%, #00010A 100%)',
           border: '1px solid #0010FF',
-          boxShadow: 'inset 0 0 10px #0010FF',
         }}
       >
-        <div className="relative flex size-20 shrink-0 items-center justify-center">
-          <div
-            className="absolute inset-0 rounded-full"
-            style={{
-              background:
-                'radial-gradient(circle at 50% 50%, #1A00FF 30%, #000010 70%, #040040 100%)',
-              boxShadow: '0 0 12px #00D9FF',
-              border: '1.5px solid #00D9FF',
-            }}
-          />
-          <span className="relative z-10 text-[35px] font-bold leading-none text-white">
-            {timerDisplay}
-          </span>
-        </div>
+        <VenueTimerRing remainingSeconds={remaining} totalSeconds={timerDuration} size={80} />
 
         <div className="min-w-0 flex-1 text-center">
           <p className="text-[16px] font-bold uppercase leading-none text-[#00D9FF]">TEAM</p>
@@ -63,7 +56,6 @@ export function QuestionStagePanel({
           style={{
             background: '#00010A',
             border: '1px solid #0010FF',
-            boxShadow: 'inset 0 0 10px #0010FF',
           }}
         >
           <p className="text-[14px] font-bold uppercase leading-none text-[#00D9FF]">SCORE</p>

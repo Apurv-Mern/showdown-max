@@ -22,6 +22,10 @@ import {
   resolveBreakUpNextLabelFromBreakStart,
 } from '@/lib/breakScreenCopy';
 import { VenueWagerCollectionScreen } from '@/components/venue/VenueWagerCollectionScreen';
+import {
+  useVenueStageBackdropOverride,
+  VENUE_WAGER_SELECTION_BG,
+} from '@/components/venue/VenueStageBackdrop';
 import { emptyWagerDistributionCounts } from '@/lib/wagerGrid';
 import { VenueCodeOfConductScreen } from '@/components/venue/VenueCodeOfConductScreen';
 import { VenueWelcomeScreen } from '@/components/venue/VenueWelcomeScreen';
@@ -421,6 +425,7 @@ function VenueDisplayContent() {
   const [sessionPin, setSessionPin] = useState(initialPin);
   const [isPinReady, setIsPinReady] = useState(false);
   const [phase, setPhase] = useState<VenuePhase>('welcome');
+  useVenueStageBackdropOverride(phase === 'wager_collection' ? VENUE_WAGER_SELECTION_BG : null);
   const [qrCodeData, setQrCodeData] = useState<string>('');
   const [teams, setTeams] = useState<Team[]>([]);
   const [maxTeams, setMaxTeams] = useState(25);

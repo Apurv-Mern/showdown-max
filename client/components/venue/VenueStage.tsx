@@ -1,6 +1,10 @@
 'use client';
 
 import { type ReactNode, useEffect, useState } from 'react';
+import {
+  useVenueStageBackdrop,
+  VENUE_DEFAULT_STAGE_BG,
+} from '@/components/venue/VenueStageBackdrop';
 
 const STAGE_WIDTH = 1920;
 const STAGE_HEIGHT = 1080;
@@ -16,8 +20,11 @@ function readViewport() {
   };
 }
 
-export function VenueStage({ children }: { children: ReactNode }) {
+function VenueStageInner({ children }: { children: ReactNode }) {
   const [viewport, setViewport] = useState(readViewport);
+  const { backdropSrc } = useVenueStageBackdrop();
+  const resolvedBackdrop = backdropSrc ?? VENUE_DEFAULT_STAGE_BG;
+  const isCustomBackdrop = backdropSrc != null;
 
   useEffect(() => {
     const updateViewport = () => setViewport(readViewport());
@@ -41,11 +48,16 @@ export function VenueStage({ children }: { children: ReactNode }) {
     <div className="relative h-dvh w-screen overflow-hidden bg-[#020514]">
       {/* Backdrop spans the whole screen behind the scaled 1920×1080 stage. */}
       <div
-        className="pointer-events-none absolute inset-0 bg-cover bg-center"
-        style={{ backgroundImage: "url('/venue-stage-bg.png')" }}
+        className="pointer-events-none absolute inset-0 w-full bg-cover bg-center bg-no-repeat"
+        style={{
+          backgroundImage: `url('${resolvedBackdrop}')`,
+          backgroundSize: isCustomBackdrop ? '100% 100%' : 'cover',
+        }}
         aria-hidden
       />
-      <div className="pointer-events-none absolute inset-0 bg-black/40" aria-hidden />
+      {!isCustomBackdrop ? (
+        <div className="pointer-events-none absolute inset-0 bg-black/40" aria-hidden />
+      ) : null}
       <div
         className="absolute left-1/2 top-1/2 isolate overflow-hidden"
         data-venue-stage
@@ -61,4 +73,8 @@ export function VenueStage({ children }: { children: ReactNode }) {
       </div>
     </div>
   );
+}
+
+export function VenueStage({ children }: { children: ReactNode }) {
+  return <VenueStageInner>{children}</VenueStageInner>;
 }

@@ -1,8 +1,7 @@
 'use client';
 
 import { motion, AnimatePresence } from 'framer-motion';
-import { cn, toDisplayUpper } from '@/lib/utils';
-import { LoadingDots } from '@/app/play/LoadingDots';
+import { toDisplayUpper } from '@/lib/utils';
 import {
   FINAL_WAGER_GRID,
   FINAL_WAGER_PERCENT_OPTIONS,
@@ -11,9 +10,10 @@ import {
   playerWagerSubtitle,
   playerWagerTitle,
   STANDARD_WAGER_GRID,
-  tileClassForWagerValue,
   WAGER_POINT_OPTIONS,
 } from '@/lib/wagerGrid';
+import { PlayerWagerChoiceButton } from '@/components/player/PlayerWagerChoiceButton';
+import { PlayerWagerLockedView } from '@/components/player/PlayerWagerLockedView';
 
 export { WAGER_POINT_OPTIONS, FINAL_WAGER_PERCENT_OPTIONS };
 
@@ -28,9 +28,6 @@ function PlayerWagerBackground() {
     </div>
   );
 }
-
-const SELECTED_BUTTON =
-  'ring-[2.5px] ring-[#1de8ff] shadow-[0_0_18px_rgba(29,232,255,0.75)]';
 
 function resolveWagerCategoryLabel(
   category: string | null | undefined,
@@ -63,7 +60,7 @@ function WagerSelectionView({
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: -10 }}
-      className="relative z-10 flex min-h-0 w-full max-w-full flex-1 flex-col overflow-hidden px-5 pb-5 pt-5 sm:px-6 sm:pb-6 sm:pt-6"
+      className="relative z-10 flex min-h-0 w-full max-w-full flex-1 flex-col overflow-x-hidden overflow-y-hidden px-5 pb-5 pt-5 sm:px-6 sm:pb-6 sm:pt-6"
     >
       <header className="shrink-0 text-center">
         <h1 className="text-[25px] font-extrabold uppercase leading-[0.7] text-white">
@@ -98,76 +95,26 @@ function WagerSelectionView({
       </div>
 
       <div
-        className="mt-6 min-h-0 min-w-0 flex-1 touch-pan-y overflow-x-hidden overflow-y-auto overscroll-y-contain [-webkit-overflow-scrolling:touch]"
+        className="mt-6 min-h-0 min-w-0 flex-1 touch-pan-y overflow-y-auto overscroll-y-contain [-webkit-overflow-scrolling:touch] px-2"
         aria-label="Wager amount options"
       >
-        <div className="mx-auto flex w-full max-w-[400px] flex-col gap-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:gap-5">
-          {gridValues.map((value) => {
+        <div className="mx-auto flex w-full max-w-[360px] flex-col gap-4 px-2 pt-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
+          {gridValues.map((value, index) => {
             const enabled = wagerChoiceValues.includes(value);
             const selected = wagerAmount === value;
             return (
-              <button
+              <PlayerWagerChoiceButton
                 key={value}
-                type="button"
+                index={index}
+                label={formatWagerButtonLabel(value, isFinalWagerRound)}
+                selected={selected}
                 disabled={!enabled}
                 onClick={() => onSelectAmount(value)}
-                className={cn(
-                  'flex h-[clamp(3.25rem,14vw,4.0625rem)] w-full shrink-0 items-center justify-center rounded-[20px]',
-                  'text-[clamp(2rem,9vw,2.8125rem)] font-extrabold leading-none text-white touch-manipulation',
-                  '[text-shadow:0_4px_4px_rgba(0,0,0,0.7)] transition-all active:scale-[0.99]',
-                  tileClassForWagerValue(value, isFinalWagerRound),
-                  !enabled && 'pointer-events-none opacity-40',
-                  selected && SELECTED_BUTTON,
-                )}
-              >
-                {formatWagerButtonLabel(value, isFinalWagerRound)}
-              </button>
+              />
             );
           })}
         </div>
       </div>
-    </motion.div>
-  );
-}
-
-function WagerLockedView({
-  category,
-  wagerAmount,
-  isFinalWagerRound,
-}: {
-  category?: string | null;
-  wagerAmount: number;
-  isFinalWagerRound: boolean;
-}) {
-  const categoryLabel = resolveWagerCategoryLabel(category, isFinalWagerRound);
-  return (
-    <motion.div
-      key="wager-locked"
-      initial={{ opacity: 0, scale: 0.96 }}
-      animate={{ opacity: 1, scale: 1 }}
-      exit={{ opacity: 0, scale: 0.96 }}
-      className="relative z-10 flex w-full flex-1 flex-col items-center justify-center px-5 pb-10 pt-10 sm:px-6"
-    >
-      <p className="text-[clamp(0.95rem,4vw,1.1rem)] font-black uppercase tracking-[0.1em] text-[#1de8ff]">
-        {categoryLabel}
-      </p>
-      <div className="mt-3 flex h-[clamp(6.5rem,26vw,8.25rem)] w-[clamp(6.5rem,26vw,8.25rem)] items-center justify-center rounded-full bg-black shadow-[0_0_28px_rgba(29,232,255,0.7)] ring-[3px] ring-[#1de8ff]">
-        <span className="text-[clamp(3.25rem,13vw,4.25rem)] font-black leading-none text-white">
-          {formatWagerCircleValue(wagerAmount)}
-        </span>
-      </div>
-
-      <p className="mt-8 text-center text-[clamp(0.9rem,4vw,1.05rem)] font-black uppercase tracking-[0.06em] text-[#47eaff] drop-shadow-[0_0_12px_rgba(71,234,255,0.35)]">
-        Points Are Locked In !!
-      </p>
-
-      <div className="mt-5 w-full max-w-[min(16rem,78vw)] rounded-full bg-linear-to-b from-[#ff2b2b] via-[#c40012] to-[#7a0010] px-4 py-3.5 text-center shadow-[inset_0_2px_0_rgba(255,255,255,0.28),0_8px_22px_rgba(0,0,0,0.45)] sm:max-w-[17rem]">
-        <p className="text-[clamp(0.68rem,3vw,0.82rem)] font-black uppercase tracking-[0.05em] text-white">
-          Your Selected Points : {isFinalWagerRound ? `${wagerAmount}%` : `${wagerAmount} Pts`}
-        </p>
-      </div>
-
-      <LoadingDots variant="sequential" className="mt-10" gapClass="gap-2.5" />
     </motion.div>
   );
 }
@@ -194,11 +141,7 @@ export function PlayerWagerSelectionScreen({
       <PlayerWagerBackground />
       <AnimatePresence mode="wait">
         {wagerSubmitted ? (
-          <WagerLockedView
-            category={category}
-            wagerAmount={wagerAmount}
-            isFinalWagerRound={isFinalWagerRound}
-          />
+          <PlayerWagerLockedView wagerAmount={wagerAmount} isFinalWagerRound={isFinalWagerRound} />
         ) : (
           <WagerSelectionView
             category={category}

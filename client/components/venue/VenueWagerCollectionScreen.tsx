@@ -1,7 +1,6 @@
 'use client';
 
-import { cn, toDisplayUpper } from '@/lib/utils';
-import { FIGMA_OPTION_ACCENTS } from '@/lib/designTokens';
+import { toDisplayUpper } from '@/lib/utils';
 import {
   FINAL_WAGER_GRID,
   STANDARD_WAGER_GRID,
@@ -9,6 +8,7 @@ import {
 } from '@/lib/wagerGrid';
 import { VenueLogo } from '@/components/venue/VenueLogo';
 import { VenueWagerHud } from '@/components/venue/VenueLiveResponseHud';
+import { VenueWagerChoiceCard } from '@/components/venue/VenueWagerChoiceCard';
 import { formatRoundTypeDisplayLabel } from '@/lib/roundDisplayLabels';
 
 export function VenueWagerCollectionScreen({
@@ -41,7 +41,7 @@ export function VenueWagerCollectionScreen({
         className="absolute right-[40px] top-[40px] z-10"
       />
 
-      <div className="flex flex-col items-center pt-[8px]">
+      <div className="relative z-10 flex flex-col items-center pt-[8px]">
         <VenueLogo width={530} />
         <h1
           className="mt-4 text-center text-[150px] font-extrabold uppercase leading-[80px] text-white"
@@ -51,30 +51,16 @@ export function VenueWagerCollectionScreen({
         </h1>
       </div>
 
-      <div className="absolute left-[170px] top-[525px] grid w-[1580px] grid-cols-3 gap-x-[40px] gap-y-[40px]">
+      <div className="absolute left-[170px] top-[525px] z-10 grid w-[1584px] grid-cols-3 gap-x-[40px] gap-y-[40px]">
         {gridValues.map((value, index) => {
-          const tone = FIGMA_OPTION_ACCENTS[index % FIGMA_OPTION_ACCENTS.length];
           const n = wagerDistributionCounts[String(value)] ?? 0;
           return (
-            <div
+            <VenueWagerChoiceCard
               key={value}
-              className={cn(
-                'relative flex h-[220px] w-[500px] items-center justify-center rounded-[30px]',
-              )}
-              style={{
-                background: `linear-gradient(180deg, ${tone.from} 0%, ${tone.to} 100%)`,
-                boxShadow: `0 0 18px ${tone.accent}88`,
-              }}
-            >
-              <p className="text-[120px] font-extrabold uppercase leading-none text-white [text-shadow:0_6px_8px_black]">
-                {formatWagerGridLabel(value, isFinalWager)}
-              </p>
-              {n > 0 ? (
-                <span className="absolute bottom-4 text-[22px] font-bold uppercase tracking-wide text-white/90">
-                  {n} {n === 1 ? 'team' : 'teams'}
-                </span>
-              ) : null}
-            </div>
+              index={index}
+              label={formatWagerGridLabel(value, isFinalWager)}
+              teamCount={n}
+            />
           );
         })}
       </div>

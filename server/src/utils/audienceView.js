@@ -43,6 +43,32 @@ const buildAudienceViewPayload = async (gameState, pin) => {
     return null;
   }
 
+  if (gameState.audienceWagerCollectionOpen) {
+    const currentQuestion = buildAudienceQuestionPayload(
+      gameState,
+      gameState.currentQuestionIndex,
+    );
+    return {
+      state: 'WAGER_COLLECTION',
+      questionState: QUESTION_STATES.WAITING,
+      currentQuestionIndex: gameState.currentQuestionIndex,
+      currentQuestion,
+      timerRemaining: 0,
+      timerRunning: false,
+    };
+  }
+
+  if (gameState.audienceHoldRoundIntro) {
+    return {
+      state: 'ROUND_INTRO',
+      questionState: QUESTION_STATES.WAITING,
+      currentQuestionIndex: gameState.currentQuestionIndex ?? 0,
+      currentQuestion: null,
+      timerRemaining: 0,
+      timerRunning: false,
+    };
+  }
+
   const audIdx = resolveAudienceQuestionIndex(gameState);
   const audState = resolveAudienceQuestionState(gameState, audIdx);
 

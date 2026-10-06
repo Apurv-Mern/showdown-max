@@ -61,6 +61,9 @@ const getLockedWager = (gameState, round, teamId, questionId) => {
       const parsed = Number(perQ);
       if (Number.isFinite(parsed)) return parsed;
     }
+    // Per-question locks only — do not fall back to legacy roundWagers (would show Q1's
+    // wager as locked while collecting for Q2+ in the same Power Play round).
+    return null;
   }
   const legacy = gameState.roundWagers?.[String(round.id)]?.[String(teamId)];
   if (legacy === undefined || legacy === null) return null;

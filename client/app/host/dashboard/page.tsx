@@ -100,6 +100,12 @@ interface Team {
 interface GameState {
   state: string;
   questionState: string;
+  /** Venue/players see wager pick while host is in PREVIEW (Power Play). */
+  audienceWagerCollectionOpen?: boolean;
+  /** Host must press Collect Wager before Present (between questions in Power Play). */
+  hostPreviewAwaitingWagerCollection?: boolean;
+  /** Start Round preview: venue/players stay on round intro until Present. */
+  audienceHoldRoundIntro?: boolean;
   lobbyPhase?: 'registration' | 'code_of_conduct' | 'practice_question';
   /** Host overlay scoreboard while state may still be QUESTION / ROUND_END / etc. */
   scoreboardVisible?: boolean;
@@ -1581,9 +1587,17 @@ function HostDashboardContent() {
     socket.on('live_response_update', onLiveResponseUpdate);
     socket.on('live_responses_update', onLiveResponseUpdate);
     const onWagerCollectionStart = () => {
-      setGameState((prev) =>
-        prev ? { ...prev, state: 'WAGER_COLLECTION', questionState: 'WAITING' } : prev,
-      );
+      setGameState((prev) => {
+        if (!prev) return prev;
+        if (prev.state === 'QUESTION' && prev.questionState === 'PREVIEW') {
+          return {
+            ...prev,
+            audienceWagerCollectionOpen: true,
+            hostPreviewAwaitingWagerCollection: false,
+          };
+        }
+        return { ...prev, state: 'WAGER_COLLECTION', questionState: 'WAITING' };
+      });
       // New wager-collection screen — fresh counter (server will emit the initial 0/total
       // shortly after, but reset locally so the UI doesn't flash a stale count).
       setWagerLockedCount(0);
@@ -1790,10 +1804,6 @@ function HostDashboardContent() {
       const isRoundEmpty = Array.isArray(round?.questions) && round.questions.length === 0;
       if (isRoundEmpty) {
         emit('advance_round');
-        return;
-      }
-      if (round?.type === 'WAGER' || round?.type === 'FINAL_WAGER') {
-        emit('collect_wagers');
         return;
       }
     }
@@ -2210,10 +2220,6 @@ function HostDashboardContent() {
       handleAdvanceRound();
       return;
     }
-    if (s === 'ROUND_INTRO' && (round?.type === 'WAGER' || round?.type === 'FINAL_WAGER')) {
-      handleCollectWagers();
-      return;
-    }
     if (s === 'ROUND_END') {
       handleNextQuestion();
       return;
@@ -2232,7 +2238,11 @@ function HostDashboardContent() {
       const qLen = round?.questions?.length ?? 0;
       const isLast = qLen > 0 && idx === qLen - 1;
       if (qs === 'PREVIEW') {
-        handlePresentQuestion();
+        if (gs?.hostPreviewAwaitingWagerCollection) {
+          handleCollectWagers();
+        } else {
+          handlePresentQuestion();
+        }
         return;
       }
       if (qs === 'ACTIVE') {
@@ -2461,7 +2471,14 @@ function HostDashboardContent() {
     : miniGameFinishTriviaNotStarted
       ? 'Start Next Round'
       : 'Next Question';
-  const showPresentQuestionAction = state === 'QUESTION' && questionState === 'PREVIEW';
+  const showHostPreviewBanner = state === 'QUESTION' && questionState === 'PREVIEW';
+  const showCollectWagerDuringPreview =
+    showHostPreviewBanner &&
+    isCurrentRoundWagerLockRound &&
+    Boolean(gameState?.hostPreviewAwaitingWagerCollection);
+  const showPresentQuestionAction =
+    showHostPreviewBanner &&
+    (!isCurrentRoundWagerLockRound || !gameState?.hostPreviewAwaitingWagerCollection);
   const showNextQuestionAction =
     state === 'QUESTION' && questionState === 'REVEALED' && !isLastQuestionOfRound;
   // const showRevealAnswerAction = state === 'QUESTION' && questionState === 'ACTIVE';
@@ -3320,15 +3337,40 @@ function HostDashboardContent() {
             </div>
           ) : state === 'QUESTION' && currentQuestion ? (
             <div className="flex min-h-0 flex-1 flex-col animate-fadeIn">
-              {showPresentQuestionAction ? (
+              {showHostPreviewBanner ? (
                 <div className="mb-3 shrink-0 rounded-xl border border-[#f59e0b]/45 bg-[rgba(245,158,11,0.12)] px-4 py-2.5 text-center shadow-[0_0_16px_rgba(245,158,11,0.15)]">
                   <p className="text-xs font-black uppercase tracking-[0.12em] text-[#fcd34d]">
                     Host preview only
                   </p>
                   <p className="mt-1 text-sm font-medium text-white/75">
-                    Venue and players still see the previous screen. Use{' '}
-                    <span className="font-bold text-white">Present Question</span> or{' '}
-                    <span className="font-bold text-white">Space</span> to go live.
+                    {showCollectWagerDuringPreview ? (
+                      <>
+                        Review this question, then press{' '}
+                        <span className="font-bold text-white">Collect Wager</span> so venue and
+                        players lock points for this question. After wagers are in, use{' '}
+                        <span className="font-bold text-white">Present Question</span> or{' '}
+                        <span className="font-bold text-white">Space</span> to go live.
+                      </>
+                    ) : gameState?.audienceWagerCollectionOpen ? (
+                      <>
+                        Venue and players are locking wagers. When ready, use{' '}
+                        <span className="font-bold text-white">Present Question</span> or{' '}
+                        <span className="font-bold text-white">Space</span> to go live.
+                      </>
+                    ) : gameState?.audienceHoldRoundIntro ? (
+                      <>
+                        Venue and players still see the{' '}
+                        <span className="font-bold text-white">round intro</span>. Use{' '}
+                        <span className="font-bold text-white">Present Question</span> or{' '}
+                        <span className="font-bold text-white">Space</span> to go live.
+                      </>
+                    ) : (
+                      <>
+                        Venue and players still see the previous screen. Use{' '}
+                        <span className="font-bold text-white">Present Question</span> or{' '}
+                        <span className="font-bold text-white">Space</span> to go live.
+                      </>
+                    )}
                   </p>
                 </div>
               ) : null}
@@ -3688,13 +3730,21 @@ function HostDashboardContent() {
           <div className="space-y-10">
             <section data-name="Live Responses Panel" data-node-id="232:4549">
               <HostPanelTitle data-node-id="232:4556">
-                {state === 'WAGER_COLLECTION' ? 'Wager Lock Progress' : 'Live Responses'}
+                {state === 'WAGER_COLLECTION' ||
+                (state === 'QUESTION' &&
+                  questionState === 'PREVIEW' &&
+                  gameState?.audienceWagerCollectionOpen)
+                  ? 'Wager Lock Progress'
+                  : 'Live Responses'}
               </HostPanelTitle>
               <div
                 className="rounded-xl border border-[rgba(0,217,255,0.25)] bg-[#151b2e]/80 px-4 py-4"
                 data-name="Response Progress Container"
               >
-                {state === 'WAGER_COLLECTION' ? (
+                {state === 'WAGER_COLLECTION' ||
+                (state === 'QUESTION' &&
+                  questionState === 'PREVIEW' &&
+                  gameState?.audienceWagerCollectionOpen) ? (
                   <>
                     <p className="text-lg text-white" data-node-id="232:4555">
                       <span className="font-bold text-[#00d9ff]">{wagerLockedCount}</span>{' '}
@@ -3889,9 +3939,7 @@ function HostDashboardContent() {
                   } else {
                     handleStartGame();
                   }
-                } else if (state === 'ROUND_INTRO' && isCurrentRoundWagerLockRound)
-                  handleCollectWagers();
-                else if (state === 'ROUND_INTRO') handleNextQuestion();
+                } else if (state === 'ROUND_INTRO') handleNextQuestion();
                 else if (state === 'WAGER_COLLECTION') handleNextQuestion();
               }}
             >
@@ -3899,15 +3947,30 @@ function HostDashboardContent() {
                 ? lobbyPhase === 'registration'
                   ? 'Show Code of Conduct'
                   : 'Start Game'
-                : state === 'ROUND_INTRO' && isCurrentRoundWagerLockRound
-                  ? 'Lock Wager Points'
-                  : state === 'WAGER_COLLECTION'
+                : state === 'WAGER_COLLECTION'
                     ? 'Start Question'
                     : 'Start Round'}
             </HostFooterBtn>
+            {showCollectWagerDuringPreview ? (
+              <HostFooterBtn
+                emphasis
+                icon={
+                  <svg viewBox="0 0 24 24" fill="currentColor" className="text-[#00d9ff]">
+                    <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z" />
+                  </svg>
+                }
+                disabled={miniGameLive || activeMiniGameLocal != null || miniGameLoading}
+                onClick={handleCollectWagers}
+              >
+                Collect Wager
+              </HostFooterBtn>
+            ) : null}
             <HostFooterBtn
               emphasis={
-                showRevealAnswerAction || showNextQuestionAction || showPresentQuestionAction
+                showRevealAnswerAction ||
+                showNextQuestionAction ||
+                showPresentQuestionAction ||
+                showCollectWagerDuringPreview
               }
               icon={
                 <svg viewBox="0 0 24 24" fill="currentColor" className="text-[#00d9ff]">
@@ -4064,9 +4127,11 @@ function HostDashboardContent() {
             </HostFooterBtn>
           </div>
           <p className="mt-2 text-center text-[10px] text-white/30">
-            {showPresentQuestionAction
-              ? 'Space=Present Question · Skip advances preview without going live'
-              : 'Space=Next · T=Start Timer · P=Pause/Resume · S=Leaderboard — Music: T starts countdown + media; P pauses/resumes both'}
+            {showCollectWagerDuringPreview
+              ? 'Space=Collect Wager · then Present Question to go live'
+              : showPresentQuestionAction
+                ? 'Space=Present Question · Skip advances preview without going live'
+                : 'Space=Next · T=Start Timer · P=Pause/Resume · S=Leaderboard — Music: T starts countdown + media; P pauses/resumes both'}
           </p>
         </footer>
       ) : null}

@@ -189,8 +189,14 @@ function resolveLockedWagerFromPayload(
     teamId != null && roundId != null
       ? sources.roundWagers?.[String(roundId)]?.[String(teamId)]
       : undefined;
-  const raw =
-    fromQuestion != null && Number.isFinite(fromQuestion)
+  const scopedToQuestion = questionId != null;
+  const raw = scopedToQuestion
+    ? fromPerQuestion !== undefined && fromPerQuestion !== null
+      ? Number(fromPerQuestion)
+      : fromQuestion != null && Number.isFinite(fromQuestion)
+        ? fromQuestion
+        : null
+    : fromQuestion != null && Number.isFinite(fromQuestion)
       ? fromQuestion
       : fromTop != null && Number.isFinite(fromTop)
         ? fromTop
@@ -1123,12 +1129,13 @@ export default function GamePage() {
         if (gs.state === 'QUESTION') {
           questionStateRef.current = String(gs.questionState || '');
           if ((gs.questionState || '').toUpperCase() === 'PREVIEW') {
+            // Host PREVIEW while audience collects wagers — never resync players off wager UI.
+            if (phaseRef.current === 'wager_input') return;
             const keepLocalQuestionUi =
               questionRef.current &&
               (phaseRef.current === 'question' ||
                 phaseRef.current === 'answered' ||
-                phaseRef.current === 'reveal' ||
-                phaseRef.current === 'wager_input');
+                phaseRef.current === 'reveal');
             if (keepLocalQuestionUi) return;
             setPhase(currentlyEliminated ? 'eliminated' : 'waiting');
             setTimerRunning(false);
@@ -1421,12 +1428,14 @@ export default function GamePage() {
         }
 
         if (gs.state === 'WAGER_COLLECTION') {
+          questionStateRef.current = String(gs.questionState || 'WAITING');
           // Keep the upcoming question handle so the per-question wager draft + submit can
           // resolve `question.question.id`. The wager_input UI never renders the question
           // text/options, so exposing it here is purely a state plumbing concern.
           setQuestion(gs.currentQuestion || null);
-          if (gs.currentQuestion?.question?.category) {
-            setWagerCollectionCategory(String(gs.currentQuestion.question.category).trim());
+          const upcomingCategory = gs.currentQuestion?.question?.category;
+          if (upcomingCategory != null && String(upcomingCategory).trim()) {
+            setWagerCollectionCategory(String(upcomingCategory).trim());
           }
           setTimerEndsAt(null);
           setTimerRemaining(0);
@@ -1593,6 +1602,7 @@ export default function GamePage() {
     };
 
     const onWagerCollectionStart = (data: any) => {
+      questionStateRef.current = 'WAITING';
       if (data) {
         setRoundInfo(data);
         if (data.category != null && String(data.category).trim()) {
@@ -1773,6 +1783,7 @@ export default function GamePage() {
     };
 
     const onAnswerReveal = (data: RevealData) => {
+      if (phaseRef.current === 'wager_input') return;
       setHasInitialState(true);
       wagerLockRequiredRef.current = false;
       revealDataRef.current = data;
@@ -1843,6 +1854,7 @@ export default function GamePage() {
     };
 
     const ensureRevealAfterWagerLock = () => {
+      if (phaseRef.current === 'wager_input') return;
       if (wagerLockRequiredRef.current || revealDataRef.current) return;
       const pin = session.pin;
       const tid = session.teamId;
@@ -2321,8 +2333,14 @@ export default function GamePage() {
       socket.emit('submit_wager', { amount });
       setWagerSubmitted(true);
       wagerLockRequiredRef.current = false;
-      if ((questionStateRef.current || '').toUpperCase() === 'REVEALED' && !revealDataRef.current) {
-        ensureRevealAfterWagerLockRef.current?.();
+      // Only replay reveal for the same question that was REVEALED (missed reveal before lock).
+      // During host PREVIEW + Collect Wager, questionStateRef can still be REVEALED for the
+      // *previous* audience question — must not pull that snapshot while on wager_input.
+      if (phaseRef.current !== 'wager_input') {
+        const qs = (questionStateRef.current || '').toUpperCase();
+        if (qs === 'REVEALED' && !revealDataRef.current) {
+          ensureRevealAfterWagerLockRef.current?.();
+        }
       }
     },
     [
@@ -2568,7 +2586,7 @@ export default function GamePage() {
                   className="relative flex h-full min-h-0 w-full max-w-full flex-1 flex-col overflow-hidden"
                 >
                   <PlayerWagerSelectionScreen
-                    category={question?.question?.category ?? wagerCollectionCategory}
+                    category={wagerCollectionCategory ?? question?.question?.category}
                     isFinalWagerRound={isFinalWagerRound}
                     wagerAmount={wagerAmount}
                     wagerSubmitted={wagerSubmitted}

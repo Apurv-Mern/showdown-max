@@ -334,6 +334,9 @@ const buildFullStatePayload = async (gameState, pin) => {
   return {
     state: gameState.state,
     questionState: gameState.questionState,
+    audienceWagerCollectionOpen: Boolean(gameState.audienceWagerCollectionOpen),
+    audienceHoldRoundIntro: Boolean(gameState.audienceHoldRoundIntro),
+    hostPreviewAwaitingWagerCollection: Boolean(gameState.hostPreviewAwaitingWagerCollection),
     audienceView,
     currentRoundIndex: gameState.currentRoundIndex,
     currentQuestionIndex: gameState.currentQuestionIndex,

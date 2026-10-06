@@ -22,6 +22,7 @@ const { getBreakRemainingSeconds, getBreakUpNextRoundPayload } = require('../../
 const { normalizeTeamName } = require('../../utils/teamName');
 const { mapClientQuestionPayload } = require('../../utils/clientQuestionPayload');
 const { shouldWaitForHostAudioTimer } = require('../../utils/questionMedia');
+const { buildAudienceViewPayload } = require('../../utils/audienceView');
 
 const eliminationStates = new Map();
 
@@ -579,20 +580,25 @@ const nextQuestion = async (io, pin) => {
     return;
   }
 
+  /** @type {{ hostPreviewAwaitingWagerCollection?: boolean | null, audienceHoldRoundIntro?: boolean }} */
+  let previewOptions = {};
+
   if (gameState.state === GAME_STATES.ROUND_INTRO) {
     const round = stateMachine.getCurrentRound(gameState);
-    if (isWagerLockRound(round)) {
-      await startQuestionWagerCollection(io, pin);
-      return;
-    }
     const transResult = stateMachine.transition(gameState, GAME_STATES.QUESTION);
     if (!transResult.valid) return;
     gameState = transResult.gameState;
+    previewOptions = {
+      audienceHoldRoundIntro: true,
+      hostPreviewAwaitingWagerCollection: isWagerLockRound(round),
+    };
   } else if (gameState.state === GAME_STATES.WAGER_COLLECTION) {
-    // Host pressed "Start Question" after wager collection: open the upcoming question.
+    // Host pressed "Start Question" after wager collection: host preview (wagers already locked).
     const transResult = stateMachine.transition(gameState, GAME_STATES.QUESTION);
     if (!transResult.valid) return;
     gameState = transResult.gameState;
+    await proceedToStageQuestion(io, pin, gameState, { hostPreviewAwaitingWagerCollection: false });
+    return;
   } else if (gameState.state === GAME_STATES.SCOREBOARD) {
     // Post-round scoreboard — advance to the next round intro, never reopen the
     // last question at the same index.
@@ -615,13 +621,6 @@ const nextQuestion = async (io, pin) => {
       return;
     }
 
-    // Per-question wager lock: re-enter WAGER_COLLECTION for the upcoming question instead
-    // of activating it directly.
-    if (isWagerLockRound(round)) {
-      await startQuestionWagerCollection(io, pin);
-      return;
-    }
-
     const advance = stateMachine.advanceQuestion(gameState);
     if (!advance.hasNext) {
       await endRound(io, pin, gameState);
@@ -630,15 +629,29 @@ const nextQuestion = async (io, pin) => {
     gameState = advance.gameState;
   }
 
-  await proceedToStageQuestion(io, pin, gameState);
+  await proceedToStageQuestion(io, pin, gameState, previewOptions);
 };
 
 /** Stage current question index for host preview (no question_active). */
-const proceedToStageQuestion = async (io, pin, gameState) => {
+const proceedToStageQuestion = async (
+  io,
+  pin,
+  gameState,
+  { hostPreviewAwaitingWagerCollection = null, audienceHoldRoundIntro = false } = {},
+) => {
   gameState = stateMachine.stageQuestion(gameState);
+  gameState.audienceWagerCollectionOpen = false;
+  gameState.audienceHoldRoundIntro = Boolean(audienceHoldRoundIntro);
+  const round = stateMachine.getCurrentRound(gameState);
+  if (hostPreviewAwaitingWagerCollection === null) {
+    gameState.hostPreviewAwaitingWagerCollection = isWagerLockRound(round);
+  } else {
+    gameState.hostPreviewAwaitingWagerCollection = Boolean(hostPreviewAwaitingWagerCollection);
+  }
   if (
-    gameState.lastAudienceQuestionIndex === undefined ||
-    gameState.lastAudienceQuestionIndex === null
+    !gameState.audienceHoldRoundIntro &&
+    (gameState.lastAudienceQuestionIndex === undefined ||
+      gameState.lastAudienceQuestionIndex === null)
   ) {
     const priorIndex = Math.max(0, Number(gameState.currentQuestionIndex) - 1);
     gameState.lastAudienceQuestionIndex = priorIndex;
@@ -691,6 +704,9 @@ const proceedToActivateQuestion = async (
 ) => {
   gameState = applyDefaultZeroWagersForCurrentQuestion(gameState);
   gameState = stateMachine.activateQuestion(gameState);
+  gameState.audienceWagerCollectionOpen = false;
+  gameState.hostPreviewAwaitingWagerCollection = false;
+  gameState.audienceHoldRoundIntro = false;
   gameState.lastAudienceQuestionIndex = gameState.currentQuestionIndex;
   gameState.lastAudienceQuestionState = QUESTION_STATES.ACTIVE;
   const rosterIds = resolveActiveTeamIdsForStats(gameState);
@@ -1322,8 +1338,12 @@ const submitWager = async (io, pin, teamId, amount) => {
     if (fresh) {
       // Must include `currentQuestion` during QUESTION/WAGER_COLLECTION — bare
       // sanitizeForClients drops it and forces every client (players + host) onto the
-      // waiting UI.
-      io.to(`session:${pin}`).emit(SOCKET_EVENTS.SESSION_STATE, clientPayloadFromGameState(fresh));
+      // waiting UI. Include `audienceView` so venue/players stay on wager collection
+      // while the host remains on PREVIEW.
+      const payload = clientPayloadFromGameState(fresh);
+      const audienceView = await buildAudienceViewPayload(fresh, pin);
+      if (audienceView) payload.audienceView = audienceView;
+      io.to(`session:${pin}`).emit(SOCKET_EVENTS.SESSION_STATE, payload);
       emitWagerLockUpdate(io, pin, fresh);
     }
   }
@@ -2814,16 +2834,89 @@ const clientPayloadFromGameState = (gameState) => {
   return base;
 };
 
+const broadcastWagerCollectionStart = async (io, pin, gameState) => {
+  const round = stateMachine.getCurrentRound(gameState);
+  if (!round) return;
+  const upcomingQuestion = stateMachine.getCurrentQuestion(gameState);
+  io.to(`session:${pin}`).emit(SOCKET_EVENTS.WAGER_COLLECTION_START, {
+    round: {
+      id: round.id,
+      name: round.name,
+      type: round.type,
+      timerDuration: round.timerDuration,
+    },
+    roundIndex: gameState.currentRoundIndex,
+    totalRounds: gameState.rounds.length,
+    questionIndex: gameState.currentQuestionIndex,
+    totalQuestions: round.questions.length,
+    questionId: upcomingQuestion?.id ?? null,
+    category: upcomingQuestion?.category ?? null,
+  });
+  emitWagerLockUpdate(io, pin, gameState);
+};
+
+/** Wager lock for venue/players while host stays on QUESTION PREVIEW (Power Play flow). */
+const openAudienceWagerCollectionDuringPreview = async (io, pin) => {
+  let gameState = await redisStore.getGameState(pin);
+  if (!gameState) return;
+  const round = stateMachine.getCurrentRound(gameState);
+  if (
+    !round ||
+    !isWagerLockRound(round) ||
+    gameState.state !== GAME_STATES.QUESTION ||
+    gameState.questionState !== QUESTION_STATES.PREVIEW
+  ) {
+    logger.debug('openAudienceWagerCollectionDuringPreview ignored', {
+      pin,
+      state: gameState?.state,
+      questionState: gameState?.questionState,
+    });
+    return;
+  }
+  if (gameState.audienceWagerCollectionOpen) return;
+
+  gameState.audienceWagerCollectionOpen = true;
+  gameState.audienceHoldRoundIntro = false;
+  gameState.hostPreviewAwaitingWagerCollection = false;
+  await redisStore.setGameState(pin, gameState);
+
+  await broadcastWagerCollectionStart(io, pin, gameState);
+
+  const venueHandlers = require('../../socket/venueHandlers');
+  io.to(`session:${pin}`).emit(
+    SOCKET_EVENTS.SESSION_STATE,
+    await venueHandlers.buildFullStatePayload(gameState, pin),
+  );
+
+  logger.info('Audience wager collection opened during host preview', {
+    pin,
+    questionIndex: gameState.currentQuestionIndex,
+  });
+};
+
+/**
+ * Host pressed Collect Wager / Lock Wager Points — full WAGER_COLLECTION or audience-only during preview.
+ */
+const collectWagers = async (io, pin) => {
+  const gameState = await redisStore.getGameState(pin);
+  if (
+    gameState?.state === GAME_STATES.QUESTION &&
+    gameState.questionState === QUESTION_STATES.PREVIEW
+  ) {
+    await openAudienceWagerCollectionDuringPreview(io, pin);
+    return;
+  }
+  await startQuestionWagerCollection(io, pin);
+};
+
 /**
  * Start wager collection for the *upcoming* question in a Wager / Final Wager round.
  *
  * Supports three entry points:
  *  - ROUND_INTRO -> WAGER_COLLECTION (first question of the round; host pressed "Lock Wager Points")
- *  - QUESTION (REVEALED) -> WAGER_COLLECTION (per-question lock between consecutive questions)
  *  - SCOREBOARD -> WAGER_COLLECTION (rare path; host re-entered wager collection after showing scoreboard)
  *
- * When advancing from REVEALED, the question index is incremented first so the wager UI
- * targets the *next* question.
+ * Between questions in Power Play, host uses Next Question (preview) then Collect Wager (audience-only).
  */
 const startQuestionWagerCollection = async (io, pin) => {
   let gameState = await redisStore.getGameState(pin);
@@ -2864,30 +2957,12 @@ const startQuestionWagerCollection = async (io, pin) => {
 
   await redisStore.setGameState(pin, result.gameState);
 
-  const upcomingQuestion = stateMachine.getCurrentQuestion(result.gameState);
-
-  io.to(`session:${pin}`).emit(SOCKET_EVENTS.WAGER_COLLECTION_START, {
-    round: {
-      id: round.id,
-      name: round.name,
-      type: round.type,
-      timerDuration: round.timerDuration,
-    },
-    roundIndex: result.gameState.currentRoundIndex,
-    totalRounds: result.gameState.rounds.length,
-    questionIndex: result.gameState.currentQuestionIndex,
-    totalQuestions: round.questions.length,
-    questionId: upcomingQuestion?.id ?? null,
-    category: upcomingQuestion?.category ?? null,
-  });
+  await broadcastWagerCollectionStart(io, pin, result.gameState);
 
   io.to(`session:${pin}`).emit(
     SOCKET_EVENTS.SESSION_STATE,
     clientPayloadFromGameState(result.gameState),
   );
-
-  // Reset the locked-wager counter (no team has locked for the new question yet).
-  emitWagerLockUpdate(io, pin, result.gameState);
 
   logger.info('Wager collection started', {
     pin,
@@ -2898,8 +2973,8 @@ const startQuestionWagerCollection = async (io, pin) => {
   });
 };
 
-/** Back-compat alias — older callers used `startWagerCollection`. */
-const startWagerCollection = startQuestionWagerCollection;
+/** Host collect_wagers socket — preview-aware for Power Play rounds. */
+const startWagerCollection = collectWagers;
 
 /** Drop per-session in-memory maps when a session ends or is purged from cache. */
 const cleanupInMemorySession = (pin) => {

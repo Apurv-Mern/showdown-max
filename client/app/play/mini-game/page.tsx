@@ -20,22 +20,9 @@ import {
   defaultKangarooNames,
   resolveKangarooNames,
 } from '@/lib/kangarooRaceDefaults';
+import { PlayerKangarooSelectScreen } from '@/components/player/PlayerKangarooSelectScreen';
 
 type MiniGameType = 'kangaroo_race' | 'card_shuffle' | null;
-
-interface HorseOption {
-  id: number;
-  buttonClass: string;
-}
-
-const HORSES: HorseOption[] = [
-  { id: 1, buttonClass: 'bg-[#008df5] shadow-[0_7px_0_#005aa3]' },
-  { id: 2, buttonClass: 'bg-[#ff8900] shadow-[0_7px_0_#b45f00]' },
-  { id: 3, buttonClass: 'bg-[#2aac00] shadow-[0_7px_0_#1f7b00]' },
-  { id: 4, buttonClass: 'bg-[#e09b00] shadow-[0_7px_0_#9a6b00]' },
-  { id: 5, buttonClass: 'bg-[#6c00c8] shadow-[0_7px_0_#42007c]' },
-  { id: 6, buttonClass: 'bg-[#d50024] shadow-[0_7px_0_#8a0017]' },
-];
 const CARD_POSITIONS = [
   { id: 1, label: 'LEFT' },
   { id: 2, label: 'MIDDLE' },
@@ -51,7 +38,6 @@ const CARD_ROUND_BONUS: Record<1 | 2 | 3 | 4, number> = {
 };
 const CARD_FINISHED_MESSAGE = '';
 const MINI_GAME_FINISHED_MESSAGE = '';
-const KANGAROO_VENUE_FOOTER = 'THIS RACE WILL BE SHOWN ON THE VENUE SCREENS';
 const CARD_IMAGE_FACE_DOWN = '/games/card-shuffle/facedowncard.png';
 const CARD_IMAGE_JOKER = '/games/card-shuffle/jokercard.png';
 const CARD_IMAGE_QUEEN = '/games/card-shuffle/queencard.png';
@@ -841,7 +827,7 @@ export default function MiniGamePage() {
     <MobileFrame>
       <div
         className={
-          gameType === 'card_shuffle'
+          gameType === 'card_shuffle' || gameType === 'kangaroo_race'
             ? 'relative flex min-h-0 flex-1 flex-col overflow-hidden'
             : 'relative flex flex-1 items-center justify-center p-4 sm:p-6 md:p-8'
         }
@@ -857,77 +843,14 @@ export default function MiniGamePage() {
           </div>
         ) : null}
 
-        {gameType === 'kangaroo_race' &&
-          resultPhase === null &&
-          (() => {
-            const buttonsDisabled = !roundOpen || selectedChoice !== null;
-            return (
-              <div className="relative z-10 flex min-h-0 flex-1 flex-col px-5 pb-8 pt-8 sm:px-8">
-                <header className="shrink-0 text-center">
-                  <h1 className="text-[clamp(1.65rem,6vw,2.2rem)] font-black uppercase leading-tight tracking-[0.06em] text-white drop-shadow-[0_2px_12px_rgba(0,0,0,0.45)]">
-                    KANGAROO RACE !!
-                  </h1>
-                  <p className="mt-2 text-[1.05rem] font-extrabold leading-tight text-white sm:text-xl">
-                    SELECT YOUR KANGAROO
-                  </p>
-                </header>
-
-                <div className="mx-auto mt-4 flex h-[170px] w-[170px] items-center justify-center rounded-2xl">
-                  <img
-                    src="/KangarooPic.png"
-                    alt="Kangaroo"
-                    className="h-full w-full object-contain"
-                    onError={(e) => {
-                      const el = e.currentTarget;
-                      el.style.display = 'none';
-                    }}
-                  />
-                </div>
-
-                <div className="mt-4 grid grid-cols-2 gap-3">
-                  {HORSES.map((horse) => (
-                    <button
-                      key={horse.id}
-                      onClick={() => handleChoice(horse.id)}
-                      disabled={buttonsDisabled}
-                      className={cn(
-                        'rounded-xl py-4 text-center text-5xl font-black text-white transition-all duration-200 active:translate-y-0.5 active:shadow-none',
-                        horse.buttonClass,
-                        selectedChoice === horse.id
-                          ? 'ring-4 ring-white/55 scale-[1.02]'
-                          : buttonsDisabled
-                            ? 'opacity-40 saturate-75'
-                            : 'hover:brightness-110 hover:scale-[1.02]',
-                      )}
-                    >
-                      <div className="flex flex-col items-center px-2">
-                        <span className="text-sm font-bold leading-tight sm:text-base">
-                          {kangarooNames[horse.id - 1] || DEFAULT_KANGAROO_NAMES[horse.id - 1]}
-                        </span>
-                      </div>
-                    </button>
-                  ))}
-                </div>
-
-                <div className="mt-5 rounded-xl border border-[#00d8ff]/65 bg-[rgba(0,0,0,0.62)] px-4 py-3 text-center shadow-[0_0_12px_rgba(0,216,255,0.25)]">
-                  <p className="text-base font-black text-white">
-                    {selectedChoice
-                      ? 'PICK LOCKED !!'
-                      : !roundOpen
-                        ? 'RACE STARTED — PICKS ARE CLOSED'
-                        : KANGAROO_VENUE_FOOTER}
-                  </p>
-                  {selectedChoice ? (
-                    <p className="mt-1 text-sm font-bold text-white/80">{KANGAROO_VENUE_FOOTER}</p>
-                  ) : !roundOpen ? (
-                    <p className="mt-1 text-sm font-bold text-white/80">
-                      Watch the race on the venue screen
-                    </p>
-                  ) : null}
-                </div>
-              </div>
-            );
-          })()}
+        {gameType === 'kangaroo_race' && resultPhase === null ? (
+          <PlayerKangarooSelectScreen
+            kangarooNames={kangarooNames}
+            selectedChoice={selectedChoice}
+            roundOpen={roundOpen}
+            onSelect={handleChoice}
+          />
+        ) : null}
 
         {gameType === 'card_shuffle' &&
           activeCardRound == null &&

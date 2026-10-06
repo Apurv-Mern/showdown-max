@@ -37,7 +37,7 @@ export interface UnityWrapperProps {
 }
 
 function toCardUnityMessage(
-  type: 'MINIGAME_START' | 'MINIGAME_NEXT_ROUND' | 'MINIGAME_REVEAL',
+  type: 'MINIGAME_START' | 'MINIGAME_NEXT_ROUND' | 'MINIGAME_REVEAL' | 'SELECTION_COUNT',
   payload: Record<string, unknown> = {},
 ): string {
   // Card build contract expects payload as a JSON string, not a nested object.
@@ -271,27 +271,43 @@ export default function UnityWrapper({
     [gameType, isLoaded, sendMessage],
   );
 
-  const pushLineupToUnity = useCallback(() => {
-    if (!isLoaded || gameType !== 'Kangaroo_race') return;
+  const pushSelectionCountToUnity = useCallback(() => {
+    if (!isLoaded) return;
     const sel = selectionUpdateRef.current;
-    const names = Array.isArray(sel?.kangarooNames) ? sel.kangarooNames : [];
+    if (!sel) return;
     const selected = Number(sel?.totalSelected || 0);
     const teams = Number(sel?.totalTeams || 0);
-    sendUnityMessageDeferred(
-      'Racemanager',
-      'OnMessageFromReact',
-      toKangarooUnityMessage('SELECTION_COUNT', {
-        kangarooNames: names,
-        teamResponse: formatKangarooTeamResponse(selected, teams),
-        totalSelected: selected,
-        totalTeams: teams,
-        pickCounts: sel?.pickCounts ?? {},
-        timestamp: Date.now(),
-      }),
-    );
+    const countPayload = {
+      teamResponse: formatKangarooTeamResponse(selected, teams),
+      totalSelected: selected,
+      totalTeams: teams,
+      pickCounts: sel?.pickCounts ?? {},
+      timestamp: Date.now(),
+    };
+
+    if (gameType === 'Kangaroo_race') {
+      const names = Array.isArray(sel?.kangarooNames) ? sel.kangarooNames : [];
+      sendUnityMessageDeferred(
+        'Racemanager',
+        'OnMessageFromReact',
+        toKangarooUnityMessage('SELECTION_COUNT', {
+          kangarooNames: names,
+          ...countPayload,
+        }),
+      );
+      return;
+    }
+
+    if (gameType === 'card_shuffle') {
+      sendUnityMessageDeferred(
+        'GameManager',
+        'OnMessageFromReact',
+        toCardUnityMessage('SELECTION_COUNT', countPayload),
+      );
+    }
   }, [gameType, isLoaded, sendUnityMessageDeferred]);
 
-  pushLineupRef.current = pushLineupToUnity;
+  pushLineupRef.current = pushSelectionCountToUnity;
 
   const startGame = useCallback(
     (config: Record<string, unknown>) => {
@@ -383,9 +399,10 @@ export default function UnityWrapper({
   }, [command, gameType, isLoaded, startGame]);
 
   useEffect(() => {
-    if (!isLoaded || gameType !== 'Kangaroo_race' || !selectionUpdate) return;
-    pushLineupToUnity();
-  }, [gameType, isLoaded, selectionUpdate, pushLineupToUnity]);
+    if (!isLoaded || !selectionUpdate) return;
+    if (gameType !== 'Kangaroo_race' && gameType !== 'card_shuffle') return;
+    pushSelectionCountToUnity();
+  }, [gameType, isLoaded, selectionUpdate, pushSelectionCountToUnity]);
 
   useEffect(() => {
     const timer = setTimeout(() => {

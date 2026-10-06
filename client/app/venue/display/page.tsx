@@ -260,6 +260,26 @@ function kangarooSelectionTotal(
   return Object.values(kangarooPickCountsFromState(pickCounts)).reduce((sum, n) => sum + n, 0);
 }
 
+function cardPickCountsFromState(
+  pickCounts?: Record<string, number> | null,
+): Record<string, number> {
+  const next: Record<string, number> = { '1': 0, '2': 0, '3': 0 };
+  if (pickCounts && typeof pickCounts === 'object') {
+    for (const slot of [1, 2, 3]) {
+      next[String(slot)] = Number(pickCounts[slot] || pickCounts[String(slot)] || 0);
+    }
+  }
+  return next;
+}
+
+function cardSelectionTotal(
+  pickCounts?: Record<string, number> | null,
+  selections?: Record<string, unknown> | null,
+) {
+  if (selections && typeof selections === 'object') return Object.keys(selections).length;
+  return Object.values(cardPickCountsFromState(pickCounts)).reduce((sum, n) => sum + n, 0);
+}
+
 const normalizeVenueMiniGameType = (game: unknown): VenueMiniGameType | null => {
   const g = game == null || game === '' ? '' : String(game).toLowerCase().replace(/-/g, '_');
   if (g === 'kangaroo_race') return 'Kangaroo_race';
@@ -472,6 +492,16 @@ function VenueDisplayContent() {
   const kangarooSelectionNonceRef = useRef(0);
   const kangarooSelectedCountRef = useRef(0);
   const kangarooRosterCountRef = useRef(0);
+  const [cardSelectedCount, setCardSelectedCount] = useState(0);
+  const [cardPickCountsVenue, setCardPickCountsVenue] = useState<Record<string, number>>({
+    '1': 0,
+    '2': 0,
+    '3': 0,
+  });
+  const [cardSelectionNonce, setCardSelectionNonce] = useState(0);
+  const cardSelectionNonceRef = useRef(0);
+  const cardSelectedCountRef = useRef(0);
+  const cardRosterCountRef = useRef(0);
   const [miniGameResult, setMiniGameResult] = useState<{
     game: VenueMiniGameType;
     winningCard?: number;
@@ -532,6 +562,8 @@ function VenueDisplayContent() {
 
   kangarooSelectedCountRef.current = kangarooSelectedCount;
   kangarooRosterCountRef.current = Math.max(kangarooSelectedCount, totalTeams, teams.length);
+  cardSelectedCountRef.current = cardSelectedCount;
+  cardRosterCountRef.current = Math.max(cardSelectedCount, totalTeams, teams.length);
 
   const reportLeaderboardScrollState = useCallback(
     (scrollState: LeaderboardScrollState) => {
@@ -1226,6 +1258,19 @@ function VenueDisplayContent() {
           kangarooSelectionNonceRef.current += 1;
           setKangarooSelectionNonce(kangarooSelectionNonceRef.current);
         }
+        if (
+          normalizedActiveMiniGame === 'card_shuffle' ||
+          data.miniGameState?.game === 'card_shuffle'
+        ) {
+          const restoredCardCount = cardSelectionTotal(
+            data.miniGameState?.pickCounts,
+            data.miniGameState?.selections,
+          );
+          setCardSelectedCount(restoredCardCount);
+          setCardPickCountsVenue(cardPickCountsFromState(data.miniGameState?.pickCounts));
+          cardSelectionNonceRef.current += 1;
+          setCardSelectionNonce(cardSelectionNonceRef.current);
+        }
         if (data.miniGameState?.game === 'card_shuffle' && data.miniGameState?.revealed) {
           setMiniGameReveal({
             game: 'card_shuffle',
@@ -1786,6 +1831,12 @@ function VenueDisplayContent() {
         kangarooSelectionNonceRef.current += 1;
         setKangarooSelectionNonce(kangarooSelectionNonceRef.current);
       }
+      if (normalizedGame === 'card_shuffle' && !data.rejoinReplay) {
+        setCardSelectedCount(0);
+        setCardPickCountsVenue({ '1': 0, '2': 0, '3': 0 });
+        cardSelectionNonceRef.current += 1;
+        setCardSelectionNonce(cardSelectionNonceRef.current);
+      }
       if (data.venueReload || !data.rejoinReplay) {
         setUnityMountKey((k) => k + 1);
       }
@@ -1830,6 +1881,10 @@ function VenueDisplayContent() {
         lastCardShuffleUnityRef.current = null;
         clearCardShuffleRevealFlushTimers();
         setMiniGameReveal(null);
+        setCardSelectedCount(0);
+        setCardPickCountsVenue({ '1': 0, '2': 0, '3': 0 });
+        cardSelectionNonceRef.current += 1;
+        setCardSelectionNonce(cardSelectionNonceRef.current);
         // Hide the introduction overlay as soon as the host actually kicks
         // off the first/next round.
         setCardShuffleVenueStarted(true);
@@ -2019,17 +2074,32 @@ function VenueDisplayContent() {
       totalSelected?: number;
     }) => {
       const gid = normalizeVenueMiniGameId(data?.game);
-      if (gid !== 'kangaroo_race') return;
       if (data.action !== 'select') return;
-      const nextCount = Number.isFinite(Number(data.totalSelected))
-        ? Number(data.totalSelected)
-        : kangarooSelectionTotal(data.pickCounts);
-      setKangarooSelectedCount(nextCount);
-      if (data.pickCounts) {
-        setKangarooPickCounts(kangarooPickCountsFromState(data.pickCounts));
+
+      if (gid === 'kangaroo_race') {
+        const nextCount = Number.isFinite(Number(data.totalSelected))
+          ? Number(data.totalSelected)
+          : kangarooSelectionTotal(data.pickCounts);
+        setKangarooSelectedCount(nextCount);
+        if (data.pickCounts) {
+          setKangarooPickCounts(kangarooPickCountsFromState(data.pickCounts));
+        }
+        kangarooSelectionNonceRef.current += 1;
+        setKangarooSelectionNonce(kangarooSelectionNonceRef.current);
+        return;
       }
-      kangarooSelectionNonceRef.current += 1;
-      setKangarooSelectionNonce(kangarooSelectionNonceRef.current);
+
+      if (gid === 'card_shuffle') {
+        const nextCount = Number.isFinite(Number(data.totalSelected))
+          ? Number(data.totalSelected)
+          : cardSelectionTotal(data.pickCounts);
+        setCardSelectedCount(nextCount);
+        if (data.pickCounts) {
+          setCardPickCountsVenue(cardPickCountsFromState(data.pickCounts));
+        }
+        cardSelectionNonceRef.current += 1;
+        setCardSelectionNonce(cardSelectionNonceRef.current);
+      }
     };
 
     socket.on('session_state', onSessionState);
@@ -2131,6 +2201,21 @@ function VenueDisplayContent() {
       venueKangarooNames,
     ],
   );
+
+  const cardSelectionUpdate = useMemo(
+    () =>
+      miniGameType === 'card_shuffle'
+        ? {
+            nonce: cardSelectionNonce,
+            totalSelected: cardSelectedCount,
+            totalTeams: Math.max(cardSelectedCount, totalTeams, teams.length),
+            pickCounts: cardPickCountsVenue,
+          }
+        : null,
+    [miniGameType, cardSelectionNonce, cardSelectedCount, totalTeams, teams.length, cardPickCountsVenue],
+  );
+
+  const unitySelectionUpdate = kangarooSelectionUpdate ?? cardSelectionUpdate;
 
   const QROverlay = () => {
     if (
@@ -2398,7 +2483,7 @@ function VenueDisplayContent() {
               onGameComplete={handleUnityGameComplete}
               onReady={handleUnityReady}
               command={miniGameCommand}
-              selectionUpdate={kangarooSelectionUpdate}
+              selectionUpdate={unitySelectionUpdate}
               className="h-full w-full overflow-hidden bg-black"
             />
           </div>

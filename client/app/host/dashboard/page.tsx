@@ -1481,6 +1481,7 @@ function HostDashboardContent() {
       setCardShuffleVenueReady(false);
       if (normalizeHostMiniGameId(data?.game) === 'card_shuffle') {
         setCardShuffleVenueLoading(true);
+        setCardPickCounts([0, 0, 0]);
       }
       if (normalizeHostMiniGameId(data?.game) === 'kangaroo_race') {
         setKangarooRaceStarted(false);
@@ -1662,6 +1663,12 @@ function HostDashboardContent() {
         return;
       }
       if (isCards) {
+        if (data.pickCounts && typeof data.pickCounts === 'object') {
+          setCardPickCounts(
+            [1, 2, 3].map((slot) => Number(data.pickCounts?.[slot] || 0)),
+          );
+          return;
+        }
         const idx = data.value - 1;
         if (idx < 0 || idx > 2) return;
         setCardPickCounts((prev) => {
@@ -2409,6 +2416,7 @@ function HostDashboardContent() {
   /** Live roster is connected devices only — parked leftover joins stay off this count. */
   const rosterTeamCount = Math.max(0, connectedTeamList.length);
   const kangarooSelectedTotal = kangarooBetCounts.reduce((sum, n) => sum + Number(n || 0), 0);
+  const cardSelectedTotal = cardPickCounts.reduce((sum, n) => sum + Number(n || 0), 0);
   const activeTeamCountForLive =
     Array.isArray(gameState?.activeTeamIds) && gameState.activeTeamIds.length > 0
       ? gameState.activeTeamIds.length
@@ -3103,6 +3111,19 @@ function HostDashboardContent() {
                         {miniGameRevealing ? 'Revealing...' : 'Reveal Cards'}
                       </button>
                     )}
+                  </div>
+
+                  <div className="mt-2 w-full max-w-3xl rounded-xl border border-[#00d9ff]/30 bg-[#00d9ff]/10 px-4 py-3 text-center">
+                    <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-[#00d9ff]">
+                      Teams selected
+                    </p>
+                    <p className="mt-1 text-3xl font-black tabular-nums text-white">
+                      {cardSelectedTotal}
+                      <span className="text-lg font-bold text-white/45">
+                        {' '}
+                        / {Math.max(rosterTeamCount, cardSelectedTotal)}
+                      </span>
+                    </p>
                   </div>
 
                   <div className="mt-2 flex gap-4">

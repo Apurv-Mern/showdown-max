@@ -3471,7 +3471,7 @@ function HostDashboardContent() {
                         showRevealStyling &&
                         (isMajorityRulesRound
                           ? majorityOptionIndexes.has(i)
-                          : i === revealData.correctOptionIndex),
+                          : revealData != null && i === revealData.correctOptionIndex),
                       );
                       return (
                         <div

@@ -382,6 +382,25 @@ const buildLiveResponseStats = (gameState, question, responsesRaw = {}) => {
     }
   }
 
+  const responseDetails = activeTeamIds.map((teamId) => {
+    const numericTeamId = Number(teamId);
+    const raw = responsesRaw[String(teamId)];
+    if (raw === undefined || raw === null) {
+      return { teamId: numericTeamId, selectedOptionIndex: -1 };
+    }
+    const selectedOptionIndex = parseSelectedOptionIndex(raw);
+    if (Array.isArray(selectedOptionIndex)) {
+      return {
+        teamId: numericTeamId,
+        selectedOptionIndex: selectedOptionIndex.length > 0 ? selectedOptionIndex : -1,
+      };
+    }
+    return {
+      teamId: numericTeamId,
+      selectedOptionIndex: selectedOptionIndex >= 0 ? selectedOptionIndex : -1,
+    };
+  });
+
   return {
     correct,
     incorrect,
@@ -390,6 +409,7 @@ const buildLiveResponseStats = (gameState, question, responsesRaw = {}) => {
     correctTeamIds,
     incorrectTeamIds,
     noAnswerTeamIds,
+    responseDetails,
   };
 };
 
@@ -517,6 +537,14 @@ const nextQuestion = async (io, pin) => {
     return;
   }
 
+  if (
+    gameState.state === GAME_STATES.QUESTION &&
+    gameState.questionState === QUESTION_STATES.PREVIEW
+  ) {
+    logger.debug('nextQuestion ignored while question is staged for preview', { pin });
+    return;
+  }
+
   const liveTimer = timerManager.getTimerState(pin);
   if (
     gameState.state === GAME_STATES.QUESTION &&
@@ -602,6 +630,38 @@ const nextQuestion = async (io, pin) => {
     gameState = advance.gameState;
   }
 
+  await proceedToStageQuestion(io, pin, gameState);
+};
+
+/** Stage current question index for host preview (no question_active). */
+const proceedToStageQuestion = async (io, pin, gameState) => {
+  gameState = stateMachine.stageQuestion(gameState);
+  if (
+    gameState.lastAudienceQuestionIndex === undefined ||
+    gameState.lastAudienceQuestionIndex === null
+  ) {
+    const priorIndex = Math.max(0, Number(gameState.currentQuestionIndex) - 1);
+    gameState.lastAudienceQuestionIndex = priorIndex;
+    gameState.lastAudienceQuestionState = QUESTION_STATES.REVEALED;
+  }
+  await redisStore.setGameState(pin, gameState);
+  const venueHandlers = require('../../socket/venueHandlers');
+  const payload = await venueHandlers.buildFullStatePayload(gameState, pin);
+  io.to(`session:${pin}`).emit(SOCKET_EVENTS.SESSION_STATE, payload);
+  require('../sessionCheckpointService').persistNow(pin).catch(() => {});
+};
+
+/** Host confirmed preview — same go-live path as legacy immediate next_question. */
+const presentQuestion = async (io, pin) => {
+  let gameState = await redisStore.getGameState(pin);
+  if (!gameState || gameState.state !== GAME_STATES.QUESTION) return;
+  if (gameState.questionState !== QUESTION_STATES.PREVIEW) {
+    logger.debug('presentQuestion ignored — not in PREVIEW', {
+      pin,
+      questionState: gameState.questionState,
+    });
+    return;
+  }
   await proceedToActivateQuestion(io, pin, gameState);
 };
 
@@ -631,6 +691,8 @@ const proceedToActivateQuestion = async (
 ) => {
   gameState = applyDefaultZeroWagersForCurrentQuestion(gameState);
   gameState = stateMachine.activateQuestion(gameState);
+  gameState.lastAudienceQuestionIndex = gameState.currentQuestionIndex;
+  gameState.lastAudienceQuestionState = QUESTION_STATES.ACTIVE;
   const rosterIds = resolveActiveTeamIdsForStats(gameState);
   if (
     rosterIds.length > 0 &&
@@ -921,7 +983,10 @@ const updateLiveQuestion = async (io, pin, payload) => {
         buildLiveResponseStats(gameState, cq, responsesRaw),
       );
     }
-    if (gameState.state === GAME_STATES.QUESTION) {
+    if (
+      gameState.state === GAME_STATES.QUESTION &&
+      gameState.questionState === QUESTION_STATES.ACTIVE
+    ) {
       await emitQuestionActiveForCurrent(io, pin, { submissionReset });
     }
   }
@@ -939,6 +1004,7 @@ const skipQuestion = async (io, pin) => {
     return;
   }
 
+  const inPreview = gameState.questionState === QUESTION_STATES.PREVIEW;
   const skipped = stateMachine.getCurrentQuestion(gameState);
   const skippedId = skipped?.id;
 
@@ -966,13 +1032,24 @@ const skipQuestion = async (io, pin) => {
     return;
   }
   gameState = advance.gameState;
-  await redisStore.setGameState(pin, gameState);
 
   if (isWagerLockRound(round)) {
+    await redisStore.setGameState(pin, gameState);
     await startQuestionWagerCollection(io, pin);
     return;
   }
 
+  if (inPreview) {
+    await proceedToStageQuestion(io, pin, gameState);
+    logger.info('Staged preview skipped to next question', {
+      pin,
+      skippedQuestionId: skippedId,
+      questionIndex: gameState.currentQuestionIndex,
+    });
+    return;
+  }
+
+  await redisStore.setGameState(pin, gameState);
   await proceedToActivateQuestion(io, pin, gameState);
   logger.info('Question skipped (no scoring)', {
     pin,
@@ -1045,9 +1122,9 @@ const jumpToQuestion = async (io, pin, questionIndex) => {
     return;
   }
 
-  await proceedToActivateQuestion(io, pin, gameState, { submissionReset: true });
+  await proceedToStageQuestion(io, pin, gameState);
   require('../sessionCheckpointService').persistNow(pin).catch(() => {});
-  logger.info('Jumped to question', {
+  logger.info('Jumped to question (host preview)', {
     pin,
     questionIndex: idx,
     questionId: targetId,
@@ -1070,6 +1147,19 @@ const submitAnswer = async (io, pin, teamId, data) => {
         : 0;
   if (effectiveRemaining <= 0) {
     logger.info('Rejected late answer after timer expiry', {
+      pin,
+      teamId,
+      roundIndex: gameState.currentRoundIndex,
+      questionIndex: gameState.currentQuestionIndex,
+    });
+    return;
+  }
+
+  const timerRunningLive = timerManager.hasLiveTimer(pin)
+    ? timerManager.getTimerState(pin).running
+    : Boolean(gameState.timerRunning);
+  if (!timerRunningLive) {
+    logger.info('Rejected answer while timer paused or not started', {
       pin,
       teamId,
       roundIndex: gameState.currentRoundIndex,
@@ -1262,6 +1352,8 @@ const revealAnswer = async (io, pin) => {
   timerManager.stopTimer(pin);
   flushTimerPersistRemaining(pin);
   gameState = stateMachine.revealAnswer(gameState);
+  gameState.lastAudienceQuestionIndex = gameState.currentQuestionIndex;
+  gameState.lastAudienceQuestionState = QUESTION_STATES.REVEALED;
 
   const round = stateMachine.getCurrentRound(gameState);
   const question = stateMachine.getCurrentQuestion(gameState);
@@ -1870,6 +1962,69 @@ const skipNextRound = async (io, pin) => {
 };
 
 /**
+ * After a team leaves the live roster (host remove or passive disconnect), rebroadcast
+ * response totals and live-answer buckets for the current question when applicable.
+ */
+const publishQuestionLiveStatsAfterRosterChange = async (io, pin, options = {}) => {
+  const removedTeamId = Number(options.removedTeamId);
+  if (eliminationStates.has(pin) && Number.isFinite(removedTeamId)) {
+    const es = eliminationStates.get(pin);
+    es.activeTeamIds = (es.activeTeamIds || [])
+      .map(Number)
+      .filter((id) => id !== removedTeamId);
+  }
+
+  const freshGameState = await redisStore.getGameState(pin);
+  if (!freshGameState) return freshGameState;
+
+  if (
+    freshGameState.state === GAME_STATES.QUESTION &&
+    (freshGameState.questionState === QUESTION_STATES.ACTIVE ||
+      freshGameState.questionState === QUESTION_STATES.REVEALED)
+  ) {
+    const question = stateMachine.getCurrentQuestion(freshGameState);
+    if (question) {
+      const responsesRaw = await redisStore.getResponses(pin, question.id);
+      const activeTeamIds = Array.isArray(freshGameState.activeTeamIds)
+        ? freshGameState.activeTeamIds
+        : [];
+
+      if (freshGameState.questionState === QUESTION_STATES.ACTIVE) {
+        const answeredAmongActive = countValidAnswersAmongTeamIds(responsesRaw, activeTeamIds);
+        freshGameState.responseCount = answeredAmongActive;
+        await redisStore.setGameState(pin, freshGameState);
+        io.to(`session:${pin}`).emit(SOCKET_EVENTS.RESPONSE_COUNT, {
+          count: answeredAmongActive,
+          total: activeTeamIds.length,
+        });
+      }
+
+      io.to(`session:${pin}`).emit(
+        SOCKET_EVENTS.LIVE_RESPONSE_UPDATE,
+        buildLiveResponseStats(freshGameState, question, responsesRaw),
+      );
+    }
+  }
+
+  if (
+    freshGameState.state === GAME_STATES.SCOREBOARD &&
+    !freshGameState.activeMiniGame
+  ) {
+    const sortedTeams = Object.values(freshGameState.teams || {}).sort(
+      (a, b) => b.score - a.score,
+    );
+    const revealSnapshot = await buildRevealSnapshot(pin, freshGameState);
+    io.to(`session:${pin}`).emit(SOCKET_EVENTS.SCOREBOARD, {
+      teams: sortedTeams,
+      source: 'reconnect',
+      ...(revealSnapshot ? { revealSnapshot } : {}),
+    });
+  }
+
+  return freshGameState;
+};
+
+/**
  * Parks the team after a disconnect (drop from active roster, keep leaderboard entry).
  */
 const executePlayerDisconnectPurge = async (io, pin, teamId, options = {}) => {
@@ -1887,69 +2042,24 @@ const executePlayerDisconnectPurge = async (io, pin, teamId, options = {}) => {
 
   const { removedSocketId } = await purgeTeamFromLiveSession(pin, teamId);
 
-  const freshGameState = await redisStore.getGameState(pin);
-
-  if (eliminationStates.has(pin)) {
-    const es = eliminationStates.get(pin);
-    es.activeTeamIds = (es.activeTeamIds || []).map(Number).filter((id) => id !== teamId);
-  }
-
   // Wager locks survive a tab refresh: `purgeTeamFromLiveSession` already keeps
   // `questionWagers` for passive disconnects so reconnecting players still read their
   // locked amount from Redis. Do not delete entries here — that used to wipe locks on
   // every refresh and also risked overwriting Redis with a stale pre-purge snapshot.
+  let freshGameState = await redisStore.getGameState(pin);
   if (freshGameState && freshGameState.state === GAME_STATES.WAGER_COLLECTION) {
     emitWagerLockUpdate(io, pin, freshGameState);
   }
 
-  if (
-    freshGameState &&
-    freshGameState.state === GAME_STATES.QUESTION &&
-    freshGameState.questionState === QUESTION_STATES.ACTIVE
-  ) {
-    const question = stateMachine.getCurrentQuestion(freshGameState);
-    if (question) {
-      const responsesRaw = await redisStore.getResponses(pin, question.id);
-      const activeTeamIds = Array.isArray(freshGameState.activeTeamIds)
-        ? freshGameState.activeTeamIds
-        : [];
-      const answeredAmongActive = countValidAnswersAmongTeamIds(responsesRaw, activeTeamIds);
-      freshGameState.responseCount = answeredAmongActive;
-      await redisStore.setGameState(pin, freshGameState);
-      io.to(`session:${pin}`).emit(SOCKET_EVENTS.RESPONSE_COUNT, {
-        count: answeredAmongActive,
-        total: activeTeamIds.length,
-      });
-      io.to(`session:${pin}`).emit(
-        SOCKET_EVENTS.LIVE_RESPONSE_UPDATE,
-        buildLiveResponseStats(freshGameState, question, responsesRaw),
-      );
-
-      // Timer policy (matches submitAnswer): all rounds let the clock run to completion
-      // even when every remaining team has answered. Auto-reveal is driven by timer
-      // expiry alone, so a disconnect that completes the roster never short-circuits it.
-    }
-  }
+  freshGameState = await publishQuestionLiveStatsAfterRosterChange(io, pin, {
+    removedTeamId: teamId,
+  });
 
   if (freshGameState) {
     io.to(`session:${pin}`).emit(
       SOCKET_EVENTS.SESSION_STATE,
       clientPayloadFromGameState(freshGameState),
     );
-    if (
-      freshGameState.state === GAME_STATES.SCOREBOARD &&
-      !freshGameState.activeMiniGame
-    ) {
-      const sortedTeams = Object.values(freshGameState.teams || {}).sort(
-        (a, b) => b.score - a.score,
-      );
-      const revealSnapshot = await buildRevealSnapshot(pin, freshGameState);
-      io.to(`session:${pin}`).emit(SOCKET_EVENTS.SCOREBOARD, {
-        teams: sortedTeams,
-        source: 'reconnect',
-        ...(revealSnapshot ? { revealSnapshot } : {}),
-      });
-    }
   }
 
   io.to(`session:${pin}`).emit(SOCKET_EVENTS.TEAM_REMOVED, {
@@ -2666,10 +2776,10 @@ const sanitizeForClients = (gameState) => {
   if (sanitized.rounds) {
     sanitized.rounds = sanitized.rounds.map((r) => ({
       ...r,
-      questions: r.questions.map((q) => ({
+      questions: (r.questions || []).map((q) => ({
         id: q.id,
         text: q.text,
-        optionCount: q.options.length,
+        optionCount: q.options?.length ?? 0,
         mediaUrl: q.mediaUrl,
         mediaType: q.mediaType,
       })),
@@ -2866,6 +2976,7 @@ const getInMemoryDiagnostics = () => ({
 module.exports = {
   startGame,
   nextQuestion,
+  presentQuestion,
   submitAnswer,
   submitWager,
   revealAnswer,
@@ -2894,4 +3005,5 @@ module.exports = {
   skipQuestion,
   jumpToQuestion,
   restoreEliminationState,
+  publishQuestionLiveStatsAfterRosterChange,
 };

@@ -207,10 +207,10 @@ function InstructionBlock({
             ? 'text-[clamp(0.95rem,2.45vh,1.75rem)] font-black'
             : 'text-[clamp(1.1rem,2.85vh,2.05rem)] font-black'
         : isRelaxed
-          ? 'text-[clamp(0.82rem,1.9vh,1.38rem)] font-black'
+          ? 'text-[clamp(0.74rem,1.65vh,1.22rem)] font-black'
           : isCompact
-            ? 'text-[clamp(0.72rem,1.65vh,1.2rem)] font-black'
-            : 'text-[clamp(0.9rem,2.1vh,1.55rem)] font-black',
+            ? 'text-[clamp(0.65rem,1.45vh,1.05rem)] font-black'
+            : 'text-[clamp(0.78rem,1.75vh,1.32rem)] font-black',
   );
 
   const lineGap =
@@ -297,10 +297,10 @@ export function RoundIntroScoringLines({
               ? 'text-[clamp(0.78rem,1.75vh,1.05rem)]'
               : 'text-[clamp(1rem,2.35vh,1.5rem)]'
           : isRelaxed
-            ? 'text-[clamp(0.75rem,1.65vh,1.08rem)]'
+            ? 'text-[clamp(0.68rem,1.45vh,0.95rem)]'
             : isCompact
-              ? 'text-[clamp(0.62rem,1.35vh,0.88rem)]'
-              : 'text-[clamp(0.8rem,1.85vh,1.2rem)]',
+              ? 'text-[clamp(0.58rem,1.2vh,0.82rem)]'
+              : 'text-[clamp(0.7rem,1.55vh,1.05rem)]',
       );
 
   const bannerLines = instructions.bannerLines?.length

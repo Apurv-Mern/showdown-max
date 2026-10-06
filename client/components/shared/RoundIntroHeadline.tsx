@@ -19,46 +19,37 @@ export function splitRoundIntroSubtitle(title: string): string[] {
 
 type HeadlineSize = 'player' | 'host' | 'hostModal' | 'venue';
 
-function isMusicRoundTitleOnly(roundType?: string): boolean {
-  const type = (roundType || '').toUpperCase();
-  return type === 'MUSIC' || type === 'AUDIO_VIDEO';
-}
-
 const SIZE = {
   player: {
     wrap: 'h-full w-full px-[14%]',
-    round:
-      'bg-linear-to-b from-[#FFFFFF] to-[#FFC870] bg-clip-text text-[clamp(1.2rem,4.2vw,1.85rem)] font-extrabold uppercase leading-none text-transparent md:text-[clamp(1.45rem,3vw,2.05rem)]',
-    subtitle: 'mt-1 w-full max-h-[46%] font-extrabold uppercase leading-[1.05]',
+    title: 'mt-0 w-full max-h-full font-extrabold uppercase leading-[1.05]',
     line: 'bg-linear-to-b from-[#FFFFFF] to-[#FFC870] bg-clip-text text-transparent',
-    min: 11,
-    max: 22,
-  },
-  host: {
-    wrap: 'w-full px-[8%]',
-    round: 'font-black uppercase leading-none text-[#fff4c2] text-[clamp(1.35rem,2.6vw,2.1rem)]',
-    subtitle: 'mt-1.5 w-full max-h-[4.5rem] font-black uppercase leading-[1.05] text-[#fff4c2]',
-    line: '',
-    min: 13,
-    max: 24,
-  },
-  hostModal: {
-    wrap: 'w-full px-[10%]',
-    round: 'font-black uppercase leading-none text-[#fff4c2] text-[clamp(1.6rem,3.4vw,2.4rem)]',
-    subtitle: 'mt-2 w-full max-h-[5.25rem] font-black uppercase leading-[1.05] text-[#fff4c2]',
-    line: '',
     min: 14,
     max: 28,
   },
-  venue: {
-    wrap: 'h-full w-full px-[16%]',
-    round: 'text-[clamp(56px,8.4cqw,88px)] font-extrabold uppercase leading-none text-white',
-    number: 'text-[clamp(88px,14cqw,150px)] font-extrabold leading-[0.88] text-white',
-    subtitle:
-      'mt-3 w-full max-h-[128px] font-extrabold uppercase leading-[1.08] text-white [text-shadow:0_8px_10px_rgba(0,0,0,0.8)]',
+  host: {
+    wrap: 'h-full w-full px-[5%]',
+    title:
+      'flex h-full w-full items-center justify-center font-black uppercase leading-[0.92] text-[#fff4c2]',
     line: '',
     min: 22,
-    max: 40,
+    max: 42,
+  },
+  hostModal: {
+    wrap: 'h-full w-full px-[6%]',
+    title:
+      'flex h-full w-full items-center justify-center font-black uppercase leading-[0.92] text-[#fff4c2]',
+    line: '',
+    min: 24,
+    max: 46,
+  },
+  venue: {
+    wrap: 'h-full w-full px-[12%]',
+    title:
+      'flex h-full w-full items-center justify-center text-center font-extrabold uppercase leading-[0.88] text-white [text-shadow:0_8px_10px_rgba(0,0,0,0.8)]',
+    line: '',
+    min: 56,
+    max: 150,
   },
 } as const;
 
@@ -78,79 +69,38 @@ export function RoundIntroHeadline({
   className,
 }: RoundIntroHeadlineProps) {
   const cfg = SIZE[size];
-  const musicTitleOnly = isMusicRoundTitleOnly(roundType);
-  const venueMusicOnly = musicTitleOnly && size === 'venue';
-  const playerMusicOnly = musicTitleOnly && size === 'player';
-  const titleSource = musicTitleOnly
-    ? subtitle || formatRoundTypeDisplayLabel(roundType)
-    : subtitle;
-  const lines = titleSource ? splitRoundIntroSubtitle(titleSource) : [];
+  const titleSource =
+    (subtitle || '').trim() ||
+    formatRoundTypeDisplayLabel(roundType) ||
+    toDisplayUpper(`Round ${roundNumber}`);
+  let lines = splitRoundIntroSubtitle(titleSource);
+  if (size === 'host' || size === 'hostModal') {
+    const joined = lines.join(' ').trim();
+    if (joined.length > 0 && joined.length <= 16) {
+      lines = [joined];
+    }
+  }
 
   return (
     <div
       className={cn(
         'flex min-h-0 min-w-0 flex-col items-center justify-center text-center',
         cfg.wrap,
-        venueMusicOnly && 'px-[10%]',
         className,
       )}
     >
-      {playerMusicOnly ? (
-        <VenueAutoFitText
-          className={cn(cfg.subtitle, 'mt-0 max-h-full w-full')}
-          minFontSize={cfg.min}
-          maxFontSize={cfg.max}
-          step={1}
-        >
-          {lines.map((line) => (
-            <span key={line} className={cn('block', cfg.line || undefined)}>
-              {line}
-            </span>
-          ))}
-        </VenueAutoFitText>
-      ) : venueMusicOnly ? (
-        <VenueAutoFitText
-          className={cn(
-            'flex h-full w-full items-center justify-center text-center font-extrabold uppercase leading-[0.88] text-white',
-            '[text-shadow:0_8px_10px_rgba(0,0,0,0.8)]',
-          )}
-          minFontSize={56}
-          maxFontSize={150}
-          step={2}
-        >
-          {lines.map((line) => (
-            <span key={line} className="block w-full text-center">
-              {line}
-            </span>
-          ))}
-        </VenueAutoFitText>
-      ) : size === 'venue' ? (
-        <>
-          <p className={cfg.round} style={{ textShadow: '0 8px 10px rgba(0,0,0,0.8)' }}>
-            ROUND
-          </p>
-          <p className={SIZE.venue.number} style={{ textShadow: '0 8px 10px rgba(0,0,0,0.8)' }}>
-            {roundNumber}
-          </p>
-        </>
-      ) : (
-        <p className={cfg.round}>ROUND {roundNumber}</p>
-      )}
-
-      {!musicTitleOnly && lines.length ? (
-        <VenueAutoFitText
-          className={cfg.subtitle}
-          minFontSize={cfg.min}
-          maxFontSize={cfg.max}
-          step={1}
-        >
-          {lines.map((line) => (
-            <span key={line} className={cn('block', cfg.line || undefined)}>
-              {line}
-            </span>
-          ))}
-        </VenueAutoFitText>
-      ) : null}
+      <VenueAutoFitText
+        className={cfg.title}
+        minFontSize={cfg.min}
+        maxFontSize={cfg.max}
+        step={size === 'venue' ? 2 : 1}
+      >
+        {lines.map((line) => (
+          <span key={line} className={cn('block w-full text-center', cfg.line || undefined)}>
+            {line}
+          </span>
+        ))}
+      </VenueAutoFitText>
     </div>
   );
 }

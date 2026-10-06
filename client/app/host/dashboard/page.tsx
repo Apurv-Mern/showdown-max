@@ -191,6 +191,11 @@ function resolveHostRosterCount(
   return activeCount > 0 ? activeCount : Math.max(0, Number(totalTeams || 0));
 }
 
+type LiveResponseDetail = {
+  teamId: number;
+  selectedOptionIndex: number | number[];
+};
+
 type LiveResponsesState = {
   correct: number;
   incorrect: number;
@@ -199,15 +204,17 @@ type LiveResponsesState = {
   correctTeamIds: number[];
   incorrectTeamIds: number[];
   noAnswerTeamIds: number[];
+  responseDetails: LiveResponseDetail[];
 };
 
 const emptyLiveResponseBuckets = (): Pick<
   LiveResponsesState,
-  'correctTeamIds' | 'incorrectTeamIds' | 'noAnswerTeamIds'
+  'correctTeamIds' | 'incorrectTeamIds' | 'noAnswerTeamIds' | 'responseDetails'
 > => ({
   correctTeamIds: [],
   incorrectTeamIds: [],
   noAnswerTeamIds: [],
+  responseDetails: [],
 });
 
 /** Fresh tallies when a question opens (or resumes) with no answers yet. */
@@ -230,6 +237,7 @@ function bootstrapLiveResponseStats(
     incorrectTeamIds: [],
     noAnswerTeamIds:
       ans === 0 && rosterIds.length > 0 ? rosterIds : [],
+    responseDetails: [],
   };
 }
 
@@ -299,10 +307,96 @@ function liveStatsFromRevealPayload(reveal: RevealData, roundType?: string): Liv
   }
 
   const total = Math.max(reveal.teams?.length ?? 0, details.length, correct + incorrect + noAnswer);
-  return { correct, incorrect, noAnswer, total, correctTeamIds, incorrectTeamIds, noAnswerTeamIds };
+  let responseDetails = normalizeLiveResponseDetails(details);
+  if (responseDetails.length === 0 && reveal.teams?.length) {
+    responseDetails = reveal.teams
+      .map((t) => Number(t.teamId))
+      .filter((id) => Number.isFinite(id))
+      .map((teamId) => ({ teamId, selectedOptionIndex: -1 }));
+  }
+  return {
+    correct,
+    incorrect,
+    noAnswer,
+    total,
+    correctTeamIds,
+    incorrectTeamIds,
+    noAnswerTeamIds,
+    responseDetails,
+  };
 }
 
 const OPTION_LETTERS = ['A', 'B', 'C', 'D', 'E', 'F'];
+
+function normalizeLiveResponseDetails(raw: unknown): LiveResponseDetail[] {
+  if (!Array.isArray(raw)) return [];
+  const out: LiveResponseDetail[] = [];
+  for (const entry of raw) {
+    const teamId = Number((entry as LiveResponseDetail)?.teamId);
+    const sel = (entry as LiveResponseDetail)?.selectedOptionIndex;
+    if (!Number.isFinite(teamId)) continue;
+    if (Array.isArray(sel)) {
+      out.push({ teamId, selectedOptionIndex: sel.map(Number).filter((n) => Number.isFinite(n)) });
+      continue;
+    }
+    const n = Number(sel);
+    out.push({ teamId, selectedOptionIndex: Number.isFinite(n) ? n : -1 });
+  }
+  return out;
+}
+
+type HostQuestionOptions = Array<string | { text?: string }>;
+
+function hostOptionTextAt(options: HostQuestionOptions | undefined, index: number): string {
+  const raw = options?.[index];
+  if (typeof raw === 'string') return raw.trim();
+  return String(raw?.text ?? '').trim();
+}
+
+function formatHostOptionLabel(index: number, options?: HostQuestionOptions): string {
+  const letter = OPTION_LETTERS[index] ?? String.fromCharCode(65 + Math.max(0, index));
+  const text = hostOptionTextAt(options, index);
+  return text ? `${letter}. ${text}` : letter;
+}
+
+function removeTeamFromLiveResponseBuckets(
+  prev: LiveResponsesState,
+  teamId: number,
+): LiveResponsesState {
+  const tid = Number(teamId);
+  if (!Number.isFinite(tid)) return prev;
+  const inCorrect = prev.correctTeamIds.some((id) => Number(id) === tid);
+  const inIncorrect = prev.incorrectTeamIds.some((id) => Number(id) === tid);
+  const inNoAnswer = prev.noAnswerTeamIds.some((id) => Number(id) === tid);
+  if (!inCorrect && !inIncorrect && !inNoAnswer) {
+    return { ...prev, total: Math.max(1, prev.total - 1) };
+  }
+  return {
+    ...prev,
+    correct: inCorrect ? Math.max(0, prev.correct - 1) : prev.correct,
+    incorrect: inIncorrect ? Math.max(0, prev.incorrect - 1) : prev.incorrect,
+    noAnswer: inNoAnswer ? Math.max(0, prev.noAnswer - 1) : prev.noAnswer,
+    total: Math.max(1, prev.total - 1),
+    correctTeamIds: prev.correctTeamIds.filter((id) => Number(id) !== tid),
+    incorrectTeamIds: prev.incorrectTeamIds.filter((id) => Number(id) !== tid),
+    noAnswerTeamIds: prev.noAnswerTeamIds.filter((id) => Number(id) !== tid),
+    responseDetails: prev.responseDetails.filter((r) => Number(r.teamId) !== tid),
+  };
+}
+
+function formatHostTeamSelectedOption(
+  selected: number | number[] | undefined,
+  options?: HostQuestionOptions,
+): string {
+  if (selected === undefined || selected === null) return '—';
+  if (Array.isArray(selected)) {
+    if (selected.length === 0) return 'No answer';
+    return selected.map((idx) => formatHostOptionLabel(Number(idx), options)).join(', ');
+  }
+  const n = Number(selected);
+  if (!Number.isFinite(n) || n < 0) return 'No answer';
+  return formatHostOptionLabel(n, options);
+}
 
 const VENUE_OPTION_COLOR_CLASSES = [
   'border-[#00ffff] bg-[linear-gradient(180deg,#008cff_0%,#003366_100%)]', // Blue
@@ -796,7 +890,7 @@ function HostDashboardContent() {
             ...emptyLiveResponseBuckets(),
           };
         });
-        if (data.questionState !== 'REVEALED') {
+        if (data.questionState === 'PREVIEW' || data.questionState !== 'REVEALED') {
           setRevealData(null);
         }
       }
@@ -934,11 +1028,37 @@ function HostDashboardContent() {
     };
 
     const onAnswerReveal = (data: RevealData) => {
+      const gs = gameStateRef.current;
+      if (gs?.state === 'QUESTION' && gs.questionState === 'PREVIEW') {
+        if (data.teams?.length) {
+          setGameState((prev) => {
+            if (!prev) return prev;
+            const nextTeams = { ...prev.teams };
+            for (const t of data.teams || []) {
+              const key = String(t.teamId);
+              const existing = nextTeams[key];
+              nextTeams[key] = existing
+                ? {
+                    ...existing,
+                    score: t.score,
+                    isEliminated: t.isEliminated ?? existing.isEliminated,
+                  }
+                : {
+                    teamId: t.teamId,
+                    teamName: t.teamName,
+                    score: t.score,
+                    isEliminated: t.isEliminated ?? false,
+                  };
+            }
+            return { ...prev, teams: nextTeams, totalTeams: Object.keys(nextTeams).length };
+          });
+        }
+        return;
+      }
       setRevealData(data);
       setMp4Playing(false);
       setMp3Playing(false);
       socket.emit('music_control', { pin, action: 'pause' });
-      const gs = gameStateRef.current;
       const roundType = gs?.rounds?.[gs.currentRoundIndex ?? 0]?.type;
       setLiveResponses(liveStatsFromRevealPayload(data, roundType));
       setGameState((prev) => {
@@ -999,6 +1119,7 @@ function HostDashboardContent() {
       correctTeamIds?: number[];
       incorrectTeamIds?: number[];
       noAnswerTeamIds?: number[];
+      responseDetails?: LiveResponseDetail[];
     }) => {
       const toIds = (raw: number[] | undefined) =>
         Array.isArray(raw) ? raw.map(Number).filter((id) => Number.isFinite(id)) : [];
@@ -1010,6 +1131,7 @@ function HostDashboardContent() {
         correctTeamIds: toIds(data?.correctTeamIds),
         incorrectTeamIds: toIds(data?.incorrectTeamIds),
         noAnswerTeamIds: toIds(data?.noAnswerTeamIds),
+        responseDetails: normalizeLiveResponseDetails(data?.responseDetails),
       });
     };
 
@@ -1275,13 +1397,30 @@ function HostDashboardContent() {
       reason?: string;
     }) => {
       const isHostRemoval = reason === 'host_removed' || reason === 'removed_by_host';
+      if (isHostRemoval) {
+        setLiveResponses((prev) => removeTeamFromLiveResponseBuckets(prev, teamId));
+        setRevealData((prev) => {
+          if (!prev?.teams?.length) return prev;
+          const nextTeams = prev.teams.filter((t) => Number(t.teamId) !== Number(teamId));
+          if (nextTeams.length === prev.teams.length) return prev;
+          return { ...prev, teams: nextTeams };
+        });
+      }
       setGameState((prev) => {
         if (!prev) return prev;
         if (isHostRemoval) {
           const teams = { ...prev.teams };
           delete teams[teamId];
           delete teams[String(teamId)];
-          return { ...prev, teams, totalTeams: Object.keys(teams).length };
+          const activeTeamIds = (prev.activeTeamIds || [])
+            .map(Number)
+            .filter((id) => Number.isFinite(id) && id !== Number(teamId));
+          return {
+            ...prev,
+            teams,
+            activeTeamIds,
+            totalTeams: Object.keys(teams).length,
+          };
         }
         const teams = { ...prev.teams };
         const resolvedKey =
@@ -1614,10 +1753,16 @@ function HostDashboardContent() {
     const gs = gameStateRef.current;
     if (gs?.state === 'QUESTION') {
       const qs = gs.questionState || 'WAITING';
-      if (qs === 'ACTIVE') return;
+      if (qs === 'ACTIVE' || qs === 'PREVIEW') return;
       if (qs !== 'REVEALED' && timerRemainingRef.current > 0) return;
     }
     emit('next_question');
+  };
+  const handlePresentQuestion = () => {
+    if (activeMiniGameLocal || miniGameLoading || cardShuffleFinishedHold) return;
+    const gs = gameStateRef.current;
+    if (gs?.state !== 'QUESTION' || gs.questionState !== 'PREVIEW') return;
+    emit('present_question');
   };
   const handleCollectWagers = () => emit('collect_wagers');
   const handleStartNextRoundAfterCardShuffle = () => {
@@ -2086,6 +2231,10 @@ function HostDashboardContent() {
       const idx = gs?.currentQuestionIndex ?? 0;
       const qLen = round?.questions?.length ?? 0;
       const isLast = qLen > 0 && idx === qLen - 1;
+      if (qs === 'PREVIEW') {
+        handlePresentQuestion();
+        return;
+      }
       if (qs === 'ACTIVE') {
         return;
       }
@@ -2109,6 +2258,7 @@ function HostDashboardContent() {
     handleAdvanceRound,
     handleCollectWagers,
     handleNextQuestion,
+    handlePresentQuestion,
     socket,
     pin,
   ]);
@@ -2271,6 +2421,21 @@ function HostDashboardContent() {
     Array.isArray(currentRound?.questions) &&
     currentRound.questions.length > 0 &&
     (gameState?.currentQuestionIndex ?? 0) === currentRound.questions.length - 1;
+
+  const liveResponseSelectionByTeamId = useMemo(() => {
+    const map = new Map<number, number | number[]>();
+    const rows = [
+      ...liveResponses.responseDetails,
+      ...normalizeLiveResponseDetails(revealData?.responseDetails),
+    ];
+    for (const row of rows) {
+      map.set(Number(row.teamId), row.selectedOptionIndex);
+    }
+    return map;
+  }, [liveResponses.responseDetails, revealData?.responseDetails]);
+
+  const liveResponseQuestionOptions = currentQuestion?.question?.options;
+
   const revealOnLastQuestionOfRound =
     state === 'QUESTION' && questionState === 'REVEALED' && isLastQuestionOfRound;
   const miniGameFinishShouldAdvanceRound = state === 'SCOREBOARD' || revealOnLastQuestionOfRound;
@@ -2296,6 +2461,7 @@ function HostDashboardContent() {
     : miniGameFinishTriviaNotStarted
       ? 'Start Next Round'
       : 'Next Question';
+  const showPresentQuestionAction = state === 'QUESTION' && questionState === 'PREVIEW';
   const showNextQuestionAction =
     state === 'QUESTION' && questionState === 'REVEALED' && !isLastQuestionOfRound;
   // const showRevealAnswerAction = state === 'QUESTION' && questionState === 'ACTIVE';
@@ -2325,9 +2491,9 @@ function HostDashboardContent() {
   // Dropping a round is only offered between rounds, and only when one is actually queued up.
   const canSkipNextRound =
     (state === 'ROUND_END' || state === 'SCOREBOARD') && Boolean(nextRound) && !miniGameLive;
-  const canSkipQuestion =
+  const showSkipQuestionAction =
     state === 'QUESTION' &&
-    questionState !== 'REVEALED' &&
+    questionState === 'PREVIEW' &&
     !miniGameLive &&
     activeMiniGameLocal == null &&
     !miniGameLoading &&
@@ -3154,6 +3320,18 @@ function HostDashboardContent() {
             </div>
           ) : state === 'QUESTION' && currentQuestion ? (
             <div className="flex min-h-0 flex-1 flex-col animate-fadeIn">
+              {showPresentQuestionAction ? (
+                <div className="mb-3 shrink-0 rounded-xl border border-[#f59e0b]/45 bg-[rgba(245,158,11,0.12)] px-4 py-2.5 text-center shadow-[0_0_16px_rgba(245,158,11,0.15)]">
+                  <p className="text-xs font-black uppercase tracking-[0.12em] text-[#fcd34d]">
+                    Host preview only
+                  </p>
+                  <p className="mt-1 text-sm font-medium text-white/75">
+                    Venue and players still see the previous screen. Use{' '}
+                    <span className="font-bold text-white">Present Question</span> or{' '}
+                    <span className="font-bold text-white">Space</span> to go live.
+                  </p>
+                </div>
+              ) : null}
               <div className="mx-auto flex h-full w-full flex-col overflow-hidden rounded-2xl border border-white/10 shadow-[0_0_28px_rgba(0,0,0,0.5)]">
                 {/* Media Section */}
                 <div className="relative shrink-0 bg-black/40">
@@ -3224,8 +3402,10 @@ function HostDashboardContent() {
                       const majorityOptionIndexes = new Set(
                         revealData?.majorityOptionIndexes || [],
                       );
+                      const showRevealStyling =
+                        questionState !== 'PREVIEW' && Boolean(revealData);
                       const isRevealedWinner = Boolean(
-                        revealData &&
+                        showRevealStyling &&
                         (isMajorityRulesRound
                           ? majorityOptionIndexes.has(i)
                           : i === revealData.correctOptionIndex),
@@ -3238,7 +3418,7 @@ function HostDashboardContent() {
                             VENUE_OPTION_COLOR_CLASSES[i % VENUE_OPTION_COLOR_CLASSES.length],
                             isRevealedWinner
                               ? 'z-10 scale-[1.03] shadow-[0_0_12px_8px_rgba(57,255,74,0.8)]'
-                              : revealData
+                              : showRevealStyling
                                 ? 'scale-[0.98] brightness-50 contrast-75 opacity-30'
                                 : '',
                           )}
@@ -3327,15 +3507,12 @@ function HostDashboardContent() {
                           <RoundIntroHeadline
                             size="host"
                             roundNumber={(gameState?.currentRoundIndex || 0) + 1}
-                            subtitle={
-                              (gameState?.currentRoundIndex ?? 0) !== 0
-                                ? normalizeRoundIntroTitle(
-                                    currentRound?.name,
-                                    currentRound?.type,
-                                    gameState?.currentRoundIndex,
-                                  )
-                                : undefined
-                            }
+                            roundType={currentRound?.type}
+                            subtitle={normalizeRoundIntroTitle(
+                              currentRound?.name,
+                              currentRound?.type,
+                              gameState?.currentRoundIndex,
+                            )}
                           />
                         </div>
 
@@ -3729,10 +3906,14 @@ function HostDashboardContent() {
                     : 'Start Round'}
             </HostFooterBtn>
             <HostFooterBtn
-              emphasis={showRevealAnswerAction || showNextQuestionAction}
+              emphasis={
+                showRevealAnswerAction || showNextQuestionAction || showPresentQuestionAction
+              }
               icon={
                 <svg viewBox="0 0 24 24" fill="currentColor" className="text-[#00d9ff]">
-                  {showNextQuestionAction || revealOnLastQuestionOfRound ? (
+                  {showPresentQuestionAction ? (
+                    <path d="M8 5v14l11-7z" />
+                  ) : showNextQuestionAction || revealOnLastQuestionOfRound ? (
                     <path d="M6 18l8.5-6L6 6v12zm8-12v12h2V6h-2z" />
                   ) : (
                     <path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z" />
@@ -3745,25 +3926,26 @@ function HostDashboardContent() {
                 activeMiniGameLocal != null ||
                 miniGameLoading ||
                 cardShuffleFinishedHold ||
-                !(showRevealAnswerAction || showNextQuestionAction)
+                !(showRevealAnswerAction || showNextQuestionAction || showPresentQuestionAction)
               }
-              onClick={handleNextQuestion}
-              // onClick={showNextQuestionAction ? handleNextQuestion : handleRevealAnswer}
-            >
-              Next Question
-              {/* {showRevealAnswerAction ? 'Reveal Answer' : 'Next Question'} */}
-            </HostFooterBtn>
-            <HostFooterBtn
-              icon={
-                <svg viewBox="0 0 24 24" fill="currentColor" className="text-[#00d9ff]">
-                  <path d="M6 6h2v12H6V6zm10 0h2v12h-2V6z" />
-                </svg>
+              onClick={
+                showPresentQuestionAction ? handlePresentQuestion : handleNextQuestion
               }
-              disabled={!canSkipQuestion}
-              onClick={handleSkipQuestion}
             >
-              Skip Question
+              {showPresentQuestionAction ? 'Present Question' : 'Next Question'}
             </HostFooterBtn>
+            {showSkipQuestionAction ? (
+              <HostFooterBtn
+                icon={
+                  <svg viewBox="0 0 24 24" fill="currentColor" className="text-[#00d9ff]">
+                    <path d="M6 6h2v12H6V6zm10 0h2v12h-2V6z" />
+                  </svg>
+                }
+                onClick={handleSkipQuestion}
+              >
+                Skip This Question
+              </HostFooterBtn>
+            ) : null}
             {canSkipNextRound ? (
               <HostFooterBtn
                 icon={
@@ -3882,8 +4064,9 @@ function HostDashboardContent() {
             </HostFooterBtn>
           </div>
           <p className="mt-2 text-center text-[10px] text-white/30">
-            Space=Next · T=Start Timer · P=Pause/Resume · S=Leaderboard — Music: T starts
-            countdown + media; P pauses/resumes both
+            {showPresentQuestionAction
+              ? 'Space=Present Question · Skip advances preview without going live'
+              : 'Space=Next · T=Start Timer · P=Pause/Resume · S=Leaderboard — Music: T starts countdown + media; P pauses/resumes both'}
           </p>
         </footer>
       ) : null}
@@ -4108,15 +4291,12 @@ function HostDashboardContent() {
                         <RoundIntroHeadline
                           size="hostModal"
                           roundNumber={(gameState?.currentRoundIndex ?? 0) + 1}
-                          subtitle={
-                            (gameState?.currentRoundIndex ?? 0) !== 0
-                              ? normalizeRoundIntroTitle(
-                                  currentRound?.name,
-                                  currentRound?.type,
-                                  gameState?.currentRoundIndex,
-                                )
-                              : undefined
-                          }
+                          roundType={currentRound?.type}
+                          subtitle={normalizeRoundIntroTitle(
+                            currentRound?.name,
+                            currentRound?.type,
+                            gameState?.currentRoundIndex,
+                          )}
                         />
                       </div>
 
@@ -4442,42 +4622,73 @@ function HostDashboardContent() {
         <ModalOverlay
           onClose={() => setLiveResponseModal(null)}
           title={liveResponseModalTitle}
+          panelClassName="w-full max-w-[min(52rem,96vw)]"
         >
           {liveResponseModalTeams.length === 0 ? (
             <p className="py-6 text-center text-sm text-white/50">No teams in this category.</p>
           ) : (
-            <ul className="max-h-[min(50vh,320px)] space-y-2 overflow-y-auto pr-1">
-              {liveResponseModalTeams.map((team) => (
-                <li
-                  key={team.teamId}
-                  className="flex items-center gap-3 rounded-lg border border-white/15 bg-[#1a1f2e] px-4 py-3"
-                >
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate font-medium text-white">{team.teamName}</p>
-                    <p className="text-sm text-[#00d9ff]">{team.score} Points</p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setLiveResponseModal(null);
-                      handleRemoveTeam(team);
-                    }}
-                    className="flex size-[30px] shrink-0 items-center justify-center rounded border border-red-500/40 bg-red-500/10 text-red-500 transition-colors hover:bg-red-500/20"
-                    aria-label={`Remove ${team.teamName}`}
-                  >
-                    <svg
-                      width="16"
-                      height="16"
-                      viewBox="0 0 24 24"
-                      fill="currentColor"
-                      aria-hidden
+            <div className="max-h-[min(50vh,360px)] overflow-x-hidden overflow-y-auto rounded-lg border border-white/15">
+              <table className="w-full table-fixed border-collapse text-left text-sm">
+                <colgroup>
+                  <col className="w-[22%]" />
+                  <col className="w-[48%]" />
+                  <col className="w-[16%]" />
+                  <col className="w-[14%]" />
+                </colgroup>
+                <thead className="sticky top-0 z-[1] bg-[#1a1f2e]">
+                  <tr className="border-b border-white/15 text-[11px] font-bold uppercase tracking-wider text-white/55">
+                    <th className="px-3 py-2.5 font-bold">Team</th>
+                    <th className="px-3 py-2.5 font-bold">Option</th>
+                    <th className="px-3 py-2.5 font-bold">Points</th>
+                    <th className="px-2 py-2.5 text-center font-bold">
+                      <span className="sr-only">Remove</span>
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {liveResponseModalTeams.map((team) => (
+                    <tr
+                      key={team.teamId}
+                      className="border-b border-white/10 bg-[#151b2e]/80 last:border-b-0 even:bg-[#1a1f2e]/60"
                     >
-                      <path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z" />
-                    </svg>
-                  </button>
-                </li>
-              ))}
-            </ul>
+                      <td className="truncate px-3 py-2.5 font-medium text-white">
+                        {team.teamName}
+                      </td>
+                      <td className="break-words px-3 py-2.5 text-white/75">
+                        {formatHostTeamSelectedOption(
+                          liveResponseSelectionByTeamId.get(Number(team.teamId)),
+                          liveResponseQuestionOptions,
+                        )}
+                      </td>
+                      <td className="whitespace-nowrap px-3 py-2.5 font-semibold text-[#00d9ff]">
+                        {team.score}
+                      </td>
+                      <td className="px-2 py-2.5 text-center">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setLiveResponseModal(null);
+                            handleRemoveTeam(team);
+                          }}
+                          className="inline-flex size-[30px] items-center justify-center rounded border border-red-500/40 bg-red-500/10 text-red-500 transition-colors hover:bg-red-500/20"
+                          aria-label={`Remove ${team.teamName}`}
+                        >
+                          <svg
+                            width="16"
+                            height="16"
+                            viewBox="0 0 24 24"
+                            fill="currentColor"
+                            aria-hidden
+                          >
+                            <path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z" />
+                          </svg>
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
         </ModalOverlay>
       ) : null}
@@ -4546,10 +4757,12 @@ function ModalOverlay({
   children,
   onClose,
   title,
+  panelClassName,
 }: {
   children: React.ReactNode;
   onClose: () => void;
   title: string;
+  panelClassName?: string;
 }) {
   return (
     <div
@@ -4557,7 +4770,10 @@ function ModalOverlay({
       onClick={onClose}
     >
       <div
-        className="neon-border bg-surface rounded-2xl p-5 w-80 max-w-[90vw]"
+        className={cn(
+          'neon-border bg-surface max-w-[90vw] rounded-2xl p-5',
+          panelClassName ?? 'w-80',
+        )}
         onClick={(e) => e.stopPropagation()}
       >
         <h3 className="text-lg font-bold mb-3 text-neon-cyan">{title}</h3>

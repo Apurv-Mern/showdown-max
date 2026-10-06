@@ -127,6 +127,19 @@ const hostHandlers = (io, socket) => {
     }
   });
 
+  socket.on(SOCKET_EVENTS.PRESENT_QUESTION, async (data) => {
+    try {
+      const pin = data?.pin;
+      if (!assertHostForPin(socket, pin)) {
+        socket.emit(SOCKET_EVENTS.ERROR, { message: 'Unauthorized' });
+        return;
+      }
+      await gameController.presentQuestion(io, pin);
+    } catch (err) {
+      logger.error('present_question error', { error: err.message });
+    }
+  });
+
   /**
    * Host pressed Space (or otherwise asked) to dismiss the venue's looping welcome video.
    * The venue listens for `venue_welcome_dismiss` and advances past the welcome screen.
@@ -430,6 +443,9 @@ const hostHandlers = (io, socket) => {
           reason: 'host_removed',
         });
       }
+      await gameController.publishQuestionLiveStatsAfterRosterChange(io, pin, {
+        removedTeamId: teamId,
+      });
       await emitSessionRosterState(io, pin);
       logger.info('Team removed', { pin, teamId });
     } catch (err) {

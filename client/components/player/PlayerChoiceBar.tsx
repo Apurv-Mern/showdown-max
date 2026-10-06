@@ -36,7 +36,7 @@ export function PlayerChoiceBar({
   return (
     <Comp
       type={as === 'button' ? 'button' : undefined}
-      onClick={onClick}
+      onClick={disabled ? undefined : onClick}
       disabled={as === 'button' ? disabled : undefined}
       className={cn(
         'relative flex min-h-[50px] w-full items-stretch overflow-hidden rounded-[10px]',

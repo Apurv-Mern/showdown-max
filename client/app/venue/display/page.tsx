@@ -12,6 +12,7 @@ const CORRECT_ANSWER_SOUND_SRC = '/sounds/Correct%20Answer.mp4';
 import { clientLogger } from '@/lib/clientLogger';
 import { breakSecondsFromEndsAt, resolveBreakWallClock } from '@/lib/breakWallClock';
 import { cn, toDisplayUpper } from '@/lib/utils';
+import { applyAudienceSessionPayload } from '@/lib/audienceSession';
 import { formatQuestionPointsAtStake } from '@/lib/questionPointsDisplay';
 import DynamicUnityGame from '@/components/mini-games/DynamicUnityGame';
 import { BreakTimerDisplay } from '@/components/shared/BreakTimerDisplay';
@@ -1151,6 +1152,7 @@ function VenueDisplayContent() {
 
     const onSessionState = (data: any) => {
       didReceiveSessionState = true;
+      data = applyAudienceSessionPayload(data);
       if (data.state !== 'BREAK') {
         setVenueBreakEndsAtMs(null);
         setVenueBreakSkewMs(0);
@@ -1269,7 +1271,10 @@ function VenueDisplayContent() {
         setMiniGameResult(null);
       }
 
-      if (data.currentQuestion) {
+      const audienceQuestionLive =
+        data.state === 'QUESTION' &&
+        (data.questionState === 'ACTIVE' || data.questionState === 'REVEALED');
+      if (data.currentQuestion && audienceQuestionLive) {
         setQuestion(data.currentQuestion);
         setTimerDuration(
           Number(data.currentQuestion.timerDuration ?? data.timerDuration ?? 30) || 30,
@@ -1435,23 +1440,13 @@ function VenueDisplayContent() {
     };
 
     const onTeamRemoved = ({ teamId }: { teamId: number }) => {
+      const dropTeam = (list: Team[]) => list.filter((t) => !sameVenueTeamId(t.teamId, teamId));
       setTeams((prev) => {
-        const next = prev.filter((t) => !sameVenueTeamId(t.teamId, teamId));
-        const n = next.length;
-        setTotalTeams(n);
-        if (phaseRef.current === 'reveal') {
-          setLiveResponses((lr) => ({
-            ...lr,
-            total: Math.max(1, n),
-            correct: Math.min(lr.correct, n),
-            incorrect: Math.min(lr.incorrect, n),
-            noAnswer: Math.min(lr.noAnswer, n),
-          }));
-        } else {
-          setLiveResponses(bootstrapLiveResponseStats(n));
-        }
+        const next = dropTeam(prev);
+        setTotalTeams(next.length);
         return next;
       });
+      setScoreboard((prev) => dropTeam(prev));
     };
 
     const clearVenueMiniGameOverlay = () => {
@@ -1556,8 +1551,20 @@ function VenueDisplayContent() {
       }
     };
 
-    const onLiveResponseUpdate = () => {
-      // Venue shows response breakdown only on answer_reveal (not live during the question).
+    const onLiveResponseUpdate = (data: {
+      correct?: number;
+      incorrect?: number;
+      noAnswer?: number;
+      total?: number;
+    }) => {
+      const phase = phaseRef.current;
+      if (phase !== 'question' && phase !== 'reveal') return;
+      setLiveResponses({
+        correct: Number(data?.correct || 0),
+        incorrect: Number(data?.incorrect || 0),
+        noAnswer: Number(data?.noAnswer || 0),
+        total: Math.max(1, Number(data?.total || 0)),
+      });
     };
 
     const onAnswerReveal = (data: RevealData) => {
@@ -2230,15 +2237,11 @@ function VenueDisplayContent() {
           <VenueRoundIntroScreen
             roundNumber={(roundInfo.roundIndex || 0) + 1}
             roundType={roundInfo.round?.type}
-            subtitle={
-              (roundInfo.roundIndex || 0) !== 0
-                ? normalizeRoundIntroTitle(
-                    roundInfo.round?.name,
-                    roundInfo.round?.type,
-                    roundInfo.roundIndex,
-                  )
-                : undefined
-            }
+            subtitle={normalizeRoundIntroTitle(
+              roundInfo.round?.name,
+              roundInfo.round?.type,
+              roundInfo.roundIndex,
+            )}
           />
         )}
 

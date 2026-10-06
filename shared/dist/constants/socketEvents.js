@@ -14,6 +14,7 @@ const SOCKET_EVENTS = Object.freeze({
   HOST_ACTION: 'host_action',
   START_GAME: 'start_game',
   NEXT_QUESTION: 'next_question',
+  PRESENT_QUESTION: 'present_question',
   START_TIMER: 'start_timer',
   PAUSE_TIMER: 'pause_timer',
   REVEAL_ANSWER: 'reveal_answer',

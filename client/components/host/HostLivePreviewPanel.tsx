@@ -70,6 +70,7 @@ export function HostLivePreviewPanel({
   const [loading, setLoading] = useState(false);
   const [savingId, setSavingId] = useState<number | null>(null);
   const [jumpingToIndex, setJumpingToIndex] = useState<number | null>(null);
+  const [pendingJumpIndex, setPendingJumpIndex] = useState<number | null>(null);
 
   const requestPreview = useCallback(() => {
     if (!socket || !pin) return;
@@ -118,10 +119,9 @@ export function HostLivePreviewPanel({
     idx < currentQuestionIndex ||
     (questionState === 'ACTIVE' && timerRunning);
 
-  const handleGoToQuestion = (idx: number) => {
-    if (!socket || !pin || jumpDisabled || idx === currentQuestionIndex) return;
-
-    const executeJump = () => {
+  const executeJump = useCallback(
+    (idx: number) => {
+      if (!socket || !pin) return;
       setJumpingToIndex(idx);
       socket.emit(
         'jump_to_question',
@@ -135,16 +135,34 @@ export function HostLivePreviewPanel({
           }
         },
       );
-    };
+    },
+    [socket, pin],
+  );
 
+  const handleGoToQuestion = (idx: number) => {
+    if (!socket || !pin || jumpDisabled || idx === currentQuestionIndex) return;
     if (needsJumpConfirm(idx)) {
-      const ok = window.confirm(
-        `Go to question ${idx + 1}? Team scores stay the same; this question will be ready to run again.`,
-      );
-      if (!ok) return;
+      setPendingJumpIndex(idx);
+      return;
     }
-    executeJump();
+    executeJump(idx);
   };
+
+  const confirmPendingJump = () => {
+    if (pendingJumpIndex === null) return;
+    const idx = pendingJumpIndex;
+    setPendingJumpIndex(null);
+    executeJump(idx);
+  };
+
+  useEffect(() => {
+    if (pendingJumpIndex === null) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setPendingJumpIndex(null);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [pendingJumpIndex]);
 
   const saveQuestion = (q: LivePreviewQuestion) => {
     if (!socket || !pin) return;
@@ -312,6 +330,48 @@ export function HostLivePreviewPanel({
         </div>
       </aside>
       <div className="hidden flex-1 bg-black/40 sm:block" aria-hidden />
+
+      {pendingJumpIndex !== null ? (
+        <div
+          className="fixed inset-0 z-[70] flex items-center justify-center bg-black/70 p-4"
+          role="presentation"
+          onClick={() => setPendingJumpIndex(null)}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="jump-question-confirm-title"
+            className="neon-border bg-surface w-full max-w-md rounded-2xl p-5 shadow-[0_0_24px_rgba(0,217,255,0.12)]"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3
+              id="jump-question-confirm-title"
+              className="mb-3 text-lg font-bold text-neon-cyan"
+            >
+              Go to question {pendingJumpIndex + 1}?
+            </h3>
+            <p className="mb-5 text-sm leading-relaxed text-white/70">
+              Team scores stay the same; this question will be ready to run again.
+            </p>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setPendingJumpIndex(null)}
+                className="flex-1 rounded-lg border border-border py-2 text-sm font-medium text-white/80 hover:bg-surface-light"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={confirmPendingJump}
+                className="flex-1 rounded-lg border border-[#00d9ff]/55 bg-[linear-gradient(180deg,#00a9df_0%,#075a89_100%)] py-2 text-sm font-bold uppercase tracking-wide text-white shadow-[0_0_18px_rgba(0,217,255,0.25)] hover:brightness-110"
+              >
+                Go to question
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

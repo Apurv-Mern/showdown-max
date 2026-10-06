@@ -9,6 +9,7 @@ import { LoadingDots } from '../LoadingDots';
 import { clientLogger } from '@/lib/clientLogger';
 import { breakSecondsFromEndsAt, resolveBreakWallClock } from '@/lib/breakWallClock';
 import { cn, toDisplayUpper } from '@/lib/utils';
+import { applyAudienceSessionPayload } from '@/lib/audienceSession';
 import { RoundIntroScoringLines } from '@/lib/roundIntroInstructions';
 import { RoundIntroHeadline } from '@/components/shared/RoundIntroHeadline';
 import { RoundEndTitle } from '@/components/shared/RoundEndTitle';
@@ -1041,7 +1042,9 @@ export default function GamePage() {
       // Handling both keeps players in sync even when discrete events (break_end, etc.) are
       // dropped on flaky mobile networks or backgrounded tabs.
       if (data) {
-        const gs = data.gameState ?? data;
+        const gs = applyAudienceSessionPayload(
+          (data.gameState ?? data) as Record<string, unknown>,
+        ) as typeof data.gameState extends object ? typeof data.gameState : typeof data;
         if (!gs || typeof gs !== 'object' || !('state' in gs)) return;
         setHasInitialState(true);
         // Join reply carries the server's current team name — adopt it so a rename made while
@@ -1119,6 +1122,18 @@ export default function GamePage() {
 
         if (gs.state === 'QUESTION') {
           questionStateRef.current = String(gs.questionState || '');
+          if ((gs.questionState || '').toUpperCase() === 'PREVIEW') {
+            const keepLocalQuestionUi =
+              questionRef.current &&
+              (phaseRef.current === 'question' ||
+                phaseRef.current === 'answered' ||
+                phaseRef.current === 'reveal' ||
+                phaseRef.current === 'wager_input');
+            if (keepLocalQuestionUi) return;
+            setPhase(currentlyEliminated ? 'eliminated' : 'waiting');
+            setTimerRunning(false);
+            return;
+          }
           if (!gs.currentQuestion) {
             // Incomplete QUESTION payloads (e.g. legacy sanitize-only broadcasts) must not
             // kick players off an active question / wager screen.
@@ -1299,6 +1314,7 @@ export default function GamePage() {
           if (
             !hasSelectionIdx(restoredIdx) &&
             gs.questionState === 'ACTIVE' &&
+            Boolean(gs.timerRunning) &&
             qidStr &&
             session.pin &&
             session.teamId != null
@@ -2197,7 +2213,13 @@ export default function GamePage() {
 
   const handleSelectOption = useCallback(
     (index: number) => {
-      if (selectedOption !== null || !socket || isEliminatedRef.current || timerRemaining <= 0)
+      if (
+        selectedOption !== null ||
+        !socket ||
+        isEliminatedRef.current ||
+        timerRemaining <= 0 ||
+        !timerRunning
+      )
         return;
       setSelectedOption(index);
       setPhase('answered');
@@ -2228,6 +2250,7 @@ export default function GamePage() {
       question?.question?.id,
       session.pin,
       session.teamId,
+      timerRunning,
     ],
   );
 
@@ -2242,7 +2265,13 @@ export default function GamePage() {
   }, []);
 
   const handleLockOrdering = useCallback(() => {
-    if (selectedOption !== null || !socket || isEliminatedRef.current || timerRemaining <= 0)
+    if (
+      selectedOption !== null ||
+      !socket ||
+      isEliminatedRef.current ||
+      timerRemaining <= 0 ||
+      !timerRunning
+    )
       return;
     setSelectedOption(orderingSelection);
     setPhase('answered');
@@ -2271,6 +2300,7 @@ export default function GamePage() {
     question?.question?.id,
     session.pin,
     session.teamId,
+    timerRunning,
   ]);
 
   const handleSubmitWager = useCallback(
@@ -2366,10 +2396,7 @@ export default function GamePage() {
     isEliminated ||
     timerRemaining <= 0 ||
     phase !== 'question' ||
-    // Music rounds pause the timer until the host hits Start Timer / plays the audio. Players
-    // must not be able to lock in an answer before that countdown begins, otherwise they could
-    // pre-pick before hearing the song clip.
-    (isMusicQuestion && !timerRunning);
+    !timerRunning;
   const showTimeExpiredState =
     timerRemaining <= 0 &&
     (phase === 'question' || phase === 'answered') &&
@@ -2398,7 +2425,7 @@ export default function GamePage() {
               <p className="text-sm font-extrabold tracking-wide text-[#2be9ff]">Break Ended</p>
             </div>
           ) : null}
-          <div className="flex-1 flex flex-col min-h-0 overflow-y-auto">
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
             <AnimatePresence mode="wait">
               {/* ── ROUND INTRO ── */}
               {phase === 'round_intro' && roundInfo && (
@@ -2422,15 +2449,11 @@ export default function GamePage() {
                           size="player"
                           roundNumber={(roundInfo.roundIndex || 0) + 1}
                           roundType={roundInfo.round?.type}
-                          subtitle={
-                            (roundInfo.roundIndex || 0) !== 0
-                              ? normalizeRoundIntroTitle(
-                                  roundInfo.round?.name,
-                                  roundInfo.round?.type,
-                                  roundInfo.roundIndex,
-                                )
-                              : undefined
-                          }
+                          subtitle={normalizeRoundIntroTitle(
+                            roundInfo.round?.name,
+                            roundInfo.round?.type,
+                            roundInfo.roundIndex,
+                          )}
                         />
                       </div>
 
@@ -2542,7 +2565,7 @@ export default function GamePage() {
                 <motion.div
                   key="wager"
                   {...pageTransition}
-                  className="relative flex min-h-0 flex-1 flex-col overflow-hidden"
+                  className="relative flex h-full min-h-0 w-full max-w-full flex-1 flex-col overflow-hidden"
                 >
                   <PlayerWagerSelectionScreen
                     category={question?.question?.category ?? wagerCollectionCategory}

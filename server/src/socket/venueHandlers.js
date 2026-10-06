@@ -8,6 +8,13 @@ const { getBreakRemainingSeconds } = require('../utils/breakWallClock');
 const { buildRevealSnapshot } = require('../services/revealSnapshot');
 const { Session } = require('../models');
 const { mapClientQuestionPayload } = require('../utils/clientQuestionPayload');
+const { QUESTION_STATES } = require('shared/constants/questionStates');
+const {
+  buildAudienceViewPayload,
+  gameStateForAudienceQuestion,
+  resolveAudienceQuestionState,
+  resolveAudienceQuestionIndex,
+} = require('../utils/audienceView');
 
 const buildPreGameLobbyPayload = async (pin, session, lobbyTeams) => {
   const lobbyPhase = await redisStore.getLobbyPhase(pin);
@@ -230,6 +237,24 @@ const venueHandlers = (io, socket) => {
 const emitTriviaReconnectSideEvents = async (socket, pin, gameState) => {
   if (gameState.activeMiniGame) return;
 
+  if (gameState.state === 'QUESTION' && gameState.questionState === 'PREVIEW') {
+    // Host preview shows the upcoming question — replaying answer_reveal would flip
+    // questionState back to REVEALED on the dashboard.
+    if (socket.data?.role === 'host') return;
+
+    const audIdx = resolveAudienceQuestionIndex(gameState);
+    const audState = resolveAudienceQuestionState(gameState, audIdx);
+    if (audIdx != null && audState === QUESTION_STATES.REVEALED) {
+      const gsAudience = gameStateForAudienceQuestion(gameState);
+      const revealPayload = gsAudience ? await buildRevealSnapshot(pin, gsAudience) : null;
+      if (revealPayload) {
+        socket.emit(SOCKET_EVENTS.ANSWER_REVEAL, revealPayload);
+        socket.emit(SOCKET_EVENTS.TIMER_UPDATE, { remaining: 0 });
+      }
+    }
+    return;
+  }
+
   if (gameState.state === 'QUESTION' && gameState.questionState === 'REVEALED') {
     const revealPayload = await buildRevealSnapshot(pin, gameState);
     if (revealPayload) {
@@ -304,9 +329,12 @@ const buildFullStatePayload = async (gameState, pin) => {
       }))
     : [];
 
+  const audienceView = await buildAudienceViewPayload(gameState, pin);
+
   return {
     state: gameState.state,
     questionState: gameState.questionState,
+    audienceView,
     currentRoundIndex: gameState.currentRoundIndex,
     currentQuestionIndex: gameState.currentQuestionIndex,
     timerRemaining: timerManager.getReconnectTimerRemaining(pin, gameState),

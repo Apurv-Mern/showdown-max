@@ -258,6 +258,20 @@ const activateQuestion = (gameState) => {
   };
 };
 
+/** Host-only staging before venue/players receive question_active. */
+const stageQuestion = (gameState) => {
+  const round = getCurrentRound(gameState);
+  const question = getCurrentQuestion(gameState);
+  const duration = Number(question?.timerDuration ?? round?.timerDuration ?? 30) || 30;
+  return {
+    ...gameState,
+    questionState: QUESTION_STATES.PREVIEW,
+    timerRemaining: duration,
+    timerRunning: false,
+    responseCount: 0,
+  };
+};
+
 /**
  * Reveal the answer for the current question
  * @param {object} gameState
@@ -291,6 +305,7 @@ module.exports = {
   advanceQuestion,
   advanceRound,
   activateQuestion,
+  stageQuestion,
   revealAnswer,
   isFinalRound,
 };

@@ -9,6 +9,13 @@ const { Team } = require('../models');
 const sessionService = require('./sessionService');
 const { normalizeTeamName } = require('../utils/teamName');
 const { mapClientQuestionPayload } = require('../utils/clientQuestionPayload');
+const {
+  buildAudienceViewPayload,
+  gameStateForAudienceQuestion,
+  resolveAudienceQuestionIndex,
+  resolveAudienceQuestionState,
+} = require('../utils/audienceView');
+const { QUESTION_STATES } = require('shared/constants/questionStates');
 
 /** `Number(null) === 0` would falsely mark the timer as expired — only positive epoch ms are valid. */
 const safeClientTimerEndsAt = (raw) => {
@@ -65,6 +72,7 @@ const getLockedWager = (gameState, round, teamId, questionId) => {
  * Builds the same `sessionPayload` object as `join_session` (SESSION_STATE body) from Redis + team.
  */
 const buildSessionPayloadForPlayer = async ({ pin, gameState, team, mySubmittedOptionIndex }) => {
+  const audienceView = gameState ? await buildAudienceViewPayload(gameState, pin) : null;
   const currentRound = gameState?.rounds?.[gameState.currentRoundIndex];
   const currentQuestionRow = currentRound?.questions?.[gameState.currentQuestionIndex] || null;
   // Surface the upcoming question during WAGER_COLLECTION so the wager-input screen
@@ -108,6 +116,7 @@ const buildSessionPayloadForPlayer = async ({ pin, gameState, team, mySubmittedO
       ? {
           state: gameState.state,
           questionState: gameState.questionState,
+          audienceView,
           ...(lobbyPhase ? { lobbyPhase } : {}),
           currentRoundIndex: gameState.currentRoundIndex,
           currentQuestionIndex: gameState.currentQuestionIndex,
@@ -200,6 +209,61 @@ const buildJoinReplayEvents = async ({ pin, gameState, team, mySubmittedOptionIn
         totalRounds: gameState.rounds.length,
       },
     });
+  }
+
+  if (
+    gameState.state === 'QUESTION' &&
+    gameState.questionState === QUESTION_STATES.PREVIEW
+  ) {
+    const audIdx = resolveAudienceQuestionIndex(gameState);
+    const audState = resolveAudienceQuestionState(gameState, audIdx);
+    const gsAudience = gameStateForAudienceQuestion(gameState);
+    if (audIdx != null && audState === QUESTION_STATES.REVEALED && gsAudience) {
+      const revealPayload = await buildRevealSnapshot(pin, gsAudience);
+      if (revealPayload) {
+        events.push({ event: SOCKET_EVENTS.ANSWER_REVEAL, data: revealPayload });
+        events.push({ event: SOCKET_EVENTS.TIMER_UPDATE, data: { remaining: 0 } });
+      }
+    } else if (
+      audIdx != null &&
+      audState === QUESTION_STATES.ACTIVE &&
+      gsAudience &&
+      round
+    ) {
+      const audRow = round.questions?.[audIdx];
+      if (audRow) {
+        events.push({
+          event: SOCKET_EVENTS.QUESTION_ACTIVE,
+          data: {
+            questionIndex: audIdx,
+            totalQuestions: round.questions.length,
+            question: mapClientQuestionPayload(audRow),
+            timerDuration: Number(audRow.timerDuration ?? round.timerDuration ?? 30) || 30,
+            timerRemaining: timerManager.getReconnectTimerRemaining(pin, gameState),
+            timerRunning: Boolean(gameState.timerRunning),
+            timerEndsAt: safeClientTimerEndsAt(gameState.timerEndsAt),
+            serverNow: Date.now(),
+            roundType: round.type,
+            lockedWagerAmount: getLockedWager(gameState, round, team.id, audRow?.id),
+            pointsForQuestion:
+              round.type === ROUND_TYPES.ELIMINATION
+                ? getEliminationPoints(audIdx)
+                : undefined,
+            mySubmittedOptionIndex,
+            eliminatedTeamIds: eliminatedTeamIdsForPayload,
+          },
+        });
+        events.push({
+          event: SOCKET_EVENTS.TIMER_UPDATE,
+          data: {
+            remaining: timerManager.getReconnectTimerRemaining(pin, gameState),
+            timerRunning: Boolean(gameState.timerRunning),
+            timerEndsAt: safeClientTimerEndsAt(gameState.timerEndsAt),
+            serverNow: Date.now(),
+          },
+        });
+      }
+    }
   }
 
   if (

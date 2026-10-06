@@ -30,7 +30,7 @@ function PlayerWagerBackground() {
 }
 
 const SELECTED_BUTTON =
-  'ring-[2.5px] ring-[#1de8ff] shadow-[0_0_18px_rgba(29,232,255,0.75)] scale-[1.01]';
+  'ring-[2.5px] ring-[#1de8ff] shadow-[0_0_18px_rgba(29,232,255,0.75)]';
 
 function resolveWagerCategoryLabel(
   category: string | null | undefined,
@@ -63,7 +63,7 @@ function WagerSelectionView({
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: -10 }}
-      className="relative z-10 flex min-h-0 w-full flex-1 flex-col px-5 pb-5 pt-5 sm:px-6 sm:pb-6 sm:pt-6"
+      className="relative z-10 flex min-h-0 w-full max-w-full flex-1 flex-col overflow-hidden px-5 pb-5 pt-5 sm:px-6 sm:pb-6 sm:pt-6"
     >
       <header className="shrink-0 text-center">
         <h1 className="text-[25px] font-extrabold uppercase leading-[0.7] text-white">
@@ -82,7 +82,7 @@ function WagerSelectionView({
           {categoryLabel}
         </p>
         <div
-          className="mt-3 flex size-[160px] items-center justify-center rounded-full"
+          className="mt-3 flex size-[clamp(7.5rem,38vw,10rem)] items-center justify-center rounded-full"
           style={{
             background: 'radial-gradient(circle, #1A00FF 20%, #000010 70%, #040040 100%)',
             boxShadow: '0 0 18px #00D9FF',
@@ -91,35 +91,40 @@ function WagerSelectionView({
           aria-live="polite"
           aria-label={`Selected wager ${formatWagerCircleValue(wagerAmount)} ${categoryLabel}`}
         >
-          <span className="text-[60px] font-black leading-none text-white">
+          <span className="text-[clamp(2.75rem,14vw,3.75rem)] font-black leading-none text-white">
             {formatWagerCircleValue(wagerAmount)}
           </span>
         </div>
       </div>
 
-      <div className="mx-auto mt-6 flex w-full max-w-[400px] shrink-0 flex-col gap-5">
-        {gridValues.map((value) => {
-          const enabled = wagerChoiceValues.includes(value);
-          const selected = wagerAmount === value;
-          return (
-            <button
-              key={value}
-              type="button"
-              disabled={!enabled}
-              onClick={() => onSelectAmount(value)}
-              className={cn(
-                'flex h-[65px] w-full items-center justify-center rounded-[20px]',
-                'text-[45px] font-extrabold leading-none text-white touch-manipulation',
-                '[text-shadow:0_4px_4px_rgba(0,0,0,0.7)] transition-all active:scale-[0.99]',
-                tileClassForWagerValue(value, isFinalWagerRound),
-                !enabled && 'pointer-events-none opacity-40',
-                selected && SELECTED_BUTTON,
-              )}
-            >
-              {formatWagerButtonLabel(value, isFinalWagerRound)}
-            </button>
-          );
-        })}
+      <div
+        className="mt-6 min-h-0 min-w-0 flex-1 touch-pan-y overflow-x-hidden overflow-y-auto overscroll-y-contain [-webkit-overflow-scrolling:touch]"
+        aria-label="Wager amount options"
+      >
+        <div className="mx-auto flex w-full max-w-[400px] flex-col gap-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:gap-5">
+          {gridValues.map((value) => {
+            const enabled = wagerChoiceValues.includes(value);
+            const selected = wagerAmount === value;
+            return (
+              <button
+                key={value}
+                type="button"
+                disabled={!enabled}
+                onClick={() => onSelectAmount(value)}
+                className={cn(
+                  'flex h-[clamp(3.25rem,14vw,4.0625rem)] w-full shrink-0 items-center justify-center rounded-[20px]',
+                  'text-[clamp(2rem,9vw,2.8125rem)] font-extrabold leading-none text-white touch-manipulation',
+                  '[text-shadow:0_4px_4px_rgba(0,0,0,0.7)] transition-all active:scale-[0.99]',
+                  tileClassForWagerValue(value, isFinalWagerRound),
+                  !enabled && 'pointer-events-none opacity-40',
+                  selected && SELECTED_BUTTON,
+                )}
+              >
+                {formatWagerButtonLabel(value, isFinalWagerRound)}
+              </button>
+            );
+          })}
+        </div>
       </div>
     </motion.div>
   );
@@ -185,7 +190,7 @@ export function PlayerWagerSelectionScreen({
   onSelectAmount,
 }: PlayerWagerSelectionScreenProps) {
   return (
-    <div className="relative flex min-h-0 w-full flex-1 flex-col overflow-hidden">
+    <div className="relative flex h-full min-h-0 w-full max-w-full flex-1 flex-col overflow-hidden">
       <PlayerWagerBackground />
       <AnimatePresence mode="wait">
         {wagerSubmitted ? (

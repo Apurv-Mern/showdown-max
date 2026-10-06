@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState, useCallback, useMemo, Suspense } from 'react';
+import { createPortal } from 'react-dom';
 import { motion } from 'framer-motion';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useSocket } from '@/hooks/useSocket';
@@ -24,6 +25,7 @@ import {
 import { VenueWagerCollectionScreen } from '@/components/venue/VenueWagerCollectionScreen';
 import {
   useVenueStageBackdropOverride,
+  useVenueStageViewport,
   VENUE_WAGER_SELECTION_BG,
 } from '@/components/venue/VenueStageBackdrop';
 import { emptyWagerDistributionCounts } from '@/lib/wagerGrid';
@@ -426,6 +428,7 @@ function VenueDisplayContent() {
   const [isPinReady, setIsPinReady] = useState(false);
   const [phase, setPhase] = useState<VenuePhase>('welcome');
   useVenueStageBackdropOverride(phase === 'wager_collection' ? VENUE_WAGER_SELECTION_BG : null);
+  const venueViewportEl = useVenueStageViewport();
   const [qrCodeData, setQrCodeData] = useState<string>('');
   const [teams, setTeams] = useState<Team[]>([]);
   const [maxTeams, setMaxTeams] = useState(25);
@@ -2222,6 +2225,23 @@ function VenueDisplayContent() {
 
   const unitySelectionUpdate = kangarooSelectionUpdate ?? cardSelectionUpdate;
 
+  const venueMiniGameLayer =
+    phase === 'mini_game' && miniGameType ? (
+      <div className="absolute inset-0 z-[80] h-full w-full animate-fadeIn bg-black">
+        <DynamicUnityGame
+          key={`${miniGameType}-${unityMountKey}`}
+          gameType={miniGameType as 'Kangaroo_race' | 'card_shuffle'}
+          onPlayerAction={handleUnityPlayerAction}
+          onGameComplete={handleUnityGameComplete}
+          onReady={handleUnityReady}
+          command={miniGameCommand}
+          selectionUpdate={unitySelectionUpdate}
+          fillHost
+          className="h-full w-full overflow-hidden bg-black"
+        />
+      </div>
+    ) : null;
+
   const QROverlay = () => {
     if (
       showVenueSplash ||
@@ -2268,7 +2288,8 @@ function VenueDisplayContent() {
   }
 
   return (
-    <div className="w-full h-full relative overflow-hidden">
+    <>
+      <div className="w-full h-full relative overflow-hidden">
       <div className="relative z-10 w-full h-full">
         <ConnectionDot />
         <QROverlay />
@@ -2478,22 +2499,6 @@ function VenueDisplayContent() {
           />
         )}
 
-        {/* ── MINI GAME ── */}
-        {phase === 'mini_game' && miniGameType && (
-          <div className="absolute inset-0 h-full w-full animate-fadeIn">
-            <DynamicUnityGame
-              key={`${miniGameType}-${unityMountKey}`}
-              gameType={miniGameType as 'Kangaroo_race' | 'card_shuffle'}
-              onPlayerAction={handleUnityPlayerAction}
-              onGameComplete={handleUnityGameComplete}
-              onReady={handleUnityReady}
-              command={miniGameCommand}
-              selectionUpdate={unitySelectionUpdate}
-              className="h-full w-full overflow-hidden bg-black"
-            />
-          </div>
-        )}
-
         {/* ── MINI GAME RESULT ── */}
         {phase === 'mini_game_result' && miniGameResult && (
           <div className="w-full h-full flex flex-col items-center justify-center p-8 animate-fadeIn">
@@ -2663,6 +2668,10 @@ function VenueDisplayContent() {
         )}
       </div>
     </div>
+      {venueViewportEl && venueMiniGameLayer
+        ? createPortal(venueMiniGameLayer, venueViewportEl)
+        : null}
+    </>
   );
 }
 

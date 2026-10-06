@@ -34,6 +34,8 @@ export interface UnityWrapperProps {
     kangarooNames?: string[];
   } | null;
   className?: string;
+  /** Force the WebGL canvas to match the host box (venue full-viewport embed). */
+  fillHost?: boolean;
 }
 
 function toCardUnityMessage(
@@ -113,7 +115,9 @@ export default function UnityWrapper({
   command,
   selectionUpdate = null,
   className,
+  fillHost = false,
 }: UnityWrapperProps) {
+  const hostRef = useRef<HTMLDivElement>(null);
   const config = GAME_CONFIGS[gameType];
   const [loadError, setLoadError] = useState(false);
 
@@ -413,12 +417,43 @@ export default function UnityWrapper({
     return () => clearTimeout(timer);
   }, [isLoaded, loadingProgression]);
 
+  useEffect(() => {
+    if (!fillHost || !isLoaded) return;
+    const host = hostRef.current;
+    if (!host) return;
+
+    const applyCanvasFill = () => {
+      const canvas = host.querySelector('canvas');
+      if (!canvas) return;
+      canvas.style.position = 'absolute';
+      canvas.style.inset = '0';
+      canvas.style.width = '100%';
+      canvas.style.height = '100%';
+      canvas.style.maxWidth = 'none';
+      canvas.style.maxHeight = 'none';
+      canvas.style.margin = '0';
+      canvas.style.display = 'block';
+      canvas.style.transform = 'none';
+    };
+
+    applyCanvasFill();
+    const observer = new MutationObserver(applyCanvasFill);
+    observer.observe(host, { childList: true, attributes: true, subtree: true });
+    const resizeObserver = new ResizeObserver(applyCanvasFill);
+    resizeObserver.observe(host);
+    return () => {
+      observer.disconnect();
+      resizeObserver.disconnect();
+    };
+  }, [fillHost, isLoaded]);
+
   if (loadError && !isLoaded) {
     return <FallbackView gameType={gameType} />;
   }
 
   return (
     <div
+      ref={hostRef}
       className={`relative flex h-full w-full min-h-0 flex-1 flex-col overflow-hidden bg-black ${className || ''}`}
     >
       {/* Loading overlay */}
@@ -449,7 +484,8 @@ export default function UnityWrapper({
       <div className="absolute inset-0 h-full w-full">
         <Unity
           unityProvider={unityProvider}
-          className="absolute inset-0 block h-full w-full"
+          matchWebGLToCanvasSize
+          className="absolute inset-0 block h-full w-full max-h-none max-w-none"
           style={{ width: '100%', height: '100%', display: 'block' }}
         />
       </div>

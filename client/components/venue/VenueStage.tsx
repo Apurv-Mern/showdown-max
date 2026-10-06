@@ -22,7 +22,7 @@ function readViewport() {
 
 function VenueStageInner({ children }: { children: ReactNode }) {
   const [viewport, setViewport] = useState(readViewport);
-  const { backdropSrc } = useVenueStageBackdrop();
+  const { backdropSrc, setViewportEl } = useVenueStageBackdrop();
   const resolvedBackdrop = backdropSrc ?? VENUE_DEFAULT_STAGE_BG;
   const isCustomBackdrop = backdropSrc != null;
 
@@ -45,7 +45,11 @@ function VenueStageInner({ children }: { children: ReactNode }) {
   const scale = Math.min(scaleX, scaleY);
 
   return (
-    <div className="relative h-dvh w-screen overflow-hidden bg-[#020514]">
+    <div
+      ref={setViewportEl}
+      data-venue-viewport
+      className="relative h-dvh w-screen overflow-hidden bg-[#020514]"
+    >
       {/* Backdrop spans the whole screen behind the scaled 1920×1080 stage. */}
       <div
         className="pointer-events-none absolute inset-0 w-full bg-cover bg-center bg-no-repeat"

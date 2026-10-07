@@ -36,6 +36,8 @@ export interface UnityWrapperProps {
   className?: string;
   /** Force the WebGL canvas to match the host box (venue full-viewport embed). */
   fillHost?: boolean;
+  /** When false, stop sending SELECTION_COUNT (kangaroo lineup) after Start Race. */
+  syncLineupToUnity?: boolean;
 }
 
 function toCardUnityMessage(
@@ -116,8 +118,11 @@ export default function UnityWrapper({
   selectionUpdate = null,
   className,
   fillHost = false,
+  syncLineupToUnity = true,
 }: UnityWrapperProps) {
   const hostRef = useRef<HTMLDivElement>(null);
+  const syncLineupToUnityRef = useRef(syncLineupToUnity);
+  syncLineupToUnityRef.current = syncLineupToUnity;
   const config = GAME_CONFIGS[gameType];
   const [loadError, setLoadError] = useState(false);
 
@@ -277,6 +282,7 @@ export default function UnityWrapper({
 
   const pushSelectionCountToUnity = useCallback(() => {
     if (!isLoaded) return;
+    if (!syncLineupToUnityRef.current) return;
     const sel = selectionUpdateRef.current;
     if (!sel) return;
     const selected = Number(sel?.totalSelected || 0);

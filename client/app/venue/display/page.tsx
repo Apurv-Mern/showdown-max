@@ -486,6 +486,8 @@ function VenueDisplayContent() {
   // track this on the venue separately because `miniGameCommand` is null on
   // first mount/reconnect and would falsely show the intro mid-game.
   const [cardShuffleVenueStarted, setCardShuffleVenueStarted] = useState(false);
+  /** After host Start Race — stop SELECTION_COUNT so Unity lineup UI can dismiss. */
+  const [kangarooVenueRaceStarted, setKangarooVenueRaceStarted] = useState(false);
   const [venueKangarooNames, setVenueKangarooNames] = useState<string[]>(defaultKangarooNames());
   const [kangarooSelectedCount, setKangarooSelectedCount] = useState(0);
   const [kangarooPickCounts, setKangarooPickCounts] = useState<Record<string, number>>({
@@ -1249,6 +1251,7 @@ function VenueDisplayContent() {
           setCardShuffleVenueStarted(Boolean(data.miniGameState?.gameStarted));
         }
         if (normalizedActiveMiniGame === 'Kangaroo_race') {
+          setKangarooVenueRaceStarted(Boolean(data.miniGameState?.gameStarted));
           const names = Array.isArray(data.miniGameState?.kangarooNames)
             ? data.miniGameState.kangarooNames
             : Array.isArray(data.miniGameConfig?.kangarooNames)
@@ -1509,6 +1512,7 @@ function VenueDisplayContent() {
       setMiniGameReveal(null);
       setMiniGameResult(null);
       setCardShuffleVenueStarted(false);
+      setKangarooVenueRaceStarted(false);
     };
 
     const onRoundIntro = (data: any) => {
@@ -1834,6 +1838,7 @@ function VenueDisplayContent() {
       setMiniGameResult(null);
       setCardShuffleVenueStarted(false);
       if (normalizedGame === 'Kangaroo_race' && !data.rejoinReplay) {
+        setKangarooVenueRaceStarted(false);
         setKangarooSelectedCount(0);
         setKangarooPickCounts({ '1': 0, '2': 0, '3': 0, '4': 0, '5': 0, '6': 0 });
         kangarooSelectionNonceRef.current += 1;
@@ -1863,6 +1868,9 @@ function VenueDisplayContent() {
       if (!gid || !data.command) return;
 
       if (gid === 'kangaroo_race') {
+        if (data.command === 'start_game') {
+          setKangarooVenueRaceStarted(true);
+        }
         if (Array.isArray(data.kangarooNames) && data.kangarooNames.length >= 6) {
           setVenueKangarooNames(resolveKangarooNames(data.kangarooNames));
         }
@@ -2236,6 +2244,9 @@ function VenueDisplayContent() {
           onReady={handleUnityReady}
           command={miniGameCommand}
           selectionUpdate={unitySelectionUpdate}
+          syncLineupToUnity={
+            miniGameType !== 'Kangaroo_race' || !kangarooVenueRaceStarted
+          }
           fillHost
           className="h-full w-full overflow-hidden bg-black"
         />

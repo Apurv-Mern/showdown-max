@@ -1,7 +1,6 @@
 const { SOCKET_EVENTS } = require('shared/constants/socketEvents');
 const { GAME_STATES } = require('shared/constants/gameStates');
 const { QUESTION_STATES } = require('shared/constants/questionStates');
-const { ROUND_TYPES } = require('shared/constants/roundTypes');
 const logger = require('../utils/logger');
 const gameController = require('../services/game-engine/gameController');
 const redisStore = require('../services/redisSessionStore');
@@ -10,8 +9,12 @@ const { normalizeTeamName, sanitizeTeamName } = require('../utils/teamName');
 const { purgeTeamFromLiveSession } = require('../services/purgeTeamFromLiveSession');
 const { LOBBY_PHASES } = require('shared/constants/lobbyPhases');
 const venueHandlers = require('./venueHandlers');
+const { shouldWaitForHostAudioTimer } = require('../utils/questionMedia');
 
 const purgeTeamRecord = async (pin, teamId) => purgeTeamFromLiveSession(pin, teamId, true);
+
+const assertHostForPin = (socket, pin) =>
+  Boolean(pin && socket.data?.role === 'host' && String(socket.data.pin) === String(pin));
 
 /** Push full roster to host + venue after manual add/remove (same shape as reconnect). */
 const emitSessionRosterState = async (io, pin) => {
@@ -24,7 +27,7 @@ const emitSessionRosterState = async (io, pin) => {
     return;
   }
   const session = await Session.findOne({ where: { pin } });
-  const lobbyTeams = await redisStore.getAllTeamsData(pin);
+  const lobbyTeams = await redisStore.getConnectedTeamsData(pin);
   io.to(`session:${pin}`).emit(
     SOCKET_EVENTS.SESSION_STATE,
     await venueHandlers.buildPreGameLobbyPayload(pin, session, lobbyTeams),
@@ -40,7 +43,14 @@ const hostHandlers = (io, socket) => {
   socket.on(SOCKET_EVENTS.START_GAME, async (data) => {
     try {
       const { pin } = data;
-      const sessionData = await redisStore.getSession(pin);
+      let sessionData = await redisStore.getSession(pin);
+      if (!sessionData) {
+        const dbSession = await Session.findOne({ where: { pin } });
+        if (dbSession) {
+          await redisStore.setSession(pin, dbSession.id);
+          sessionData = { sessionId: dbSession.id };
+        }
+      }
       if (!sessionData) {
         socket.emit(SOCKET_EVENTS.ERROR, { message: 'Session not found' });
         return;
@@ -49,6 +59,20 @@ const hostHandlers = (io, socket) => {
       const session = await Session.findByPk(sessionData.sessionId);
       if (!session) {
         socket.emit(SOCKET_EVENTS.ERROR, { message: 'Session not found in DB' });
+        return;
+      }
+
+      const existingGame = await require('../services/sessionCheckpointService').ensureHydratedGameState(
+        pin,
+      );
+      if (existingGame && existingGame.state && existingGame.state !== GAME_STATES.LOBBY) {
+        await session.update({ status: 'active' });
+        await gameController.resumeLiveSession(io, pin);
+        logger.info('Game resumed from checkpoint instead of restarting', {
+          pin,
+          sessionId: session.id,
+          state: existingGame.state,
+        });
         return;
       }
 
@@ -67,7 +91,7 @@ const hostHandlers = (io, socket) => {
         return;
       }
 
-      const lobbyTeams = await redisStore.getAllTeamsData(pin);
+      const lobbyTeams = await redisStore.getConnectedTeamsData(pin);
       if (lobbyTeams.length === 0) {
         socket.emit(SOCKET_EVENTS.ERROR, {
           message: 'Cannot start game with no teams. Wait for players to join.',
@@ -75,7 +99,6 @@ const hostHandlers = (io, socket) => {
         return;
       }
 
-      const existingGame = await redisStore.getGameState(pin);
       if (!existingGame) {
         const lobbyPhase = await redisStore.getLobbyPhase(pin);
         if (lobbyPhase !== LOBBY_PHASES.CODE_OF_CONDUCT) {
@@ -104,6 +127,19 @@ const hostHandlers = (io, socket) => {
     }
   });
 
+  socket.on(SOCKET_EVENTS.PRESENT_QUESTION, async (data) => {
+    try {
+      const pin = data?.pin;
+      if (!assertHostForPin(socket, pin)) {
+        socket.emit(SOCKET_EVENTS.ERROR, { message: 'Unauthorized' });
+        return;
+      }
+      await gameController.presentQuestion(io, pin);
+    } catch (err) {
+      logger.error('present_question error', { error: err.message });
+    }
+  });
+
   /**
    * Host pressed Space (or otherwise asked) to dismiss the venue's looping welcome video.
    * The venue listens for `venue_welcome_dismiss` and advances past the welcome screen.
@@ -117,6 +153,26 @@ const hostHandlers = (io, socket) => {
       logger.info('Venue welcome dismissed by host', { pin });
     } catch (err) {
       logger.error('dismiss_welcome error', { error: err.message });
+    }
+  });
+
+  /**
+   * Host scrolls the venue leaderboard remotely. Pure display control — no game state — so it
+   * only relays the direction to the room; the venue applies the row-aligned scroll and reports
+   * back via VENUE_LEADERBOARD_STATE.
+   */
+  socket.on(SOCKET_EVENTS.VENUE_LEADERBOARD_SCROLL, (data) => {
+    try {
+      const pin = data?.pin;
+      if (!assertHostForPin(socket, pin)) {
+        socket.emit(SOCKET_EVENTS.ERROR, { message: 'Unauthorized' });
+        return;
+      }
+      const direction = String(data?.direction || '');
+      if (!['up', 'down', 'top', 'bottom', 'refresh'].includes(direction)) return;
+      io.to(`session:${pin}`).emit(SOCKET_EVENTS.VENUE_LEADERBOARD_SCROLL, { direction });
+    } catch (err) {
+      logger.error('venue_leaderboard_scroll error', { error: err.message });
     }
   });
 
@@ -195,6 +251,32 @@ const hostHandlers = (io, socket) => {
     }
   });
 
+  socket.on(SOCKET_EVENTS.SKIP_NEXT_ROUND, async (data) => {
+    try {
+      const pin = data?.pin;
+      if (!assertHostForPin(socket, pin)) {
+        socket.emit(SOCKET_EVENTS.ERROR, { message: 'Unauthorized' });
+        return;
+      }
+      await gameController.skipNextRound(io, pin);
+    } catch (err) {
+      logger.error('skip_next_round error', { error: err.message });
+    }
+  });
+
+  socket.on(SOCKET_EVENTS.SKIP_CURRENT_ROUND, async (data) => {
+    try {
+      const pin = data?.pin;
+      if (!assertHostForPin(socket, pin)) {
+        socket.emit(SOCKET_EVENTS.ERROR, { message: 'Unauthorized' });
+        return;
+      }
+      await gameController.skipCurrentRound(io, pin);
+    } catch (err) {
+      logger.error('skip_current_round error', { error: err.message });
+    }
+  });
+
   socket.on(SOCKET_EVENTS.START_BREAK, async (data) => {
     try {
       await gameController.startBreak(io, data.pin);
@@ -255,9 +337,12 @@ const hostHandlers = (io, socket) => {
           if (gs.questionState === QUESTION_STATES.ACTIVE) {
             const tr = Number(gs.timerRemaining ?? 0);
             const round = gs.rounds?.[gs.currentRoundIndex ?? 0];
-            const isMusic = round?.type === ROUND_TYPES.MUSIC;
+            const question = round?.questions?.[gs.currentQuestionIndex ?? 0];
             const musicAwaitingHostTimer =
-              isMusic && !gs.timerRunning && Number.isFinite(tr) && tr > 0;
+              shouldWaitForHostAudioTimer(round, question) &&
+              !gs.timerRunning &&
+              Number.isFinite(tr) &&
+              tr > 0;
             const allowPlay = musicAwaitingHostTimer || tr > 0;
             if (!allowPlay) return;
           }
@@ -371,6 +456,9 @@ const hostHandlers = (io, socket) => {
           reason: 'host_removed',
         });
       }
+      await gameController.publishQuestionLiveStatsAfterRosterChange(io, pin, {
+        removedTeamId: teamId,
+      });
       await emitSessionRosterState(io, pin);
       logger.info('Team removed', { pin, teamId });
     } catch (err) {
@@ -378,11 +466,127 @@ const hostHandlers = (io, socket) => {
     }
   });
 
+  socket.on(SOCKET_EVENTS.GET_LIVE_ROUND_PREVIEW, async (data) => {
+    try {
+      const pin = data?.pin;
+      if (!assertHostForPin(socket, pin)) {
+        socket.emit(SOCKET_EVENTS.ERROR, { message: 'Unauthorized' });
+        return;
+      }
+      const preview = await gameController.getLiveRoundPreview(pin);
+      if (!preview) {
+        socket.emit(SOCKET_EVENTS.ERROR, { message: 'No live game or round for preview' });
+        return;
+      }
+      socket.emit(SOCKET_EVENTS.LIVE_ROUND_PREVIEW, preview);
+    } catch (err) {
+      logger.error('get_live_round_preview error', { error: err.message });
+      socket.emit(SOCKET_EVENTS.ERROR, { message: 'Failed to load live preview' });
+    }
+  });
+
+  socket.on(SOCKET_EVENTS.UPDATE_LIVE_QUESTION, async (data, ack) => {
+    try {
+      const pin = data?.pin;
+      if (!assertHostForPin(socket, pin)) {
+        socket.emit(SOCKET_EVENTS.ERROR, { message: 'Unauthorized' });
+        if (typeof ack === 'function') ack({ ok: false, error: 'Unauthorized' });
+        return;
+      }
+      await gameController.updateLiveQuestion(io, pin, data);
+      if (typeof ack === 'function') ack({ ok: true });
+    } catch (err) {
+      logger.error('update_live_question error', { error: err.message });
+      const message = err.message || 'Failed to update question';
+      socket.emit(SOCKET_EVENTS.ERROR, { message });
+      if (typeof ack === 'function') ack({ ok: false, error: message });
+    }
+  });
+
+  socket.on(SOCKET_EVENTS.SKIP_QUESTION, async (data) => {
+    try {
+      const pin = data?.pin;
+      if (!assertHostForPin(socket, pin)) {
+        socket.emit(SOCKET_EVENTS.ERROR, { message: 'Unauthorized' });
+        return;
+      }
+      await gameController.skipQuestion(io, pin);
+    } catch (err) {
+      logger.error('skip_question error', { error: err.message });
+      socket.emit(SOCKET_EVENTS.ERROR, { message: 'Failed to skip question' });
+    }
+  });
+
+  socket.on(SOCKET_EVENTS.JUMP_TO_QUESTION, async (data, ack) => {
+    try {
+      const pin = data?.pin;
+      if (!assertHostForPin(socket, pin)) {
+        const message = 'Unauthorized';
+        socket.emit(SOCKET_EVENTS.ERROR, { message });
+        if (typeof ack === 'function') ack({ ok: false, error: message });
+        return;
+      }
+      const questionIndex = Number(data?.questionIndex);
+      await gameController.jumpToQuestion(io, pin, questionIndex);
+      if (typeof ack === 'function') ack({ ok: true });
+    } catch (err) {
+      logger.error('jump_to_question error', { error: err.message });
+      const message = err.message || 'Failed to jump to question';
+      socket.emit(SOCKET_EVENTS.ERROR, { message });
+      if (typeof ack === 'function') ack({ ok: false, error: message });
+    }
+  });
+
   socket.on(SOCKET_EVENTS.EDIT_TEAM_SCORE, async (data) => {
     try {
-      const { pin, teamId, score } = data;
-      const updatedScore = Number(score);
-      await Team.update({ score: updatedScore }, { where: { id: teamId } });
+      const { pin, teamId, score, teamName: rawTeamName } = data;
+      if (!assertHostForPin(socket, pin)) {
+        socket.emit(SOCKET_EVENTS.ERROR, { message: 'Unauthorized' });
+        return;
+      }
+
+      const existing = await Team.findByPk(teamId, {
+        attributes: ['id', 'teamName', 'score', 'sessionId'],
+      });
+      if (!existing) return;
+
+      const dbUpdates = {};
+
+      if (rawTeamName !== undefined && rawTeamName !== null) {
+        const cleanTeamName = sanitizeTeamName(rawTeamName);
+        const normalized = normalizeTeamName(cleanTeamName);
+        if (!normalized) {
+          socket.emit(SOCKET_EVENTS.ERROR, { message: 'Team name is required.' });
+          return;
+        }
+        const sessionTeams = await Team.findAll({
+          where: { sessionId: existing.sessionId },
+          attributes: ['id', 'teamName'],
+        });
+        const duplicateTeam = sessionTeams.find(
+          (t) => t.id !== existing.id && normalizeTeamName(t.teamName) === normalized,
+        );
+        if (duplicateTeam) {
+          socket.emit(SOCKET_EVENTS.ERROR, {
+            message: 'Team name already taken. Please choose a different name.',
+          });
+          return;
+        }
+        dbUpdates.teamName = cleanTeamName;
+      }
+
+      if (score !== undefined && score !== null && String(score).trim() !== '') {
+        const updatedScore = Number(score);
+        if (!Number.isFinite(updatedScore)) {
+          socket.emit(SOCKET_EVENTS.ERROR, { message: 'Please enter a valid score.' });
+          return;
+        }
+        dbUpdates.score = updatedScore;
+      }
+
+      if (Object.keys(dbUpdates).length === 0) return;
+
+      await Team.update(dbUpdates, { where: { id: teamId } });
 
       const team = await Team.findByPk(teamId, {
         attributes: ['id', 'teamName', 'score', 'sessionId'],
@@ -399,9 +603,13 @@ const hostHandlers = (io, socket) => {
       await redisStore.updateTeamData(pin, teamId, teamData);
 
       const patched = await redisStore.updateGameState(pin, (current) => {
-        const row = current.teams?.[teamId];
+        const row = current.teams?.[teamId] ?? current.teams?.[String(teamId)];
         if (!row) return null;
-        const nextRow = { ...row, score: updatedScore };
+        const nextRow = {
+          ...row,
+          ...(dbUpdates.score !== undefined ? { score: team.score } : {}),
+          ...(dbUpdates.teamName !== undefined ? { teamName: team.teamName } : {}),
+        };
         return { teams: { ...(current.teams || {}), [teamId]: nextRow } };
       });
       if (patched?.teams?.[teamId]) {
@@ -422,9 +630,9 @@ const hostHandlers = (io, socket) => {
       io.to(`session:${pin}`).emit(SOCKET_EVENTS.TEAM_UPDATED, {
         teamId,
         teamName: teamData.teamName,
-        score: updatedScore,
+        score: team.score,
       });
-      logger.info('Team score edited', { pin, teamId, score: updatedScore });
+      logger.info('Team edited by host', { pin, teamId, ...dbUpdates });
     } catch (err) {
       logger.error('edit_team_score error', { error: err.message });
     }

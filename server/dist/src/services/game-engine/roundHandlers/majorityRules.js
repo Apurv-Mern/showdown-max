@@ -1,16 +1,18 @@
 const { SCORING } = require('shared/constants/scoring');
+const { isUnanswered } = require('../unanswered');
 
 /**
- * Majority Rules: Most popular answer = +50, minority = -50.
+ * Majority Rules: Most popular answer = +50, minority / unanswered = -50.
  * Tie for majority: all tied teams get +50.
  */
-const calculate = ({ responses }) => {
+const calculate = ({ responses, question }) => {
   const scores = {};
 
   const voteCounts = {};
   for (const [, response] of Object.entries(responses)) {
-    const idx = response.selectedOptionIndex;
-    if (!Number.isFinite(Number(idx)) || Number(idx) < 0) continue;
+    if (isUnanswered(response, question)) continue;
+    const idx = Number(response.selectedOptionIndex);
+    if (!Number.isFinite(idx) || idx < 0) continue;
     voteCounts[idx] = (voteCounts[idx] || 0) + 1;
   }
 
@@ -21,11 +23,11 @@ const calculate = ({ responses }) => {
     .map(([idx]) => Number(idx));
 
   for (const [teamId, response] of Object.entries(responses)) {
-    const selectedIdx = Number(response?.selectedOptionIndex);
-    if (!response || !Number.isFinite(selectedIdx) || selectedIdx < 0 || majorityOptions.length === 0) {
-      scores[teamId] = 0;
+    if (isUnanswered(response, question) || majorityOptions.length === 0) {
+      scores[teamId] = SCORING.MAJORITY_RULES.MINORITY;
       continue;
     }
+    const selectedIdx = Number(response.selectedOptionIndex);
     const isMajority = majorityOptions.includes(selectedIdx);
     scores[teamId] = isMajority
       ? SCORING.MAJORITY_RULES.MAJORITY

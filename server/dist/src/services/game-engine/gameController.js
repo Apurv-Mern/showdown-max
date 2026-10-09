@@ -21,8 +21,24 @@ const logger = require('../../utils/logger');
 const { getBreakRemainingSeconds, getBreakUpNextRoundPayload } = require('../../utils/breakWallClock');
 const { normalizeTeamName } = require('../../utils/teamName');
 const { mapClientQuestionPayload } = require('../../utils/clientQuestionPayload');
+const { shouldWaitForHostAudioTimer } = require('../../utils/questionMedia');
+const { buildAudienceViewPayload } = require('../../utils/audienceView');
 
 const eliminationStates = new Map();
+
+const emitFullSessionState = async (io, pin, gameState) => {
+  const venueHandlers = require('../../socket/venueHandlers');
+  const payload = await venueHandlers.buildFullStatePayload(gameState, pin);
+  io.to(`session:${pin}`).emit(SOCKET_EVENTS.SESSION_STATE, payload);
+};
+
+const clearMiniGameHold = async (pin, gameState) => {
+  if (!gameState?.miniGameHold) return gameState;
+  const next = { ...gameState };
+  delete next.miniGameHold;
+  await redisStore.setGameState(pin, next);
+  return next;
+};
 
 /** Passive socket drops (e.g. refresh) schedule a delayed purge; `join_session` cancels it. */
 const disconnectPurgeTimers = new Map();
@@ -139,6 +155,46 @@ const isWagerLockRound = (round) => {
   return t === ROUND_TYPES.WAGER || t === ROUND_TYPES.FINAL_WAGER;
 };
 
+const applyDefaultZeroWagersForCurrentQuestion = (gameState) => {
+  const round = stateMachine.getCurrentRound(gameState);
+  if (!isWagerLockRound(round)) return gameState;
+  const question = stateMachine.getCurrentQuestion(gameState);
+  if (!question?.id) return gameState;
+  const questionIdKey = String(question.id);
+  const next = { ...gameState, questionWagers: { ...(gameState.questionWagers || {}) } };
+  const bucket = { ...(next.questionWagers[questionIdKey] || {}) };
+  const zero = clampWagerByRoundType(round.type, 0);
+  for (const teamId of resolveActiveTeamIdsForStats(next)) {
+    const teamIdKey = String(teamId);
+    if (bucket[teamIdKey] === undefined || bucket[teamIdKey] === null) {
+      bucket[teamIdKey] = zero;
+    }
+  }
+  next.questionWagers[questionIdKey] = bucket;
+  return next;
+};
+
+/** Discrete wager choices — must match client `wagerGrid.ts`. */
+const STANDARD_WAGER_BUCKETS = [0, 10, 20, 30, 40, 50];
+const FINAL_WAGER_PERCENT_BUCKETS = [0, 20, 40, 60, 80, 100];
+
+const buildWagerDistributionCounts = (gameState, questionId, roundType) => {
+  const rt = String(roundType || '').toUpperCase();
+  const buckets =
+    rt === ROUND_TYPES.FINAL_WAGER ? FINAL_WAGER_PERCENT_BUCKETS : STANDARD_WAGER_BUCKETS;
+  /** @type {Record<string, number>} */
+  const counts = Object.fromEntries(buckets.map((b) => [String(b), 0]));
+  const perTeam = gameState?.questionWagers?.[String(questionId)];
+  if (!perTeam || typeof perTeam !== 'object') return counts;
+  for (const teamIdKey of Object.keys(perTeam)) {
+    const raw = perTeam[teamIdKey];
+    if (raw === undefined || raw === null) continue;
+    const key = String(Number(raw));
+    if (Object.prototype.hasOwnProperty.call(counts, key)) counts[key] += 1;
+  }
+  return counts;
+};
+
 /** Count distinct teams that have locked a wager for the given question. */
 const countLockedWagers = (gameState, questionId) => {
   if (questionId == null) return 0;
@@ -168,6 +224,7 @@ const emitWagerLockUpdate = (io, pin, gameState) => {
     locked,
     total,
     roundType: round.type,
+    counts: buildWagerDistributionCounts(gameState, question.id, round.type),
   });
 };
 
@@ -188,13 +245,17 @@ const parseSelectedOptionIndex = (rawResponse) => {
 
 /** Teams eligible to answer — prefer `activeTeamIds`, fall back to `teams` map (break resume, legacy state). */
 const resolveActiveTeamIdsForStats = (gameState) => {
+  const isLive = (id) => {
+    const row = gameState?.teams?.[id] ?? gameState?.teams?.[String(id)];
+    return !row || row.isConnected !== false;
+  };
   const fromActive = (Array.isArray(gameState?.activeTeamIds) ? gameState.activeTeamIds : [])
     .map(Number)
-    .filter((id) => Number.isFinite(id));
+    .filter((id) => Number.isFinite(id) && isLive(id));
   if (fromActive.length > 0) return fromActive;
   return Object.keys(gameState?.teams || {})
     .map(Number)
-    .filter((id) => Number.isFinite(id));
+    .filter((id) => Number.isFinite(id) && isLive(id));
 };
 
 const isTeamEliminatedInState = (gameState, teamId) =>
@@ -265,14 +326,20 @@ const buildLiveResponseStats = (gameState, question, responsesRaw = {}) => {
   let correct = 0;
   let incorrect = 0;
   let noAnswer = 0;
-  const answeredSelections = [];
+  const correctTeamIds = [];
+  const incorrectTeamIds = [];
+  const noAnswerTeamIds = [];
   const voteCounts = {};
+  /** @type {{ teamId: number, selectedOptionIndex: number }[]} */
+  const majorityAnswered = [];
 
   for (const teamId of activeTeamIds) {
+    const numericTeamId = Number(teamId);
     const key = String(teamId);
     const raw = responsesRaw[key];
     if (raw === undefined || raw === null) {
       noAnswer += 1;
+      noAnswerTeamIds.push(numericTeamId);
       continue;
     }
 
@@ -281,7 +348,6 @@ const buildLiveResponseStats = (gameState, question, responsesRaw = {}) => {
       Array.isArray(selectedOptionIndex) ? selectedOptionIndex.length > 0 : selectedOptionIndex >= 0
     ) {
       if (Array.isArray(selectedOptionIndex)) {
-        // Track ordering answers for stats (just to know they answered, the histogram may not mean much)
         const isOrdering = question?.options?.some((o) => o.correctOrder !== undefined);
         if (isOrdering) {
           const expectedOrder = [...question.options]
@@ -290,23 +356,25 @@ const buildLiveResponseStats = (gameState, question, responsesRaw = {}) => {
             .map((x) => x.idx);
           if (JSON.stringify(selectedOptionIndex) === JSON.stringify(expectedOrder)) {
             correct += 1;
+            correctTeamIds.push(numericTeamId);
+          } else {
+            incorrect += 1;
+            incorrectTeamIds.push(numericTeamId);
           }
-          // We push dummy 0 to answeredSelections so `incorrect` math at the end still counts this
-          answeredSelections.push(0);
         }
-      } else {
-        answeredSelections.push(selectedOptionIndex);
+      } else if (roundType === ROUND_TYPES.MAJORITY_RULES) {
         voteCounts[selectedOptionIndex] = (voteCounts[selectedOptionIndex] || 0) + 1;
-
-        if (
-          roundType !== ROUND_TYPES.MAJORITY_RULES &&
-          selectedOptionIndex === correctOptionIndex
-        ) {
-          correct += 1;
-        }
+        majorityAnswered.push({ teamId: numericTeamId, selectedOptionIndex });
+      } else if (selectedOptionIndex === correctOptionIndex) {
+        correct += 1;
+        correctTeamIds.push(numericTeamId);
+      } else {
+        incorrect += 1;
+        incorrectTeamIds.push(numericTeamId);
       }
     } else {
       noAnswer += 1;
+      noAnswerTeamIds.push(numericTeamId);
     }
   }
 
@@ -318,22 +386,46 @@ const buildLiveResponseStats = (gameState, question, responsesRaw = {}) => {
         .map(([idx]) => Number(idx)),
     );
 
-    for (const selectedOptionIndex of answeredSelections) {
+    for (const { teamId, selectedOptionIndex } of majorityAnswered) {
       if (majorityOptions.has(selectedOptionIndex)) {
         correct += 1;
+        correctTeamIds.push(teamId);
       } else {
         incorrect += 1;
+        incorrectTeamIds.push(teamId);
       }
-    }
-  } else {
-    // In non-majority rounds, any answered non-correct option counts as incorrect.
-    incorrect = answeredSelections.length - correct;
-    if (incorrect < 0) {
-      incorrect = 0;
     }
   }
 
-  return { correct, incorrect, noAnswer, total };
+  const responseDetails = activeTeamIds.map((teamId) => {
+    const numericTeamId = Number(teamId);
+    const raw = responsesRaw[String(teamId)];
+    if (raw === undefined || raw === null) {
+      return { teamId: numericTeamId, selectedOptionIndex: -1 };
+    }
+    const selectedOptionIndex = parseSelectedOptionIndex(raw);
+    if (Array.isArray(selectedOptionIndex)) {
+      return {
+        teamId: numericTeamId,
+        selectedOptionIndex: selectedOptionIndex.length > 0 ? selectedOptionIndex : -1,
+      };
+    }
+    return {
+      teamId: numericTeamId,
+      selectedOptionIndex: selectedOptionIndex >= 0 ? selectedOptionIndex : -1,
+    };
+  });
+
+  return {
+    correct,
+    incorrect,
+    noAnswer,
+    total,
+    correctTeamIds,
+    incorrectTeamIds,
+    noAnswerTeamIds,
+    responseDetails,
+  };
 };
 
 const createCardShuffleState = (roundNumber = null) => ({
@@ -393,7 +485,7 @@ const createHorseRaceState = (kangarooNames = DEFAULT_KANGAROO_NAMES) => ({
  */
 const startGame = async (io, pin, quiz, sessionId) => {
   const gameState = stateMachine.createInitialState(sessionId, quiz);
-  const teams = await redisStore.getAllTeamsData(pin);
+  const teams = await redisStore.getConnectedTeamsData(pin);
   const session = await Session.findByPk(sessionId);
 
   gameState.totalTeams = teams.length;
@@ -451,12 +543,21 @@ const startGame = async (io, pin, quiz, sessionId) => {
 const nextQuestion = async (io, pin) => {
   let gameState = await redisStore.getGameState(pin);
   if (!gameState) return;
+  gameState = await clearMiniGameHold(pin, gameState);
 
   if (
     gameState.state === GAME_STATES.QUESTION &&
     gameState.questionState === QUESTION_STATES.ACTIVE
   ) {
     logger.debug('nextQuestion ignored while question is active', { pin });
+    return;
+  }
+
+  if (
+    gameState.state === GAME_STATES.QUESTION &&
+    gameState.questionState === QUESTION_STATES.PREVIEW
+  ) {
+    logger.debug('nextQuestion ignored while question is staged for preview', { pin });
     return;
   }
 
@@ -494,20 +595,25 @@ const nextQuestion = async (io, pin) => {
     return;
   }
 
+  /** @type {{ hostPreviewAwaitingWagerCollection?: boolean | null, audienceHoldRoundIntro?: boolean }} */
+  let previewOptions = {};
+
   if (gameState.state === GAME_STATES.ROUND_INTRO) {
     const round = stateMachine.getCurrentRound(gameState);
-    if (isWagerLockRound(round)) {
-      await startQuestionWagerCollection(io, pin);
-      return;
-    }
     const transResult = stateMachine.transition(gameState, GAME_STATES.QUESTION);
     if (!transResult.valid) return;
     gameState = transResult.gameState;
+    previewOptions = {
+      audienceHoldRoundIntro: true,
+      hostPreviewAwaitingWagerCollection: isWagerLockRound(round),
+    };
   } else if (gameState.state === GAME_STATES.WAGER_COLLECTION) {
-    // Host pressed "Start Question" after wager collection: open the upcoming question.
+    // Host pressed "Start Question" after wager collection: host preview (wagers already locked).
     const transResult = stateMachine.transition(gameState, GAME_STATES.QUESTION);
     if (!transResult.valid) return;
     gameState = transResult.gameState;
+    await proceedToStageQuestion(io, pin, gameState, { hostPreviewAwaitingWagerCollection: false });
+    return;
   } else if (gameState.state === GAME_STATES.SCOREBOARD) {
     // Post-round scoreboard — advance to the next round intro, never reopen the
     // last question at the same index.
@@ -530,13 +636,6 @@ const nextQuestion = async (io, pin) => {
       return;
     }
 
-    // Per-question wager lock: re-enter WAGER_COLLECTION for the upcoming question instead
-    // of activating it directly.
-    if (isWagerLockRound(round)) {
-      await startQuestionWagerCollection(io, pin);
-      return;
-    }
-
     const advance = stateMachine.advanceQuestion(gameState);
     if (!advance.hasNext) {
       await endRound(io, pin, gameState);
@@ -545,7 +644,78 @@ const nextQuestion = async (io, pin) => {
     gameState = advance.gameState;
   }
 
+  await proceedToStageQuestion(io, pin, gameState, previewOptions);
+};
+
+/** Stage current question index for host preview (no question_active). */
+const proceedToStageQuestion = async (
+  io,
+  pin,
+  gameState,
+  { hostPreviewAwaitingWagerCollection = null, audienceHoldRoundIntro = false } = {},
+) => {
+  gameState = stateMachine.stageQuestion(gameState);
+  gameState.audienceWagerCollectionOpen = false;
+  gameState.audienceHoldRoundIntro = Boolean(audienceHoldRoundIntro);
+  const round = stateMachine.getCurrentRound(gameState);
+  if (hostPreviewAwaitingWagerCollection === null) {
+    gameState.hostPreviewAwaitingWagerCollection = isWagerLockRound(round);
+  } else {
+    gameState.hostPreviewAwaitingWagerCollection = Boolean(hostPreviewAwaitingWagerCollection);
+  }
+  await redisStore.setGameState(pin, gameState);
+  const venueHandlers = require('../../socket/venueHandlers');
+  const payload = await venueHandlers.buildFullStatePayload(gameState, pin);
+  io.to(`session:${pin}`).emit(SOCKET_EVENTS.SESSION_STATE, payload);
+  require('../sessionCheckpointService').persistNow(pin).catch(() => {});
+};
+
+/** Host confirmed preview — same go-live path as legacy immediate next_question. */
+const presentQuestion = async (io, pin) => {
+  let gameState = await redisStore.getGameState(pin);
+  if (!gameState || gameState.state !== GAME_STATES.QUESTION) return;
+  gameState = await clearMiniGameHold(pin, gameState);
+  if (gameState.questionState !== QUESTION_STATES.PREVIEW) {
+    logger.debug('presentQuestion ignored — not in PREVIEW', {
+      pin,
+      questionState: gameState.questionState,
+    });
+    return;
+  }
+  await proceedToActivateQuestion(io, pin, gameState);
+};
+
+const findLiveQuestionEntry = (gameState, questionId) => {
+  const qid = Number(questionId);
+  if (!gameState?.rounds || !Number.isFinite(qid)) return null;
+  for (let ri = 0; ri < gameState.rounds.length; ri += 1) {
+    const round = gameState.rounds[ri];
+    const questions = round?.questions || [];
+    for (let qi = 0; qi < questions.length; qi += 1) {
+      if (Number(questions[qi]?.id) === qid) {
+        return { roundIndex: ri, questionIndex: qi, round, question: questions[qi] };
+      }
+    }
+  }
+  return null;
+};
+
+/**
+ * Activate the current question index, start/arm timer, and broadcast to clients.
+ */
+const proceedToActivateQuestion = async (
+  io,
+  pin,
+  gameState,
+  { submissionReset = false } = {},
+) => {
+  gameState = applyDefaultZeroWagersForCurrentQuestion(gameState);
   gameState = stateMachine.activateQuestion(gameState);
+  gameState.audienceWagerCollectionOpen = false;
+  gameState.hostPreviewAwaitingWagerCollection = false;
+  gameState.audienceHoldRoundIntro = false;
+  gameState.lastAudienceQuestionIndex = gameState.currentQuestionIndex;
+  gameState.lastAudienceQuestionState = QUESTION_STATES.ACTIVE;
   const rosterIds = resolveActiveTeamIdsForStats(gameState);
   if (
     rosterIds.length > 0 &&
@@ -557,6 +727,8 @@ const nextQuestion = async (io, pin) => {
 
   const question = stateMachine.getCurrentQuestion(gameState);
   const round = stateMachine.getCurrentRound(gameState);
+  if (!question || !round) return;
+
   const effectiveTimer = Number(question.timerDuration ?? round.timerDuration ?? 30) || 30;
 
   const responsesRaw = await redisStore.getResponses(pin, question.id);
@@ -570,9 +742,9 @@ const nextQuestion = async (io, pin) => {
     roundType: round.type,
   });
 
-  const isMusicRound = String(round?.type || '').toUpperCase() === ROUND_TYPES.MUSIC;
+  const isAudioWaitQuestion = shouldWaitForHostAudioTimer(round, question);
 
-  if (isMusicRound) {
+  if (isAudioWaitQuestion) {
     timerManager.armPausedTimer(pin, effectiveTimer);
     const liveMusic = timerManager.getTimerState(pin);
     persistTimerRemainingIfActiveQuestion(pin, liveMusic.remaining);
@@ -580,10 +752,11 @@ const nextQuestion = async (io, pin) => {
     if (gsMusic) {
       gsMusic.timerRemaining = effectiveTimer;
       gsMusic.timerRunning = false;
+      gsMusic.timerPaused = false;
       await redisStore.setGameState(pin, gsMusic);
       io.to(`session:${pin}`).emit(
         SOCKET_EVENTS.SESSION_STATE,
-        clientPayloadFromGameState(gsMusic),
+        clientPayloadFromGameState(gsMusic, pin),
       );
     }
     io.to(`session:${pin}`).emit(SOCKET_EVENTS.TIMER_UPDATE, {
@@ -594,7 +767,7 @@ const nextQuestion = async (io, pin) => {
     try {
       io.to(`session:${pin}`).emit(SOCKET_EVENTS.MUSIC_CONTROL, { action: 'pause' });
     } catch (err) {
-      logger.warn('nextQuestion music_control pause failed', { error: err.message });
+      logger.warn('proceedToActivateQuestion music_control pause failed', { error: err.message });
     }
   } else {
     timerManager.startTimer(
@@ -616,10 +789,10 @@ const nextQuestion = async (io, pin) => {
           await redisStore.setGameState(pin, gs);
           const expiredQuestion = stateMachine.getCurrentQuestion(gs);
           if (expiredQuestion) {
-            const responsesRaw = await redisStore.getResponses(pin, expiredQuestion.id);
+            const expiredResponses = await redisStore.getResponses(pin, expiredQuestion.id);
             io.to(`session:${pin}`).emit(
               SOCKET_EVENTS.LIVE_RESPONSE_UPDATE,
-              buildLiveResponseStats(gs, expiredQuestion, responsesRaw),
+              buildLiveResponseStats(gs, expiredQuestion, expiredResponses),
             );
           }
         }
@@ -637,41 +810,371 @@ const nextQuestion = async (io, pin) => {
     const autoStartEndsAt = timerEndsAtFromRemaining(liveAfterStart.remaining);
     await redisStore.updateGameState(pin, {
       timerRunning: true,
+      timerPaused: false,
       timerRemaining: liveAfterStart.remaining,
       timerEndsAt: autoStartEndsAt,
     });
   }
 
+  await emitQuestionActiveForCurrent(io, pin, { submissionReset });
+  io.to(`session:${pin}`).emit(SOCKET_EVENTS.LIVE_RESPONSE_UPDATE, liveStatsOnActivate);
+  require('../sessionCheckpointService').persistNow(pin).catch(() => {});
+};
+
+/**
+ * Re-broadcast question_active + session_state for the current question (no timer re-arm).
+ */
+const emitQuestionActiveForCurrent = async (io, pin, { submissionReset = false } = {}) => {
   const gsForQuestionActive = await redisStore.getGameState(pin);
+  if (!gsForQuestionActive) return;
+
+  const question = stateMachine.getCurrentQuestion(gsForQuestionActive);
+  const round = stateMachine.getCurrentRound(gsForQuestionActive);
+  if (!question || !round) {
+    io.to(`session:${pin}`).emit(
+      SOCKET_EVENTS.SESSION_STATE,
+      clientPayloadFromGameState(gsForQuestionActive, pin),
+    );
+    return;
+  }
+
+  const effectiveTimer = Number(question.timerDuration ?? round.timerDuration ?? 30) || 30;
   const trForEmit = timerManager.getReconnectTimerRemaining(pin, gsForQuestionActive);
-  const eliminatedTeamIds = Object.values(gsForQuestionActive?.teams || {})
+  const eliminatedTeamIds = Object.values(gsForQuestionActive.teams || {})
     .filter((t) => t && t.isEliminated)
     .map((t) => Number(t.teamId))
     .filter((id) => Number.isFinite(id));
+
+  const timerRunningForClients = timerManager.resolveClientTimerRunning(
+    pin,
+    gsForQuestionActive,
+  );
   io.to(`session:${pin}`).emit(SOCKET_EVENTS.QUESTION_ACTIVE, {
-    questionIndex: gameState.currentQuestionIndex,
+    questionIndex: gsForQuestionActive.currentQuestionIndex,
     totalQuestions: round.questions.length,
     question: mapClientQuestionPayload(question),
     timerDuration: effectiveTimer,
     timerRemaining: trForEmit,
-    timerRunning: Boolean(gsForQuestionActive?.timerRunning),
+    timerRunning: timerRunningForClients,
+    timerPaused: Boolean(gsForQuestionActive.timerPaused),
+    paused: !timerRunningForClients,
+    timerEndsAt: timerRunningForClients
+      ? timerManager.resolveClientTimerEndsAt(pin, gsForQuestionActive)
+      : null,
     roundType: round.type,
     eliminatedTeamIds,
     pointsForQuestion:
       round.type === ROUND_TYPES.ELIMINATION
-        ? require('shared/constants/scoring').getEliminationPoints(gameState.currentQuestionIndex)
+        ? getEliminationPoints(gsForQuestionActive.currentQuestionIndex)
         : null,
+    ...(submissionReset ? { submissionReset: true } : {}),
   });
 
-  // Non-music path only emitted QUESTION_ACTIVE before; venue/mobile on mini-game
-  // "game over" need session_state to clear holdScreen when host presses Next.
-  if (gsForQuestionActive) {
-    io.to(`session:${pin}`).emit(
-      SOCKET_EVENTS.SESSION_STATE,
-      clientPayloadFromGameState(gsForQuestionActive),
-    );
+  io.to(`session:${pin}`).emit(
+    SOCKET_EVENTS.SESSION_STATE,
+    clientPayloadFromGameState(gsForQuestionActive, pin),
+  );
+  emitWagerLockUpdate(io, pin, gsForQuestionActive);
+};
+
+const getLiveRoundPreview = async (pin) => {
+  const gameState = await redisStore.getGameState(pin);
+  if (!gameState?.rounds?.length) return null;
+
+  const roundIndex = Number(gameState.currentRoundIndex) || 0;
+  const round = gameState.rounds[roundIndex];
+  if (!round) return null;
+
+  return {
+    roundIndex,
+    roundName: round.name || '',
+    roundType: round.type || '',
+    currentQuestionIndex: Number(gameState.currentQuestionIndex) || 0,
+    questions: (round.questions || []).map((q) => ({
+      id: q.id,
+      text: q.text,
+      options: Array.isArray(q.options) ? q.options : [],
+      mediaUrl: q.mediaUrl ?? null,
+      mediaType: q.mediaType ?? null,
+      timerDuration: q.timerDuration ?? null,
+      category: q.category ?? null,
+    })),
+  };
+};
+
+const updateLiveQuestion = async (io, pin, payload) => {
+  const questionService = require('../questionService');
+  const { updateQuestionSchema } = require('shared/schemas/question');
+
+  const questionId = Number(payload?.questionId);
+  if (!Number.isFinite(questionId)) {
+    throw Object.assign(new Error('Invalid question id'), { statusCode: 400 });
   }
-  io.to(`session:${pin}`).emit(SOCKET_EVENTS.LIVE_RESPONSE_UPDATE, liveStatsOnActivate);
+
+  const body = { ...payload };
+  delete body.pin;
+  delete body.questionId;
+
+  const parsed = updateQuestionSchema.safeParse(body);
+  if (!parsed.success) {
+    throw Object.assign(new Error(parsed.error.errors?.[0]?.message || 'Invalid question data'), {
+      statusCode: 400,
+    });
+  }
+
+  let gameState = await redisStore.getGameState(pin);
+  if (!gameState) {
+    throw Object.assign(new Error('No live game for this session'), { statusCode: 404 });
+  }
+
+  const entry = findLiveQuestionEntry(gameState, questionId);
+  if (!entry) {
+    throw Object.assign(new Error('Question not found in live game'), { statusCode: 404 });
+  }
+
+  const updatedRow = await questionService.updateQuestion(questionId, parsed.data);
+  if (!updatedRow) {
+    throw Object.assign(new Error('Question not found in database'), { statusCode: 404 });
+  }
+
+  const patch = {
+    ...(parsed.data.text !== undefined ? { text: parsed.data.text } : {}),
+    ...(parsed.data.options !== undefined ? { options: parsed.data.options } : {}),
+    ...(parsed.data.mediaUrl !== undefined ? { mediaUrl: parsed.data.mediaUrl } : {}),
+    ...(parsed.data.mediaType !== undefined ? { mediaType: parsed.data.mediaType } : {}),
+    ...(parsed.data.timerDuration !== undefined ? { timerDuration: parsed.data.timerDuration } : {}),
+    ...(parsed.data.category !== undefined ? { category: parsed.data.category } : {}),
+  };
+
+  const rounds = gameState.rounds.map((r, ri) => {
+    if (ri !== entry.roundIndex) return r;
+    return {
+      ...r,
+      questions: r.questions.map((q, qi) =>
+        qi === entry.questionIndex ? { ...q, ...patch } : q,
+      ),
+    };
+  });
+  gameState = { ...gameState, rounds };
+
+  const isCurrentQuestion =
+    entry.roundIndex === gameState.currentRoundIndex &&
+    entry.questionIndex === gameState.currentQuestionIndex;
+  const inQuestionFlow =
+    gameState.state === GAME_STATES.QUESTION || gameState.state === GAME_STATES.WAGER_COLLECTION;
+
+  let submissionReset = false;
+  if (
+    isCurrentQuestion &&
+    inQuestionFlow &&
+    gameState.state === GAME_STATES.QUESTION &&
+    gameState.questionState === QUESTION_STATES.ACTIVE
+  ) {
+    const timerWasLive =
+      timerManager.hasLiveTimer(pin) && timerManager.getTimerState(pin).running;
+    if (timerWasLive || gameState.questionState === QUESTION_STATES.ACTIVE) {
+      const remainingBeforeStop = Math.max(0, Number(timerManager.getTimerState(pin).remaining) || 0);
+      timerManager.stopTimer(pin);
+      try {
+        io.to(`session:${pin}`).emit(SOCKET_EVENTS.MUSIC_CONTROL, { action: 'pause' });
+      } catch {
+        /* ignore */
+      }
+      await redisStore.clearResponsesForQuestion(pin, questionId);
+      gameState.responseCount = 0;
+      submissionReset = true;
+      const round = stateMachine.getCurrentRound(gameState);
+      const cq = stateMachine.getCurrentQuestion(gameState);
+      const fallbackDuration =
+        Number(cq?.timerDuration ?? round?.timerDuration ?? gameState.timerDuration ?? 30) || 30;
+      const armRemaining = remainingBeforeStop > 0 ? remainingBeforeStop : fallbackDuration;
+      timerManager.armPausedTimer(pin, armRemaining);
+      gameState.timerRemaining = armRemaining;
+      gameState.timerRunning = false;
+      gameState.timerEndsAt = null;
+      io.to(`session:${pin}`).emit(SOCKET_EVENTS.TIMER_UPDATE, {
+        remaining: armRemaining,
+        paused: true,
+        timerRunning: false,
+        timerEndsAt: null,
+      });
+    }
+  }
+
+  await redisStore.setGameState(pin, gameState);
+
+  io.to(`session:${pin}`).emit(
+    SOCKET_EVENTS.SESSION_STATE,
+    clientPayloadFromGameState(gameState, pin),
+  );
+
+  if (isCurrentQuestion && inQuestionFlow) {
+    const cq = stateMachine.getCurrentQuestion(gameState);
+    if (cq) {
+      const responsesRaw = await redisStore.getResponses(pin, cq.id);
+      io.to(`session:${pin}`).emit(
+        SOCKET_EVENTS.LIVE_RESPONSE_UPDATE,
+        buildLiveResponseStats(gameState, cq, responsesRaw),
+      );
+    }
+    if (
+      gameState.state === GAME_STATES.QUESTION &&
+      gameState.questionState === QUESTION_STATES.ACTIVE
+    ) {
+      await emitQuestionActiveForCurrent(io, pin, { submissionReset });
+    }
+  }
+
+  require('../sessionCheckpointService').persistNow(pin).catch(() => {});
+  logger.info('Live question updated', { pin, questionId });
+};
+
+const skipQuestion = async (io, pin) => {
+  let gameState = await redisStore.getGameState(pin);
+  if (!gameState || gameState.state !== GAME_STATES.QUESTION) return;
+
+  if (gameState.questionState === QUESTION_STATES.REVEALED) {
+    logger.debug('skipQuestion ignored while question is revealed', { pin });
+    return;
+  }
+
+  const inPreview = gameState.questionState === QUESTION_STATES.PREVIEW;
+  const audienceNeverSawQuestion =
+    gameState.lastAudienceQuestionIndex === undefined ||
+    gameState.lastAudienceQuestionIndex === null;
+  const skipped = stateMachine.getCurrentQuestion(gameState);
+  const skippedId = skipped?.id;
+
+  timerManager.stopTimer(pin);
+  try {
+    io.to(`session:${pin}`).emit(SOCKET_EVENTS.MUSIC_CONTROL, { action: 'pause' });
+  } catch {
+    /* ignore */
+  }
+
+  if (skippedId != null) {
+    await redisStore.clearResponsesForQuestion(pin, skippedId);
+    if (gameState.questionWagers?.[String(skippedId)]) {
+      const nextWagers = { ...gameState.questionWagers };
+      delete nextWagers[String(skippedId)];
+      gameState = { ...gameState, questionWagers: nextWagers };
+    }
+  }
+
+  const round = stateMachine.getCurrentRound(gameState);
+  const advance = stateMachine.advanceQuestion(gameState);
+  if (!advance.hasNext) {
+    await redisStore.setGameState(pin, gameState);
+    await endRound(io, pin, gameState);
+    return;
+  }
+  gameState = advance.gameState;
+
+  if (inPreview) {
+    if (audienceNeverSawQuestion) {
+      gameState = {
+        ...gameState,
+        lastAudienceQuestionIndex: undefined,
+        lastAudienceQuestionState: undefined,
+      };
+    }
+    await proceedToStageQuestion(io, pin, gameState, {
+      audienceHoldRoundIntro: audienceNeverSawQuestion,
+    });
+    logger.info('Staged preview skipped to next question', {
+      pin,
+      skippedQuestionId: skippedId,
+      questionIndex: gameState.currentQuestionIndex,
+    });
+    return;
+  }
+
+  if (isWagerLockRound(round)) {
+    await redisStore.setGameState(pin, gameState);
+    await startQuestionWagerCollection(io, pin);
+    return;
+  }
+
+  await redisStore.setGameState(pin, gameState);
+  await proceedToActivateQuestion(io, pin, gameState);
+  logger.info('Question skipped (no scoring)', {
+    pin,
+    skippedQuestionId: skippedId,
+    questionIndex: gameState.currentQuestionIndex,
+  });
+};
+
+/**
+ * Host jump to any question index in the current round (cumulative scores unchanged).
+ */
+const jumpToQuestion = async (io, pin, questionIndex) => {
+  let gameState = await redisStore.getGameState(pin);
+  if (!gameState || gameState.state !== GAME_STATES.QUESTION) {
+    throw new Error('Jump is only available during an active question round.');
+  }
+  if (gameState.activeMiniGame) {
+    throw new Error('Cannot jump while a mini-game is active.');
+  }
+
+  const idx = Number(questionIndex);
+  const round = stateMachine.getCurrentRound(gameState);
+  const qLen = round?.questions?.length ?? 0;
+  if (!round || qLen === 0 || !Number.isFinite(idx) || idx < 0 || idx >= qLen) {
+    throw new Error('Invalid question index.');
+  }
+  if (Number(gameState.currentQuestionIndex) === idx) {
+    return;
+  }
+
+  timerManager.stopTimer(pin);
+  try {
+    io.to(`session:${pin}`).emit(SOCKET_EVENTS.MUSIC_CONTROL, { action: 'pause' });
+  } catch {
+    /* ignore */
+  }
+
+  const targetQuestion = round.questions[idx];
+  const targetId = targetQuestion?.id;
+
+  if (targetId != null) {
+    await redisStore.clearResponsesForQuestion(pin, targetId);
+    if (gameState.questionWagers?.[String(targetId)]) {
+      const nextWagers = { ...gameState.questionWagers };
+      delete nextWagers[String(targetId)];
+      gameState = { ...gameState, questionWagers: nextWagers };
+    }
+  }
+
+  const nextDuration =
+    Number(targetQuestion?.timerDuration ?? round.timerDuration ?? 30) || 30;
+  gameState = {
+    ...gameState,
+    currentQuestionIndex: idx,
+    questionState: QUESTION_STATES.WAITING,
+    responseCount: 0,
+    timerRemaining: nextDuration,
+    timerRunning: false,
+  };
+  await redisStore.setGameState(pin, gameState);
+
+  if (isWagerLockRound(round)) {
+    await startQuestionWagerCollection(io, pin);
+    require('../sessionCheckpointService').persistNow(pin).catch(() => {});
+    logger.info('Jumped to question (wager collection)', {
+      pin,
+      questionIndex: idx,
+      questionId: targetId,
+    });
+    return;
+  }
+
+  await proceedToStageQuestion(io, pin, gameState);
+  require('../sessionCheckpointService').persistNow(pin).catch(() => {});
+  logger.info('Jumped to question (host preview)', {
+    pin,
+    questionIndex: idx,
+    questionId: targetId,
+  });
 };
 
 /**
@@ -698,10 +1201,24 @@ const submitAnswer = async (io, pin, teamId, data) => {
     return;
   }
 
+  const timerRunningLive = timerManager.hasLiveTimer(pin)
+    ? timerManager.getTimerState(pin).running
+    : Boolean(gameState.timerRunning);
+  if (!timerRunningLive) {
+    logger.info('Rejected answer while timer paused or not started', {
+      pin,
+      teamId,
+      roundIndex: gameState.currentRoundIndex,
+      questionIndex: gameState.currentQuestionIndex,
+    });
+    return;
+  }
+
   const question = stateMachine.getCurrentQuestion(gameState);
   if (!question) return;
 
   const currentRound = stateMachine.getCurrentRound(gameState);
+
   const teamExistsInLiveState = Boolean(
     gameState.teams?.[teamId] || gameState.teams?.[String(teamId)],
   );
@@ -805,15 +1322,15 @@ const submitAnswer = async (io, pin, teamId, data) => {
     totalTeams: gameState.totalTeams,
   });
 
-  // Timer policy (all round types, including Music): the timer runs to completion
-  // even if every team has already answered. Auto-reveal is driven solely by timer
-  // expiry; "everyone answered" no longer fast-forwards the clock. This keeps audio /
-  // video in Music rounds playing through, and gives every round a consistent feel
-  // (host can still manually reveal early). `currentRound`/`rosterTotal`/`count` are
-  // intentionally left unused by this block — kept above for diagnostics & logs.
-  void currentRound;
-  void rosterTotal;
-  void count;
+  const activeTeamIds = resolveActiveTeamIdsForStats(gameState);
+  const answeredAmongActive = countValidAnswersAmongTeamIds(responsesRaw, activeTeamIds);
+  if (
+    rosterTotal > 0 &&
+    answeredAmongActive >= rosterTotal &&
+    !shouldWaitForHostAudioTimer(currentRound, question)
+  ) {
+    await expireActiveQuestionTimerAndReveal(io, pin, 'all_answered');
+  }
 };
 
 /**
@@ -852,8 +1369,12 @@ const submitWager = async (io, pin, teamId, amount) => {
     if (fresh) {
       // Must include `currentQuestion` during QUESTION/WAGER_COLLECTION — bare
       // sanitizeForClients drops it and forces every client (players + host) onto the
-      // waiting UI.
-      io.to(`session:${pin}`).emit(SOCKET_EVENTS.SESSION_STATE, clientPayloadFromGameState(fresh));
+      // waiting UI. Include `audienceView` so venue/players stay on wager collection
+      // while the host remains on PREVIEW.
+      const payload = clientPayloadFromGameState(fresh, pin);
+      const audienceView = await buildAudienceViewPayload(fresh, pin);
+      if (audienceView) payload.audienceView = audienceView;
+      io.to(`session:${pin}`).emit(SOCKET_EVENTS.SESSION_STATE, payload);
       emitWagerLockUpdate(io, pin, fresh);
     }
   }
@@ -882,6 +1403,8 @@ const revealAnswer = async (io, pin) => {
   timerManager.stopTimer(pin);
   flushTimerPersistRemaining(pin);
   gameState = stateMachine.revealAnswer(gameState);
+  gameState.lastAudienceQuestionIndex = gameState.currentQuestionIndex;
+  gameState.lastAudienceQuestionState = QUESTION_STATES.REVEALED;
 
   const round = stateMachine.getCurrentRound(gameState);
   const question = stateMachine.getCurrentQuestion(gameState);
@@ -1033,6 +1556,7 @@ const revealAnswer = async (io, pin) => {
   persistScoresToDB(gameState.teams).catch((err) =>
     logger.error('Failed to persist scores to DB', { pin, error: err.message }),
   );
+  require('../sessionCheckpointService').persistNow(pin).catch(() => {});
 
   io.to(`session:${pin}`).emit(SOCKET_EVENTS.ANSWER_REVEAL, {
     correctOptionIndex: correctIndex,
@@ -1067,6 +1591,51 @@ const revealAnswer = async (io, pin) => {
   });
 };
 
+/** When every active team has answered (non-music): snap timer to 0 and reveal. */
+const expireActiveQuestionTimerAndReveal = async (io, pin, reason) => {
+  const gameState = await redisStore.getGameState(pin);
+  if (!gameState) return;
+  if (
+    gameState.state !== GAME_STATES.QUESTION ||
+    gameState.questionState !== QUESTION_STATES.ACTIVE
+  ) {
+    return;
+  }
+
+  timerManager.forceExpire(pin);
+
+  io.to(`session:${pin}`).emit(SOCKET_EVENTS.TIMER_UPDATE, {
+    remaining: 0,
+    timerRunning: false,
+  });
+  io.to(`session:${pin}`).emit(SOCKET_EVENTS.TIMER_EXPIRED, {});
+
+  gameState.timerRunning = false;
+  gameState.timerPaused = false;
+  gameState.timerRemaining = 0;
+  gameState.timerEndsAt = null;
+  await redisStore.setGameState(pin, gameState);
+
+  const question = stateMachine.getCurrentQuestion(gameState);
+  if (question?.id) {
+    const responsesRaw = await redisStore.getResponses(pin, question.id);
+    io.to(`session:${pin}`).emit(
+      SOCKET_EVENTS.LIVE_RESPONSE_UPDATE,
+      buildLiveResponseStats(gameState, question, responsesRaw),
+    );
+  }
+
+  logger.info('All teams answered — auto-expiring timer and revealing', {
+    pin,
+    reason,
+    roundIndex: gameState.currentRoundIndex,
+    questionIndex: gameState.currentQuestionIndex,
+  });
+
+  io.to(`session:${pin}`).emit(SOCKET_EVENTS.AUTO_REVEAL, {});
+  await revealAnswer(io, pin);
+};
+
 /**
  * End the current round and show scoreboard
  */
@@ -1089,9 +1658,13 @@ const endRound = async (io, pin, gameState) => {
   // Clear any elimination-end-early flag — fresh start for the next round.
   gameState.eliminationEndEarly = false;
 
-  for (const teamId of Object.keys(gameState.teams)) {
-    if (gameState.teams[teamId]) {
-      gameState.teams[teamId].isEliminated = false;
+  const endingRound = stateMachine.getCurrentRound(gameState);
+  const endingEliminationRound = endingRound?.type === ROUND_TYPES.ELIMINATION;
+  if (!endingEliminationRound) {
+    for (const teamId of Object.keys(gameState.teams)) {
+      if (gameState.teams[teamId]) {
+        gameState.teams[teamId].isEliminated = false;
+      }
     }
   }
   gameState.activeTeamIds = Object.keys(gameState.teams).map(Number);
@@ -1132,7 +1705,7 @@ const endRound = async (io, pin, gameState) => {
   });
   io.to(`session:${pin}`).emit(
     SOCKET_EVENTS.SESSION_STATE,
-    clientPayloadFromGameState(result.gameState),
+    clientPayloadFromGameState(result.gameState, pin),
   );
 };
 
@@ -1184,7 +1757,7 @@ const proceedFromRoundEnd = async (io, pin) => {
     io.to(`session:${pin}`).emit(SOCKET_EVENTS.GAME_SHOW_END, {});
     io.to(`session:${pin}`).emit(
       SOCKET_EVENTS.SESSION_STATE,
-      clientPayloadFromGameState(result.gameState),
+      clientPayloadFromGameState(result.gameState, pin),
     );
     return;
   }
@@ -1208,7 +1781,7 @@ const proceedFromRoundEnd = async (io, pin) => {
   await emitRoundScoreboard(io, pin, result.gameState, 'round_end');
   io.to(`session:${pin}`).emit(
     SOCKET_EVENTS.SESSION_STATE,
-    clientPayloadFromGameState(result.gameState),
+    clientPayloadFromGameState(result.gameState, pin),
   );
 };
 
@@ -1226,16 +1799,20 @@ const proceedFromGameShowEnd = async (io, pin) => {
   await emitRoundScoreboard(io, pin, result.gameState, 'game_show_end');
   io.to(`session:${pin}`).emit(
     SOCKET_EVENTS.SESSION_STATE,
-    clientPayloadFromGameState(result.gameState),
+    clientPayloadFromGameState(result.gameState, pin),
   );
 };
 
 /**
- * Advance to the next round
+ * Advance to the next round.
+ *
+ * `skipAhead` drops that many upcoming rounds from the show (host "Skip Next Round"), so
+ * `skipAhead: 1` lands on the round after the one that was next up.
  */
-const advanceToNextRound = async (io, pin) => {
+const advanceToNextRound = async (io, pin, { skipAhead = 0 } = {}) => {
   let gameState = await redisStore.getGameState(pin);
   if (!gameState) return;
+  gameState = await clearMiniGameHold(pin, gameState);
 
   // After the finale gameshow screen, Finish Game / Next Round ends the session.
   // Final leaderboard is opened via next_question (Continue) from GAME_SHOW_END.
@@ -1245,7 +1822,7 @@ const advanceToNextRound = async (io, pin) => {
   }
 
   if (gameState.state === GAME_STATES.ROUND_END) {
-    const nextIdx = Number(gameState.currentRoundIndex) + 1;
+    const nextIdx = Number(gameState.currentRoundIndex) + 1 + skipAhead;
     const isFinalRound = nextIdx >= gameState.rounds.length;
     if (isFinalRound) {
       await proceedFromRoundEnd(io, pin);
@@ -1271,16 +1848,44 @@ const advanceToNextRound = async (io, pin) => {
     }
   }
 
+  // Read before the skip bump below so elimination flags are cleared based on the round the
+  // host actually played, not on a round that is being dropped.
+  const previousRound = stateMachine.getCurrentRound(gameState);
+  const leavingEliminationRound = previousRound?.type === ROUND_TYPES.ELIMINATION;
+
+  if (skipAhead > 0) {
+    gameState = {
+      ...gameState,
+      currentRoundIndex: Number(gameState.currentRoundIndex) + skipAhead,
+    };
+  }
+
   const advance = stateMachine.advanceRound(gameState);
 
   if (!advance.hasNext) {
     const finalResult = stateMachine.transition(gameState, GAME_STATES.FINAL_RESULTS);
     if (finalResult.valid) {
-      await redisStore.setGameState(pin, finalResult.gameState);
+      const terminalState = {
+        ...finalResult.gameState,
+        scoreboardVisible: false,
+      };
+      await redisStore.setGameState(pin, terminalState);
+      try {
+        await require('../sessionCheckpointService').persistNow(pin);
+      } catch (err) {
+        logger.error('Failed to persist terminal checkpoint on natural game end', {
+          pin,
+          error: err.message,
+        });
+      }
       const sortedTeams = Object.values(finalResult.gameState.teams).sort(
         (a, b) => b.score - a.score,
       );
       io.to(`session:${pin}`).emit(SOCKET_EVENTS.GAME_END, { teams: sortedTeams });
+      io.to(`session:${pin}`).emit(
+        SOCKET_EVENTS.SESSION_STATE,
+        await require('../../socket/venueHandlers').buildFullStatePayload(terminalState, pin),
+      );
       logger.info('Final results emitted', {
         pin,
         totalTeams: sortedTeams.length,
@@ -1336,7 +1941,24 @@ const advanceToNextRound = async (io, pin) => {
     };
   }
 
+  if (leavingEliminationRound) {
+    for (const teamId of Object.keys(roundIntroState.teams || {})) {
+      if (roundIntroState.teams[teamId]) {
+        roundIntroState.teams[teamId].isEliminated = false;
+      }
+    }
+    roundIntroState.activeTeamIds = Object.keys(roundIntroState.teams || {}).map(Number);
+  }
+
   await redisStore.setGameState(pin, roundIntroState);
+  if (leavingEliminationRound) {
+    persistScoresToDB(roundIntroState.teams).catch((err) =>
+      logger.error('Failed to persist team flags after leaving elimination round', {
+        pin,
+        error: err.message,
+      }),
+    );
+  }
   logger.info('Advanced to round intro', {
     pin,
     roundIndex: roundIntroState.currentRoundIndex,
@@ -1350,8 +1972,168 @@ const advanceToNextRound = async (io, pin) => {
   });
   io.to(`session:${pin}`).emit(
     SOCKET_EVENTS.SESSION_STATE,
-    clientPayloadFromGameState(roundIntroState),
+    clientPayloadFromGameState(roundIntroState, pin),
   );
+};
+
+/**
+ * Host drops the round that is up next (running late, content cut, etc.) from a between-rounds
+ * screen. Scores already earned are untouched; the dropped round is never played.
+ */
+const skipNextRound = async (io, pin) => {
+  const gameState = await redisStore.getGameState(pin);
+  if (!gameState) return;
+
+  const betweenRounds =
+    gameState.state === GAME_STATES.ROUND_END || gameState.state === GAME_STATES.SCOREBOARD;
+  if (!betweenRounds) {
+    logger.debug('skip_next_round ignored outside a between-rounds screen', {
+      pin,
+      state: gameState.state,
+    });
+    return;
+  }
+
+  const skipIdx = Number(gameState.currentRoundIndex) + 1;
+  const skippedRound = gameState.rounds?.[skipIdx];
+  if (!skippedRound) {
+    logger.debug('skip_next_round ignored — no upcoming round to skip', { pin });
+    return;
+  }
+
+  logger.info('Skipping upcoming round', {
+    pin,
+    skippedRoundIndex: skipIdx,
+    skippedRoundName: skippedRound.name || `Round ${skipIdx + 1}`,
+  });
+
+  timerManager.stopTimer(pin);
+
+  // Dropping the last remaining round ends the show: go to the closing screen instead of
+  // advancing, otherwise the host would land back on a leaderboard that still offers the
+  // round they just skipped.
+  if (skipIdx + 1 >= gameState.rounds.length) {
+    const result = stateMachine.transition(
+      { ...gameState, currentRoundIndex: skipIdx },
+      GAME_STATES.GAME_SHOW_END,
+    );
+    if (!result.valid) return;
+
+    await redisStore.setGameState(pin, result.gameState);
+    io.to(`session:${pin}`).emit(SOCKET_EVENTS.GAME_SHOW_END, {});
+    io.to(`session:${pin}`).emit(
+      SOCKET_EVENTS.SESSION_STATE,
+      clientPayloadFromGameState(result.gameState, pin),
+    );
+    return;
+  }
+
+  await advanceToNextRound(io, pin, { skipAhead: 1 });
+};
+
+/**
+ * Host drops the round they are about to play (e.g. skip round 1 from round intro).
+ * Scores are untouched; the round is never opened on venue or players.
+ */
+const skipCurrentRound = async (io, pin) => {
+  let gameState = await redisStore.getGameState(pin);
+  if (!gameState) return;
+
+  const atRoundStart =
+    gameState.state === GAME_STATES.ROUND_INTRO ||
+    gameState.state === GAME_STATES.WAGER_COLLECTION;
+  if (!atRoundStart) {
+    logger.debug('skip_current_round ignored outside round intro / wager collection', {
+      pin,
+      state: gameState.state,
+    });
+    return;
+  }
+
+  const skipIdx = Number(gameState.currentRoundIndex);
+  const skippedRound = gameState.rounds?.[skipIdx];
+  if (!skippedRound) {
+    logger.debug('skip_current_round ignored — no current round', { pin });
+    return;
+  }
+
+  logger.info('Skipping current round', {
+    pin,
+    skippedRoundIndex: skipIdx,
+    skippedRoundName: skippedRound.name || `Round ${skipIdx + 1}`,
+  });
+
+  timerManager.stopTimer(pin);
+
+  if (gameState.state === GAME_STATES.WAGER_COLLECTION) {
+    gameState = { ...gameState, state: GAME_STATES.ROUND_INTRO };
+    await redisStore.setGameState(pin, gameState);
+  }
+
+  await advanceToNextRound(io, pin);
+};
+
+/**
+ * After a team leaves the live roster (host remove or passive disconnect), rebroadcast
+ * response totals and live-answer buckets for the current question when applicable.
+ */
+const publishQuestionLiveStatsAfterRosterChange = async (io, pin, options = {}) => {
+  const removedTeamId = Number(options.removedTeamId);
+  if (eliminationStates.has(pin) && Number.isFinite(removedTeamId)) {
+    const es = eliminationStates.get(pin);
+    es.activeTeamIds = (es.activeTeamIds || [])
+      .map(Number)
+      .filter((id) => id !== removedTeamId);
+  }
+
+  const freshGameState = await redisStore.getGameState(pin);
+  if (!freshGameState) return freshGameState;
+
+  if (
+    freshGameState.state === GAME_STATES.QUESTION &&
+    (freshGameState.questionState === QUESTION_STATES.ACTIVE ||
+      freshGameState.questionState === QUESTION_STATES.REVEALED)
+  ) {
+    const question = stateMachine.getCurrentQuestion(freshGameState);
+    if (question) {
+      const responsesRaw = await redisStore.getResponses(pin, question.id);
+      const activeTeamIds = Array.isArray(freshGameState.activeTeamIds)
+        ? freshGameState.activeTeamIds
+        : [];
+
+      if (freshGameState.questionState === QUESTION_STATES.ACTIVE) {
+        const answeredAmongActive = countValidAnswersAmongTeamIds(responsesRaw, activeTeamIds);
+        freshGameState.responseCount = answeredAmongActive;
+        await redisStore.setGameState(pin, freshGameState);
+        io.to(`session:${pin}`).emit(SOCKET_EVENTS.RESPONSE_COUNT, {
+          count: answeredAmongActive,
+          total: activeTeamIds.length,
+        });
+      }
+
+      io.to(`session:${pin}`).emit(
+        SOCKET_EVENTS.LIVE_RESPONSE_UPDATE,
+        buildLiveResponseStats(freshGameState, question, responsesRaw),
+      );
+    }
+  }
+
+  if (
+    freshGameState.state === GAME_STATES.SCOREBOARD &&
+    !freshGameState.activeMiniGame
+  ) {
+    const sortedTeams = Object.values(freshGameState.teams || {}).sort(
+      (a, b) => b.score - a.score,
+    );
+    const revealSnapshot = await buildRevealSnapshot(pin, freshGameState);
+    io.to(`session:${pin}`).emit(SOCKET_EVENTS.SCOREBOARD, {
+      teams: sortedTeams,
+      source: 'reconnect',
+      ...(revealSnapshot ? { revealSnapshot } : {}),
+    });
+  }
+
+  return freshGameState;
 };
 
 /**
@@ -1372,69 +2154,24 @@ const executePlayerDisconnectPurge = async (io, pin, teamId, options = {}) => {
 
   const { removedSocketId } = await purgeTeamFromLiveSession(pin, teamId);
 
-  const freshGameState = await redisStore.getGameState(pin);
-
-  if (eliminationStates.has(pin)) {
-    const es = eliminationStates.get(pin);
-    es.activeTeamIds = (es.activeTeamIds || []).map(Number).filter((id) => id !== teamId);
-  }
-
   // Wager locks survive a tab refresh: `purgeTeamFromLiveSession` already keeps
   // `questionWagers` for passive disconnects so reconnecting players still read their
   // locked amount from Redis. Do not delete entries here — that used to wipe locks on
   // every refresh and also risked overwriting Redis with a stale pre-purge snapshot.
+  let freshGameState = await redisStore.getGameState(pin);
   if (freshGameState && freshGameState.state === GAME_STATES.WAGER_COLLECTION) {
     emitWagerLockUpdate(io, pin, freshGameState);
   }
 
-  if (
-    freshGameState &&
-    freshGameState.state === GAME_STATES.QUESTION &&
-    freshGameState.questionState === QUESTION_STATES.ACTIVE
-  ) {
-    const question = stateMachine.getCurrentQuestion(freshGameState);
-    if (question) {
-      const responsesRaw = await redisStore.getResponses(pin, question.id);
-      const activeTeamIds = Array.isArray(freshGameState.activeTeamIds)
-        ? freshGameState.activeTeamIds
-        : [];
-      const answeredAmongActive = countValidAnswersAmongTeamIds(responsesRaw, activeTeamIds);
-      freshGameState.responseCount = answeredAmongActive;
-      await redisStore.setGameState(pin, freshGameState);
-      io.to(`session:${pin}`).emit(SOCKET_EVENTS.RESPONSE_COUNT, {
-        count: answeredAmongActive,
-        total: activeTeamIds.length,
-      });
-      io.to(`session:${pin}`).emit(
-        SOCKET_EVENTS.LIVE_RESPONSE_UPDATE,
-        buildLiveResponseStats(freshGameState, question, responsesRaw),
-      );
-
-      // Timer policy (matches submitAnswer): all rounds let the clock run to completion
-      // even when every remaining team has answered. Auto-reveal is driven by timer
-      // expiry alone, so a disconnect that completes the roster never short-circuits it.
-    }
-  }
+  freshGameState = await publishQuestionLiveStatsAfterRosterChange(io, pin, {
+    removedTeamId: teamId,
+  });
 
   if (freshGameState) {
     io.to(`session:${pin}`).emit(
       SOCKET_EVENTS.SESSION_STATE,
-      clientPayloadFromGameState(freshGameState),
+      clientPayloadFromGameState(freshGameState, pin),
     );
-    if (
-      freshGameState.state === GAME_STATES.SCOREBOARD &&
-      !freshGameState.activeMiniGame
-    ) {
-      const sortedTeams = Object.values(freshGameState.teams || {}).sort(
-        (a, b) => b.score - a.score,
-      );
-      const revealSnapshot = await buildRevealSnapshot(pin, freshGameState);
-      io.to(`session:${pin}`).emit(SOCKET_EVENTS.SCOREBOARD, {
-        teams: sortedTeams,
-        source: 'reconnect',
-        ...(revealSnapshot ? { revealSnapshot } : {}),
-      });
-    }
   }
 
   io.to(`session:${pin}`).emit(SOCKET_EVENTS.TEAM_REMOVED, {
@@ -1538,10 +2275,11 @@ const startBreak = async (io, pin) => {
   }
 
   const breakRound = stateMachine.getCurrentRound(gameState);
+  const breakQuestion = stateMachine.getCurrentQuestion(gameState);
   const isMusicBreakQuestion =
     gameState.state === GAME_STATES.QUESTION &&
     gameState.questionState === QUESTION_STATES.ACTIVE &&
-    String(breakRound?.type || '').toUpperCase() === ROUND_TYPES.MUSIC;
+    shouldWaitForHostAudioTimer(breakRound, breakQuestion);
 
   gameState.breakResumeState = {
     state: gameState.state,
@@ -1644,10 +2382,7 @@ const endBreak = async (io, pin) => {
       restoredState: gameState.state,
       questionState: gameState.questionState,
     });
-    io.to(`session:${pin}`).emit(
-      SOCKET_EVENTS.SESSION_STATE,
-      clientPayloadFromGameState(gameState),
-    );
+    await emitFullSessionState(io, pin, gameState);
     if (
       gameState.state === GAME_STATES.QUESTION &&
       gameState.questionState === QUESTION_STATES.REVEALED
@@ -1730,7 +2465,8 @@ const endBreak = async (io, pin) => {
       Number(gameState.timerRemaining) > 0
     ) {
       const resumeRound = stateMachine.getCurrentRound(gameState);
-      if (String(resumeRound?.type || '').toUpperCase() === ROUND_TYPES.MUSIC) {
+      const resumeQuestion = stateMachine.getCurrentQuestion(gameState);
+      if (shouldWaitForHostAudioTimer(resumeRound, resumeQuestion)) {
         // Music rounds intentionally pair the countdown with audio/video playback — both must
         // begin together when the host hits "Start Timer". Auto-resuming on break end would
         // start the timer (and broadcast MUSIC_CONTROL play) without the host's input, so we
@@ -1787,7 +2523,7 @@ const launchMiniGame = async (io, pin, gameType, config = {}) => {
 
   // If launching from LOBBY, gameState might not exist yet
   if (!gameState) {
-    const lobbyTeams = await redisStore.getAllTeamsData(pin);
+    const lobbyTeams = await redisStore.getConnectedTeamsData(pin);
     const teamsObj = {};
     for (const t of lobbyTeams) {
       teamsObj[t.teamId] = t;
@@ -1906,22 +2642,28 @@ const endMiniGame = async (io, pin, overrideConfig = {}) => {
   gameState.activeMiniGame = null;
   gameState.miniGameConfig = null;
   gameState.miniGameState = null;
+  if (holdScreen) {
+    gameState.miniGameHold = {
+      game,
+      holdScreen: true,
+      status: config.status,
+      message: config.message || '',
+    };
+  } else {
+    delete gameState.miniGameHold;
+  }
   await redisStore.setGameState(pin, gameState);
 
   io.to(`session:${pin}`).emit(SOCKET_EVENTS.MINI_GAME_END, { game, ...config });
   logger.info('Mini game ended', { pin, game, holdScreen });
 
-  if (!holdScreen) {
+  if (holdScreen) {
+    await emitFullSessionState(io, pin, gameState);
+  } else {
     // Emit session_state immediately so venue/players can reconcile
     // to the correct trivia phase. Socket.io preserves event ordering,
     // so clients process mini_game_end first, then this session_state.
-    // Use clientPayloadFromGameState (not sanitizeForClients) so the
-    // payload includes currentQuestion — without it the venue can't
-    // render the question screen.
-    io.to(`session:${pin}`).emit(
-      SOCKET_EVENTS.SESSION_STATE,
-      clientPayloadFromGameState(gameState),
-    );
+    await emitFullSessionState(io, pin, gameState);
   }
 };
 
@@ -1931,13 +2673,36 @@ const endMiniGame = async (io, pin, overrideConfig = {}) => {
 const pauseTimer = async (io, pin) => {
   const before = timerManager.getTimerState(pin);
   if (!timerManager.hasLiveTimer(pin) || !before.running) {
-    if (before.remaining > 0) {
+    const rem = Math.max(
+      0,
+      before.remaining > 0
+        ? before.remaining
+        : Number((await redisStore.getGameState(pin))?.timerRemaining ?? 0),
+    );
+    if (rem > 0) {
       io.to(`session:${pin}`).emit(SOCKET_EVENTS.TIMER_UPDATE, {
-        remaining: before.remaining,
+        remaining: rem,
         paused: true,
         timerRunning: false,
         timerEndsAt: null,
       });
+    }
+    try {
+      const gs = await redisStore.getGameState(pin);
+      if (
+        gs &&
+        gs.state === GAME_STATES.QUESTION &&
+        gs.questionState === QUESTION_STATES.ACTIVE
+      ) {
+        gs.timerRunning = false;
+        gs.timerPaused = true;
+        gs.timerEndsAt = null;
+        if (rem > 0) gs.timerRemaining = rem;
+        await redisStore.setGameState(pin, gs);
+        await emitFullSessionState(io, pin, gs);
+      }
+    } catch {
+      /* ignore */
     }
     return;
   }
@@ -1960,11 +2725,14 @@ const pauseTimer = async (io, pin) => {
     ) {
       gameState.timerRemaining = Math.max(0, Number(remaining) || 0);
       gameState.timerRunning = false;
+      gameState.timerPaused = true;
       gameState.timerEndsAt = null;
       await redisStore.setGameState(pin, gameState);
+      await emitFullSessionState(io, pin, gameState);
     }
     const round = gameState ? stateMachine.getCurrentRound(gameState) : null;
-    if (String(round?.type || '').toUpperCase() === ROUND_TYPES.MUSIC) {
+    const q = gameState ? stateMachine.getCurrentQuestion(gameState) : null;
+    if (shouldWaitForHostAudioTimer(round, q)) {
       io.to(`session:${pin}`).emit(SOCKET_EVENTS.MUSIC_CONTROL, { action: 'pause' });
     }
   } catch (err) {
@@ -2045,6 +2813,7 @@ const startTimer = async (io, pin) => {
   let gameState = await redisStore.getGameState(pin);
   if (gameState) {
     gameState.timerRunning = true;
+    gameState.timerPaused = false;
     gameState.timerRemaining = timerState.remaining;
     gameState.timerEndsAt = resumeEndsAt;
     await redisStore.setGameState(pin, gameState);
@@ -2058,8 +2827,8 @@ const startTimer = async (io, pin) => {
 
   if (gameState) {
     const round = stateMachine.getCurrentRound(gameState);
-    if (String(round?.type || '').toUpperCase() === ROUND_TYPES.MUSIC) {
-      const q = stateMachine.getCurrentQuestion(gameState);
+    const q = stateMachine.getCurrentQuestion(gameState);
+    if (shouldWaitForHostAudioTimer(round, q)) {
       const mediaUrl = q?.mediaUrl || null;
       if (mediaUrl) {
         const effectiveTimer = Number(q.timerDuration ?? round.timerDuration ?? 30) || 30;
@@ -2089,11 +2858,24 @@ const endGame = async (io, pin) => {
   } else {
     gameState.state = GAME_STATES.FINAL_RESULTS;
   }
+  gameState = { ...gameState, scoreboardVisible: false };
 
   await redisStore.setGameState(pin, gameState);
+  try {
+    await require('../sessionCheckpointService').persistNow(pin);
+  } catch (err) {
+    logger.error('Failed to persist terminal checkpoint on end_game', {
+      pin,
+      error: err.message,
+    });
+  }
 
   const sortedTeams = Object.values(gameState.teams).sort((a, b) => b.score - a.score);
   io.to(`session:${pin}`).emit(SOCKET_EVENTS.GAME_END, { teams: sortedTeams });
+  io.to(`session:${pin}`).emit(
+    SOCKET_EVENTS.SESSION_STATE,
+    await require('../../socket/venueHandlers').buildFullStatePayload(gameState, pin),
+  );
 
   persistScoresToDB(gameState.teams).catch((err) =>
     logger.error('Failed to persist scores on end_game', { pin, error: err.message }),
@@ -2148,10 +2930,10 @@ const sanitizeForClients = (gameState) => {
   if (sanitized.rounds) {
     sanitized.rounds = sanitized.rounds.map((r) => ({
       ...r,
-      questions: r.questions.map((q) => ({
+      questions: (r.questions || []).map((q) => ({
         id: q.id,
         text: q.text,
-        optionCount: q.options.length,
+        optionCount: q.options?.length ?? 0,
         mediaUrl: q.mediaUrl,
         mediaType: q.mediaType,
       })),
@@ -2161,29 +2943,107 @@ const sanitizeForClients = (gameState) => {
 };
 
 /** Full client payload for QUESTION (includes currentQuestion) — matches venue host_connect shape. */
-const clientPayloadFromGameState = (gameState) => {
+const clientPayloadFromGameState = (gameState, pin = null) => {
   const base = sanitizeForClients(gameState);
   if (
-    gameState.state !== GAME_STATES.QUESTION &&
-    gameState.state !== GAME_STATES.WAGER_COLLECTION
+    gameState.state === GAME_STATES.QUESTION ||
+    gameState.state === GAME_STATES.WAGER_COLLECTION
   ) {
-    return base;
+    const round = stateMachine.getCurrentRound(gameState);
+    const cq = stateMachine.getCurrentQuestion(gameState);
+    if (round && cq) {
+      base.currentQuestion = {
+        questionIndex: gameState.currentQuestionIndex,
+        totalQuestions: round.questions.length,
+        question: mapClientQuestionPayload(cq),
+        timerDuration: Number(cq.timerDuration ?? round.timerDuration ?? 30) || 30,
+        roundType: round.type || '',
+        pointsForQuestion:
+          round.type === ROUND_TYPES.ELIMINATION
+            ? getEliminationPoints(gameState.currentQuestionIndex)
+            : undefined,
+      };
+    }
   }
+  if (pin) {
+    timerManager.applyClientTimerFields(pin, gameState, base);
+  }
+  return base;
+};
+
+const broadcastWagerCollectionStart = async (io, pin, gameState) => {
   const round = stateMachine.getCurrentRound(gameState);
-  const cq = stateMachine.getCurrentQuestion(gameState);
-  if (!round || !cq) return base;
-  base.currentQuestion = {
+  if (!round) return;
+  const upcomingQuestion = stateMachine.getCurrentQuestion(gameState);
+  io.to(`session:${pin}`).emit(SOCKET_EVENTS.WAGER_COLLECTION_START, {
+    round: {
+      id: round.id,
+      name: round.name,
+      type: round.type,
+      timerDuration: round.timerDuration,
+    },
+    roundIndex: gameState.currentRoundIndex,
+    totalRounds: gameState.rounds.length,
     questionIndex: gameState.currentQuestionIndex,
     totalQuestions: round.questions.length,
-    question: mapClientQuestionPayload(cq),
-    timerDuration: Number(cq.timerDuration ?? round.timerDuration ?? 30) || 30,
-    roundType: round.type || '',
-    pointsForQuestion:
-      round.type === ROUND_TYPES.ELIMINATION
-        ? getEliminationPoints(gameState.currentQuestionIndex)
-        : undefined,
-  };
-  return base;
+    questionId: upcomingQuestion?.id ?? null,
+    category: upcomingQuestion?.category ?? null,
+  });
+  emitWagerLockUpdate(io, pin, gameState);
+};
+
+/** Wager lock for venue/players while host stays on QUESTION PREVIEW (Power Play flow). */
+const openAudienceWagerCollectionDuringPreview = async (io, pin) => {
+  let gameState = await redisStore.getGameState(pin);
+  if (!gameState) return;
+  const round = stateMachine.getCurrentRound(gameState);
+  if (
+    !round ||
+    !isWagerLockRound(round) ||
+    gameState.state !== GAME_STATES.QUESTION ||
+    gameState.questionState !== QUESTION_STATES.PREVIEW
+  ) {
+    logger.debug('openAudienceWagerCollectionDuringPreview ignored', {
+      pin,
+      state: gameState?.state,
+      questionState: gameState?.questionState,
+    });
+    return;
+  }
+  if (gameState.audienceWagerCollectionOpen) return;
+
+  gameState.audienceWagerCollectionOpen = true;
+  gameState.audienceHoldRoundIntro = false;
+  gameState.hostPreviewAwaitingWagerCollection = false;
+  await redisStore.setGameState(pin, gameState);
+
+  await broadcastWagerCollectionStart(io, pin, gameState);
+
+  const venueHandlers = require('../../socket/venueHandlers');
+  io.to(`session:${pin}`).emit(
+    SOCKET_EVENTS.SESSION_STATE,
+    await venueHandlers.buildFullStatePayload(gameState, pin),
+  );
+
+  logger.info('Audience wager collection opened during host preview', {
+    pin,
+    questionIndex: gameState.currentQuestionIndex,
+  });
+};
+
+/**
+ * Host pressed Collect Wager / Lock Wager Points — full WAGER_COLLECTION or audience-only during preview.
+ */
+const collectWagers = async (io, pin) => {
+  const gameState = await redisStore.getGameState(pin);
+  if (
+    gameState?.state === GAME_STATES.QUESTION &&
+    gameState.questionState === QUESTION_STATES.PREVIEW
+  ) {
+    await openAudienceWagerCollectionDuringPreview(io, pin);
+    return;
+  }
+  await startQuestionWagerCollection(io, pin);
 };
 
 /**
@@ -2191,11 +3051,9 @@ const clientPayloadFromGameState = (gameState) => {
  *
  * Supports three entry points:
  *  - ROUND_INTRO -> WAGER_COLLECTION (first question of the round; host pressed "Lock Wager Points")
- *  - QUESTION (REVEALED) -> WAGER_COLLECTION (per-question lock between consecutive questions)
  *  - SCOREBOARD -> WAGER_COLLECTION (rare path; host re-entered wager collection after showing scoreboard)
  *
- * When advancing from REVEALED, the question index is incremented first so the wager UI
- * targets the *next* question.
+ * Between questions in Power Play, host uses Next Question (preview) then Collect Wager (audience-only).
  */
 const startQuestionWagerCollection = async (io, pin) => {
   let gameState = await redisStore.getGameState(pin);
@@ -2236,30 +3094,12 @@ const startQuestionWagerCollection = async (io, pin) => {
 
   await redisStore.setGameState(pin, result.gameState);
 
-  const upcomingQuestion = stateMachine.getCurrentQuestion(result.gameState);
-
-  io.to(`session:${pin}`).emit(SOCKET_EVENTS.WAGER_COLLECTION_START, {
-    round: {
-      id: round.id,
-      name: round.name,
-      type: round.type,
-      timerDuration: round.timerDuration,
-    },
-    roundIndex: result.gameState.currentRoundIndex,
-    totalRounds: result.gameState.rounds.length,
-    questionIndex: result.gameState.currentQuestionIndex,
-    totalQuestions: round.questions.length,
-    questionId: upcomingQuestion?.id ?? null,
-    category: upcomingQuestion?.category ?? null,
-  });
+  await broadcastWagerCollectionStart(io, pin, result.gameState);
 
   io.to(`session:${pin}`).emit(
     SOCKET_EVENTS.SESSION_STATE,
-    clientPayloadFromGameState(result.gameState),
+    clientPayloadFromGameState(result.gameState, pin),
   );
-
-  // Reset the locked-wager counter (no team has locked for the new question yet).
-  emitWagerLockUpdate(io, pin, result.gameState);
 
   logger.info('Wager collection started', {
     pin,
@@ -2270,8 +3110,8 @@ const startQuestionWagerCollection = async (io, pin) => {
   });
 };
 
-/** Back-compat alias — older callers used `startWagerCollection`. */
-const startWagerCollection = startQuestionWagerCollection;
+/** Host collect_wagers socket — preview-aware for Power Play rounds. */
+const startWagerCollection = collectWagers;
 
 /** Drop per-session in-memory maps when a session ends or is purged from cache. */
 const cleanupInMemorySession = (pin) => {
@@ -2287,6 +3127,58 @@ const cleanupInMemorySession = (pin) => {
   timerManager.stopTimer(pinKey);
 };
 
+const getEliminationStateSnapshot = (pin) => {
+  const state = eliminationStates.get(String(pin));
+  if (!state) return null;
+  return JSON.parse(JSON.stringify(state));
+};
+
+const restoreEliminationState = (pin, state) => {
+  if (!state || typeof state !== 'object') return;
+  eliminationStates.set(String(pin), JSON.parse(JSON.stringify(state)));
+};
+
+/**
+ * Re-attach timers and broadcast current state after a process restart / Redis miss.
+ */
+const resumeLiveSession = async (io, pin) => {
+  const checkpoint = require('../sessionCheckpointService');
+  let gameState = await checkpoint.ensureHydratedGameState(pin);
+  if (!gameState) return false;
+
+  if (
+    gameState.state === GAME_STATES.QUESTION &&
+    gameState.questionState === QUESTION_STATES.ACTIVE
+  ) {
+    const remaining = Math.max(0, Number(gameState.timerRemaining) || 0);
+    if (remaining > 0) {
+      timerManager.armPausedTimer(pin, remaining);
+      gameState.timerRunning = false;
+      gameState.timerEndsAt = null;
+      await redisStore.setGameState(pin, gameState, { skipCheckpoint: true });
+      io.to(`session:${pin}`).emit(SOCKET_EVENTS.TIMER_UPDATE, {
+        remaining,
+        paused: true,
+        timerRunning: false,
+      });
+    }
+  }
+
+  const venueHandlers = require('../../socket/venueHandlers');
+  io.to(`session:${pin}`).emit(
+    SOCKET_EVENTS.SESSION_STATE,
+    await venueHandlers.buildFullStatePayload(gameState, pin),
+  );
+  logger.info('Live session resumed from checkpoint', {
+    pin,
+    state: gameState.state,
+    questionState: gameState.questionState,
+    roundIndex: gameState.currentRoundIndex,
+    questionIndex: gameState.currentQuestionIndex,
+  });
+  return true;
+};
+
 const getInMemoryDiagnostics = () => ({
   eliminationSessions: eliminationStates.size,
   pendingDisconnectPurges: disconnectPurgeTimers.size,
@@ -2296,11 +3188,14 @@ const getInMemoryDiagnostics = () => ({
 module.exports = {
   startGame,
   nextQuestion,
+  presentQuestion,
   submitAnswer,
   submitWager,
   revealAnswer,
   endRound,
   advanceToNextRound,
+  skipNextRound,
+  skipCurrentRound,
   handlePlayerSocketDisconnect,
   cancelScheduledDisconnectPurge,
   cleanupInMemorySession,
@@ -2316,4 +3211,12 @@ module.exports = {
   startTimer,
   endGame,
   startWagerCollection,
+  resumeLiveSession,
+  getEliminationStateSnapshot,
+  getLiveRoundPreview,
+  updateLiveQuestion,
+  skipQuestion,
+  jumpToQuestion,
+  restoreEliminationState,
+  publishQuestionLiveStatsAfterRosterChange,
 };

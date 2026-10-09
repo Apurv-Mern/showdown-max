@@ -1,8 +1,9 @@
 const { getEliminationPoints } = require('shared/constants/scoring');
+const { isUnanswered } = require('../unanswered');
 
 /**
  * Elimination: Incremental scoring (10–120 pts across 12 questions).
- * Wrong → knocked out. All-teams-wrong → no knockout, all lose points.
+ * Wrong or unanswered → knocked out. All-teams-wrong → no knockout, all lose points.
  */
 const calculate = ({ question, responses, questionIndex, activeTeamIds }) => {
   const scores = {};
@@ -27,18 +28,10 @@ const calculate = ({ question, responses, questionIndex, activeTeamIds }) => {
 
   for (const teamIdStr of activeTeamIds.map(String)) {
     const response = responses[teamIdStr];
-    
-    let isUnsubmitted = false;
-    if (!response || response.selectedOptionIndex === undefined) {
-      isUnsubmitted = true;
-    } else if (isOrdering) {
-      isUnsubmitted = !Array.isArray(response.selectedOptionIndex) || response.selectedOptionIndex.length === 0;
-    } else {
-      isUnsubmitted = Number(response.selectedOptionIndex) < 0;
-    }
 
-    if (isUnsubmitted) {
-      scores[teamIdStr] = 0;
+    if (isUnanswered(response, question)) {
+      scores[teamIdStr] = -points;
+      wrongTeams.push(teamIdStr);
       continue;
     }
 
@@ -48,7 +41,7 @@ const calculate = ({ question, responses, questionIndex, activeTeamIds }) => {
     } else {
       isCorrect = Number(response.selectedOptionIndex) === correctIndex;
     }
-    
+
     if (isCorrect) {
       correctTeams.push(teamIdStr);
       scores[teamIdStr] = points;

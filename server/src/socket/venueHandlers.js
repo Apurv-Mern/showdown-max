@@ -354,6 +354,7 @@ const buildFullStatePayload = async (gameState, pin) => {
     currentQuestionIndex: gameState.currentQuestionIndex,
     timerRemaining: timerManager.getReconnectTimerRemaining(pin, gameState),
     timerRunning: timerManager.resolveClientTimerRunning(pin, gameState),
+    timerPaused: Boolean(gameState.timerPaused),
     timerEndsAt: timerManager.resolveClientTimerEndsAt(pin, gameState),
     responseCount: gameState.responseCount,
     totalTeams,

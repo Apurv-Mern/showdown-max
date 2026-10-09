@@ -2,6 +2,7 @@ const { GAME_STATES } = require('shared/constants/gameStates');
 const { QUESTION_STATES } = require('shared/constants/questionStates');
 const { ROUND_TYPES } = require('shared/constants/roundTypes');
 const logger = require('../../utils/logger');
+const { shouldWaitForHostAudioTimer } = require('../../utils/questionMedia');
 
 const VALID_TRANSITIONS = {
   [GAME_STATES.LOBBY]: [GAME_STATES.ROUND_INTRO, GAME_STATES.BREAK],
@@ -41,6 +42,8 @@ const VALID_TRANSITIONS = {
     GAME_STATES.FINAL_WAGER,
     GAME_STATES.FINAL_RESULTS,
     GAME_STATES.WAGER_COLLECTION,
+    // Host skipped the last remaining round from the post-round leaderboard.
+    GAME_STATES.GAME_SHOW_END,
   ],
   [GAME_STATES.BREAK]: [
     GAME_STATES.ROUND_INTRO,
@@ -244,13 +247,27 @@ const activateQuestion = (gameState) => {
   const round = getCurrentRound(gameState);
   const question = getCurrentQuestion(gameState);
   const duration = Number(question?.timerDuration ?? round?.timerDuration ?? 30) || 30;
-  const isMusic = String(round?.type || '').toUpperCase() === ROUND_TYPES.MUSIC;
+  const waitForHost = shouldWaitForHostAudioTimer(round, question);
   return {
     ...gameState,
     questionState: QUESTION_STATES.ACTIVE,
     timerRemaining: duration,
-    // Music rounds: countdown + audio start together when the host presses Start Timer only.
-    timerRunning: !isMusic,
+    // Music rounds / MP3 questions: countdown + audio start together when the host presses Start Timer.
+    timerRunning: !waitForHost,
+    responseCount: 0,
+  };
+};
+
+/** Host-only staging before venue/players receive question_active. */
+const stageQuestion = (gameState) => {
+  const round = getCurrentRound(gameState);
+  const question = getCurrentQuestion(gameState);
+  const duration = Number(question?.timerDuration ?? round?.timerDuration ?? 30) || 30;
+  return {
+    ...gameState,
+    questionState: QUESTION_STATES.PREVIEW,
+    timerRemaining: duration,
+    timerRunning: false,
     responseCount: 0,
   };
 };
@@ -288,6 +305,7 @@ module.exports = {
   advanceQuestion,
   advanceRound,
   activateQuestion,
+  stageQuestion,
   revealAnswer,
   isFinalRound,
 };

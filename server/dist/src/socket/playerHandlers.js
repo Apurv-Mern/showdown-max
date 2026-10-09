@@ -7,6 +7,7 @@ const {
   buildSessionPayloadForPlayer,
   buildJoinReplayEvents,
   emitJoinReplaysToSocket,
+  resolveGameStateForPlayerRestore,
 } = require('../services/playerRestorePayload');
 const { Session, Team } = require('../models');
 const sessionService = require('../services/sessionService');
@@ -31,8 +32,8 @@ const playerHandlers = (io, socket) => {
       const cleanTeamName = sanitizeTeamName(teamName);
       const normalizedTeamName = normalizeTeamName(cleanTeamName);
 
-      const hostReadySession = await sessionService.getPlayerJoinEligibleSessionByPin(pin);
-      if (!hostReadySession) {
+      const joinSession = await sessionService.getPlayerRestoreSessionByPin(pin);
+      if (!joinSession) {
         socket.emit(SOCKET_EVENTS.JOIN_ERROR, {
           message:
             'This session is not open yet. The PIN may be wrong, the show may have ended, or no host is assigned for this session yet.',
@@ -43,19 +44,25 @@ const playerHandlers = (io, socket) => {
 
       let sessionData = await redisStore.getSession(pin);
       if (!sessionData) {
-        await redisStore.setSession(pin, hostReadySession.id);
-        sessionData = { sessionId: hostReadySession.id };
+        await redisStore.setSession(pin, joinSession.id);
+        sessionData = { sessionId: joinSession.id };
       }
 
       const sessionTeams = await Team.findAll({
         where: { sessionId: sessionData.sessionId },
         attributes: ['id', 'teamName', 'isConnected', 'socketId', 'score', 'isEliminated'],
       });
-      const preJoinGameState = await redisStore.getGameState(pin);
+      const preJoinGameState = await resolveGameStateForPlayerRestore(pin, joinSession);
       const hostRemovalBlocklist = await redisStore.getHostRemovalBlocklist(pin);
-      const existingTeam = sessionTeams.find(
-        (t) => normalizeTeamName(t.teamName) === normalizedTeamName,
-      );
+      // Resolve by team id first so a host rename never orphans the device: the player app
+      // keeps the name it joined with in sessionStorage, and a name-only lookup would miss the
+      // renamed row and create a duplicate team with a fresh score.
+      const teamById =
+        reclaimTeamId != null
+          ? sessionTeams.find((t) => Number(t.id) === Number(reclaimTeamId))
+          : null;
+      const existingTeam =
+        teamById || sessionTeams.find((t) => normalizeTeamName(t.teamName) === normalizedTeamName);
       const nameMarkedRemoved =
         hostRemovalBlocklist.teamNames.includes(normalizedTeamName) ||
         (Array.isArray(preJoinGameState?.removedTeamNames) &&
@@ -162,8 +169,11 @@ const playerHandlers = (io, socket) => {
       socket.data = { pin, teamId: team.id, teamName: team.teamName };
       gameController.cancelScheduledDisconnectPurge(pin, team.id);
 
-      let gameState = existingGameState;
-      if (gameState) {
+      let gameState =
+        (await resolveGameStateForPlayerRestore(pin, joinSession)) || existingGameState;
+      if (gameState && String(joinSession.status || '').toLowerCase() === 'completed') {
+        // Terminal show — do not merge reconnecting players back into a live roster mutation path.
+      } else if (gameState) {
         const merged = await redisStore.updateGameState(pin, (current) => {
           const currentRound = current.rounds?.[current.currentRoundIndex];
           const isEliminationRound = currentRound?.type === 'ELIMINATION';
@@ -218,7 +228,8 @@ const playerHandlers = (io, socket) => {
 
       // Fresh snapshot: async work above can overlap with host timer ticks / MUSIC resume, and
       // Sequelize `team.score` can lag behind live scores in Redis `gameState.teams`.
-      if (gameState) {
+      // Completed shows keep the terminal restore payload — stale Redis must not rewind players.
+      if (gameState && String(joinSession.status || '').toLowerCase() !== 'completed') {
         const refreshed = await redisStore.getGameState(pin);
         if (refreshed) gameState = refreshed;
       }
@@ -228,6 +239,7 @@ const playerHandlers = (io, socket) => {
         gameState,
         team,
         mySubmittedOptionIndex,
+        sessionRow: joinSession,
       });
 
       socket.emit(SOCKET_EVENTS.SESSION_STATE, sessionPayload);

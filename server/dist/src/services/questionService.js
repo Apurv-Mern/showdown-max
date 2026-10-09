@@ -23,28 +23,26 @@ const fetchAdminRound = async (roundId) => {
 };
 
 /**
- * MP3/MP4 question media is only allowed on Music rounds (venue audio / observation video).
+ * MP3 on any round; images on non-music rounds. Music rounds: MP3 only. No video uploads.
  * @param {import('sequelize').Model|null} round
  * @param {string|null|undefined} mediaType
  */
-const assertMp3Mp4OnlyForMusicRound = (round, mediaType) => {
+const assertQuestionMediaForRound = (round, mediaType) => {
   if (!mediaType) return;
   const mt = String(mediaType).toLowerCase();
+  if (mt === 'mp4') {
+    throw Object.assign(
+      new Error('Video (MP4) attachments are not supported. Use MP3 audio or an image.'),
+      { statusCode: 400 },
+    );
+  }
   if (round && round.type === ROUND_TYPES.MUSIC) {
-    if (mt !== 'mp3' && mt !== 'mp4') {
+    if (mt !== 'mp3') {
       throw Object.assign(
-        new Error('Music round questions only support MP3 or MP4 media'),
+        new Error('Music round questions only support MP3 audio'),
         { statusCode: 400 },
       );
     }
-    return;
-  }
-  if (mt !== 'mp3' && mt !== 'mp4') return;
-  if (!round || round.type !== ROUND_TYPES.MUSIC) {
-    throw Object.assign(
-      new Error('MP3 and MP4 attachments are only allowed for Music rounds'),
-      { statusCode: 400 },
-    );
   }
 };
 
@@ -126,7 +124,7 @@ const createQuestion = async (data) => {
     const maxOrder = await Question.max('order', { where: { roundId: data.roundId } });
     data.order = (maxOrder ?? -1) + 1;
   }
-  assertMp3Mp4OnlyForMusicRound(round, data.mediaType);
+  assertQuestionMediaForRound(round, data.mediaType);
 
   const question = await Question.create(data);
   logger.info('Question created', { questionId: question.id });
@@ -145,7 +143,7 @@ const bulkCreateQuestions = async (questions) => {
     if (rid != null && !round) {
       throw Object.assign(new Error('Round not found for one or more questions'), { statusCode: 404 });
     }
-    assertMp3Mp4OnlyForMusicRound(round, row.mediaType);
+    assertQuestionMediaForRound(round, row.mediaType);
   }
   const created = await Question.bulkCreate(questions);
   logger.info('Bulk questions created', { count: created.length });
@@ -178,7 +176,7 @@ const updateQuestion = async (questionId, data) => {
       ? await fetchAdminRound(effectiveRoundId)
       : null;
   const nextMediaType = data.mediaType !== undefined ? data.mediaType : question.mediaType;
-  assertMp3Mp4OnlyForMusicRound(round, nextMediaType);
+  assertQuestionMediaForRound(round, nextMediaType);
 
   const previousFilename = mediaReferenceService.filenameFromMediaUrl(question.mediaUrl);
   const nextMediaUrl = data.mediaUrl !== undefined ? data.mediaUrl : question.mediaUrl;

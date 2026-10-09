@@ -137,6 +137,17 @@ const start = async () => {
   const httpServer = fastify.server;
   initializeSocket(httpServer);
 
+  try {
+    const sessionCheckpointService = require('./services/sessionCheckpointService');
+    setTimeout(() => {
+      sessionCheckpointService
+        .hydrateActiveSessions()
+        .catch((err) => logger.warn('Checkpoint hydrate failed', { error: err.message }));
+    }, 1500).unref();
+  } catch (err) {
+    logger.warn('Checkpoint hydrate skipped', { error: err.message });
+  }
+
   const protocol = sslConfig ? 'https' : 'http';
   logger.info(`Server running on port ${env.PORT}`);
   logger.info(`Environment: ${env.NODE_ENV}`);

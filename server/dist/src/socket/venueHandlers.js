@@ -8,6 +8,13 @@ const { getBreakRemainingSeconds } = require('../utils/breakWallClock');
 const { buildRevealSnapshot } = require('../services/revealSnapshot');
 const { Session } = require('../models');
 const { mapClientQuestionPayload } = require('../utils/clientQuestionPayload');
+const { QUESTION_STATES } = require('shared/constants/questionStates');
+const {
+  buildAudienceViewPayload,
+  gameStateForAudienceQuestion,
+  resolveAudienceQuestionState,
+  resolveAudienceQuestionIndex,
+} = require('../utils/audienceView');
 
 const buildPreGameLobbyPayload = async (pin, session, lobbyTeams) => {
   const lobbyPhase = await redisStore.getLobbyPhase(pin);
@@ -125,7 +132,9 @@ const venueHandlers = (io, socket) => {
       socket.join(`session:${pin}`);
       socket.data = { pin, role: 'venue' };
 
-      let gameState = await redisStore.getGameState(pin);
+      let gameState = await require('../services/sessionCheckpointService').ensureHydratedGameState(
+        pin,
+      );
       if (gameState) {
         if (!Number.isFinite(Number(gameState.maxTeams)) || Number(gameState.maxTeams) <= 0) {
           const session = await Session.findOne({ where: { pin } });
@@ -151,7 +160,7 @@ const venueHandlers = (io, socket) => {
         const session = await Session.findOne({
           where: { pin, status: { [Op.in]: ['pending', 'active'] } },
         });
-        const lobbyTeams = await redisStore.getAllTeamsData(pin);
+        const lobbyTeams = await redisStore.getConnectedTeamsData(pin);
         if (session) {
           socket.emit(
             SOCKET_EVENTS.SESSION_STATE,
@@ -166,6 +175,23 @@ const venueHandlers = (io, socket) => {
     }
   });
 
+  /** Venue reports how far its leaderboard can scroll so the host can enable/disable controls. */
+  socket.on(SOCKET_EVENTS.VENUE_LEADERBOARD_STATE, (data) => {
+    try {
+      const pin = data?.pin || socket.data?.pin;
+      if (!pin) return;
+      io.to(`session:${pin}`).emit(SOCKET_EVENTS.VENUE_LEADERBOARD_STATE, {
+        canScrollUp: Boolean(data?.canScrollUp),
+        canScrollDown: Boolean(data?.canScrollDown),
+        firstVisibleRow: Number(data?.firstVisibleRow) || 0,
+        lastVisibleRow: Number(data?.lastVisibleRow) || 0,
+        totalRows: Number(data?.totalRows) || 0,
+      });
+    } catch (err) {
+      logger.error('venue_leaderboard_state error', { error: err.message });
+    }
+  });
+
   socket.on('host_connect', async (data) => {
     try {
       const { pin } = data;
@@ -174,7 +200,9 @@ const venueHandlers = (io, socket) => {
       socket.join(`session:${pin}`);
       socket.data = { pin, role: 'host' };
 
-      let gameState = await redisStore.getGameState(pin);
+      let gameState = await require('../services/sessionCheckpointService').ensureHydratedGameState(
+        pin,
+      );
       if (gameState) {
         if (!Number.isFinite(Number(gameState.maxTeams)) || Number(gameState.maxTeams) <= 0) {
           const session = await Session.findOne({ where: { pin } });
@@ -187,7 +215,7 @@ const venueHandlers = (io, socket) => {
         await emitTriviaReconnectSideEvents(socket, pin, gameState);
       } else {
         const session = await Session.findOne({ where: { pin } });
-        const lobbyTeams = await redisStore.getAllTeamsData(pin);
+        const lobbyTeams = await redisStore.getConnectedTeamsData(pin);
         socket.emit(
           SOCKET_EVENTS.SESSION_STATE,
           await buildPreGameLobbyPayload(pin, session, lobbyTeams),
@@ -208,6 +236,25 @@ const venueHandlers = (io, socket) => {
  */
 const emitTriviaReconnectSideEvents = async (socket, pin, gameState) => {
   if (gameState.activeMiniGame) return;
+  if (gameState.miniGameHold?.holdScreen) return;
+
+  if (gameState.state === 'QUESTION' && gameState.questionState === 'PREVIEW') {
+    // Host preview shows the upcoming question — replaying answer_reveal would flip
+    // questionState back to REVEALED on the dashboard.
+    if (socket.data?.role === 'host') return;
+
+    const audIdx = resolveAudienceQuestionIndex(gameState);
+    const audState = resolveAudienceQuestionState(gameState, audIdx);
+    if (audIdx != null && audState === QUESTION_STATES.REVEALED) {
+      const gsAudience = gameStateForAudienceQuestion(gameState);
+      const revealPayload = gsAudience ? await buildRevealSnapshot(pin, gsAudience) : null;
+      if (revealPayload) {
+        socket.emit(SOCKET_EVENTS.ANSWER_REVEAL, revealPayload);
+        socket.emit(SOCKET_EVENTS.TIMER_UPDATE, { remaining: 0 });
+      }
+    }
+    return;
+  }
 
   if (gameState.state === 'QUESTION' && gameState.questionState === 'REVEALED') {
     const revealPayload = await buildRevealSnapshot(pin, gameState);
@@ -228,6 +275,8 @@ const emitTriviaReconnectSideEvents = async (socket, pin, gameState) => {
   if (
     gameState.scoreboardVisible &&
     gameState.state !== 'SCOREBOARD' &&
+    gameState.state !== 'FINAL_RESULTS' &&
+    gameState.state !== 'GAME_SHOW_END' &&
     !gameState.activeMiniGame
   ) {
     const sortedTeams = Object.values(gameState.teams || {}).sort((a, b) => b.score - a.score);
@@ -236,6 +285,14 @@ const emitTriviaReconnectSideEvents = async (socket, pin, gameState) => {
       teams: sortedTeams,
       source: 'manual',
       ...(revealPayload ? { revealSnapshot: revealPayload } : {}),
+    });
+  }
+  if (gameState.state === 'GAME_SHOW_END') {
+    socket.emit(SOCKET_EVENTS.GAME_SHOW_END, {});
+  }
+  if (gameState.state === 'FINAL_RESULTS') {
+    socket.emit(SOCKET_EVENTS.GAME_END, {
+      teams: Object.values(gameState.teams || {}).sort((a, b) => b.score - a.score),
     });
   }
 };
@@ -254,9 +311,10 @@ const buildFullStatePayload = async (gameState, pin) => {
   // counter can be displayed alongside the question label without waiting for QUESTION_ACTIVE.
   const includeQuestionPayload =
     (gameState.state === 'QUESTION' || gameState.state === 'WAGER_COLLECTION') &&
-    !gameState.activeMiniGame;
+    !gameState.activeMiniGame &&
+    !gameState.miniGameHold?.holdScreen;
   const currentQuestion = includeQuestionPayload ? currentQuestionRow : null;
-  const lobbyTeams = await redisStore.getAllTeamsData(pin);
+  const lobbyTeams = await redisStore.getConnectedTeamsData(pin);
   const teams =
     gameState.teams && Object.keys(gameState.teams).length > 0
       ? gameState.teams
@@ -283,13 +341,21 @@ const buildFullStatePayload = async (gameState, pin) => {
       }))
     : [];
 
+  const audienceView = await buildAudienceViewPayload(gameState, pin);
+
   return {
     state: gameState.state,
     questionState: gameState.questionState,
+    audienceWagerCollectionOpen: Boolean(gameState.audienceWagerCollectionOpen),
+    audienceHoldRoundIntro: Boolean(gameState.audienceHoldRoundIntro),
+    hostPreviewAwaitingWagerCollection: Boolean(gameState.hostPreviewAwaitingWagerCollection),
+    audienceView,
     currentRoundIndex: gameState.currentRoundIndex,
     currentQuestionIndex: gameState.currentQuestionIndex,
     timerRemaining: timerManager.getReconnectTimerRemaining(pin, gameState),
-    timerRunning: gameState.timerRunning,
+    timerRunning: timerManager.resolveClientTimerRunning(pin, gameState),
+    timerPaused: Boolean(gameState.timerPaused),
+    timerEndsAt: timerManager.resolveClientTimerEndsAt(pin, gameState),
     responseCount: gameState.responseCount,
     totalTeams,
     rounds: sanitizedRounds,
@@ -306,6 +372,7 @@ const buildFullStatePayload = async (gameState, pin) => {
         ? getBreakRemainingSeconds(gameState)
         : Number(gameState.breakRemaining ?? 0),
     activeMiniGame: gameState.activeMiniGame,
+    miniGameHold: gameState.miniGameHold || null,
     miniGameState: gameState.miniGameState || null,
     miniGameConfig: gameState.miniGameConfig || null,
     scoreboardVisible: Boolean(gameState.scoreboardVisible),

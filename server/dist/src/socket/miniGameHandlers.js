@@ -80,6 +80,7 @@ const normalizeKangarooNames = (input) => {
   return names;
 };
 
+/** Unity RACE_FINISH sends 0-based slots, e.g. [2,0,4,1,3,5] (slot 2 wins). Store 1-based internally. */
 const normalizeFinishOrderSlots = (finishOrderRaw, kangarooNames = DEFAULT_KANGAROO_NAMES) => {
   const input = Array.isArray(finishOrderRaw) ? finishOrderRaw : [];
   const normalizedNames = normalizeKangarooNames(kangarooNames);
@@ -637,11 +638,24 @@ const miniGameHandlers = (io, socket) => {
       const pin = data.pin || socket.data?.pin;
       if (!pin) return;
 
+      const isKangarooRace =
+        String(data.game || '')
+          .toLowerCase()
+          .replace(/-/g, '_') === 'kangaroo_race';
+      const winnerKangarooRaw = Number(data.winnerKangaroo);
+      const winnerKangaroo =
+        Number.isFinite(winnerKangarooRaw) && winnerKangarooRaw >= 1 && winnerKangarooRaw <= 6
+          ? Math.trunc(winnerKangarooRaw)
+          : 0;
       const payload = {
         game: data.game,
         command: data.command,
         roundNumber: data.roundNumber,
         source: socket.data?.role || data.source || 'host',
+        ...(typeof data.teamResponse === 'string' && data.teamResponse.trim()
+          ? { teamResponse: data.teamResponse.trim() }
+          : {}),
+        ...(isKangarooRace ? { winnerKangaroo } : {}),
       };
 
       /** Snapshot for mobile/venue when host triggers reveal (before state is cleared). */
@@ -1136,6 +1150,13 @@ const miniGameHandlers = (io, socket) => {
       const freshState = await redisStore.getGameState(eventPin);
       const relayedGame =
         freshState?.miniGameState?.game || freshState?.activeMiniGame || data.game || undefined;
+      const mgs = freshState?.miniGameState;
+      const pickCounts =
+        mgs?.pickCounts && typeof mgs.pickCounts === 'object' ? mgs.pickCounts : undefined;
+      const totalSelected =
+        mgs?.selections && typeof mgs.selections === 'object'
+          ? Object.keys(mgs.selections).length
+          : undefined;
 
       io.to(room).emit(SOCKET_EVENTS.MINI_GAME_UPDATE, {
         teamId,
@@ -1144,6 +1165,8 @@ const miniGameHandlers = (io, socket) => {
         action: data.action,
         value: data.value,
         source: data.source || 'player',
+        ...(pickCounts ? { pickCounts } : {}),
+        ...(Number.isFinite(totalSelected) ? { totalSelected } : {}),
         ...extraRevealFields,
       });
 

@@ -154,6 +154,7 @@ const getReconnectTimerRemaining = (pin, gameState) => {
  */
 const resolveClientTimerRunning = (pin, gameState) => {
   if (!gameState) return false;
+  if (Boolean(gameState.timerPaused)) return false;
   if (gameState.state !== 'QUESTION' || gameState.questionState !== 'ACTIVE') {
     return Boolean(gameState.timerRunning);
   }
@@ -162,6 +163,17 @@ const resolveClientTimerRunning = (pin, gameState) => {
     return getTimerState(pinNorm).running;
   }
   return Boolean(gameState.timerRunning);
+};
+
+/** Align reconnect / session_state timer fields with live + Redis pause flag. */
+const applyClientTimerFields = (pin, gameState, payload) => {
+  if (!payload || !gameState) return payload;
+  const running = resolveClientTimerRunning(pin, gameState);
+  payload.timerRemaining = getReconnectTimerRemaining(pin, gameState);
+  payload.timerRunning = running;
+  payload.timerPaused = Boolean(gameState.timerPaused);
+  payload.timerEndsAt = running ? resolveClientTimerEndsAt(pin, gameState) : null;
+  return payload;
 };
 
 const resolveClientTimerEndsAt = (pin, gameState) => {
@@ -193,6 +205,7 @@ module.exports = {
   getReconnectTimerRemaining,
   resolveClientTimerRunning,
   resolveClientTimerEndsAt,
+  applyClientTimerFields,
   forceExpire,
   getActiveTimerCount,
 };

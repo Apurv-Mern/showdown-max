@@ -132,9 +132,9 @@ const getSession = async (pin) => {
   );
 };
 
-const setGameState = async (pin, state) => {
+const setGameState = async (pin, state, options = {}) => {
   rememberPinMode(pin);
-  return withFallback(
+  await withFallback(
     async () => {
       const redis = getRedisClient();
       await redis.set(KEYS.gameState(pin), JSON.stringify(state), 'EX', TTL);
@@ -143,6 +143,13 @@ const setGameState = async (pin, state) => {
       memorySet(KEYS.gameState(pin), cloneValue(state));
     },
   );
+  if (!options.skipCheckpoint) {
+    try {
+      require('./sessionCheckpointService').schedulePersist(pin);
+    } catch {
+      /* checkpoint is optional during early boot */
+    }
+  }
 };
 
 const getGameState = async (pin) => {
@@ -276,9 +283,15 @@ const getAllTeamsData = async (pin) => {
   );
 };
 
+/** Currently joined devices — lobby only. Parked/disconnected rows stay in the teams hash. */
+const getConnectedTeamsData = async (pin) => {
+  const lobby = await getLobbyTeams(pin);
+  return lobby.filter((team) => team && team.isConnected !== false);
+};
+
 const recordResponse = async (pin, questionId, teamId, selectedOptionIndex) => {
   rememberPinMode(pin);
-  return withFallback(
+  await withFallback(
     async () => {
       const redis = getRedisClient();
       await redis.hset(
@@ -292,6 +305,37 @@ const recordResponse = async (pin, questionId, teamId, selectedOptionIndex) => {
       const key = KEYS.responses(pin, questionId);
       const responses = memoryGetHash(key);
       responses[teamId.toString()] = selectedOptionIndex.toString();
+      memorySetHash(key, responses);
+    },
+  );
+  try {
+    require('./sessionCheckpointService').schedulePersist(pin);
+  } catch {
+    /* ignore */
+  }
+};
+
+const restoreResponses = async (pin, questionId, responsesMap = {}) => {
+  rememberPinMode(pin);
+  const entries = Object.entries(responsesMap || {});
+  if (!questionId || entries.length === 0) return;
+  return withFallback(
+    async () => {
+      const redis = getRedisClient();
+      const key = KEYS.responses(pin, questionId);
+      const pipeline = redis.pipeline();
+      for (const [teamId, raw] of entries) {
+        pipeline.hset(key, String(teamId), typeof raw === 'string' ? raw : JSON.stringify(raw));
+      }
+      pipeline.expire(key, TTL);
+      await pipeline.exec();
+    },
+    () => {
+      const key = KEYS.responses(pin, questionId);
+      const responses = memoryGetHash(key);
+      for (const [teamId, raw] of entries) {
+        responses[String(teamId)] = typeof raw === 'string' ? raw : JSON.stringify(raw);
+      }
       memorySetHash(key, responses);
     },
   );
@@ -319,6 +363,20 @@ const getResponses = async (pin, questionId) => {
       return redis.hgetall(KEYS.responses(pin, questionId));
     },
     () => memoryGetHash(KEYS.responses(pin, questionId)),
+  );
+};
+
+const clearResponsesForQuestion = async (pin, questionId) => {
+  if (questionId == null) return;
+  rememberPinMode(pin);
+  await withFallback(
+    async () => {
+      const redis = getRedisClient();
+      await redis.del(KEYS.responses(pin, questionId));
+    },
+    () => {
+      memorySetHash(KEYS.responses(pin, questionId), {});
+    },
   );
 };
 
@@ -613,12 +671,15 @@ module.exports = {
   getLobbyTeams,
   updateTeamData,
   getAllTeamsData,
+  getConnectedTeamsData,
   getHostRemovalBlocklist,
   appendHostRemovalBlocklist,
   removeHostRemovalBlocklistNormalizedNames,
   recordResponse,
+  restoreResponses,
   getResponseCount,
   getResponses,
+  clearResponsesForQuestion,
   cleanupSession,
   inspectSessionCache,
   inspectCache,

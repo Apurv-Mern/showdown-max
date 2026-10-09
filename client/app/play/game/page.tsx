@@ -108,6 +108,8 @@ interface QuestionData {
   timerDuration: number;
   timerRemaining?: number;
   timerRunning?: boolean;
+  timerPaused?: boolean;
+  paused?: boolean;
   timerEndsAt?: number | null;
   serverNow?: number;
   roundType: string;
@@ -741,6 +743,10 @@ const staggerItem = {
   animate: { opacity: 1, scale: 1 },
 };
 
+/** Scrollable answer list — needed when questions have 5–6 options on short phone viewports. */
+const playerOptionsScrollClass =
+  'min-h-0 flex-1 overflow-y-auto overscroll-y-contain [-webkit-overflow-scrolling:touch] touch-pan-y pb-1';
+
 const toTimerEndsAt = (value: unknown): number | null => {
   const parsed = Number(value);
   if (!Number.isFinite(parsed) || parsed <= 0) return null;
@@ -776,6 +782,16 @@ function coercePlayerTimerFromServer(
 }
 
 /** Apply server timer fields — never arm local countdown while paused. */
+function pauseHintFromTimerPayload(data?: {
+  paused?: boolean;
+  timerPaused?: boolean;
+}): boolean | undefined {
+  if (!data) return undefined;
+  if (data.paused === true || data.timerPaused === true) return true;
+  if (data.paused === false) return false;
+  return undefined;
+}
+
 function syncPlayerTimerFromServer(
   serverRemaining: unknown,
   endsAt: unknown,
@@ -1275,12 +1291,15 @@ export default function GamePage() {
             gs.timerRemaining,
             gs.timerEndsAt ?? gs.currentQuestion.timerEndsAt,
             gs.timerRunning,
+            pauseHintFromTimerPayload(gs as { paused?: boolean; timerPaused?: boolean }),
           );
           setTimerRemaining(synced.remaining);
           setTimerEndsAt(synced.endsAt);
           setTimerRunning(synced.running);
           setHostTimerPaused(
-            gs.questionState === 'ACTIVE' && synced.remaining > 0 && !synced.running,
+            gs.questionState === 'ACTIVE' &&
+              synced.remaining > 0 &&
+              (!synced.running || Boolean((gs as { timerPaused?: boolean }).timerPaused)),
           );
           patchQuestionActiveTimerCache(synced.remaining, {
             timerRunning: synced.running,
@@ -1770,11 +1789,14 @@ export default function GamePage() {
         typeof tr === 'number' && Number.isFinite(tr) ? tr : 0,
         data.timerEndsAt,
         data.timerRunning,
+        pauseHintFromTimerPayload(data),
       );
       setTimerRemaining(synced.remaining);
       setTimerEndsAt(synced.endsAt);
       setTimerRunning(synced.running);
-      setHostTimerPaused(synced.remaining > 0 && !synced.running);
+      setHostTimerPaused(
+        synced.remaining > 0 && (!synced.running || Boolean(data.timerPaused)),
+      );
       patchQuestionActiveTimerCache(synced.remaining, {
         timerRunning: synced.running,
         timerEndsAt: synced.endsAt,
@@ -1864,19 +1886,24 @@ export default function GamePage() {
       remaining: number;
       timerEndsAt?: number | null;
       timerRunning?: boolean;
+      timerPaused?: boolean;
       paused?: boolean;
     }) => {
       const synced = syncPlayerTimerFromServer(
         data.remaining,
         data.timerEndsAt,
         data.timerRunning,
-        data.paused,
+        pauseHintFromTimerPayload(data),
       );
       const runningNow = synced.remaining <= 0 ? false : synced.running;
       setTimerRemaining(synced.remaining);
       setTimerEndsAt(synced.endsAt);
       setTimerRunning(runningNow);
-      if (data.paused === true || data.timerRunning === false) {
+      if (
+        data.paused === true ||
+        data.timerPaused === true ||
+        data.timerRunning === false
+      ) {
         setHostTimerPaused(synced.remaining > 0);
       } else if (data.timerRunning === true && data.paused === false) {
         setHostTimerPaused(false);
@@ -2775,10 +2802,10 @@ export default function GamePage() {
                 <motion.div
                   key="question"
                   {...pageTransition}
-                  className="mt-2 flex flex-1 flex-col px-3 pb-4 pt-2 sm:mt-4 sm:px-4 sm:pb-6 md:px-6"
+                  className="mt-2 flex min-h-0 flex-1 flex-col overflow-hidden px-3 pb-4 pt-2 sm:mt-4 sm:px-4 sm:pb-6 md:px-6"
                 >
                   <QuestionStagePanel
-                    className="mb-3 sm:mb-4"
+                    className="mb-3 shrink-0 sm:mb-4"
                     timerDisplay={timerRemaining}
                     timerDuration={timerDuration}
                     questionIndex={question.questionIndex || 0}
@@ -2792,15 +2819,15 @@ export default function GamePage() {
                     questionText={question.question.text}
                   />
 
-                  <div className="flex flex-col gap-3 sm:gap-4">
-                    <QuestionMediaVisual question={question} musicBanner={questionMusicBanner} />
+                  <QuestionMediaVisual question={question} musicBanner={questionMusicBanner} />
 
+                  <div className={playerOptionsScrollClass}>
                     {/* Options - Single column vertical list */}
                     <motion.div
                       variants={staggerContainer}
                       initial="initial"
                       animate="animate"
-                      className="mt-5 flex flex-col gap-5"
+                      className="mt-2 flex flex-col gap-3 sm:mt-3 sm:gap-4"
                     >
                       {(() => {
                         if (question.question.isOrdering) {
@@ -2924,7 +2951,7 @@ export default function GamePage() {
                     <motion.div
                       initial={{ opacity: 0, y: 10 }}
                       animate={{ opacity: 1, y: 0 }}
-                      className="text-center mt-6"
+                      className="mt-3 shrink-0 text-center sm:mt-4"
                     >
                       <p className="text-2xl font-black leading-none text-[#ff5252] drop-shadow-[0_0_10px_rgba(255,82,82,0.6)] sm:text-3xl md:text-4xl">
                         TIME IS OVER
@@ -2936,7 +2963,7 @@ export default function GamePage() {
                     <motion.div
                       initial={{ opacity: 0, y: 10 }}
                       animate={{ opacity: 1, y: 0 }}
-                      className="text-center mt-6"
+                      className="mt-3 shrink-0 text-center sm:mt-4"
                     >
                       <p className="text-2xl font-black leading-none text-[#ffffff] drop-shadow-[0_0_10px_rgba(255,255,255,0.4)] sm:text-2xl md:text-3xl">
                         ANSWER LOCKED IN !!
@@ -2951,10 +2978,10 @@ export default function GamePage() {
                 <motion.div
                   key="reveal"
                   {...pageTransition}
-                  className="mt-2 flex flex-1 flex-col px-3 pb-4 pt-2 sm:mt-4 sm:px-4 sm:pb-6 md:px-6"
+                  className="mt-2 flex min-h-0 flex-1 flex-col overflow-hidden px-3 pb-4 pt-2 sm:mt-4 sm:px-4 sm:pb-6 md:px-6"
                 >
                   <QuestionStagePanel
-                    className="mb-3 sm:mb-4"
+                    className="mb-3 shrink-0 sm:mb-4"
                     timerDisplay={0}
                     timerDuration={timerDuration}
                     questionIndex={question.questionIndex || 0}
@@ -2968,15 +2995,15 @@ export default function GamePage() {
                     questionText={question.question.text}
                   />
 
-                  <div className="flex flex-col gap-3 sm:gap-4">
-                    <QuestionMediaVisual question={question} musicBanner={questionMusicBanner} />
+                  <QuestionMediaVisual question={question} musicBanner={questionMusicBanner} />
 
+                  <div className={playerOptionsScrollClass}>
                     {/* Options - Single column vertical list */}
                     <motion.div
                       variants={staggerContainer}
                       initial="initial"
                       animate="animate"
-                      className="mt-5 flex flex-col gap-5"
+                      className="mt-2 flex flex-col gap-3 sm:mt-3 sm:gap-4"
                     >
                       {(() => {
                         if (question.question.isOrdering) {
@@ -3119,7 +3146,7 @@ export default function GamePage() {
                     initial={{ opacity: 0, y: 15 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ delay: 0.2 }}
-                    className="mt-8 text-center"
+                    className="mt-4 shrink-0 text-center sm:mt-6"
                   >
                     {(() => {
                       const isMajorityRulesRound =

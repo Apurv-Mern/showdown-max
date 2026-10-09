@@ -231,6 +231,7 @@ const buildSessionPayloadForPlayer = async ({
             : null,
           timerRemaining: timerManager.getReconnectTimerRemaining(pin, gameState),
           timerRunning: timerManager.resolveClientTimerRunning(pin, gameState),
+          timerPaused: Boolean(gameState.timerPaused),
           timerEndsAt: timerManager.resolveClientTimerEndsAt(pin, gameState),
           mySubmittedOptionIndex,
           responseCount: gameState.responseCount,
@@ -326,6 +327,7 @@ const buildJoinReplayEvents = async ({ pin, gameState, team, mySubmittedOptionIn
     ) {
       const audRow = round.questions?.[audIdx];
       if (audRow) {
+        const runningAudQa = timerManager.resolveClientTimerRunning(pin, gameState);
         events.push({
           event: SOCKET_EVENTS.QUESTION_ACTIVE,
           data: {
@@ -334,8 +336,12 @@ const buildJoinReplayEvents = async ({ pin, gameState, team, mySubmittedOptionIn
             question: mapClientQuestionPayload(audRow),
             timerDuration: Number(audRow.timerDuration ?? round.timerDuration ?? 30) || 30,
             timerRemaining: timerManager.getReconnectTimerRemaining(pin, gameState),
-            timerRunning: timerManager.resolveClientTimerRunning(pin, gameState),
-            timerEndsAt: timerManager.resolveClientTimerEndsAt(pin, gameState),
+            timerRunning: runningAudQa,
+            timerPaused: Boolean(gameState.timerPaused),
+            paused: !runningAudQa,
+            timerEndsAt: runningAudQa
+              ? timerManager.resolveClientTimerEndsAt(pin, gameState)
+              : null,
             serverNow: Date.now(),
             roundType: round.type,
             lockedWagerAmount: getLockedWager(gameState, round, team.id, audRow?.id),
@@ -353,7 +359,10 @@ const buildJoinReplayEvents = async ({ pin, gameState, team, mySubmittedOptionIn
           data: {
             remaining: timerManager.getReconnectTimerRemaining(pin, gameState),
             timerRunning: runningAud,
-            timerEndsAt: timerManager.resolveClientTimerEndsAt(pin, gameState),
+            timerPaused: Boolean(gameState.timerPaused),
+            timerEndsAt: runningAud
+              ? timerManager.resolveClientTimerEndsAt(pin, gameState)
+              : null,
             paused: !runningAud,
             serverNow: Date.now(),
           },
@@ -368,6 +377,7 @@ const buildJoinReplayEvents = async ({ pin, gameState, team, mySubmittedOptionIn
     round &&
     currentQuestion
   ) {
+    const runningActiveQa = timerManager.resolveClientTimerRunning(pin, gameState);
     events.push({
       event: SOCKET_EVENTS.QUESTION_ACTIVE,
       data: {
@@ -376,8 +386,12 @@ const buildJoinReplayEvents = async ({ pin, gameState, team, mySubmittedOptionIn
         question: mapClientQuestionPayload(currentQuestion),
         timerDuration: Number(currentQuestion.timerDuration ?? round.timerDuration ?? 30) || 30,
         timerRemaining: timerManager.getReconnectTimerRemaining(pin, gameState),
-        timerRunning: timerManager.resolveClientTimerRunning(pin, gameState),
-        timerEndsAt: timerManager.resolveClientTimerEndsAt(pin, gameState),
+        timerRunning: runningActiveQa,
+        timerPaused: Boolean(gameState.timerPaused),
+        paused: !runningActiveQa,
+        timerEndsAt: runningActiveQa
+          ? timerManager.resolveClientTimerEndsAt(pin, gameState)
+          : null,
         serverNow: Date.now(),
         roundType: round.type,
         lockedWagerAmount: getLockedWager(gameState, round, team.id, currentQuestion?.id),
@@ -395,7 +409,10 @@ const buildJoinReplayEvents = async ({ pin, gameState, team, mySubmittedOptionIn
       data: {
         remaining: timerManager.getReconnectTimerRemaining(pin, gameState),
         timerRunning: runningActive,
-        timerEndsAt: timerManager.resolveClientTimerEndsAt(pin, gameState),
+        timerPaused: Boolean(gameState.timerPaused),
+        timerEndsAt: runningActive
+          ? timerManager.resolveClientTimerEndsAt(pin, gameState)
+          : null,
         paused: !runningActive,
         serverNow: Date.now(),
       },

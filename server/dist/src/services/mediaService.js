@@ -5,7 +5,6 @@ const logger = require('../utils/logger');
 const ALLOWED_TYPES = {
   'audio/mpeg': 'mp3',
   'audio/mp3': 'mp3',
-  'video/mp4': 'mp4',
   'image/jpeg': 'image',
   'image/jpg': 'image',
   'image/png': 'image',
@@ -24,7 +23,7 @@ const saveFile = async (file) => {
   const ext = ALLOWED_TYPES[file.mimetype];
   if (!ext) {
     throw Object.assign(
-      new Error(`Unsupported file type: ${file.mimetype}. Allowed: MP3, MP4, JPEG, PNG, GIF, WebP`),
+      new Error(`Unsupported file type: ${file.mimetype}. Allowed: MP3, JPEG, PNG, GIF, WebP`),
       { statusCode: 400 },
     );
   }

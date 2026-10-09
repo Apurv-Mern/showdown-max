@@ -752,10 +752,11 @@ const proceedToActivateQuestion = async (
     if (gsMusic) {
       gsMusic.timerRemaining = effectiveTimer;
       gsMusic.timerRunning = false;
+      gsMusic.timerPaused = false;
       await redisStore.setGameState(pin, gsMusic);
       io.to(`session:${pin}`).emit(
         SOCKET_EVENTS.SESSION_STATE,
-        clientPayloadFromGameState(gsMusic),
+        clientPayloadFromGameState(gsMusic, pin),
       );
     }
     io.to(`session:${pin}`).emit(SOCKET_EVENTS.TIMER_UPDATE, {
@@ -809,6 +810,7 @@ const proceedToActivateQuestion = async (
     const autoStartEndsAt = timerEndsAtFromRemaining(liveAfterStart.remaining);
     await redisStore.updateGameState(pin, {
       timerRunning: true,
+      timerPaused: false,
       timerRemaining: liveAfterStart.remaining,
       timerEndsAt: autoStartEndsAt,
     });
@@ -831,7 +833,7 @@ const emitQuestionActiveForCurrent = async (io, pin, { submissionReset = false }
   if (!question || !round) {
     io.to(`session:${pin}`).emit(
       SOCKET_EVENTS.SESSION_STATE,
-      clientPayloadFromGameState(gsForQuestionActive),
+      clientPayloadFromGameState(gsForQuestionActive, pin),
     );
     return;
   }
@@ -854,6 +856,8 @@ const emitQuestionActiveForCurrent = async (io, pin, { submissionReset = false }
     timerDuration: effectiveTimer,
     timerRemaining: trForEmit,
     timerRunning: timerRunningForClients,
+    timerPaused: Boolean(gsForQuestionActive.timerPaused),
+    paused: !timerRunningForClients,
     timerEndsAt: timerRunningForClients
       ? timerManager.resolveClientTimerEndsAt(pin, gsForQuestionActive)
       : null,
@@ -868,7 +872,7 @@ const emitQuestionActiveForCurrent = async (io, pin, { submissionReset = false }
 
   io.to(`session:${pin}`).emit(
     SOCKET_EVENTS.SESSION_STATE,
-    clientPayloadFromGameState(gsForQuestionActive),
+    clientPayloadFromGameState(gsForQuestionActive, pin),
   );
   emitWagerLockUpdate(io, pin, gsForQuestionActive);
 };
@@ -1001,7 +1005,7 @@ const updateLiveQuestion = async (io, pin, payload) => {
 
   io.to(`session:${pin}`).emit(
     SOCKET_EVENTS.SESSION_STATE,
-    clientPayloadFromGameState(gameState),
+    clientPayloadFromGameState(gameState, pin),
   );
 
   if (isCurrentQuestion && inQuestionFlow) {
@@ -1367,7 +1371,7 @@ const submitWager = async (io, pin, teamId, amount) => {
       // sanitizeForClients drops it and forces every client (players + host) onto the
       // waiting UI. Include `audienceView` so venue/players stay on wager collection
       // while the host remains on PREVIEW.
-      const payload = clientPayloadFromGameState(fresh);
+      const payload = clientPayloadFromGameState(fresh, pin);
       const audienceView = await buildAudienceViewPayload(fresh, pin);
       if (audienceView) payload.audienceView = audienceView;
       io.to(`session:${pin}`).emit(SOCKET_EVENTS.SESSION_STATE, payload);
@@ -1607,7 +1611,9 @@ const expireActiveQuestionTimerAndReveal = async (io, pin, reason) => {
   io.to(`session:${pin}`).emit(SOCKET_EVENTS.TIMER_EXPIRED, {});
 
   gameState.timerRunning = false;
+  gameState.timerPaused = false;
   gameState.timerRemaining = 0;
+  gameState.timerEndsAt = null;
   await redisStore.setGameState(pin, gameState);
 
   const question = stateMachine.getCurrentQuestion(gameState);
@@ -1699,7 +1705,7 @@ const endRound = async (io, pin, gameState) => {
   });
   io.to(`session:${pin}`).emit(
     SOCKET_EVENTS.SESSION_STATE,
-    clientPayloadFromGameState(result.gameState),
+    clientPayloadFromGameState(result.gameState, pin),
   );
 };
 
@@ -1751,7 +1757,7 @@ const proceedFromRoundEnd = async (io, pin) => {
     io.to(`session:${pin}`).emit(SOCKET_EVENTS.GAME_SHOW_END, {});
     io.to(`session:${pin}`).emit(
       SOCKET_EVENTS.SESSION_STATE,
-      clientPayloadFromGameState(result.gameState),
+      clientPayloadFromGameState(result.gameState, pin),
     );
     return;
   }
@@ -1775,7 +1781,7 @@ const proceedFromRoundEnd = async (io, pin) => {
   await emitRoundScoreboard(io, pin, result.gameState, 'round_end');
   io.to(`session:${pin}`).emit(
     SOCKET_EVENTS.SESSION_STATE,
-    clientPayloadFromGameState(result.gameState),
+    clientPayloadFromGameState(result.gameState, pin),
   );
 };
 
@@ -1793,7 +1799,7 @@ const proceedFromGameShowEnd = async (io, pin) => {
   await emitRoundScoreboard(io, pin, result.gameState, 'game_show_end');
   io.to(`session:${pin}`).emit(
     SOCKET_EVENTS.SESSION_STATE,
-    clientPayloadFromGameState(result.gameState),
+    clientPayloadFromGameState(result.gameState, pin),
   );
 };
 
@@ -1966,7 +1972,7 @@ const advanceToNextRound = async (io, pin, { skipAhead = 0 } = {}) => {
   });
   io.to(`session:${pin}`).emit(
     SOCKET_EVENTS.SESSION_STATE,
-    clientPayloadFromGameState(roundIntroState),
+    clientPayloadFromGameState(roundIntroState, pin),
   );
 };
 
@@ -2017,7 +2023,7 @@ const skipNextRound = async (io, pin) => {
     io.to(`session:${pin}`).emit(SOCKET_EVENTS.GAME_SHOW_END, {});
     io.to(`session:${pin}`).emit(
       SOCKET_EVENTS.SESSION_STATE,
-      clientPayloadFromGameState(result.gameState),
+      clientPayloadFromGameState(result.gameState, pin),
     );
     return;
   }
@@ -2164,7 +2170,7 @@ const executePlayerDisconnectPurge = async (io, pin, teamId, options = {}) => {
   if (freshGameState) {
     io.to(`session:${pin}`).emit(
       SOCKET_EVENTS.SESSION_STATE,
-      clientPayloadFromGameState(freshGameState),
+      clientPayloadFromGameState(freshGameState, pin),
     );
   }
 
@@ -2689,6 +2695,7 @@ const pauseTimer = async (io, pin) => {
         gs.questionState === QUESTION_STATES.ACTIVE
       ) {
         gs.timerRunning = false;
+        gs.timerPaused = true;
         gs.timerEndsAt = null;
         if (rem > 0) gs.timerRemaining = rem;
         await redisStore.setGameState(pin, gs);
@@ -2718,6 +2725,7 @@ const pauseTimer = async (io, pin) => {
     ) {
       gameState.timerRemaining = Math.max(0, Number(remaining) || 0);
       gameState.timerRunning = false;
+      gameState.timerPaused = true;
       gameState.timerEndsAt = null;
       await redisStore.setGameState(pin, gameState);
       await emitFullSessionState(io, pin, gameState);
@@ -2805,6 +2813,7 @@ const startTimer = async (io, pin) => {
   let gameState = await redisStore.getGameState(pin);
   if (gameState) {
     gameState.timerRunning = true;
+    gameState.timerPaused = false;
     gameState.timerRemaining = timerState.remaining;
     gameState.timerEndsAt = resumeEndsAt;
     await redisStore.setGameState(pin, gameState);
@@ -2934,28 +2943,31 @@ const sanitizeForClients = (gameState) => {
 };
 
 /** Full client payload for QUESTION (includes currentQuestion) — matches venue host_connect shape. */
-const clientPayloadFromGameState = (gameState) => {
+const clientPayloadFromGameState = (gameState, pin = null) => {
   const base = sanitizeForClients(gameState);
   if (
-    gameState.state !== GAME_STATES.QUESTION &&
-    gameState.state !== GAME_STATES.WAGER_COLLECTION
+    gameState.state === GAME_STATES.QUESTION ||
+    gameState.state === GAME_STATES.WAGER_COLLECTION
   ) {
-    return base;
+    const round = stateMachine.getCurrentRound(gameState);
+    const cq = stateMachine.getCurrentQuestion(gameState);
+    if (round && cq) {
+      base.currentQuestion = {
+        questionIndex: gameState.currentQuestionIndex,
+        totalQuestions: round.questions.length,
+        question: mapClientQuestionPayload(cq),
+        timerDuration: Number(cq.timerDuration ?? round.timerDuration ?? 30) || 30,
+        roundType: round.type || '',
+        pointsForQuestion:
+          round.type === ROUND_TYPES.ELIMINATION
+            ? getEliminationPoints(gameState.currentQuestionIndex)
+            : undefined,
+      };
+    }
   }
-  const round = stateMachine.getCurrentRound(gameState);
-  const cq = stateMachine.getCurrentQuestion(gameState);
-  if (!round || !cq) return base;
-  base.currentQuestion = {
-    questionIndex: gameState.currentQuestionIndex,
-    totalQuestions: round.questions.length,
-    question: mapClientQuestionPayload(cq),
-    timerDuration: Number(cq.timerDuration ?? round.timerDuration ?? 30) || 30,
-    roundType: round.type || '',
-    pointsForQuestion:
-      round.type === ROUND_TYPES.ELIMINATION
-        ? getEliminationPoints(gameState.currentQuestionIndex)
-        : undefined,
-  };
+  if (pin) {
+    timerManager.applyClientTimerFields(pin, gameState, base);
+  }
   return base;
 };
 
@@ -3086,7 +3098,7 @@ const startQuestionWagerCollection = async (io, pin) => {
 
   io.to(`session:${pin}`).emit(
     SOCKET_EVENTS.SESSION_STATE,
-    clientPayloadFromGameState(result.gameState),
+    clientPayloadFromGameState(result.gameState, pin),
   );
 
   logger.info('Wager collection started', {

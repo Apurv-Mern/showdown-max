@@ -149,6 +149,19 @@ const getVenueEligibleSessionByPin = getHostReadyLiveSessionByPin;
 const getPlayerJoinEligibleSessionByPin = getHostReadyLiveSessionByPin;
 
 /**
+ * Player reconnect / HTTP restore: completed shows stay joinable for existing teams;
+ * live shows still require an assigned host.
+ */
+const getPlayerRestoreSessionByPin = async (pin) => {
+  const completed = await Session.findOne({
+    where: { pin, status: 'completed' },
+    include: [{ model: Quiz, as: 'quiz', attributes: ['id', 'title'] }],
+  });
+  if (completed) return completed;
+  return getHostReadyLiveSessionByPin(pin);
+};
+
+/**
  * End a session
  * @param {number} sessionId
  * @returns {Promise<object | null>}
@@ -240,6 +253,7 @@ module.exports = {
   getSessionByPin,
   getVenueEligibleSessionByPin,
   getPlayerJoinEligibleSessionByPin,
+  getPlayerRestoreSessionByPin,
   endSession,
   deleteSession,
   getSessionResults,

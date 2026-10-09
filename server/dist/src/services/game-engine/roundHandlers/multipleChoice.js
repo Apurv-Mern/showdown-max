@@ -1,7 +1,8 @@
 const { SCORING } = require('shared/constants/scoring');
+const { isUnanswered } = require('../unanswered');
 
 /**
- * Multiple Choice: +20 correct, -2 incorrect
+ * Multiple Choice: +20 correct, -2 incorrect (including unanswered).
  */
 const calculate = ({ question, responses }) => {
   const scores = {};
@@ -20,25 +21,17 @@ const calculate = ({ question, responses }) => {
   }
 
   for (const [teamId, response] of Object.entries(responses)) {
-    if (!response) {
-      scores[teamId] = 0;
+    if (isUnanswered(response, question)) {
+      scores[teamId] = SCORING.MULTIPLE_CHOICE.INCORRECT;
       continue;
     }
 
     if (isOrdering) {
-      if (!Array.isArray(response.selectedOptionIndex)) {
-        scores[teamId] = 0;
-        continue;
-      }
       const isCorrect = JSON.stringify(response.selectedOptionIndex) === correctOrderStr;
       scores[teamId] = isCorrect
         ? SCORING.MULTIPLE_CHOICE.CORRECT
         : SCORING.MULTIPLE_CHOICE.INCORRECT;
     } else {
-      if (Number(response.selectedOptionIndex) < 0) {
-        scores[teamId] = 0;
-        continue;
-      }
       const isCorrect = Number(response.selectedOptionIndex) === correctIndex;
       scores[teamId] = isCorrect
         ? SCORING.MULTIPLE_CHOICE.CORRECT

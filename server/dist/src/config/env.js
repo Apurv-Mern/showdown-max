@@ -19,6 +19,9 @@ const resolveRepoRoot = () => {
 };
 
 const loadProjectEnv = () => {
+  // CLI / process env must win. `.env.development` used to override those and
+  // sent sequelize-cli at root@localhost even when staging vars were exported.
+  const preset = { ...process.env };
   const root = resolveRepoRoot();
   const mode = process.env.NODE_ENV || 'development';
 
@@ -36,6 +39,15 @@ const loadProjectEnv = () => {
 
   if (modeFile && fs.existsSync(modeFile)) {
     dotenv.config({ path: modeFile, override: true });
+  }
+
+  const stagingPath = path.join(root, '.env.staging');
+  if (String(process.env.DB_TARGET || '').toLowerCase() === 'staging' && fs.existsSync(stagingPath)) {
+    dotenv.config({ path: stagingPath, override: true });
+  }
+
+  for (const [key, value] of Object.entries(preset)) {
+    if (value !== undefined) process.env[key] = value;
   }
 };
 

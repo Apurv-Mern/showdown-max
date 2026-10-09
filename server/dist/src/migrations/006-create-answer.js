@@ -1,15 +1,10 @@
 'use strict';
 
+const { tableExists, indexExists } = require('./lib/schemaGuards');
+
 module.exports = {
   async up(queryInterface, Sequelize) {
-    const allTables = await queryInterface.showAllTables();
-    const tableNames = allTables.map((t) => {
-      if (typeof t === 'string') return t;
-      if (t && typeof t === 'object') return t.tableName || t.TABLE_NAME || '';
-      return '';
-    });
-
-    if (!tableNames.includes('answers')) {
+    if (!(await tableExists(queryInterface, 'answers'))) {
       await queryInterface.createTable('answers', {
         id: {
           type: Sequelize.INTEGER,
@@ -58,9 +53,7 @@ module.exports = {
       });
     }
 
-    const indexes = await queryInterface.showIndex('answers');
-    const hasAnswerUniqueIndex = indexes.some((idx) => idx.name === 'one_answer_per_team_per_question');
-    if (!hasAnswerUniqueIndex) {
+    if (!(await indexExists(queryInterface, 'answers', 'one_answer_per_team_per_question'))) {
       await queryInterface.addIndex('answers', ['teamId', 'questionId'], {
         unique: true,
         name: 'one_answer_per_team_per_question',

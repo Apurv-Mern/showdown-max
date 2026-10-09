@@ -149,6 +149,42 @@ const getReconnectTimerRemaining = (pin, gameState) => {
 };
 
 /**
+ * Authoritative running flag for reconnect / question_active — in-memory paused timers
+ * must win over a stale `gameState.timerRunning` in Redis.
+ */
+const resolveClientTimerRunning = (pin, gameState) => {
+  if (!gameState) return false;
+  if (Boolean(gameState.timerPaused)) return false;
+  if (gameState.state !== 'QUESTION' || gameState.questionState !== 'ACTIVE') {
+    return Boolean(gameState.timerRunning);
+  }
+  const pinNorm = normalizeTimerPin(pin);
+  if (hasLiveTimer(pinNorm)) {
+    return getTimerState(pinNorm).running;
+  }
+  return Boolean(gameState.timerRunning);
+};
+
+/** Align reconnect / session_state timer fields with live + Redis pause flag. */
+const applyClientTimerFields = (pin, gameState, payload) => {
+  if (!payload || !gameState) return payload;
+  const running = resolveClientTimerRunning(pin, gameState);
+  payload.timerRemaining = getReconnectTimerRemaining(pin, gameState);
+  payload.timerRunning = running;
+  payload.timerPaused = Boolean(gameState.timerPaused);
+  payload.timerEndsAt = running ? resolveClientTimerEndsAt(pin, gameState) : null;
+  return payload;
+};
+
+const resolveClientTimerEndsAt = (pin, gameState) => {
+  if (!resolveClientTimerRunning(pin, gameState)) return null;
+  const raw = gameState?.timerEndsAt;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return n;
+};
+
+/**
  * Force-expire the timer (used for auto-reveal)
  * @param {string} sessionPin
  */
@@ -167,6 +203,9 @@ module.exports = {
   getTimerState,
   hasLiveTimer,
   getReconnectTimerRemaining,
+  resolveClientTimerRunning,
+  resolveClientTimerEndsAt,
+  applyClientTimerFields,
   forceExpire,
   getActiveTimerCount,
 };

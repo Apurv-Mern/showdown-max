@@ -2286,15 +2286,18 @@ function HostDashboardContent() {
       const qLen = round?.questions?.length ?? 0;
       const isLast = qLen > 0 && idx === qLen - 1;
       if (qs === 'PREVIEW') {
-        const stdWager = (round?.type || '').toUpperCase() === 'WAGER';
+        const rt = (round?.type || '').toUpperCase();
+        const stdWager = rt === 'WAGER';
+        const finalWager = rt === 'FINAL_WAGER';
         if (stdWager && gs?.audienceHoldRoundIntro && !gs?.hostViewingQuestionPreview) {
           handleOpenWagerQuestionPreview();
           return;
         }
         const wagerNeedsCollect =
-          stdWager &&
-          !gs?.audienceWagerCollectionOpen &&
-          (!gs?.audienceHoldRoundIntro || gs?.hostViewingQuestionPreview);
+          (stdWager &&
+            !gs?.audienceWagerCollectionOpen &&
+            (!gs?.audienceHoldRoundIntro || gs?.hostViewingQuestionPreview)) ||
+          (finalWager && !gs?.audienceWagerCollectionOpen);
         if (wagerNeedsCollect) {
           handleCollectWagers();
         } else {
@@ -2445,6 +2448,7 @@ function HostDashboardContent() {
   const isCurrentRoundWagerLockRound =
     currentRound?.type === 'WAGER' || currentRound?.type === 'FINAL_WAGER';
   const isStandardWagerRound = currentRound?.type === 'WAGER';
+  const isFinalWagerRound = currentRound?.type === 'FINAL_WAGER';
   const state = gameState?.state || 'LOBBY';
   const lobbyPhase = gameState?.lobbyPhase || 'registration';
   const isCurrentRoundEmpty =
@@ -2552,13 +2556,21 @@ function HostDashboardContent() {
     questionState === 'PREVIEW' &&
     !gameState?.audienceWagerCollectionOpen &&
     (!gameState?.audienceHoldRoundIntro || Boolean(gameState?.hostViewingQuestionPreview));
+  const showFinalWagerPreviewNeedsCollect =
+    isFinalWagerRound &&
+    state === 'QUESTION' &&
+    questionState === 'PREVIEW' &&
+    !gameState?.audienceWagerCollectionOpen;
   const showCollectWagerDuringPreview =
-    showHostPreviewBanner && showWagerPreviewNeedsCollect;
+    showHostPreviewBanner &&
+    (showWagerPreviewNeedsCollect || showFinalWagerPreviewNeedsCollect);
   const showPresentQuestionAction =
     showHostPreviewBanner &&
     (isStandardWagerRound
       ? !showWagerPreviewNeedsCollect
-      : !isCurrentRoundWagerLockRound || !gameState?.hostPreviewAwaitingWagerCollection);
+      : isFinalWagerRound
+        ? !showFinalWagerPreviewNeedsCollect
+        : !isCurrentRoundWagerLockRound || !gameState?.hostPreviewAwaitingWagerCollection);
   const showNextQuestionAction =
     state === 'QUESTION' && questionState === 'REVEALED' && !isLastQuestionOfRound;
   // const showRevealAnswerAction = state === 'QUESTION' && questionState === 'ACTIVE';

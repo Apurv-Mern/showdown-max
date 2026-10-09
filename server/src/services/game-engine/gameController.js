@@ -176,6 +176,13 @@ const isWagerLockRound = (round) => {
 const isStandardWagerRound = (round) =>
   String(round?.type || '').toUpperCase() === ROUND_TYPES.WAGER;
 
+const isFinalWagerRound = (round) =>
+  String(round?.type || '').toUpperCase() === ROUND_TYPES.FINAL_WAGER;
+
+/** Host PREVIEW + audience-only wager lock (Power Play + Final Wager). */
+const isPreviewAudienceWagerCollectRound = (round) =>
+  isStandardWagerRound(round) || isFinalWagerRound(round);
+
 /** Power Play: host preview staging flags — Collect Wager only after the audience has seen a question. */
 const standardWagerPreviewStageOpts = (gameState) => {
   const seen = audienceHasSeenPresentedQuestion(gameState);
@@ -3124,7 +3131,7 @@ const openAudienceWagerCollectionDuringPreview = async (io, pin) => {
   const round = stateMachine.getCurrentRound(gameState);
   if (
     !round ||
-    !isStandardWagerRound(round) ||
+    !isPreviewAudienceWagerCollectRound(round) ||
     gameState.state !== GAME_STATES.QUESTION ||
     gameState.questionState !== QUESTION_STATES.PREVIEW
   ) {

@@ -6,6 +6,12 @@ const timerManager = require('../services/game-engine/timerManager');
 const isStandardWagerRound = (round) =>
   String(round?.type || '').toUpperCase() === ROUND_TYPES.WAGER;
 
+const isFinalWagerRound = (round) =>
+  String(round?.type || '').toUpperCase() === ROUND_TYPES.FINAL_WAGER;
+
+const isPreviewAudienceWagerCollectRound = (round) =>
+  isStandardWagerRound(round) || isFinalWagerRound(round);
+
 /** Venue/players have been shown a question (Present) in the *current* round. */
 const audienceHasSeenPresentedQuestion = (gameState) => {
   if (!gameState) return false;
@@ -68,7 +74,7 @@ const buildAudienceViewPayload = async (gameState, pin) => {
     };
   }
 
-  if (isStandardWagerRound(round) && gameState.audienceWagerCollectionOpen) {
+  if (isPreviewAudienceWagerCollectRound(round) && gameState.audienceWagerCollectionOpen) {
     const currentQuestion = buildAudienceQuestionPayload(
       gameState,
       gameState.currentQuestionIndex,

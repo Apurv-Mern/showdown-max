@@ -51,6 +51,19 @@ export function isStandardWagerRoundFromState(data: Record<string, unknown>): bo
   return String((round as { type?: string } | null)?.type || '').toUpperCase() === 'WAGER';
 }
 
+export function isPreviewAudienceWagerCollectRoundFromState(
+  data: Record<string, unknown>,
+): boolean {
+  const idx = Number(data.currentRoundIndex ?? 0);
+  const round =
+    data.currentRound ??
+    (Array.isArray(data.rounds) && idx >= 0 && idx < data.rounds.length
+      ? (data.rounds as Record<string, unknown>[])[idx]
+      : null);
+  const t = String((round as { type?: string } | null)?.type || '').toUpperCase();
+  return t === 'WAGER' || t === 'FINAL_WAGER';
+}
+
 /** Host PREVIEW while audience should stay on the last REVEALED question (all round types). */
 export function isAudienceRevealHoldDuringHostPreview(
   data: Record<string, unknown>,
@@ -91,7 +104,7 @@ export function applyAudienceSessionPayload<T extends Record<string, unknown>>(
     hostStagingPreview &&
     !av &&
     base.audienceWagerCollectionOpen &&
-    isStandardWagerRoundFromState(base)
+    isPreviewAudienceWagerCollectRoundFromState(base)
   ) {
     av = {
       state: 'WAGER_COLLECTION',

@@ -38,7 +38,7 @@ import {
   resolveBreakUpNextLabelFromBreakStart,
 } from '@/lib/breakScreenCopy';
 import { PUBLIC_API_URL } from '@/lib/env';
-import { shouldWaitForHostAudioTimer } from '@/lib/questionMedia';
+import { isQuestionImageMedia, shouldWaitForHostAudioTimer } from '@/lib/questionMedia';
 import {
   appendSnapshotReplay,
   applyPlayerRestoreBundle,
@@ -594,12 +594,6 @@ const resolveMediaUrl = (mediaUrl?: string) => {
   return `${API_URL}/${normalized}`;
 };
 
-const isImageMedia = (mediaType?: string, mediaUrl?: string) => {
-  const type = (mediaType || '').toLowerCase();
-  if (type.includes('image')) return true;
-  return /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(mediaUrl || '');
-};
-
 function QuestionImage({ mediaUrl }: { mediaUrl: string }) {
   const candidates = useMemo(() => {
     const raw = (mediaUrl || '').replace(/\\/g, '/').trim();
@@ -667,7 +661,7 @@ function QuestionImage({ mediaUrl }: { mediaUrl: string }) {
     <img
       src={candidates[index]}
       alt="Question media"
-      className="max-h-[min(42vh,220px)] w-full rounded-xl border border-[#11a7ff]  md:max-h-[min(38vh,260px)]"
+      className="h-auto max-h-full max-w-full w-full object-contain"
       onError={() => {
         const next = index + 1;
         if (next < candidates.length) {
@@ -697,14 +691,8 @@ function QuestionMediaVisual({
   const q = question.question;
   const roundType = question.roundType;
 
-  if (isImageMedia(q.mediaType, q.mediaUrl) && q.mediaUrl) {
-    return (
-      <div className="shrink-0">
-        <div className="rounded-2xl border-2 border-[#11a7ff] overflow-hidden shadow-[0_0_20px_rgba(17,167,255,0.3)]">
-          <QuestionImage mediaUrl={q.mediaUrl} />
-        </div>
-      </div>
-    );
+  if (isQuestionImageMedia(q.mediaType, q.mediaUrl) && q.mediaUrl) {
+    return null;
   }
   if ((q.mediaType || '').toLowerCase() === 'mp4' && q.mediaUrl) {
     // Per design: MP4 plays on the venue projector only — players see a caption only.
@@ -746,6 +734,10 @@ const staggerItem = {
 /** Scrollable answer list — needed when questions have 5–6 options on short phone viewports. */
 const playerOptionsScrollClass =
   'min-h-0 flex-1 overflow-y-auto overscroll-y-contain [-webkit-overflow-scrolling:touch] touch-pan-y pb-1';
+
+/** Image questions: scroll header, image, and options together on small screens. */
+const playerImageQuestionScrollClass =
+  'min-h-0 flex-1 overflow-y-auto overscroll-y-contain [-webkit-overflow-scrolling:touch] touch-pan-y pb-4';
 
 const toTimerEndsAt = (value: unknown): number | null => {
   const parsed = Number(value);
@@ -2635,6 +2627,11 @@ export default function GamePage() {
     return 'none';
   })();
 
+  const activeQuestionHasImage = Boolean(
+    question?.question?.mediaUrl &&
+      isQuestionImageMedia(question.question.mediaType, question.question.mediaUrl),
+  );
+
   return (
     <div className="flex-1 h-full min-h-0 w-full bg-[#00010a]">
       <PlayerScreenShell className="flex min-h-0 h-full w-full flex-col">
@@ -2802,7 +2799,12 @@ export default function GamePage() {
                 <motion.div
                   key="question"
                   {...pageTransition}
-                  className="mt-2 flex min-h-0 flex-1 flex-col overflow-hidden px-3 pb-4 pt-2 sm:mt-4 sm:px-4 sm:pb-6 md:px-6"
+                  className={cn(
+                    'mt-2 flex min-h-0 flex-1 flex-col px-3 pb-4 pt-2 sm:mt-4 sm:px-4 sm:pb-6 md:px-6',
+                    activeQuestionHasImage
+                      ? playerImageQuestionScrollClass
+                      : 'overflow-hidden',
+                  )}
                 >
                   <QuestionStagePanel
                     className="mb-3 shrink-0 sm:mb-4"
@@ -2817,11 +2819,20 @@ export default function GamePage() {
                       wagerSubmitted ? wagerAmount : question.lockedWagerAmount,
                     )}
                     questionText={question.question.text}
+                    questionMedia={
+                      activeQuestionHasImage && question.question.mediaUrl ? (
+                        <QuestionImage mediaUrl={question.question.mediaUrl} />
+                      ) : undefined
+                    }
                   />
 
                   <QuestionMediaVisual question={question} musicBanner={questionMusicBanner} />
 
-                  <div className={playerOptionsScrollClass}>
+                  <div
+                    className={
+                      activeQuestionHasImage ? 'mt-2 shrink-0' : playerOptionsScrollClass
+                    }
+                  >
                     {/* Options - Single column vertical list */}
                     <motion.div
                       variants={staggerContainer}
@@ -2978,7 +2989,12 @@ export default function GamePage() {
                 <motion.div
                   key="reveal"
                   {...pageTransition}
-                  className="mt-2 flex min-h-0 flex-1 flex-col overflow-hidden px-3 pb-4 pt-2 sm:mt-4 sm:px-4 sm:pb-6 md:px-6"
+                  className={cn(
+                    'mt-2 flex min-h-0 flex-1 flex-col px-3 pb-4 pt-2 sm:mt-4 sm:px-4 sm:pb-6 md:px-6',
+                    activeQuestionHasImage
+                      ? playerImageQuestionScrollClass
+                      : 'overflow-hidden',
+                  )}
                 >
                   <QuestionStagePanel
                     className="mb-3 shrink-0 sm:mb-4"
@@ -2993,11 +3009,20 @@ export default function GamePage() {
                       wagerSubmitted ? wagerAmount : question.lockedWagerAmount,
                     )}
                     questionText={question.question.text}
+                    questionMedia={
+                      activeQuestionHasImage && question.question.mediaUrl ? (
+                        <QuestionImage mediaUrl={question.question.mediaUrl} />
+                      ) : undefined
+                    }
                   />
 
                   <QuestionMediaVisual question={question} musicBanner={questionMusicBanner} />
 
-                  <div className={playerOptionsScrollClass}>
+                  <div
+                    className={
+                      activeQuestionHasImage ? 'mt-2 shrink-0' : playerOptionsScrollClass
+                    }
+                  >
                     {/* Options - Single column vertical list */}
                     <motion.div
                       variants={staggerContainer}

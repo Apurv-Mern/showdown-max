@@ -2490,6 +2490,7 @@ function VenueDisplayContent() {
 
         {/* Question */}
         {phase === 'question' && question && (
+          <div className="h-full min-h-0 w-full">
           <VenueQuestionScreen
             questionText={question.question.text}
             questionIndex={question.questionIndex || 0}
@@ -2516,6 +2517,7 @@ function VenueDisplayContent() {
             }
             videoRef={venueMp4Ref}
           />
+          </div>
         )}
         {/* Processing Results */}
         {phase === 'reveal' && (!revealData || !question) && (
@@ -2528,6 +2530,7 @@ function VenueDisplayContent() {
 
         {/* Reveal */}
         {phase === 'reveal' && revealData && question && (
+          <div className="h-full min-h-0 w-full">
           <VenueQuestionScreen
             questionText={question.question.text}
             questionIndex={question.questionIndex || 0}
@@ -2566,6 +2569,7 @@ function VenueDisplayContent() {
                 : null
             }
           />
+          </div>
         )}
 
         {/* Round Over (audience-facing transition screen between the last reveal and scoreboard) */}

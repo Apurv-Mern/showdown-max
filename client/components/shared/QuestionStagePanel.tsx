@@ -1,5 +1,6 @@
 'use client';
 
+import type { ReactNode } from 'react';
 import { cn, toDisplayUpper } from '@/lib/utils';
 import { VenueTimerRing } from '@/components/venue/VenueTimerRing';
 
@@ -13,6 +14,8 @@ type QuestionStagePanelProps = {
   pointsDisplay?: string | number;
   timerDuration?: number;
   className?: string;
+  /** When set, image fills the main neon box; question copy moves to a box underneath. */
+  questionMedia?: ReactNode;
 };
 
 /**
@@ -28,6 +31,7 @@ export function QuestionStagePanel({
   pointsDisplay,
   timerDuration = 30,
   className,
+  questionMedia,
 }: QuestionStagePanelProps) {
   const scoreValue = score ?? pointsDisplay ?? '0';
   const remainingSeconds = Number(timerDisplay);
@@ -63,20 +67,49 @@ export function QuestionStagePanel({
         </div>
       </div>
 
-      <div
-        className="relative flex min-h-[220px] w-full items-center justify-center rounded-[10px] px-4 py-6"
-        style={{
-          background: '#00010A',
-          border: '1px solid #FFFFFF',
-          boxShadow: '0 0 15px #0010FF, inset 0 0 15px #0010FF',
-        }}
-      >
-        <h2 className="text-center text-[22px] font-extrabold uppercase leading-snug text-white">
-          Q. {questionIndex + 1}/{totalQuestions}
-          <br />
-          {toDisplayUpper(questionText)}
-        </h2>
-      </div>
+      {questionMedia ? (
+        <>
+          <div
+            className="relative flex w-full min-h-[200px] max-h-[min(46vh,340px)] flex-col rounded-[10px] px-3 py-4"
+            style={{
+              background: '#00010A',
+              border: '1px solid #FFFFFF',
+              boxShadow: '0 0 15px #0010FF, inset 0 0 15px #0010FF',
+            }}
+          >
+            <div className="flex min-h-0 flex-1 items-center justify-center overflow-hidden">
+              {questionMedia}
+            </div>
+          </div>
+          <div
+            className="relative flex w-full items-center justify-center rounded-[10px] px-4 py-5"
+            style={{
+              background: '#00010A',
+              border: '1px solid #FFFFFF',
+              boxShadow: '0 0 12px #0010FF, inset 0 0 12px #0010FF',
+            }}
+          >
+            <h2 className="text-center text-[18px] font-extrabold uppercase leading-snug text-white sm:text-[20px]">
+              {toDisplayUpper(questionText)}
+            </h2>
+          </div>
+        </>
+      ) : (
+        <div
+          className="relative flex min-h-[220px] w-full items-center justify-center rounded-[10px] px-4 py-6"
+          style={{
+            background: '#00010A',
+            border: '1px solid #FFFFFF',
+            boxShadow: '0 0 15px #0010FF, inset 0 0 15px #0010FF',
+          }}
+        >
+          <h2 className="text-center text-[22px] font-extrabold uppercase leading-snug text-white">
+            Q. {questionIndex + 1}/{totalQuestions}
+            <br />
+            {toDisplayUpper(questionText)}
+          </h2>
+        </div>
+      )}
     </div>
   );
 }

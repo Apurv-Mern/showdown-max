@@ -1,3 +1,13 @@
+export const isQuestionImageMedia = (
+  mediaType?: string | null,
+  mediaUrl?: string | null,
+): boolean => {
+  if (!mediaUrl) return false;
+  const type = String(mediaType || '').toLowerCase();
+  if (type === 'image' || type.includes('image')) return true;
+  return /\.(png|jpe?g|gif|webp|bmp|svg)(?:$|\?)/i.test(String(mediaUrl));
+};
+
 export const questionHasMp3 = (question?: unknown): boolean => {
   if (!question || typeof question !== 'object') return false;
   const row = question as {

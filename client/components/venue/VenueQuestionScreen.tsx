@@ -49,9 +49,17 @@ export function VenueQuestionScreen({
   const hasImage = Boolean(media?.url && mediaType === 'image');
   const hasVideo = Boolean(media?.url && mediaType === 'mp4');
   const winners = new Set(winnerIndexes);
+  const scrollWholeScreen = hasImage;
 
   return (
-    <div className="relative flex h-full w-full flex-col px-[60px] pt-[24px] animate-fadeIn">
+    <div
+      className={cn(
+        'relative flex w-full flex-col px-[60px] pt-[24px] animate-fadeIn',
+        scrollWholeScreen
+          ? 'h-full min-h-0 overflow-y-auto overscroll-y-contain [-webkit-overflow-scrolling:touch] pb-10'
+          : 'h-full',
+      )}
+    >
       <div className="flex h-[152px] items-center justify-between">
         <VenueTimerRing remainingSeconds={timerRemaining} totalSeconds={timerDuration} />
         <VenueLiveResponseHud stats={stats} roundType={roundType} />
@@ -62,7 +70,12 @@ export function VenueQuestionScreen({
       </div>
 
       <div
-        className="relative mt-[33px] flex h-[398px] w-full items-center justify-center overflow-hidden rounded-[30px] px-[48px]"
+        className={cn(
+          'relative mt-[33px] flex w-full rounded-[30px] px-[48px]',
+          hasImage
+            ? 'h-[398px] items-stretch py-8'
+            : 'h-[398px] items-center justify-center overflow-hidden',
+        )}
         style={{
           background: 'linear-gradient(180deg, #00072F 0%, #00010A 100%)',
           border: '3px solid #00D9FF',
@@ -70,7 +83,25 @@ export function VenueQuestionScreen({
         }}
       >
         {hasImage ? (
-          <img src={media?.url} alt="" className="h-full w-full object-contain" />
+          <div className="flex h-full min-h-0 w-full items-stretch gap-10">
+            <div className="flex h-full w-[min(42%,520px)] shrink-0 items-center justify-center overflow-hidden rounded-[16px] border-2 border-[#00D9FF]/55 bg-black/35 p-2">
+              <img
+                src={media?.url}
+                alt=""
+                className="max-h-full max-w-full object-contain"
+              />
+            </div>
+            <div className="flex min-h-0 min-w-0 flex-1 items-center justify-center py-2">
+              <VenueAutoFitText
+                className="w-full text-left font-extrabold uppercase leading-tight text-white [text-shadow:0_2px_4px_rgba(0,0,0,0.5)]"
+                minFontSize={32}
+                maxFontSize={56}
+                step={2}
+              >
+                {`Q${questionIndex + 1}. ${toDisplayUpper(questionText)}`}
+              </VenueAutoFitText>
+            </div>
+          </div>
         ) : hasVideo ? (
           <video
             ref={videoRef}
@@ -92,7 +123,7 @@ export function VenueQuestionScreen({
         )}
       </div>
 
-      {hasImage || hasVideo ? (
+      {hasVideo ? (
         <p className="mt-3 text-center text-[36px] font-extrabold uppercase text-white">
           Q{questionIndex + 1}. {toDisplayUpper(questionText)}
         </p>
@@ -104,7 +135,7 @@ export function VenueQuestionScreen({
         </p>
       ) : null}
 
-      <div className={cn('mt-[28px] grid grid-cols-2 gap-x-[40px] gap-y-[30px]', (hasImage || hasVideo) && 'mt-4')}>
+      <div className={cn('mt-[28px] grid grid-cols-2 gap-x-[40px] gap-y-[30px]', hasVideo && 'mt-4')}>
         {options.map((opt, i) => (
           <VenueChoiceBar
             key={i}

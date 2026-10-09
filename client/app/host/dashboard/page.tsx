@@ -32,7 +32,7 @@ import {
   defaultKangarooNames,
   resolveKangarooNames,
 } from '@/lib/kangarooRaceDefaults';
-import { shouldWaitForHostAudioTimer } from '@/lib/questionMedia';
+import { isQuestionImageMedia, shouldWaitForHostAudioTimer } from '@/lib/questionMedia';
 import { HostLivePreviewPanel } from '@/components/host/HostLivePreviewPanel';
 import { WagerDistributionGrid } from '@/components/shared/WagerDistributionGrid';
 import { emptyWagerDistributionCounts } from '@/lib/wagerGrid';
@@ -439,12 +439,6 @@ const resolveMediaUrl = (mediaUrl?: string) => {
   }
   if (normalized.startsWith('/')) return `${API_URL}${normalized}`;
   return `${API_URL}/${normalized}`;
-};
-
-const isImageMedia = (mediaType?: string, mediaUrl?: string) => {
-  const type = (mediaType || '').toLowerCase();
-  if (type.includes('image')) return true;
-  return /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(mediaUrl || '');
 };
 
 const isAudioMedia = (mediaType?: string, mediaUrl?: string) => {
@@ -3429,13 +3423,19 @@ function HostDashboardContent() {
                   </p>
                 </div>
               ) : null}
-              <div className="mx-auto flex h-full w-full flex-col overflow-hidden rounded-2xl border border-white/10 shadow-[0_0_28px_rgba(0,0,0,0.5)]">
+              <div
+                className={cn(
+                  'mx-auto flex h-full w-full min-h-0 flex-col rounded-2xl border border-white/10 shadow-[0_0_28px_rgba(0,0,0,0.5)]',
+                  isQuestionImageMedia(
+                    currentQuestion.question.mediaType,
+                    currentQuestion.question.mediaUrl,
+                  )
+                    ? 'overflow-y-auto overscroll-y-contain'
+                    : 'overflow-hidden',
+                )}
+              >
                 {/* Media Section */}
                 <div className="relative shrink-0 bg-black/40">
-                  <div className="absolute left-4 top-3 z-10 text-xl font-bold text-white/90 drop-shadow-md">
-                    Question {(currentQuestion.questionIndex || 0) + 1}/
-                    {currentQuestion.totalQuestions}
-                  </div>
                   {currentQuestion.pointsForQuestion ? (
                     <div className="absolute right-4 top-3 z-10 text-lg font-black italic text-[#00d9ff]">
                       {currentQuestion.pointsForQuestion} PTS
@@ -3443,17 +3443,37 @@ function HostDashboardContent() {
                   ) : null}
 
                   {/* Media Content */}
-                  <div className="h-64 w-full sm:h-80 lg:h-96">
+                  <div
+                    className={cn(
+                      'w-full',
+                      isQuestionImageMedia(
+                        currentQuestion.question.mediaType,
+                        currentQuestion.question.mediaUrl,
+                      )
+                        ? 'flex h-64 items-stretch gap-4 px-4 py-4 sm:h-80 sm:gap-6 lg:h-96'
+                        : 'h-64 sm:h-80 lg:h-96',
+                    )}
+                  >
                     {currentQuestion.question.mediaUrl &&
-                    isImageMedia(
+                    isQuestionImageMedia(
                       currentQuestion.question.mediaType,
                       currentQuestion.question.mediaUrl,
                     ) ? (
-                      <img
-                        src={resolveMediaUrl(currentQuestion.question.mediaUrl)}
-                        className="h-full w-full"
-                        alt="Question media"
-                      />
+                      <>
+                        <div className="flex h-full w-[min(42%,420px)] shrink-0 items-center justify-center overflow-hidden rounded-xl border-2 border-[#00d9ff]/45 bg-black/50 p-2">
+                          <img
+                            src={resolveMediaUrl(currentQuestion.question.mediaUrl)}
+                            className="max-h-full max-w-full object-contain"
+                            alt="Question media"
+                          />
+                        </div>
+                        <div className="flex min-h-0 min-w-0 flex-1 items-center py-2">
+                          <p className="text-left text-lg font-black uppercase leading-tight text-white sm:text-xl lg:text-2xl">
+                            Q{(currentQuestion.questionIndex || 0) + 1}.{' '}
+                            {currentQuestion.question.text}
+                          </p>
+                        </div>
+                      </>
                     ) : currentQuestion.question.mediaUrl &&
                       (currentQuestion.question.mediaType || '').toLowerCase() === 'mp4' ? (
                       <video
@@ -3482,9 +3502,7 @@ function HostDashboardContent() {
                 {/* Content Section */}
                 <div className="relative z-20 flex-1 border-t-2 border-t-white/20 bg-[linear-gradient(180deg,#0a0f2b_0%,#04060e_100%)] px-6 pb-6 pt-14 shadow-inner">
                   {currentQuestion.question.mediaUrl &&
-                  ['image', 'mp4'].includes(
-                    (currentQuestion.question.mediaType || '').toLowerCase(),
-                  ) ? (
+                  (currentQuestion.question.mediaType || '').toLowerCase() === 'mp4' ? (
                     <div className="mb-6 text-center">
                       <p className="text-2xl font-black leading-tight text-white sm:text-3xl">
                         Q{(currentQuestion.questionIndex || 0) + 1}. {currentQuestion.question.text}

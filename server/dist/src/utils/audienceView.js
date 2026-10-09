@@ -68,17 +68,6 @@ const buildAudienceViewPayload = async (gameState, pin) => {
     };
   }
 
-  if (!audienceHasSeenPresentedQuestion(gameState)) {
-    return {
-      state: 'ROUND_INTRO',
-      questionState: QUESTION_STATES.WAITING,
-      currentQuestionIndex: 0,
-      currentQuestion: null,
-      timerRemaining: 0,
-      timerRunning: false,
-    };
-  }
-
   if (isStandardWagerRound(round) && gameState.audienceWagerCollectionOpen) {
     const currentQuestion = buildAudienceQuestionPayload(
       gameState,
@@ -89,6 +78,17 @@ const buildAudienceViewPayload = async (gameState, pin) => {
       questionState: QUESTION_STATES.WAITING,
       currentQuestionIndex: gameState.currentQuestionIndex,
       currentQuestion,
+      timerRemaining: 0,
+      timerRunning: false,
+    };
+  }
+
+  if (!audienceHasSeenPresentedQuestion(gameState)) {
+    return {
+      state: 'ROUND_INTRO',
+      questionState: QUESTION_STATES.WAITING,
+      currentQuestionIndex: 0,
+      currentQuestion: null,
       timerRemaining: 0,
       timerRunning: false,
     };

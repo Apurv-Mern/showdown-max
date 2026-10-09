@@ -37,6 +37,8 @@ const SOCKET_EVENTS = Object.freeze({
   /** Host: drop the current round from round intro / wager collection (never played). */
   SKIP_CURRENT_ROUND: 'skip_current_round',
   COLLECT_WAGERS: 'collect_wagers',
+  /** Host: Power Play — leave round-intro mirror and show Q1 preview (audience unchanged). */
+  OPEN_WAGER_QUESTION_PREVIEW: 'open_wager_question_preview',
   END_GAME: 'end_game',
   MUSIC_CONTROL: 'music_control',
   /** Host: dismiss the venue's looping welcome video (replaces the venue's Continue button). */

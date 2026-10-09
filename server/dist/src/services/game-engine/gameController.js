@@ -14,7 +14,7 @@ const { calculateScores } = require('./scoringEngine');
 const knockoutEngine = require('./knockoutEngine');
 const timerManager = require('./timerManager');
 const redisStore = require('../redisSessionStore');
-const { buildRevealSnapshot } = require('../revealSnapshot');
+const { buildRevealSnapshot, asRevealReplayEvent } = require('../revealSnapshot');
 const { purgeTeamFromLiveSession } = require('../purgeTeamFromLiveSession');
 const { Team, Session } = require('../../models');
 const logger = require('../../utils/logger');
@@ -181,7 +181,7 @@ const standardWagerPreviewStageOpts = (gameState) => {
   const seen = audienceHasSeenPresentedQuestion(gameState);
   return {
     audienceHoldRoundIntro: !seen,
-    hostPreviewAwaitingWagerCollection: seen,
+    hostPreviewAwaitingWagerCollection: true,
   };
 };
 
@@ -193,6 +193,7 @@ const clearStandardWagerAudiencePointers = (gameState) => {
   next.audienceWagerCollectionOpen = false;
   next.audienceHoldRoundIntro = false;
   next.hostPreviewAwaitingWagerCollection = false;
+  next.hostViewingQuestionPreview = false;
   return next;
 };
 
@@ -709,16 +710,23 @@ const proceedToStageQuestion = async (
   io,
   pin,
   gameState,
-  { hostPreviewAwaitingWagerCollection = null, audienceHoldRoundIntro = false } = {},
+  {
+    hostPreviewAwaitingWagerCollection = null,
+    audienceHoldRoundIntro = false,
+    hostViewingQuestionPreview: hostViewingQuestionPreviewOverride = undefined,
+  } = {},
 ) => {
   gameState = stateMachine.stageQuestion(gameState);
   gameState.audienceWagerCollectionOpen = false;
   gameState.audienceHoldRoundIntro = Boolean(audienceHoldRoundIntro);
+  gameState.hostViewingQuestionPreview =
+    hostViewingQuestionPreviewOverride !== undefined
+      ? Boolean(hostViewingQuestionPreviewOverride)
+      : !Boolean(audienceHoldRoundIntro);
   const round = stateMachine.getCurrentRound(gameState);
   if (hostPreviewAwaitingWagerCollection === null) {
     if (isStandardWagerRound(round)) {
-      gameState.hostPreviewAwaitingWagerCollection =
-        audienceHasSeenPresentedQuestion(gameState);
+      gameState.hostPreviewAwaitingWagerCollection = true;
     } else {
       gameState.hostPreviewAwaitingWagerCollection = isWagerLockRound(round);
     }
@@ -744,7 +752,7 @@ const proceedToStageQuestion = async (
         const sockets = await io.in(room).fetchSockets();
         for (const s of sockets) {
           if (s.data?.role === 'host') continue;
-          s.emit(SOCKET_EVENTS.ANSWER_REVEAL, revealPayload);
+          s.emit(SOCKET_EVENTS.ANSWER_REVEAL, asRevealReplayEvent(revealPayload));
           s.emit(SOCKET_EVENTS.TIMER_UPDATE, { remaining: 0 });
         }
       }
@@ -800,6 +808,7 @@ const proceedToActivateQuestion = async (
   gameState.audienceWagerCollectionOpen = false;
   gameState.hostPreviewAwaitingWagerCollection = false;
   gameState.audienceHoldRoundIntro = false;
+  gameState.hostViewingQuestionPreview = false;
   gameState.lastAudienceQuestionIndex = gameState.currentQuestionIndex;
   gameState.lastAudienceQuestionState = QUESTION_STATES.ACTIVE;
   gameState.lastAudienceRoundIndex = gameState.currentRoundIndex;
@@ -1164,7 +1173,10 @@ const skipQuestion = async (io, pin) => {
       gameState = clearStandardWagerAudiencePointers(gameState);
     }
     const stageOpts = isStandardWagerRound(roundAfterSkip)
-      ? standardWagerPreviewStageOpts(gameState)
+      ? {
+          ...standardWagerPreviewStageOpts(gameState),
+          hostViewingQuestionPreview: true,
+        }
       : { audienceHoldRoundIntro: audienceNeverSawQuestion };
     await proceedToStageQuestion(io, pin, gameState, stageOpts);
     logger.info('Staged preview skipped to next question', {
@@ -1177,7 +1189,10 @@ const skipQuestion = async (io, pin) => {
   }
 
   if (isStandardWagerRound(roundBeforeSkip) || isStandardWagerRound(roundAfterSkip)) {
-    await proceedToStageQuestion(io, pin, gameState, standardWagerPreviewStageOpts(gameState));
+    await proceedToStageQuestion(io, pin, gameState, {
+      ...standardWagerPreviewStageOpts(gameState),
+      hostViewingQuestionPreview: true,
+    });
     logger.info('Wager round question skipped — staged next host preview', {
       pin,
       skippedQuestionId: skippedId,
@@ -2499,7 +2514,10 @@ const endBreak = async (io, pin) => {
     ) {
       const revealPayload = await buildRevealSnapshot(pin, gameState);
       if (revealPayload) {
-        io.to(`session:${pin}`).emit(SOCKET_EVENTS.ANSWER_REVEAL, revealPayload);
+        io.to(`session:${pin}`).emit(
+          SOCKET_EVENTS.ANSWER_REVEAL,
+          asRevealReplayEvent(revealPayload),
+        );
         io.to(`session:${pin}`).emit(SOCKET_EVENTS.TIMER_UPDATE, { remaining: 0 });
       }
     }
@@ -3136,6 +3154,27 @@ const openAudienceWagerCollectionDuringPreview = async (io, pin) => {
   });
 };
 
+/** Power Play: host leaves round-intro mirror and opens Q1 preview (audience stays on intro). */
+const openWagerQuestionPreview = async (io, pin) => {
+  let gameState = await redisStore.getGameState(pin);
+  if (!gameState) return;
+  const round = stateMachine.getCurrentRound(gameState);
+  if (
+    !isStandardWagerRound(round) ||
+    gameState.state !== GAME_STATES.QUESTION ||
+    gameState.questionState !== QUESTION_STATES.PREVIEW ||
+    !gameState.audienceHoldRoundIntro ||
+    gameState.hostViewingQuestionPreview
+  ) {
+    return;
+  }
+  gameState.hostViewingQuestionPreview = true;
+  gameState.hostPreviewAwaitingWagerCollection = true;
+  gameState.audienceWagerCollectionOpen = false;
+  await redisStore.setGameState(pin, gameState);
+  await emitFullSessionState(io, pin, gameState);
+};
+
 /**
  * Host pressed Collect Wager / Lock Wager Points — full WAGER_COLLECTION or audience-only during preview.
  */
@@ -3316,6 +3355,7 @@ module.exports = {
   startTimer,
   endGame,
   startWagerCollection,
+  openWagerQuestionPreview,
   resumeLiveSession,
   getEliminationStateSnapshot,
   getLiveRoundPreview,

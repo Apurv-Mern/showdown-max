@@ -1244,6 +1244,12 @@ export default function GamePage() {
 
         // Same as venue: `currentRound` may be absent on payload — derive from `rounds[index]`.
         if (gs.state === 'ROUND_INTRO') {
+          if (
+            rawSession.audienceWagerCollectionOpen ||
+            phaseRef.current === 'wager_input'
+          ) {
+            return;
+          }
           const idx = Number(gs.currentRoundIndex ?? 0);
           const round =
             gs.currentRound ??

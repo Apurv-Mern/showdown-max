@@ -34,6 +34,7 @@ const SOCKET_EVENTS = Object.freeze({
   SKIP_NEXT_ROUND: 'skip_next_round',
   SKIP_CURRENT_ROUND: 'skip_current_round',
   COLLECT_WAGERS: 'collect_wagers',
+  OPEN_WAGER_QUESTION_PREVIEW: 'open_wager_question_preview',
   END_GAME: 'end_game',
   MUSIC_CONTROL: 'music_control',
   /** Host: dismiss the venue's looping welcome video (replaces the venue's Continue button). */

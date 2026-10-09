@@ -87,6 +87,22 @@ export function applyAudienceSessionPayload<T extends Record<string, unknown>>(
     av = ROUND_INTRO_AUDIENCE_VIEW;
   }
 
+  if (
+    hostStagingPreview &&
+    !av &&
+    base.audienceWagerCollectionOpen &&
+    isStandardWagerRoundFromState(base)
+  ) {
+    av = {
+      state: 'WAGER_COLLECTION',
+      questionState: 'WAITING',
+      currentQuestionIndex: base.currentQuestionIndex as number | undefined,
+      currentQuestion: null,
+      timerRemaining: 0,
+      timerRunning: false,
+    };
+  }
+
   if (!av || !hostStagingPreview) return base;
 
   return {

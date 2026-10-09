@@ -201,4 +201,7 @@ const buildRevealSnapshot = async (pin, gameState) => {
   };
 };
 
-module.exports = { buildRevealSnapshot, parseStoredResponse };
+/** Re-sync reveal UI without playing venue reveal sting (host preview / reconnect). */
+const asRevealReplayEvent = (payload) => (payload ? { ...payload, replay: true } : null);
+
+module.exports = { buildRevealSnapshot, parseStoredResponse, asRevealReplayEvent };

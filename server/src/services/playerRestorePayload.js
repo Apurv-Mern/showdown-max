@@ -4,7 +4,7 @@ const { getEliminationPoints } = require('shared/constants/scoring');
 const timerManager = require('./game-engine/timerManager');
 const { getBreakRemainingSeconds, getBreakUpNextRoundPayload } = require('../utils/breakWallClock');
 const redisStore = require('./redisSessionStore');
-const { buildRevealSnapshot } = require('./revealSnapshot');
+const { buildRevealSnapshot, asRevealReplayEvent } = require('./revealSnapshot');
 const { Team } = require('../models');
 const sessionService = require('./sessionService');
 const { normalizeTeamName } = require('../utils/teamName');
@@ -334,7 +334,10 @@ const buildJoinReplayEvents = async ({ pin, gameState, team, mySubmittedOptionIn
     if (audIdx != null && audState === QUESTION_STATES.REVEALED && gsAudience) {
       const revealPayload = await buildRevealSnapshot(pin, gsAudience);
       if (revealPayload) {
-        events.push({ event: SOCKET_EVENTS.ANSWER_REVEAL, data: revealPayload });
+        events.push({
+          event: SOCKET_EVENTS.ANSWER_REVEAL,
+          data: asRevealReplayEvent(revealPayload),
+        });
         events.push({ event: SOCKET_EVENTS.TIMER_UPDATE, data: { remaining: 0 } });
       }
     } else if (
@@ -440,7 +443,10 @@ const buildJoinReplayEvents = async ({ pin, gameState, team, mySubmittedOptionIn
   if (gameState.state === 'QUESTION' && gameState.questionState === 'REVEALED') {
     const revealPayload = await buildRevealSnapshot(pin, gameState);
     if (revealPayload) {
-      events.push({ event: SOCKET_EVENTS.ANSWER_REVEAL, data: revealPayload });
+      events.push({
+        event: SOCKET_EVENTS.ANSWER_REVEAL,
+        data: asRevealReplayEvent(revealPayload),
+      });
       events.push({ event: SOCKET_EVENTS.TIMER_UPDATE, data: { remaining: 0 } });
     }
   }

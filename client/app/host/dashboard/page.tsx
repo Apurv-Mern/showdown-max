@@ -107,6 +107,8 @@ interface GameState {
   hostPreviewAwaitingWagerCollection?: boolean;
   /** Start Round preview: venue/players stay on round intro until Present. */
   audienceHoldRoundIntro?: boolean;
+  /** Power Play Q1: host acknowledged round intro and is viewing staged question preview. */
+  hostViewingQuestionPreview?: boolean;
   lobbyPhase?: 'registration' | 'code_of_conduct' | 'practice_question';
   /** Host overlay scoreboard while state may still be QUESTION / ROUND_END / etc. */
   scoreboardVisible?: boolean;
@@ -1823,6 +1825,7 @@ function HostDashboardContent() {
     emit('present_question');
   };
   const handleCollectWagers = () => emit('collect_wagers');
+  const handleOpenWagerQuestionPreview = () => emit('open_wager_question_preview');
   const handleStartNextRoundAfterCardShuffle = () => {
     setCardShuffleFinishedHold(false);
     setFinishedMiniGameType(null);
@@ -2283,7 +2286,16 @@ function HostDashboardContent() {
       const qLen = round?.questions?.length ?? 0;
       const isLast = qLen > 0 && idx === qLen - 1;
       if (qs === 'PREVIEW') {
-        if (gs?.hostPreviewAwaitingWagerCollection) {
+        const stdWager = (round?.type || '').toUpperCase() === 'WAGER';
+        if (stdWager && gs?.audienceHoldRoundIntro && !gs?.hostViewingQuestionPreview) {
+          handleOpenWagerQuestionPreview();
+          return;
+        }
+        const wagerNeedsCollect =
+          stdWager &&
+          !gs?.audienceWagerCollectionOpen &&
+          (!gs?.audienceHoldRoundIntro || gs?.hostViewingQuestionPreview);
+        if (wagerNeedsCollect) {
           handleCollectWagers();
         } else {
           handlePresentQuestion();
@@ -2312,6 +2324,7 @@ function HostDashboardContent() {
     cardShuffleFinishedHold,
     handleAdvanceRound,
     handleCollectWagers,
+    handleOpenWagerQuestionPreview,
     handleNextQuestion,
     handlePresentQuestion,
     socket,
@@ -2524,15 +2537,27 @@ function HostDashboardContent() {
     isStandardWagerRound &&
     state === 'QUESTION' &&
     questionState === 'PREVIEW' &&
-    Boolean(gameState?.audienceHoldRoundIntro);
-  const showCollectWagerDuringPreview =
-    showHostPreviewBanner &&
+    Boolean(gameState?.audienceHoldRoundIntro) &&
+    !gameState?.hostViewingQuestionPreview;
+  const showWagerOpenQuestionPreviewAction =
     isStandardWagerRound &&
-    Boolean(gameState?.hostPreviewAwaitingWagerCollection);
+    state === 'QUESTION' &&
+    questionState === 'PREVIEW' &&
+    Boolean(gameState?.audienceHoldRoundIntro) &&
+    !gameState?.hostViewingQuestionPreview;
+  /** Power Play: Collect before Present whenever preview is open and wagers not yet collected. */
+  const showWagerPreviewNeedsCollect =
+    isStandardWagerRound &&
+    state === 'QUESTION' &&
+    questionState === 'PREVIEW' &&
+    !gameState?.audienceWagerCollectionOpen &&
+    (!gameState?.audienceHoldRoundIntro || Boolean(gameState?.hostViewingQuestionPreview));
+  const showCollectWagerDuringPreview =
+    showHostPreviewBanner && showWagerPreviewNeedsCollect;
   const showPresentQuestionAction =
     showHostPreviewBanner &&
     (isStandardWagerRound
-      ? !gameState?.hostPreviewAwaitingWagerCollection
+      ? !showWagerPreviewNeedsCollect
       : !isCurrentRoundWagerLockRound || !gameState?.hostPreviewAwaitingWagerCollection);
   const showNextQuestionAction =
     state === 'QUESTION' && questionState === 'REVEALED' && !isLastQuestionOfRound;
@@ -4076,13 +4101,16 @@ function HostDashboardContent() {
                 showRevealAnswerAction ||
                 showNextQuestionAction ||
                 showPresentQuestionAction ||
-                showCollectWagerDuringPreview
+                showCollectWagerDuringPreview ||
+                showWagerOpenQuestionPreviewAction
               }
               icon={
                 <svg viewBox="0 0 24 24" fill="currentColor" className="text-[#00d9ff]">
                   {showPresentQuestionAction ? (
                     <path d="M8 5v14l11-7z" />
-                  ) : showNextQuestionAction || revealOnLastQuestionOfRound ? (
+                  ) : showNextQuestionAction ||
+                      showWagerOpenQuestionPreviewAction ||
+                      revealOnLastQuestionOfRound ? (
                     <path d="M6 18l8.5-6L6 6v12zm8-12v12h2V6h-2z" />
                   ) : (
                     <path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z" />
@@ -4095,17 +4123,28 @@ function HostDashboardContent() {
                 activeMiniGameLocal != null ||
                 miniGameLoading ||
                 cardShuffleFinishedHold ||
-                !(showRevealAnswerAction || showNextQuestionAction || showPresentQuestionAction)
+                !(
+                  showRevealAnswerAction ||
+                  showNextQuestionAction ||
+                  showPresentQuestionAction ||
+                  showWagerOpenQuestionPreviewAction
+                )
               }
               onClick={
-                showPresentQuestionAction ? handlePresentQuestion : handleNextQuestion
+                showWagerOpenQuestionPreviewAction
+                  ? handleOpenWagerQuestionPreview
+                  : showPresentQuestionAction
+                    ? handlePresentQuestion
+                    : handleNextQuestion
               }
             >
-              {showPresentQuestionAction
-                ? 'Present Question'
-                : showNextQuestionAction
-                  ? 'Preview Next Question'
-                  : 'Next Question'}
+              {showWagerOpenQuestionPreviewAction
+                ? 'Preview Question'
+                : showPresentQuestionAction
+                  ? 'Present Question'
+                  : showNextQuestionAction
+                    ? 'Preview Next Question'
+                    : 'Next Question'}
             </HostFooterBtn>
             {showSkipQuestionAction ? (
               <HostFooterBtn
@@ -4249,11 +4288,13 @@ function HostDashboardContent() {
             </HostFooterBtn>
           </div>
           <p className="mt-2 text-center text-[10px] text-white/30">
-            {showCollectWagerDuringPreview
-              ? 'Space=Collect Wager · then Present Question to go live'
-              : showPresentQuestionAction
-                ? 'Space=Present Question · Skip advances preview without going live'
-                : 'Space=Next · T=Start Timer · P=Pause/Resume · S=Leaderboard — Music: T starts countdown + media; P pauses/resumes both'}
+            {showWagerOpenQuestionPreviewAction
+              ? 'Space=Preview Question · venue stays on round intro'
+              : showCollectWagerDuringPreview
+                ? 'Space=Collect Wager · then Present Question to go live'
+                : showPresentQuestionAction
+                  ? 'Space=Present Question · Skip advances preview without going live'
+                  : 'Space=Next · T=Start Timer · P=Pause/Resume · S=Leaderboard — Music: T starts countdown + media; P pauses/resumes both'}
           </p>
         </footer>
       ) : null}

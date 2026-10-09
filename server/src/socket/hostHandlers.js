@@ -203,6 +203,19 @@ const hostHandlers = (io, socket) => {
     }
   });
 
+  socket.on(SOCKET_EVENTS.OPEN_WAGER_QUESTION_PREVIEW, async (data) => {
+    try {
+      const pin = data?.pin;
+      if (!assertHostForPin(socket, pin)) {
+        socket.emit(SOCKET_EVENTS.ERROR, { message: 'Unauthorized' });
+        return;
+      }
+      await gameController.openWagerQuestionPreview(io, pin);
+    } catch (err) {
+      logger.error('open_wager_question_preview error', { error: err.message });
+    }
+  });
+
   socket.on(SOCKET_EVENTS.START_TIMER, async (data) => {
     try {
       await gameController.startTimer(io, data.pin);

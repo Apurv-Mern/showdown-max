@@ -5,7 +5,7 @@ const logger = require('../utils/logger');
 const redisStore = require('../services/redisSessionStore');
 const timerManager = require('../services/game-engine/timerManager');
 const { getBreakRemainingSeconds } = require('../utils/breakWallClock');
-const { buildRevealSnapshot } = require('../services/revealSnapshot');
+const { buildRevealSnapshot, asRevealReplayEvent } = require('../services/revealSnapshot');
 const { Session } = require('../models');
 const { mapClientQuestionPayload } = require('../utils/clientQuestionPayload');
 const { QUESTION_STATES } = require('shared/constants/questionStates');
@@ -250,7 +250,7 @@ const emitTriviaReconnectSideEvents = async (socket, pin, gameState) => {
       const gsAudience = gameStateForAudienceQuestion(gameState);
       const revealPayload = gsAudience ? await buildRevealSnapshot(pin, gsAudience) : null;
       if (revealPayload) {
-        socket.emit(SOCKET_EVENTS.ANSWER_REVEAL, revealPayload);
+        socket.emit(SOCKET_EVENTS.ANSWER_REVEAL, asRevealReplayEvent(revealPayload));
         socket.emit(SOCKET_EVENTS.TIMER_UPDATE, { remaining: 0 });
       }
     }
@@ -260,7 +260,7 @@ const emitTriviaReconnectSideEvents = async (socket, pin, gameState) => {
   if (gameState.state === 'QUESTION' && gameState.questionState === 'REVEALED') {
     const revealPayload = await buildRevealSnapshot(pin, gameState);
     if (revealPayload) {
-      socket.emit(SOCKET_EVENTS.ANSWER_REVEAL, revealPayload);
+      socket.emit(SOCKET_EVENTS.ANSWER_REVEAL, asRevealReplayEvent(revealPayload));
       socket.emit(SOCKET_EVENTS.TIMER_UPDATE, { remaining: 0 });
     }
   }
@@ -376,6 +376,7 @@ const buildFullStatePayload = async (gameState, pin) => {
     audienceWagerCollectionOpen: Boolean(gameState.audienceWagerCollectionOpen),
     audienceHoldRoundIntro: Boolean(gameState.audienceHoldRoundIntro),
     hostPreviewAwaitingWagerCollection: Boolean(gameState.hostPreviewAwaitingWagerCollection),
+    hostViewingQuestionPreview: Boolean(gameState.hostViewingQuestionPreview),
     audienceView,
     currentRoundIndex: gameState.currentRoundIndex,
     currentQuestionIndex: gameState.currentQuestionIndex,

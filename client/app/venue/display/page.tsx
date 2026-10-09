@@ -129,6 +129,8 @@ interface QuestionData {
 }
 
 interface RevealData {
+  /** Server re-sync while host previews/skips — do not play reveal sting again. */
+  replay?: boolean;
   correctOptionIndex: number;
   correctText: string;
   correctOrderArray?: number[];
@@ -1704,10 +1706,12 @@ function VenueDisplayContent() {
       setScoreboard(data.teams.sort((a, b) => b.score - a.score));
       setPhase('reveal');
       stopMp3Ref.current();
-      const sting = correctAnswerAudioRef.current;
-      if (sting) {
-        sting.currentTime = 0;
-        void sting.play().catch(() => {});
+      if (!data.replay) {
+        const sting = correctAnswerAudioRef.current;
+        if (sting) {
+          sting.currentTime = 0;
+          void sting.play().catch(() => {});
+        }
       }
     };
 

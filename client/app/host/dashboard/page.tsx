@@ -150,6 +150,8 @@ interface GameState {
     pickCounts?: Record<string, number>;
   } | null;
   currentQuestion?: QuestionData | null;
+  /** Standard WAGER host PREVIEW — question text for host only (players use audienceView). */
+  hostPreviewQuestion?: QuestionData | null;
 }
 
 interface QuestionData {
@@ -879,7 +881,7 @@ function HostDashboardContent() {
         // can surface per-question metadata (e.g. category).
         setCurrentQuestion(
           data.state === 'QUESTION' || data.state === 'WAGER_COLLECTION'
-            ? (data.currentQuestion ?? null)
+            ? (data.currentQuestion ?? data.hostPreviewQuestion ?? null)
             : null,
         );
         setLiveResponses((prev) => {
@@ -1170,6 +1172,10 @@ function HostDashboardContent() {
       setCurrentQuestion(null);
       setRevealData(null);
       setIsScoreboardVisible(false);
+      const live = gameStateRef.current;
+      if (live?.state === 'QUESTION' && live.questionState === 'PREVIEW') {
+        return;
+      }
       setLiveResponses({
         correct: 0,
         incorrect: 0,
@@ -1795,10 +1801,18 @@ function HostDashboardContent() {
   const handleNextQuestion = () => {
     if (activeMiniGameLocal || miniGameLoading || cardShuffleFinishedHold) return;
     const gs = gameStateRef.current;
+    if (gs?.state === 'ROUND_INTRO' || gs?.state === 'WAGER_COLLECTION') {
+      emit('next_question');
+      return;
+    }
     if (gs?.state === 'QUESTION') {
       const qs = gs.questionState || 'WAITING';
+      if (qs === 'REVEALED') {
+        emit('next_question');
+        return;
+      }
       if (qs === 'ACTIVE' || qs === 'PREVIEW') return;
-      if (qs !== 'REVEALED' && timerRemainingRef.current > 0) return;
+      if (timerRemainingRef.current > 0) return;
     }
     emit('next_question');
   };
@@ -2505,6 +2519,12 @@ function HostDashboardContent() {
       ? 'Start Next Round'
       : 'Next Question';
   const showHostPreviewBanner = state === 'QUESTION' && questionState === 'PREVIEW';
+  /** Power Play only: host stays on round intro art while server is QUESTION+PREVIEW (no question payload). */
+  const showWagerHostRoundIntroMirror =
+    isStandardWagerRound &&
+    state === 'QUESTION' &&
+    questionState === 'PREVIEW' &&
+    Boolean(gameState?.audienceHoldRoundIntro);
   const showCollectWagerDuringPreview =
     showHostPreviewBanner &&
     isStandardWagerRound &&
@@ -2548,7 +2568,10 @@ function HostDashboardContent() {
     !isCurrentRoundEmpty &&
     !miniGameLive;
   const showSkipQuestionAction =
-    showCollectWagerDuringPreview &&
+    (isStandardWagerRound
+      ? showCollectWagerDuringPreview
+      : state === 'QUESTION' && questionState === 'PREVIEW') &&
+    !(isStandardWagerRound && gameState?.audienceWagerCollectionOpen) &&
     !miniGameLive &&
     activeMiniGameLocal == null &&
     !miniGameLoading &&
@@ -3386,7 +3409,7 @@ function HostDashboardContent() {
                 </div>
               ) : null}
             </div>
-          ) : state === 'QUESTION' && currentQuestion ? (
+          ) : state === 'QUESTION' && currentQuestion && !showWagerHostRoundIntroMirror ? (
             <div className="flex min-h-0 flex-1 flex-col animate-fadeIn">
               {showHostPreviewBanner ? (
                 <div className="mb-3 shrink-0 rounded-xl border border-[#f59e0b]/45 bg-[rgba(245,158,11,0.12)] px-4 py-2.5 text-center shadow-[0_0_16px_rgba(245,158,11,0.15)]">
@@ -3568,7 +3591,9 @@ function HostDashboardContent() {
             </div>
           ) : (
             <div className="flex flex-1 items-center justify-center rounded-2xl border border-[rgba(0,217,255,0.25)] bg-[#151b2e]/40 p-8">
-              {state === 'ROUND_INTRO' || state === 'WAGER_COLLECTION' ? (
+              {state === 'ROUND_INTRO' ||
+              state === 'WAGER_COLLECTION' ||
+              showWagerHostRoundIntroMirror ? (
                 <div className="w-full max-w-[1120px] animate-fadeIn">
                   {state === 'WAGER_COLLECTION' ? (
                     <div className="flex flex-col items-center justify-center gap-6 py-8 text-center">
@@ -4076,7 +4101,11 @@ function HostDashboardContent() {
                 showPresentQuestionAction ? handlePresentQuestion : handleNextQuestion
               }
             >
-              {showPresentQuestionAction ? 'Present Question' : 'Next Question'}
+              {showPresentQuestionAction
+                ? 'Present Question'
+                : showNextQuestionAction
+                  ? 'Preview Next Question'
+                  : 'Next Question'}
             </HostFooterBtn>
             {showSkipQuestionAction ? (
               <HostFooterBtn

@@ -9,7 +9,11 @@ import { LoadingDots } from '../LoadingDots';
 import { clientLogger } from '@/lib/clientLogger';
 import { breakSecondsFromEndsAt, resolveBreakWallClock } from '@/lib/breakWallClock';
 import { cn, toDisplayUpper } from '@/lib/utils';
-import { applyAudienceSessionPayload } from '@/lib/audienceSession';
+import {
+  applyAudienceSessionPayload,
+  isStandardWagerRoundFromState,
+  isAudienceRevealHoldDuringHostPreview,
+} from '@/lib/audienceSession';
 import { RoundIntroScoringLines } from '@/lib/roundIntroInstructions';
 import { RoundIntroHeadline } from '@/components/shared/RoundIntroHeadline';
 import { RoundEndTitle } from '@/components/shared/RoundEndTitle';
@@ -1133,9 +1137,34 @@ export default function GamePage() {
       // Handling both keeps players in sync even when discrete events (break_end, etc.) are
       // dropped on flaky mobile networks or backgrounded tabs.
       if (data) {
-        const gs = applyAudienceSessionPayload(
-          (data.gameState ?? data) as Record<string, unknown>,
-        ) as typeof data.gameState extends object ? typeof data.gameState : typeof data;
+        const rawSession = (data && typeof data === 'object' ? data : {}) as Record<
+          string,
+          unknown
+        >;
+        let gs = applyAudienceSessionPayload(rawSession) as typeof data.gameState extends object
+          ? typeof data.gameState
+          : typeof data;
+        if (
+          gs &&
+          typeof gs === 'object' &&
+          gs.state === 'QUESTION' &&
+          String(gs.questionState || '').toUpperCase() === 'PREVIEW' &&
+          isAudienceRevealHoldDuringHostPreview(rawSession)
+        ) {
+          const av = (rawSession.audienceView ??
+            (rawSession.gameState as Record<string, unknown> | undefined)?.audienceView) as
+            | { currentQuestion?: unknown; currentQuestionIndex?: number }
+            | undefined;
+          gs = {
+            ...gs,
+            state: 'QUESTION',
+            questionState: 'REVEALED',
+            currentQuestion: av?.currentQuestion ?? gs.currentQuestion,
+            currentQuestionIndex: av?.currentQuestionIndex ?? gs.currentQuestionIndex,
+            timerRemaining: 0,
+            timerRunning: false,
+          } as typeof gs;
+        }
         if (!gs || typeof gs !== 'object' || !('state' in gs)) return;
         sessionLiveStateRef.current = String(gs.state || '');
         setHasInitialState(true);
@@ -1227,6 +1256,8 @@ export default function GamePage() {
               roundIndex: idx,
               totalRounds: gs.rounds?.length ?? gs.totalRounds ?? 0,
             });
+            setQuestion(null);
+            setRevealData(null);
             setPhase('round_intro');
             setTimerRunning(false);
           } else {
@@ -1245,6 +1276,39 @@ export default function GamePage() {
           ) {
             // Host-only preview — audienceView merge should remap; never show staged question.
             if (phaseRef.current === 'wager_input') return;
+            if (
+              isAudienceRevealHoldDuringHostPreview(rawSession) ||
+              isAudienceRevealHoldDuringHostPreview(gs as Record<string, unknown>) ||
+              phaseRef.current === 'reveal' ||
+              phaseRef.current === 'answered' ||
+              (revealDataRef.current && questionRef.current)
+            ) {
+              return;
+            }
+            const idx = Number(gs.currentRoundIndex ?? 0);
+            const round =
+              gs.currentRound ??
+              (Array.isArray(gs.rounds) && idx >= 0 && idx < gs.rounds.length
+                ? gs.rounds[idx]
+                : null);
+            if (
+              gs.audienceHoldRoundIntro ||
+              (gs.audienceView as { state?: string } | null | undefined)?.state ===
+                'ROUND_INTRO'
+            ) {
+              if (round) {
+                setRoundInfo({
+                  round,
+                  roundIndex: idx,
+                  totalRounds: gs.rounds?.length ?? gs.totalRounds ?? 0,
+                });
+                setQuestion(null);
+                setRevealData(null);
+                setPhase('round_intro');
+                setTimerRunning(false);
+                return;
+              }
+            }
             setPhase(currentlyEliminated ? 'eliminated' : 'waiting');
             setTimerRunning(false);
             return;
@@ -1695,7 +1759,16 @@ export default function GamePage() {
         return;
       }
       setHasInitialState(true);
-      setRoundInfo(data);
+      sessionLiveStateRef.current = 'ROUND_INTRO';
+      setRoundInfo(
+        data?.round
+          ? {
+              round: data.round,
+              roundIndex: Number(data.roundIndex ?? 0),
+              totalRounds: Number(data.totalRounds ?? 0),
+            }
+          : data,
+      );
       setPhase('round_intro');
       isEliminatedRef.current = false;
       setIsEliminated(false);

@@ -197,10 +197,28 @@ const buildSessionPayloadForPlayer = async ({
           state: gameState.state,
           questionState: gameState.questionState,
           audienceView,
+          audienceHoldRoundIntro: Boolean(gameState.audienceHoldRoundIntro),
+          audienceWagerCollectionOpen: Boolean(gameState.audienceWagerCollectionOpen),
+          hostPreviewAwaitingWagerCollection: Boolean(gameState.hostPreviewAwaitingWagerCollection),
           ...(lobbyPhase ? { lobbyPhase } : {}),
           currentRoundIndex: gameState.currentRoundIndex,
           currentQuestionIndex: gameState.currentQuestionIndex,
           totalRounds: gameState.rounds?.length || 0,
+          rounds: gameState.rounds
+            ? gameState.rounds.map((r) => ({
+                id: r.id,
+                name: r.name,
+                type: r.type,
+                timerDuration: r.timerDuration,
+                questions: (r.questions || []).map((q) => ({
+                  id: q.id,
+                  text: q.text,
+                  optionCount: q.options?.length || 0,
+                  mediaUrl: q.mediaUrl,
+                  mediaType: q.mediaType,
+                })),
+              }))
+            : [],
           currentRound: currentRound
             ? {
                 id: currentRound.id,

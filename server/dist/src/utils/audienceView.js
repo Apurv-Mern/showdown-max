@@ -1,17 +1,31 @@
 const { QUESTION_STATES } = require('shared/constants/questionStates');
+const { ROUND_TYPES } = require('shared/constants/roundTypes');
 const { mapClientQuestionPayload } = require('./clientQuestionPayload');
 const timerManager = require('../services/game-engine/timerManager');
+
+const isStandardWagerRound = (round) =>
+  String(round?.type || '').toUpperCase() === ROUND_TYPES.WAGER;
+
+/** Venue/players have been shown a question (Present) in the *current* round. */
+const audienceHasSeenPresentedQuestion = (gameState) => {
+  if (!gameState) return false;
+  const roundIdx = Number(gameState.currentRoundIndex);
+  if (!Number.isFinite(roundIdx)) return false;
+  const audRound = gameState.lastAudienceRoundIndex;
+  if (audRound === undefined || audRound === null) return false;
+  if (Number(audRound) !== roundIdx) return false;
+  const n = gameState.lastAudienceQuestionIndex;
+  return n !== undefined && n !== null && Number.isFinite(Number(n)) && Number(n) >= 0;
+};
 
 /**
  * Last question index/state the venue and players were shown (unchanged while host PREVIEWs the next).
  */
 const resolveAudienceQuestionIndex = (gameState) => {
   if (gameState?.questionState !== QUESTION_STATES.PREVIEW) return null;
-  if (gameState.lastAudienceQuestionIndex !== undefined && gameState.lastAudienceQuestionIndex !== null) {
-    const n = Number(gameState.lastAudienceQuestionIndex);
-    if (Number.isFinite(n) && n >= 0) return n;
-  }
-  return null;
+  if (!audienceHasSeenPresentedQuestion(gameState)) return null;
+  const n = Number(gameState.lastAudienceQuestionIndex);
+  return Number.isFinite(n) && n >= 0 ? n : null;
 };
 
 const resolveAudienceQuestionState = (gameState, audienceIndex) => {
@@ -41,7 +55,31 @@ const buildAudienceViewPayload = async (gameState, pin) => {
     return null;
   }
 
-  if (gameState.audienceWagerCollectionOpen) {
+  const round = gameState.rounds?.[gameState.currentRoundIndex];
+
+  if (gameState.audienceHoldRoundIntro) {
+    return {
+      state: 'ROUND_INTRO',
+      questionState: QUESTION_STATES.WAITING,
+      currentQuestionIndex: gameState.currentQuestionIndex ?? 0,
+      currentQuestion: null,
+      timerRemaining: 0,
+      timerRunning: false,
+    };
+  }
+
+  if (!audienceHasSeenPresentedQuestion(gameState)) {
+    return {
+      state: 'ROUND_INTRO',
+      questionState: QUESTION_STATES.WAITING,
+      currentQuestionIndex: 0,
+      currentQuestion: null,
+      timerRemaining: 0,
+      timerRunning: false,
+    };
+  }
+
+  if (isStandardWagerRound(round) && gameState.audienceWagerCollectionOpen) {
     const currentQuestion = buildAudienceQuestionPayload(
       gameState,
       gameState.currentQuestionIndex,
@@ -51,17 +89,6 @@ const buildAudienceViewPayload = async (gameState, pin) => {
       questionState: QUESTION_STATES.WAITING,
       currentQuestionIndex: gameState.currentQuestionIndex,
       currentQuestion,
-      timerRemaining: 0,
-      timerRunning: false,
-    };
-  }
-
-  if (gameState.audienceHoldRoundIntro) {
-    return {
-      state: 'ROUND_INTRO',
-      questionState: QUESTION_STATES.WAITING,
-      currentQuestionIndex: gameState.currentQuestionIndex ?? 0,
-      currentQuestion: null,
       timerRemaining: 0,
       timerRunning: false,
     };
@@ -113,6 +140,7 @@ const gameStateForAudienceQuestion = (gameState) => {
 
 module.exports = {
   buildAudienceViewPayload,
+  audienceHasSeenPresentedQuestion,
   resolveAudienceQuestionIndex,
   resolveAudienceQuestionState,
   gameStateForAudienceQuestion,

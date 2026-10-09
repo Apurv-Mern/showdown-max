@@ -9,6 +9,7 @@ const { buildRevealSnapshot } = require('../services/revealSnapshot');
 const { Session } = require('../models');
 const { mapClientQuestionPayload } = require('../utils/clientQuestionPayload');
 const { QUESTION_STATES } = require('shared/constants/questionStates');
+const { ROUND_TYPES } = require('shared/constants/roundTypes');
 const {
   buildAudienceViewPayload,
   gameStateForAudienceQuestion,
@@ -309,11 +310,37 @@ const buildFullStatePayload = async (gameState, pin) => {
   const currentQuestionRow = currentRound?.questions?.[gameState.currentQuestionIndex] || null;
   // WAGER_COLLECTION needs the upcoming question id on the venue payload so the wager-lock
   // counter can be displayed alongside the question label without waiting for QUESTION_ACTIVE.
+  const isStandardWagerRound =
+    String(currentRound?.type || '').toUpperCase() === ROUND_TYPES.WAGER;
+  const hostWagerPreviewStaging =
+    isStandardWagerRound &&
+    gameState.state === 'QUESTION' &&
+    gameState.questionState === QUESTION_STATES.PREVIEW;
   const includeQuestionPayload =
     (gameState.state === 'QUESTION' || gameState.state === 'WAGER_COLLECTION') &&
     !gameState.activeMiniGame &&
-    !gameState.miniGameHold?.holdScreen;
+    !gameState.miniGameHold?.holdScreen &&
+    !hostWagerPreviewStaging;
   const currentQuestion = includeQuestionPayload ? currentQuestionRow : null;
+  const mapQuestionForClient = (row) =>
+    row
+      ? {
+          questionIndex: gameState.currentQuestionIndex,
+          totalQuestions: currentRound?.questions?.length || 0,
+          question: mapClientQuestionPayload(row),
+          timerDuration:
+            row?.timerDuration ??
+            currentRound?.timerDuration ??
+            gameState.timerDuration ??
+            30,
+          roundType: currentRound?.type || '',
+        }
+      : null;
+  /** WAGER host PREVIEW only — host dashboard reads this; audience keeps currentQuestion null. */
+  const hostPreviewQuestion =
+    hostWagerPreviewStaging && currentQuestionRow
+      ? mapQuestionForClient(currentQuestionRow)
+      : null;
   const lobbyTeams = await redisStore.getConnectedTeamsData(pin);
   const teams =
     gameState.teams && Object.keys(gameState.teams).length > 0
@@ -377,19 +404,8 @@ const buildFullStatePayload = async (gameState, pin) => {
     miniGameConfig: gameState.miniGameConfig || null,
     scoreboardVisible: Boolean(gameState.scoreboardVisible),
     maxTeams: Number(gameState.maxTeams || 0),
-    currentQuestion: currentQuestion
-      ? {
-          questionIndex: gameState.currentQuestionIndex,
-          totalQuestions: currentRound?.questions?.length || 0,
-          question: mapClientQuestionPayload(currentQuestion),
-          timerDuration:
-            currentQuestion?.timerDuration ??
-            currentRound?.timerDuration ??
-            gameState.timerDuration ??
-            30,
-          roundType: currentRound?.type || '',
-        }
-      : null,
+    currentQuestion: currentQuestion ? mapQuestionForClient(currentQuestion) : null,
+    hostPreviewQuestion,
     qrCodeData: gameState.qrCodeData,
     pin,
     ...(gameState.state === 'BREAK'

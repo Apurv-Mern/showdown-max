@@ -166,6 +166,10 @@ const isWagerLockRound = (round) => {
   return t === ROUND_TYPES.WAGER || t === ROUND_TYPES.FINAL_WAGER;
 };
 
+/** Standard wager round (Power Play) — host preview / collect-wager audience isolation. */
+const isStandardWagerRound = (round) =>
+  String(round?.type || '').toUpperCase() === ROUND_TYPES.WAGER;
+
 const applyDefaultZeroWagersForCurrentQuestion = (gameState) => {
   const round = stateMachine.getCurrentRound(gameState);
   if (!isWagerLockRound(round)) return gameState;
@@ -614,10 +618,12 @@ const nextQuestion = async (io, pin) => {
     const transResult = stateMachine.transition(gameState, GAME_STATES.QUESTION);
     if (!transResult.valid) return;
     gameState = transResult.gameState;
-    previewOptions = {
-      audienceHoldRoundIntro: true,
-      hostPreviewAwaitingWagerCollection: isWagerLockRound(round),
-    };
+    if (isStandardWagerRound(round)) {
+      previewOptions = {
+        audienceHoldRoundIntro: true,
+        hostPreviewAwaitingWagerCollection: true,
+      };
+    }
   } else if (gameState.state === GAME_STATES.WAGER_COLLECTION) {
     // Host pressed "Start Question" after wager collection: host preview (wagers already locked).
     const transResult = stateMachine.transition(gameState, GAME_STATES.QUESTION);
@@ -670,7 +676,9 @@ const proceedToStageQuestion = async (
   gameState.audienceHoldRoundIntro = Boolean(audienceHoldRoundIntro);
   const round = stateMachine.getCurrentRound(gameState);
   if (hostPreviewAwaitingWagerCollection === null) {
-    gameState.hostPreviewAwaitingWagerCollection = isWagerLockRound(round);
+    gameState.hostPreviewAwaitingWagerCollection = isStandardWagerRound(round)
+      ? true
+      : isWagerLockRound(round);
   } else {
     gameState.hostPreviewAwaitingWagerCollection = Boolean(hostPreviewAwaitingWagerCollection);
   }
@@ -1056,6 +1064,7 @@ const skipQuestion = async (io, pin) => {
     gameState.lastAudienceQuestionIndex === null;
   const skipped = stateMachine.getCurrentQuestion(gameState);
   const skippedId = skipped?.id;
+  const roundBeforeSkip = stateMachine.getCurrentRound(gameState);
 
   timerManager.stopTimer(pin);
   try {
@@ -1073,7 +1082,6 @@ const skipQuestion = async (io, pin) => {
     }
   }
 
-  const round = stateMachine.getCurrentRound(gameState);
   const advance = stateMachine.advanceQuestion(gameState);
   if (!advance.hasNext) {
     await redisStore.setGameState(pin, gameState);
@@ -1081,6 +1089,7 @@ const skipQuestion = async (io, pin) => {
     return;
   }
   gameState = advance.gameState;
+  const roundAfterSkip = stateMachine.getCurrentRound(gameState);
 
   if (inPreview) {
     if (audienceNeverSawQuestion) {
@@ -1090,10 +1099,28 @@ const skipQuestion = async (io, pin) => {
         lastAudienceQuestionState: undefined,
       };
     }
+    const stageOpts = isStandardWagerRound(roundAfterSkip)
+      ? {
+          audienceHoldRoundIntro: audienceNeverSawQuestion,
+          hostPreviewAwaitingWagerCollection: true,
+        }
+      : { audienceHoldRoundIntro: audienceNeverSawQuestion };
+    await proceedToStageQuestion(io, pin, gameState, stageOpts);
+    logger.info('Staged preview skipped to next question', {
+      pin,
+      skippedQuestionId: skippedId,
+      questionIndex: gameState.currentQuestionIndex,
+      roundType: roundAfterSkip?.type,
+    });
+    return;
+  }
+
+  if (isStandardWagerRound(roundBeforeSkip) || isStandardWagerRound(roundAfterSkip)) {
     await proceedToStageQuestion(io, pin, gameState, {
+      hostPreviewAwaitingWagerCollection: true,
       audienceHoldRoundIntro: audienceNeverSawQuestion,
     });
-    logger.info('Staged preview skipped to next question', {
+    logger.info('Wager round question skipped — staged next host preview', {
       pin,
       skippedQuestionId: skippedId,
       questionIndex: gameState.currentQuestionIndex,
@@ -1101,7 +1128,7 @@ const skipQuestion = async (io, pin) => {
     return;
   }
 
-  if (isWagerLockRound(round)) {
+  if (isWagerLockRound(roundBeforeSkip)) {
     await redisStore.setGameState(pin, gameState);
     await startQuestionWagerCollection(io, pin);
     return;
@@ -1168,6 +1195,23 @@ const jumpToQuestion = async (io, pin, questionIndex) => {
     timerRunning: false,
   };
   await redisStore.setGameState(pin, gameState);
+
+  if (isStandardWagerRound(round)) {
+    const audienceNeverSawQuestion =
+      gameState.lastAudienceQuestionIndex === undefined ||
+      gameState.lastAudienceQuestionIndex === null;
+    await proceedToStageQuestion(io, pin, gameState, {
+      hostPreviewAwaitingWagerCollection: true,
+      audienceHoldRoundIntro: audienceNeverSawQuestion,
+    });
+    require('../sessionCheckpointService').persistNow(pin).catch(() => {});
+    logger.info('Jumped to question (wager host preview)', {
+      pin,
+      questionIndex: idx,
+      questionId: targetId,
+    });
+    return;
+  }
 
   if (isWagerLockRound(round)) {
     await startQuestionWagerCollection(io, pin);
@@ -3006,7 +3050,7 @@ const openAudienceWagerCollectionDuringPreview = async (io, pin) => {
   const round = stateMachine.getCurrentRound(gameState);
   if (
     !round ||
-    !isWagerLockRound(round) ||
+    !isStandardWagerRound(round) ||
     gameState.state !== GAME_STATES.QUESTION ||
     gameState.questionState !== QUESTION_STATES.PREVIEW
   ) {

@@ -1243,14 +1243,8 @@ export default function GamePage() {
             gs.state === 'QUESTION' &&
             (gs.questionState || '').toUpperCase() === 'PREVIEW'
           ) {
-            // Host-only preview (audienceView merge did not remap state) — keep wager UI if open.
+            // Host-only preview — audienceView merge should remap; never show staged question.
             if (phaseRef.current === 'wager_input') return;
-            const keepLocalQuestionUi =
-              questionRef.current &&
-              (phaseRef.current === 'question' ||
-                phaseRef.current === 'answered' ||
-                phaseRef.current === 'reveal');
-            if (keepLocalQuestionUi) return;
             setPhase(currentlyEliminated ? 'eliminated' : 'waiting');
             setTimerRunning(false);
             return;

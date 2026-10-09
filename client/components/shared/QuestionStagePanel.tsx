@@ -77,7 +77,10 @@ export function QuestionStagePanel({
               boxShadow: '0 0 15px #0010FF, inset 0 0 15px #0010FF',
             }}
           >
-            <div className="flex min-h-0 flex-1 items-center justify-center overflow-hidden">
+            <p className="shrink-0 text-center text-[16px] font-extrabold uppercase text-white">
+              Q. {questionIndex + 1}/{totalQuestions}
+            </p>
+            <div className="mt-3 flex min-h-0 flex-1 items-center justify-center overflow-hidden">
               {questionMedia}
             </div>
           </div>

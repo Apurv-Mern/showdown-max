@@ -2417,6 +2417,7 @@ function HostDashboardContent() {
   }, [liveResponseModal, liveResponseModalTeams.length, isMajorityRulesLiveRound]);
   const isCurrentRoundWagerLockRound =
     currentRound?.type === 'WAGER' || currentRound?.type === 'FINAL_WAGER';
+  const isStandardWagerRound = currentRound?.type === 'WAGER';
   const state = gameState?.state || 'LOBBY';
   const lobbyPhase = gameState?.lobbyPhase || 'registration';
   const isCurrentRoundEmpty =
@@ -2506,11 +2507,13 @@ function HostDashboardContent() {
   const showHostPreviewBanner = state === 'QUESTION' && questionState === 'PREVIEW';
   const showCollectWagerDuringPreview =
     showHostPreviewBanner &&
-    isCurrentRoundWagerLockRound &&
+    isStandardWagerRound &&
     Boolean(gameState?.hostPreviewAwaitingWagerCollection);
   const showPresentQuestionAction =
     showHostPreviewBanner &&
-    (!isCurrentRoundWagerLockRound || !gameState?.hostPreviewAwaitingWagerCollection);
+    (isStandardWagerRound
+      ? !gameState?.hostPreviewAwaitingWagerCollection
+      : !isCurrentRoundWagerLockRound || !gameState?.hostPreviewAwaitingWagerCollection);
   const showNextQuestionAction =
     state === 'QUESTION' && questionState === 'REVEALED' && !isLastQuestionOfRound;
   // const showRevealAnswerAction = state === 'QUESTION' && questionState === 'ACTIVE';
@@ -2545,8 +2548,7 @@ function HostDashboardContent() {
     !isCurrentRoundEmpty &&
     !miniGameLive;
   const showSkipQuestionAction =
-    state === 'QUESTION' &&
-    questionState === 'PREVIEW' &&
+    showCollectWagerDuringPreview &&
     !miniGameLive &&
     activeMiniGameLocal == null &&
     !miniGameLoading &&
@@ -3436,6 +3438,10 @@ function HostDashboardContent() {
               >
                 {/* Media Section */}
                 <div className="relative shrink-0 bg-black/40">
+                  <div className="absolute left-4 top-3 z-10 text-xl font-bold text-white/90 drop-shadow-md">
+                    Question {(currentQuestion.questionIndex || 0) + 1}/
+                    {currentQuestion.totalQuestions}
+                  </div>
                   {currentQuestion.pointsForQuestion ? (
                     <div className="absolute right-4 top-3 z-10 text-lg font-black italic text-[#00d9ff]">
                       {currentQuestion.pointsForQuestion} PTS

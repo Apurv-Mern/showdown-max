@@ -23,28 +23,26 @@ const fetchAdminRound = async (roundId) => {
 };
 
 /**
- * MP3 is allowed on any round. MP4 (observation video) remains Music-round-only.
- * Music rounds may only attach MP3 or MP4.
+ * MP3 on any round; images on non-music rounds. Music rounds: MP3 only. No video uploads.
  * @param {import('sequelize').Model|null} round
  * @param {string|null|undefined} mediaType
  */
 const assertQuestionMediaForRound = (round, mediaType) => {
   if (!mediaType) return;
   const mt = String(mediaType).toLowerCase();
+  if (mt === 'mp4') {
+    throw Object.assign(
+      new Error('Video (MP4) attachments are not supported. Use MP3 audio or an image.'),
+      { statusCode: 400 },
+    );
+  }
   if (round && round.type === ROUND_TYPES.MUSIC) {
-    if (mt !== 'mp3' && mt !== 'mp4') {
+    if (mt !== 'mp3') {
       throw Object.assign(
-        new Error('Music round questions only support MP3 or MP4 media'),
+        new Error('Music round questions only support MP3 audio'),
         { statusCode: 400 },
       );
     }
-    return;
-  }
-  if (mt === 'mp4') {
-    throw Object.assign(
-      new Error('MP4 attachments are only allowed for Music rounds'),
-      { statusCode: 400 },
-    );
   }
 };
 

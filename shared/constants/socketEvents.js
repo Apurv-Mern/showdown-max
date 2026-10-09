@@ -34,6 +34,8 @@ const SOCKET_EVENTS = Object.freeze({
   ADVANCE_ROUND: 'advance_round',
   /** Host: drop the upcoming round from the show (only between rounds). */
   SKIP_NEXT_ROUND: 'skip_next_round',
+  /** Host: drop the current round from round intro / wager collection (never played). */
+  SKIP_CURRENT_ROUND: 'skip_current_round',
   COLLECT_WAGERS: 'collect_wagers',
   END_GAME: 'end_game',
   MUSIC_CONTROL: 'music_control',

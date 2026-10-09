@@ -321,23 +321,26 @@ export default function QuestionsPage() {
     const ext = file.name.split('.').pop()?.toLowerCase() ?? '';
     const isMp3Mime =
       fileType === 'audio/mpeg' || fileType === 'audio/mp3' || fileType === 'audio/x-mpeg-3';
-    const isMp4Mime = fileType === 'video/mp4' || fileType === 'audio/mp4';
     const looksMp3 = isMp3Mime || ext === 'mp3';
-    const looksMp4 = isMp4Mime || ext === 'mp4';
-    const isAudioOrVideo = fileType.startsWith('audio/') || fileType.startsWith('video/');
+    const looksMp4 = fileType.startsWith('video/') || ext === 'mp4';
+    const isImage =
+      fileType.startsWith('image/') ||
+      ['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(ext);
+
+    if (looksMp4 || fileType.startsWith('video/')) {
+      toast.error('Video uploads are not supported. Use MP3 audio or an image.');
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      return;
+    }
 
     if (roundType === 'MUSIC') {
-      if (!looksMp3 && !looksMp4) {
-        toast.error('Music rounds only allow MP3 or MP4 files');
+      if (!looksMp3) {
+        toast.error('Music rounds only allow MP3 audio');
         if (fileInputRef.current) fileInputRef.current.value = '';
         return;
       }
-    } else if (looksMp4 || (fileType.startsWith('video/') && !looksMp3)) {
-      toast.error('MP4 attachments are only allowed for Music rounds');
-      if (fileInputRef.current) fileInputRef.current.value = '';
-      return;
-    } else if (isAudioOrVideo && !looksMp3) {
-      toast.error('This round type allows MP3 audio or image files');
+    } else if (!looksMp3 && !isImage) {
+      toast.error('This round type allows MP3 audio or image files only');
       if (fileInputRef.current) fileInputRef.current.value = '';
       return;
     }
@@ -405,17 +408,16 @@ export default function QuestionsPage() {
       }
     }
 
-    if (selectedRoundForSave?.type !== 'MUSIC' && formData.mediaType === 'mp4') {
-      toast.error('MP4 attachments are only allowed for Music rounds');
+    if (formData.mediaType === 'mp4') {
+      toast.error('Video (MP4) attachments are not supported');
       return;
     }
     if (
       selectedRoundForSave?.type === 'MUSIC' &&
       formData.mediaUrl &&
-      formData.mediaType !== 'mp3' &&
-      formData.mediaType !== 'mp4'
+      formData.mediaType !== 'mp3'
     ) {
-      toast.error('Music rounds only allow MP3 or MP4 attachments');
+      toast.error('Music rounds only allow MP3 audio');
       return;
     }
 
@@ -859,15 +861,13 @@ export default function QuestionsPage() {
                       const musicIncompatible =
                         newRound?.type === 'MUSIC' &&
                         p.mediaUrl &&
-                        p.mediaType !== 'mp3' &&
-                        p.mediaType !== 'mp4';
-                      const nonMusicMp4 =
-                        newRound && newRound.type !== 'MUSIC' && p.mediaType === 'mp4';
-                      if (musicIncompatible || nonMusicMp4) {
+                        p.mediaType !== 'mp3';
+                      const unsupportedVideo = p.mediaType === 'mp4';
+                      if (musicIncompatible || unsupportedVideo) {
                         toast(
                           musicIncompatible
-                            ? 'Music rounds use MP3 or MP4 only — attachment removed.'
-                            : 'MP4 is only allowed on Music rounds — attachment removed.',
+                            ? 'Music rounds use MP3 only — attachment removed.'
+                            : 'Video attachments are not supported — attachment removed.',
                         );
                         return { ...p, roundId: newRoundId, mediaUrl: '', mediaType: '' };
                       }
@@ -1002,7 +1002,7 @@ export default function QuestionsPage() {
                       accept={(() => {
                         const selectedRound = rounds.find((r) => String(r.id) === formData.roundId);
                         if (selectedRound?.type === 'MUSIC') {
-                          return 'audio/mpeg,audio/mp3,.mp3,video/mp4,.mp4';
+                          return 'audio/mpeg,audio/mp3,.mp3';
                         }
                         return 'audio/mpeg,audio/mp3,.mp3,image/jpeg,image/png,image/gif,image/webp';
                       })()}
@@ -1018,7 +1018,7 @@ export default function QuestionsPage() {
                       title={(() => {
                         const selectedRound = rounds.find((r) => String(r.id) === formData.roundId);
                         if (selectedRound?.type === 'MUSIC') {
-                          return 'Music rounds: MP3 or MP4 only';
+                          return 'Music rounds: MP3 only';
                         }
                         return 'MP3 audio or image files';
                       })()}
@@ -1029,7 +1029,7 @@ export default function QuestionsPage() {
                       {(() => {
                         const selectedRound = rounds.find((r) => String(r.id) === formData.roundId);
                         if (selectedRound?.type === 'MUSIC') {
-                          return 'MP3 or MP4 only';
+                          return 'MP3 only';
                         }
                         return 'MP3, JPG, PNG, GIF, or WebP';
                       })()}

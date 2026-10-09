@@ -404,23 +404,26 @@ export default function QuizDetailPage() {
     const ext = file.name.split('.').pop()?.toLowerCase() ?? '';
     const isMp3Mime =
       fileType === 'audio/mpeg' || fileType === 'audio/mp3' || fileType === 'audio/x-mpeg-3';
-    const isMp4Mime = fileType === 'video/mp4' || fileType === 'audio/mp4';
     const looksMp3 = isMp3Mime || ext === 'mp3';
-    const looksMp4 = isMp4Mime || ext === 'mp4';
-    const isAudioOrVideo = fileType.startsWith('audio/') || fileType.startsWith('video/');
+    const looksMp4 = fileType.startsWith('video/') || ext === 'mp4';
+    const isImage =
+      fileType.startsWith('image/') ||
+      ['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(ext);
+
+    if (looksMp4 || fileType.startsWith('video/')) {
+      toast.error('Video uploads are not supported. Use MP3 audio or an image.');
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      return;
+    }
 
     if (roundType === 'MUSIC') {
-      if (!looksMp3 && !looksMp4) {
-        toast.error('Music rounds only allow MP3 or MP4 files');
+      if (!looksMp3) {
+        toast.error('Music rounds only allow MP3 audio');
         if (fileInputRef.current) fileInputRef.current.value = '';
         return;
       }
-    } else if (looksMp4 || (fileType.startsWith('video/') && !looksMp3)) {
-      toast.error('MP4 attachments are only allowed for Music rounds');
-      if (fileInputRef.current) fileInputRef.current.value = '';
-      return;
-    } else if (isAudioOrVideo && !looksMp3) {
-      toast.error('This round type allows MP3 audio or image files');
+    } else if (!looksMp3 && !isImage) {
+      toast.error('This round type allows MP3 audio or image files only');
       if (fileInputRef.current) fileInputRef.current.value = '';
       return;
     }
@@ -487,17 +490,12 @@ export default function QuizDetailPage() {
       }
     }
 
-    if (targetRound?.type !== 'MUSIC' && formData.mediaType === 'mp4') {
-      toast.error('MP4 attachments are only allowed for Music rounds');
+    if (formData.mediaType === 'mp4') {
+      toast.error('Video (MP4) attachments are not supported');
       return;
     }
-    if (
-      targetRound?.type === 'MUSIC' &&
-      formData.mediaUrl &&
-      formData.mediaType !== 'mp3' &&
-      formData.mediaType !== 'mp4'
-    ) {
-      toast.error('Music rounds only allow MP3 or MP4 attachments');
+    if (targetRound?.type === 'MUSIC' && formData.mediaUrl && formData.mediaType !== 'mp3') {
+      toast.error('Music rounds only allow MP3 audio');
       return;
     }
 
@@ -1135,7 +1133,7 @@ export default function QuizDetailPage() {
                       type="file"
                       accept={
                         addingRound?.type === 'MUSIC'
-                          ? 'audio/mpeg,audio/mp3,.mp3,video/mp4,.mp4'
+                          ? 'audio/mpeg,audio/mp3,.mp3'
                           : 'audio/mpeg,audio/mp3,.mp3,image/jpeg,image/png,image/gif,image/webp'
                       }
                       onChange={handleFileUpload}
@@ -1149,7 +1147,7 @@ export default function QuizDetailPage() {
                       disabled={uploading}
                       title={
                         addingRound?.type === 'MUSIC'
-                          ? 'Music rounds: MP3 or MP4 only'
+                          ? 'Music rounds: MP3 only'
                           : 'MP3 audio or image files'
                       }
                     >
@@ -1157,7 +1155,7 @@ export default function QuizDetailPage() {
                     </Button>
                     <span className="text-xs text-foreground/30 self-center">
                       {addingRound?.type === 'MUSIC'
-                        ? 'MP3 or MP4 only'
+                        ? 'MP3 only'
                         : 'MP3, JPG, PNG, GIF, or WebP'}
                     </span>
                   </div>

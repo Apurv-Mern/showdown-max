@@ -11,8 +11,6 @@ const resolveAudienceQuestionIndex = (gameState) => {
     const n = Number(gameState.lastAudienceQuestionIndex);
     if (Number.isFinite(n) && n >= 0) return n;
   }
-  const staged = Number(gameState.currentQuestionIndex);
-  if (Number.isFinite(staged) && staged > 0) return staged - 1;
   return null;
 };
 

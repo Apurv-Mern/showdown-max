@@ -135,6 +135,8 @@ function LeaderboardColumn({
   isPlayer,
   cfg,
   startRank = 1,
+  rankStep = 1,
+  columnSide,
   eliminationStyle = false,
 }: {
   teams: LeaderboardTeam[];
@@ -143,16 +145,22 @@ function LeaderboardColumn({
   isPlayer: boolean;
   cfg: (typeof SIZE_CONFIG)[LeaderboardScreenSize];
   startRank?: number;
+  /** Venue interleaved columns: left 1,3,5… right 2,4,6… */
+  rankStep?: number;
+  columnSide?: 'left' | 'right';
   eliminationStyle?: boolean;
 }) {
   const isVenue = size === 'venue';
 
   return (
-    <div className={cn('flex min-w-0 w-full flex-col', cfg.rowGap)}>
+    <div
+      className={cn('flex min-w-0 w-full flex-col', cfg.rowGap)}
+      {...(isVenue && columnSide ? { 'data-leaderboard-col': columnSide } : {})}
+    >
       {teams.map((team, idx) => {
         const isMe = isPlayer && highlightTeamId != null && team.teamId === highlightTeamId;
         const score = Number(team.score ?? 0);
-        const rank = startRank + idx;
+        const rank = startRank + idx * rankStep;
 
         const showEliminated = eliminationStyle && team.isEliminated;
         const showSurvivor = eliminationStyle && !team.isEliminated;
@@ -312,12 +320,25 @@ export function LeaderboardScreen({
   const useVenueSplit = isVenue && displayTeams.length > 0;
   const venuePages = useMemo(() => {
     if (!useVenueSplit) return [];
-    const pages: { left: LeaderboardTeam[]; right: LeaderboardTeam[]; startRank: number }[] = [];
+    const pages: {
+      left: LeaderboardTeam[];
+      right: LeaderboardTeam[];
+      leftStartRank: number;
+      rightStartRank: number;
+    }[] = [];
     for (let i = 0; i < displayTeams.length; i += VENUE_PAGE_SIZE) {
+      const pageSlice = displayTeams.slice(i, i + VENUE_PAGE_SIZE);
+      const left: LeaderboardTeam[] = [];
+      const right: LeaderboardTeam[] = [];
+      for (let j = 0; j < pageSlice.length; j += 1) {
+        if (j % 2 === 0) left.push(pageSlice[j]);
+        else right.push(pageSlice[j]);
+      }
       pages.push({
-        left: displayTeams.slice(i, i + VENUE_COLUMN_SIZE),
-        right: displayTeams.slice(i + VENUE_COLUMN_SIZE, i + VENUE_PAGE_SIZE),
-        startRank: i + 1,
+        left,
+        right,
+        leftStartRank: i + 1,
+        rightStartRank: i + 2,
       });
     }
     return pages;
@@ -330,17 +351,19 @@ export function LeaderboardScreen({
   const measureRowPitch = useCallback(() => {
     const area = scrollAreaRef.current;
     if (!area) return 0;
-    const rows = area.querySelectorAll<HTMLElement>('[data-leaderboard-row]');
+    const scope =
+      useVenueSplit && area.querySelector('[data-leaderboard-col="left"]')
+        ? area.querySelector('[data-leaderboard-col="left"]')
+        : area;
+    const rows = scope?.querySelectorAll<HTMLElement>('[data-leaderboard-row]') ?? [];
     const first = rows[0];
     if (!first) return 0;
-    // In split mode the next row may sit in the right column at the same offset — find the
-    // first row that is genuinely lower.
     for (let i = 1; i < rows.length; i += 1) {
       const delta = rows[i].offsetTop - first.offsetTop;
       if (delta > 0) return delta;
     }
     return first.offsetHeight;
-  }, []);
+  }, [useVenueSplit]);
 
   const reportScrollState = useCallback(() => {
     const area = scrollAreaRef.current;
@@ -513,7 +536,7 @@ export function LeaderboardScreen({
                   <div ref={contentRef} className="flex w-full flex-col gap-5">
                     {venuePages.map((page) => (
                       <div
-                        key={page.startRank}
+                        key={page.leftStartRank}
                         className="grid w-full grid-cols-2 items-start gap-[80px]"
                         style={{ gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)' }}
                       >
@@ -523,7 +546,9 @@ export function LeaderboardScreen({
                           highlightTeamId={highlightTeamId}
                           isPlayer={isPlayer}
                           cfg={cfg}
-                          startRank={page.startRank}
+                          startRank={page.leftStartRank}
+                          rankStep={2}
+                          columnSide="left"
                           eliminationStyle={eliminationStyle}
                         />
                         <LeaderboardColumn
@@ -532,7 +557,9 @@ export function LeaderboardScreen({
                           highlightTeamId={highlightTeamId}
                           isPlayer={isPlayer}
                           cfg={cfg}
-                          startRank={page.startRank + VENUE_COLUMN_SIZE}
+                          startRank={page.rightStartRank}
+                          rankStep={2}
+                          columnSide="right"
                           eliminationStyle={eliminationStyle}
                         />
                       </div>

@@ -17,7 +17,7 @@ import { PUBLIC_API_URL } from '@/lib/env';
 
 const API_URL = PUBLIC_API_URL;
 
-const ACCEPT_ALL = 'audio/mpeg,audio/mp3,video/mp4,image/jpeg,image/png,image/gif,image/webp';
+const ACCEPT_ALL = 'audio/mpeg,audio/mp3,image/jpeg,image/png,image/gif,image/webp';
 
 /** Figma 232:3872 — upload panel gradient */
 const BG_UPLOAD_PANEL =

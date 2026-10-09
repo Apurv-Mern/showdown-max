@@ -42,6 +42,7 @@ import {
   prepareLeaderboardTeams,
 } from '@/lib/eliminationLeaderboard';
 import {
+  formatRoundEndHeadline,
   formatRoundTypeLabel,
   formatRoundTypeStartButtonLabel,
   formatRoundTypeWithRoundSuffix,
@@ -126,6 +127,12 @@ interface GameState {
   teams: Record<string, Team>;
   activeTeamIds: number[];
   activeMiniGame?: string | null;
+  miniGameHold?: {
+    game?: string;
+    holdScreen?: boolean;
+    status?: string;
+    message?: string;
+  } | null;
   miniGameConfig?: {
     kangarooNames?: string[];
   } | null;
@@ -792,7 +799,13 @@ function HostDashboardContent() {
           hostBreakSkewMsRef.current = 0;
           hostBreakEndsAtRef.current = null;
         }
-        if (data.state !== 'QUESTION' && data.state !== 'ROUND_INTRO') {
+        if (data?.miniGameHold?.holdScreen) {
+          setCardShuffleFinishedHold(true);
+          const holdGame = normalizeHostMiniGameId(data.miniGameHold.game);
+          setFinishedMiniGameType(holdGame === 'kangaroo_race' ? 'kangaroo_race' : 'card_shuffle');
+          setActiveMiniGameLocal(null);
+          setMiniGameLoading(false);
+        } else {
           setCardShuffleFinishedHold(false);
           setFinishedMiniGameType(null);
         }
@@ -1855,6 +1868,7 @@ function HostDashboardContent() {
   };
   const handleAdvanceRound = () => emit('advance_round');
   const handleSkipNextRound = () => emit('skip_next_round');
+  const handleSkipCurrentRound = () => emit('skip_current_round');
   const handleSkipQuestion = () => emit('skip_question');
   const handleStartBreak = () => {
     if (state === 'LOBBY' || state === 'FINAL_RESULTS' || state === 'BREAK') return;
@@ -2516,6 +2530,10 @@ function HostDashboardContent() {
   // Dropping a round is only offered between rounds, and only when one is actually queued up.
   const canSkipNextRound =
     (state === 'ROUND_END' || state === 'SCOREBOARD') && Boolean(nextRound) && !miniGameLive;
+  const canSkipCurrentRound =
+    (state === 'ROUND_INTRO' || state === 'WAGER_COLLECTION') &&
+    !isCurrentRoundEmpty &&
+    !miniGameLive;
   const showSkipQuestionAction =
     state === 'QUESTION' &&
     questionState === 'PREVIEW' &&
@@ -3639,8 +3657,10 @@ function HostDashboardContent() {
               ) : state === 'ROUND_END' ? (
                 <div className="flex w-full max-w-[720px] flex-col items-center justify-center gap-6 py-8 text-center animate-fadeIn">
                   <h2 className="text-4xl font-black uppercase leading-tight text-white drop-shadow-[0_0_14px_rgba(123,194,255,0.35)] sm:text-5xl">
-                    END OF ROUND{' '}
-                    {(roundEndInfo?.roundIndex ?? gameState?.currentRoundIndex ?? 0) + 1}
+                    {formatRoundEndHeadline(
+                      roundEndInfo?.roundType ?? currentRound?.type,
+                      (roundEndInfo?.roundIndex ?? gameState?.currentRoundIndex ?? 0) + 1,
+                    )}
                   </h2>
                   <p className="max-w-md text-base text-[#9de9ff]/90 sm:text-lg">
                     That round is over.{' '}
@@ -4028,6 +4048,18 @@ function HostDashboardContent() {
                 onClick={handleSkipQuestion}
               >
                 Skip This Question
+              </HostFooterBtn>
+            ) : null}
+            {canSkipCurrentRound ? (
+              <HostFooterBtn
+                icon={
+                  <svg viewBox="0 0 24 24" fill="currentColor" className="text-[#00d9ff]">
+                    <path d="M4 18l8.5-6L4 6v12zm9 0l8.5-6L13 6v12z" />
+                  </svg>
+                }
+                onClick={handleSkipCurrentRound}
+              >
+                Skip This Round
               </HostFooterBtn>
             ) : null}
             {canSkipNextRound ? (

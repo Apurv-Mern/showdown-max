@@ -1,6 +1,7 @@
 'use client';
 
 import type { ReactNode } from 'react';
+import { formatRoundEndHeadline } from '@/lib/roundDisplayLabels';
 import { cn } from '@/lib/utils';
 
 /** Figma linear gradient — top → bottom on title text. */
@@ -46,32 +47,39 @@ function GradientLine({
 
 export function RoundEndTitle({
   roundNumber,
+  roundType,
   variant = 'player',
   className,
 }: {
   roundNumber: number;
+  roundType?: string;
   variant?: RoundEndTitleVariant;
   className?: string;
 }) {
   const n = Math.max(1, roundNumber);
+  const headline = formatRoundEndHeadline(roundType, n);
+  const isPowerPlay = (roundType || '').toUpperCase() === 'WAGER';
 
   return (
     <h1 className={cn('text-center font-black uppercase', VARIANT_CLASS[variant], className)}>
       {variant === 'player' ? (
-        <>
-          <GradientLine variant="player">END OF</GradientLine>
-          <GradientLine variant="player">ROUND {n}</GradientLine>
-        </>
-      ) : (
-        variant === 'venue' ? (
-          <span className="block whitespace-nowrap font-extrabold text-white">
-            END OF ROUND {n}
-          </span>
+        isPowerPlay ? (
+          <>
+            <GradientLine variant="player">END OF</GradientLine>
+            <GradientLine variant="player">POWER PLAY</GradientLine>
+          </>
         ) : (
-          <GradientLine nowrap variant={variant}>
-            END OF ROUND {n}
-          </GradientLine>
+          <>
+            <GradientLine variant="player">END OF</GradientLine>
+            <GradientLine variant="player">ROUND {n}</GradientLine>
+          </>
         )
+      ) : variant === 'venue' ? (
+        <span className="block whitespace-nowrap font-extrabold text-white">{headline}</span>
+      ) : (
+        <GradientLine nowrap variant={variant}>
+          {headline}
+        </GradientLine>
       )}
     </h1>
   );

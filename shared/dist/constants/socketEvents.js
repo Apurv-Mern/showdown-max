@@ -32,6 +32,7 @@ const SOCKET_EVENTS = Object.freeze({
   EDIT_TEAM_SCORE: 'edit_team_score',
   ADVANCE_ROUND: 'advance_round',
   SKIP_NEXT_ROUND: 'skip_next_round',
+  SKIP_CURRENT_ROUND: 'skip_current_round',
   COLLECT_WAGERS: 'collect_wagers',
   END_GAME: 'end_game',
   MUSIC_CONTROL: 'music_control',

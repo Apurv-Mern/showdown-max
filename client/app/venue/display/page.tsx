@@ -162,15 +162,21 @@ function venueQuestionHasVisualMedia(q?: { mediaUrl?: string; mediaType?: string
   return mediaType === 'image' || mediaType === 'mp4';
 }
 
-/** Empty breakdown until answer_reveal — bars stay visible with zero fill. */
+/** Fresh tallies when a question opens (or resumes) with no graded answers yet. */
+function venueQuestionPhaseFromSession(questionState?: string): 'question' | 'reveal' {
+  return String(questionState || '').toUpperCase() === 'REVEALED' ? 'reveal' : 'question';
+}
+
 function bootstrapLiveResponseStats(
   rosterCount: number,
+  answered = 0,
 ): { correct: number; incorrect: number; noAnswer: number; total: number } {
   const roster = Math.max(0, rosterCount);
+  const ans = Math.max(0, Math.min(roster, answered));
   return {
     correct: 0,
     incorrect: 0,
-    noAnswer: 0,
+    noAnswer: Math.max(0, roster - ans),
     total: Math.max(1, roster),
   };
 }
@@ -747,7 +753,17 @@ function VenueDisplayContent() {
           setMiniGameType(cachedMini);
         }
       }
-      if (data.phase && data.phase !== 'welcome') {
+      if (data.miniGameResult?.holdScreen) {
+        const cachedMini = normalizeVenueMiniGameType(data.miniGameResult.game);
+        if (cachedMini) {
+          miniGameTypeRef.current = cachedMini;
+          setMiniGameType(cachedMini);
+          setMiniGameResult(data.miniGameResult);
+          setWelcomeHold(false);
+          setShowVenueSplash(false);
+          setPhase('mini_game_result');
+        }
+      } else if (data.phase && data.phase !== 'welcome') {
         setWelcomeHold(false);
         setShowVenueSplash(false);
         // Cached trivia phase must not override an active mini-game on first paint.
@@ -1239,8 +1255,46 @@ function VenueDisplayContent() {
           });
       }
 
-      // Mini-game takes priority over underlying trivia phase (e.g. QUESTION during break mini-games).
       const normalizedActiveMiniGame = normalizeVenueMiniGameType(data.activeMiniGame);
+      if (data.miniGameHold?.holdScreen && !normalizedActiveMiniGame) {
+        const holdGame = normalizeVenueMiniGameType(data.miniGameHold.game);
+        if (holdGame) {
+          miniGameTypeRef.current = holdGame;
+          setMiniGameType(holdGame);
+          setMiniGameResult({
+            game: holdGame,
+            holdScreen: true,
+            status: data.miniGameHold.status,
+            message: data.miniGameHold.message,
+          });
+          applyVenuePhaseFromSession('mini_game_result');
+          if (typeof window !== 'undefined') {
+            window.sessionStorage.setItem(
+              getVenueStateStorageKey(sessionPin),
+              JSON.stringify({
+                phase: 'mini_game_result',
+                miniGameType: holdGame,
+                miniGameResult: {
+                  game: holdGame,
+                  holdScreen: true,
+                  status: data.miniGameHold.status,
+                  message: data.miniGameHold.message,
+                },
+                qrCodeData: data.qrCodeData || qrCodeData,
+                teams: data.teams
+                  ? Array.isArray(data.teams)
+                    ? data.teams
+                    : Object.values(data.teams)
+                  : teams,
+                maxTeams: Number.isFinite(Number(data.maxTeams)) ? Number(data.maxTeams) : maxTeams,
+              }),
+            );
+          }
+          return;
+        }
+      }
+
+      // Mini-game takes priority over underlying trivia phase (e.g. QUESTION during break mini-games).
       if (normalizedActiveMiniGame) {
         miniGameTypeRef.current = normalizedActiveMiniGame;
         setMiniGameType(normalizedActiveMiniGame);
@@ -1330,7 +1384,10 @@ function VenueDisplayContent() {
       const audienceQuestionLive =
         data.state === 'QUESTION' &&
         (data.questionState === 'ACTIVE' || data.questionState === 'REVEALED');
-      if (data.currentQuestion && audienceQuestionLive) {
+      if (
+        data.currentQuestion &&
+        (audienceQuestionLive || data.state === 'WAGER_COLLECTION')
+      ) {
         setQuestion(data.currentQuestion);
         setTimerDuration(
           Number(data.currentQuestion.timerDuration ?? data.timerDuration ?? 30) || 30,
@@ -1340,8 +1397,10 @@ function VenueDisplayContent() {
         );
         if (typeof data.timerRunning === 'boolean') {
           setTimerRunning(data.timerRunning);
+        } else if (data.state === 'WAGER_COLLECTION') {
+          setTimerRunning(false);
         }
-      } else if (data.state !== 'QUESTION') {
+      } else if (data.state !== 'QUESTION' && data.state !== 'WAGER_COLLECTION') {
         setQuestion(null);
       }
 
@@ -1349,8 +1408,13 @@ function VenueDisplayContent() {
         const rosterCount = Array.isArray(data.activeTeamIds)
           ? data.activeTeamIds.length
           : (data.teams ? Object.keys(data.teams).length : 0) || Number(data.totalTeams || 0);
+        const answered = Math.max(0, Number(data.responseCount ?? 0));
         if (data.state === 'QUESTION' && data.questionState === 'ACTIVE') {
-          return bootstrapLiveResponseStats(rosterCount);
+          if (answered === 0) {
+            return bootstrapLiveResponseStats(rosterCount, 0);
+          }
+          // Keep tallies from live_response_update; session_state only syncs roster size.
+          return { ...prev, total: Math.max(prev.total, rosterCount, 1) };
         }
         if (data.state === 'QUESTION' && data.questionState === 'REVEALED') {
           return { ...prev, total: Math.max(prev.total, rosterCount, 1) };
@@ -1394,16 +1458,13 @@ function VenueDisplayContent() {
       }
 
       if (data.state === 'QUESTION') {
+        const sessionQuestionPhase = venueQuestionPhaseFromSession(data.questionState);
         if (data.currentQuestion) {
-          applyVenuePhaseFromSession('question');
+          applyVenuePhaseFromSession(sessionQuestionPhase);
         } else if (phaseRef.current === 'reveal' || phaseRef.current === 'question') {
           applyVenuePhaseFromSession(phaseRef.current);
-        } else if (data.questionState === 'REVEALED') {
-          // Server says answer was already revealed — stay on question phase
-          // (reveal phase requires revealData from a separate answer_reveal event)
-          applyVenuePhaseFromSession('question');
         } else {
-          applyVenuePhaseFromSession('question');
+          applyVenuePhaseFromSession(sessionQuestionPhase);
         }
       } else if (data.state === 'BREAK') {
         const w = resolveBreakWallClock({
@@ -1442,9 +1503,11 @@ function VenueDisplayContent() {
             ? 'mini_game'
             : data.state === 'LOBBY'
               ? lobbyPhaseToVenuePhase(data.lobbyPhase)
-              : data.state && stateToPhase[data.state]
-                ? stateToPhase[data.state]
-                : phaseRef.current;
+              : data.state === 'QUESTION'
+                ? venueQuestionPhaseFromSession(data.questionState)
+                : data.state && stateToPhase[data.state]
+                  ? stateToPhase[data.state]
+                  : phaseRef.current;
         window.sessionStorage.setItem(
           getVenueStateStorageKey(sessionPin),
           JSON.stringify({
@@ -1467,11 +1530,20 @@ function VenueDisplayContent() {
         const next = [...prev.filter((t) => !sameVenueTeamId(t.teamId, team.teamId)), team];
         const n = next.length;
         setTotalTeams(n);
-        setLiveResponses(
-          phaseRef.current === 'reveal'
-            ? (lr) => ({ ...lr, total: Math.max(1, n) })
-            : bootstrapLiveResponseStats(n),
-        );
+        setLiveResponses((lr) => {
+          if (phaseRef.current === 'reveal') {
+            return { ...lr, total: Math.max(1, n) };
+          }
+          if (phaseRef.current === 'question') {
+            const added = Math.max(0, n - lr.total);
+            return {
+              ...lr,
+              total: Math.max(1, n),
+              noAnswer: Math.max(0, lr.noAnswer + added),
+            };
+          }
+          return bootstrapLiveResponseStats(n);
+        });
         return next;
       });
     };
@@ -1557,7 +1629,7 @@ function VenueDisplayContent() {
           ? data.timerRunning
           : shouldWaitForHostAudioTimer(data.roundType, data.question)
             ? false
-            : true,
+            : false,
       );
       setLiveResponses(bootstrapLiveResponseStats(totalTeams));
       setRevealData(null);
@@ -1588,11 +1660,10 @@ function VenueDisplayContent() {
     const onResponseCount = (data: { count: number; total: number }) => {
       const n = Math.max(0, Number(data.total) || 0);
       setTotalTeams(n);
-      if (phaseRef.current === 'reveal') {
-        setLiveResponses((prev) => ({ ...prev, total: n }));
-      } else {
-        setLiveResponses(bootstrapLiveResponseStats(n));
-      }
+      setLiveResponses((prev) => ({
+        ...prev,
+        total: Math.max(prev.total, n, 1),
+      }));
     };
 
     const onWagerLockUpdate = (data: {
@@ -2033,13 +2104,28 @@ function VenueDisplayContent() {
         // Show the "Game Finished" result screen until the host manually
         // advances — used by Finish Race / Finish Card Shuffle buttons.
         setKangarooSelectedCount(0);
-        setMiniGameResult({
+        const holdPayload = {
           game: normalizedGame,
-          holdScreen: true,
+          holdScreen: true as const,
           status: data.status,
           message: data.message,
-        });
+        };
+        setMiniGameResult(holdPayload);
         setPhase('mini_game_result');
+        if (typeof window !== 'undefined') {
+          window.sessionStorage.setItem(
+            getVenueStateStorageKey(sessionPin),
+            JSON.stringify({
+              phase: 'mini_game_result',
+              miniGameType: normalizedGame,
+              miniGameResult: holdPayload,
+              qrCodeData: qrCodeData,
+              teams,
+              maxTeams,
+              totalTeams,
+            }),
+          );
+        }
         return;
       }
 
@@ -2053,13 +2139,27 @@ function VenueDisplayContent() {
     const onGameEnd = (data?: { teams?: Team[] }) => {
       stopMp3();
       setIsVenueMp3Playing(false);
+      setQuestion(null);
+      setRevealData(null);
       if (data?.teams) {
         setScoreboard(data.teams.sort((a, b) => b.score - a.score));
       }
+      applyVenuePhaseFromSession('game_end');
       if (typeof window !== 'undefined') {
-        window.localStorage.removeItem(VENUE_PIN_STORAGE_KEY);
+        window.sessionStorage.setItem(
+          getVenueStateStorageKey(sessionPin),
+          JSON.stringify({
+            phase: 'game_end',
+            qrCodeData: qrCodeData,
+            teams: data?.teams ?? teams,
+            maxTeams,
+            totalTeams: data?.teams?.length ?? totalTeams,
+            scoreboard: data?.teams
+              ? data.teams.sort((a, b) => b.score - a.score)
+              : scoreboard,
+          }),
+        );
       }
-      router.replace('/venue');
     };
 
     const onVenueLobbyPhase = (data: { phase?: LobbyPhase }) => {
@@ -2472,6 +2572,7 @@ function VenueDisplayContent() {
           <div className="h-full w-full animate-fadeIn">
             <RoundEndScreen
               roundIndex={roundEndInfo?.roundIndex ?? roundInfo?.roundIndex ?? 0}
+              roundType={roundEndInfo?.roundType ?? roundInfo?.round?.type}
               size="venue"
             />
           </div>

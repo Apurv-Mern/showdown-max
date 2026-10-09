@@ -446,6 +446,23 @@ function writeAnswerDraft(
   }
 }
 
+function patchQuestionActiveTimerCache(
+  timerRemaining: number,
+  opts: { timerRunning?: boolean; timerEndsAt?: number | null },
+) {
+  try {
+    const raw = sessionStorage.getItem('questionActive');
+    if (!raw) return;
+    const o = JSON.parse(raw) as Record<string, unknown>;
+    o.timerRemaining = timerRemaining;
+    if (typeof opts.timerRunning === 'boolean') o.timerRunning = opts.timerRunning;
+    if (opts.timerEndsAt !== undefined) o.timerEndsAt = opts.timerEndsAt;
+    sessionStorage.setItem('questionActive', JSON.stringify(o));
+  } catch {
+    /* ignore */
+  }
+}
+
 function readAnswerDraft(
   pin: string,
   teamId: number,
@@ -758,6 +775,29 @@ function coercePlayerTimerFromServer(
   return { remaining: fromWall, endsAt: syncEndsAt };
 }
 
+/** Apply server timer fields — never arm local countdown while paused. */
+function syncPlayerTimerFromServer(
+  serverRemaining: unknown,
+  endsAt: unknown,
+  timerRunningFlag: unknown,
+  paused?: boolean,
+): { remaining: number; endsAt: number | null; running: boolean } {
+  const running =
+    paused === true
+      ? false
+      : timerRunningFlag === true
+        ? true
+        : timerRunningFlag === false
+          ? false
+          : false;
+  const coerced = coercePlayerTimerFromServer(serverRemaining, running ? endsAt : null);
+  return {
+    remaining: coerced.remaining,
+    endsAt: running ? coerced.endsAt : null,
+    running,
+  };
+}
+
 export default function GamePage() {
   const router = useRouter();
   const { socket } = useSocket();
@@ -794,6 +834,8 @@ export default function GamePage() {
   const [breakSkewMs, setBreakSkewMs] = useState(0);
   const [breakUpNextLabel, setBreakUpNextLabel] = useState<string | null>(null);
   const [timerRunning, setTimerRunning] = useState(false);
+  /** Host paused the question timer — answers locked until resume (independent of stale timerRunning). */
+  const [hostTimerPaused, setHostTimerPaused] = useState(false);
   /** MUSIC round: host has started the venue timer at least once this question (incl. after pause). */
   const [musicVenuePlaybackStarted, setMusicVenuePlaybackStarted] = useState(false);
   const [showBreakEndedNotice, setShowBreakEndedNotice] = useState(false);
@@ -825,6 +867,8 @@ export default function GamePage() {
   const quizRoundsRef = useRef<Array<{ name?: string; type?: string }>>([]);
   const quizRoundIndexRef = useRef(0);
   const questionStateRef = useRef<string>('');
+  /** Updated synchronously in session_state (before setPhase) for replay handlers in the same tick. */
+  const sessionLiveStateRef = useRef<string>('');
   const ensureRevealAfterWagerLockRef = useRef<(() => void) | null>(null);
   /** Same pin+team: run local + HTTP restore only once per mount cycle (socket effect may re-run). */
   const playerRestoreGuardRef = useRef<{ pin: string; teamId: number } | null>(null);
@@ -885,6 +929,27 @@ export default function GamePage() {
   }, [session, router]);
 
   useEffect(() => {
+    const pin = session.pin;
+    const tid = session.teamId != null ? Number(session.teamId) : NaN;
+    if (pin && Number.isFinite(tid)) {
+      const snap = readPlayerSnapshot(pin, tid);
+      const snapState = (snap?.sessionPayload?.gameState as { state?: string } | undefined)?.state;
+      if (snapState === 'FINAL_RESULTS' || snapState === 'GAME_SHOW_END') {
+        try {
+          sessionStorage.removeItem('roundIntro');
+          sessionStorage.removeItem('questionActive');
+        } catch {
+          /* ignore */
+        }
+        sessionLiveStateRef.current = snapState;
+        setHasInitialState(true);
+        setRoundInfo(null);
+        setQuestion(null);
+        setPhase(snapState === 'GAME_SHOW_END' ? 'game_show_end' : 'game_end');
+        return;
+      }
+    }
+
     const savedRoundIntro = sessionStorage.getItem('roundIntro');
     if (savedRoundIntro) {
       try {
@@ -910,16 +975,18 @@ export default function GamePage() {
         const knockedOut = Boolean(data.isEliminated) || inEliminatedList;
         setQuestion(data);
         setTimerDuration(Number(data.timerDuration ?? 30) || 30);
-        const coerced = coercePlayerTimerFromServer(
+        // sessionStorage may predate a host pause — do not start a local countdown here.
+        const bootTimer = syncPlayerTimerFromServer(
           data.timerRemaining ?? data.timerDuration,
-          data.timerEndsAt,
+          null,
+          false,
         );
-        setTimerEndsAt(coerced.endsAt);
-        setTimerRemaining(coerced.remaining);
-        const running = Boolean(data.timerRunning);
-        setTimerRunning(running);
+        setTimerRemaining(bootTimer.remaining);
+        setTimerEndsAt(null);
+        setTimerRunning(false);
+        const running = false;
         const td = Number(data.timerDuration ?? 30) || 30;
-        const tr = coerced.remaining;
+        const tr = bootTimer.remaining;
         const isMusicRound = shouldWaitForHostAudioTimer(data.roundType, data.question);
         if (isMusicRound) {
           setMusicVenuePlaybackStarted(running || (tr > 0 && tr < td));
@@ -988,7 +1055,17 @@ export default function GamePage() {
       }
       sessionStorage.removeItem('questionActive');
     }
-  }, []);
+  }, [session.pin, session.teamId]);
+
+  useEffect(() => {
+    if (phase !== 'round_intro' || roundInfo) return;
+    const live = sessionLiveStateRef.current;
+    if (live === 'FINAL_RESULTS') {
+      setPhase('game_end');
+    } else if (live === 'GAME_SHOW_END') {
+      setPhase('game_show_end');
+    }
+  }, [phase, roundInfo]);
 
   useEffect(() => {
     if (phase !== 'break') return;
@@ -1052,6 +1129,7 @@ export default function GamePage() {
           (data.gameState ?? data) as Record<string, unknown>,
         ) as typeof data.gameState extends object ? typeof data.gameState : typeof data;
         if (!gs || typeof gs !== 'object' || !('state' in gs)) return;
+        sessionLiveStateRef.current = String(gs.state || '');
         setHasInitialState(true);
         // Join reply carries the server's current team name — adopt it so a rename made while
         // this device was disconnected doesn't linger in sessionStorage.
@@ -1086,6 +1164,31 @@ export default function GamePage() {
 
         if (gs.activeMiniGame) {
           router.push(`/play/mini-game?game=${gs.activeMiniGame}`);
+          return;
+        }
+
+        if (gs.miniGameHold?.holdScreen) {
+          const holdGame = String(gs.miniGameHold.game || 'card_shuffle');
+          router.push(`/play/mini-game?game=${holdGame}`);
+          return;
+        }
+
+        if (gs.state === 'FINAL_RESULTS') {
+          setTimerRunning(false);
+          setQuestion(null);
+          setRoundInfo(null);
+          setRevealData(null);
+          setSelectedOption(null);
+          setPhase('game_end');
+          return;
+        }
+
+        if (gs.state === 'GAME_SHOW_END') {
+          setTimerRunning(false);
+          setSelectedOption(null);
+          setRevealData(null);
+          setPointsGained(null);
+          setPhase('game_show_end');
           return;
         }
 
@@ -1128,8 +1231,11 @@ export default function GamePage() {
 
         if (gs.state === 'QUESTION') {
           questionStateRef.current = String(gs.questionState || '');
-          if ((gs.questionState || '').toUpperCase() === 'PREVIEW') {
-            // Host PREVIEW while audience collects wagers — never resync players off wager UI.
+          if (
+            gs.state === 'QUESTION' &&
+            (gs.questionState || '').toUpperCase() === 'PREVIEW'
+          ) {
+            // Host-only preview (audienceView merge did not remap state) — keep wager UI if open.
             if (phaseRef.current === 'wager_input') return;
             const keepLocalQuestionUi =
               questionRef.current &&
@@ -1165,16 +1271,24 @@ export default function GamePage() {
           }
           setQuestion(gs.currentQuestion);
           setTimerDuration(Number(gs.currentQuestion.timerDuration ?? 30) || 30);
-          const coerced = coercePlayerTimerFromServer(
+          const synced = syncPlayerTimerFromServer(
             gs.timerRemaining,
             gs.timerEndsAt ?? gs.currentQuestion.timerEndsAt,
+            gs.timerRunning,
           );
-          setTimerEndsAt(coerced.endsAt);
-          setTimerRemaining(coerced.remaining);
-          const running = Boolean(gs.timerRunning);
-          setTimerRunning(running);
+          setTimerRemaining(synced.remaining);
+          setTimerEndsAt(synced.endsAt);
+          setTimerRunning(synced.running);
+          setHostTimerPaused(
+            gs.questionState === 'ACTIVE' && synced.remaining > 0 && !synced.running,
+          );
+          patchQuestionActiveTimerCache(synced.remaining, {
+            timerRunning: synced.running,
+            timerEndsAt: synced.endsAt,
+          });
+          const running = synced.running;
           const td = Number(gs.currentQuestion.timerDuration ?? 30) || 30;
-          const tr = coerced.remaining;
+          const tr = synced.remaining;
           const isMusicRound = shouldWaitForHostAudioTimer(
             gs.currentQuestion.roundType,
             gs.currentQuestion.question,
@@ -1405,15 +1519,6 @@ export default function GamePage() {
           return;
         }
 
-        if (gs.state === 'GAME_SHOW_END') {
-          setTimerRunning(false);
-          setSelectedOption(null);
-          setRevealData(null);
-          setPointsGained(null);
-          setPhase('game_show_end');
-          return;
-        }
-
         if (gs.state === 'ROUND_END') {
           // Keep showing the round-over transition screen. The `round_end` event
           // (which arrives in parallel) populates roundEndInfo with the next-round
@@ -1558,9 +1663,6 @@ export default function GamePage() {
           );
           setTimerRunning(false);
           setPhase('break');
-        } else if (gs.state === 'FINAL_RESULTS') {
-          setTimerRunning(false);
-          setPhase('game_end');
         } else if (gs.state === 'LOBBY') {
           setTimerRunning(false);
           if (gs.lobbyPhase === 'code_of_conduct') {
@@ -1578,6 +1680,15 @@ export default function GamePage() {
     };
 
     const onRoundIntro = (data: any) => {
+      const live = sessionLiveStateRef.current;
+      if (
+        live === 'FINAL_RESULTS' ||
+        live === 'GAME_SHOW_END' ||
+        phaseRef.current === 'game_end' ||
+        phaseRef.current === 'game_show_end'
+      ) {
+        return;
+      }
       setHasInitialState(true);
       setRoundInfo(data);
       setPhase('round_intro');
@@ -1655,18 +1766,24 @@ export default function GamePage() {
       setQuestion(data);
       setTimerDuration(data.timerDuration);
       const tr = data.timerRemaining;
-      const coerced = coercePlayerTimerFromServer(
+      const synced = syncPlayerTimerFromServer(
         typeof tr === 'number' && Number.isFinite(tr) ? tr : 0,
         data.timerEndsAt,
+        data.timerRunning,
       );
-      setTimerEndsAt(coerced.endsAt);
-      setTimerRemaining(coerced.remaining);
-      const running = Boolean(data.timerRunning);
-      setTimerRunning(running);
+      setTimerRemaining(synced.remaining);
+      setTimerEndsAt(synced.endsAt);
+      setTimerRunning(synced.running);
+      setHostTimerPaused(synced.remaining > 0 && !synced.running);
+      patchQuestionActiveTimerCache(synced.remaining, {
+        timerRunning: synced.running,
+        timerEndsAt: synced.endsAt,
+      });
+      const running = synced.running;
       const td = Number(data.timerDuration ?? 30) || 30;
       const isMusicRound = shouldWaitForHostAudioTimer(data.roundType, data.question);
       if (isMusicRound) {
-        setMusicVenuePlaybackStarted(running || (coerced.remaining > 0 && coerced.remaining < td));
+        setMusicVenuePlaybackStarted(running || (synced.remaining > 0 && synced.remaining < td));
       } else {
         setMusicVenuePlaybackStarted(false);
       }
@@ -1749,32 +1866,33 @@ export default function GamePage() {
       timerRunning?: boolean;
       paused?: boolean;
     }) => {
-      if (typeof data.timerRunning === 'boolean') {
-        setTimerRunning(data.timerRunning);
-        if (
-          data.timerRunning &&
-          shouldWaitForHostAudioTimer(questionRef.current?.roundType, questionRef.current?.question)
-        ) {
-          setMusicVenuePlaybackStarted(true);
-        }
-      } else if (data.paused === true) {
-        setTimerRunning(false);
-      } else if (data.paused === false) {
-        setTimerRunning(true);
-        if (
-          shouldWaitForHostAudioTimer(questionRef.current?.roundType, questionRef.current?.question)
-        ) {
-          setMusicVenuePlaybackStarted(true);
-        }
-      }
-      const coerced = coercePlayerTimerFromServer(data.remaining, data.timerEndsAt);
+      const synced = syncPlayerTimerFromServer(
+        data.remaining,
+        data.timerEndsAt,
+        data.timerRunning,
+        data.paused,
+      );
+      const runningNow = synced.remaining <= 0 ? false : synced.running;
+      setTimerRemaining(synced.remaining);
+      setTimerEndsAt(synced.endsAt);
+      setTimerRunning(runningNow);
       if (data.paused === true || data.timerRunning === false) {
-        setTimerEndsAt(null);
-      } else {
-        setTimerEndsAt(coerced.endsAt);
+        setHostTimerPaused(synced.remaining > 0);
+      } else if (data.timerRunning === true && data.paused === false) {
+        setHostTimerPaused(false);
       }
-      setTimerRemaining(coerced.remaining);
-      if (coerced.remaining <= 0) setTimerRunning(false);
+      if (
+        runningNow &&
+        shouldWaitForHostAudioTimer(questionRef.current?.roundType, questionRef.current?.question)
+      ) {
+        setMusicVenuePlaybackStarted(true);
+      } else if (!runningNow) {
+        setMusicVenuePlaybackStarted(false);
+      }
+      patchQuestionActiveTimerCache(synced.remaining, {
+        timerRunning: runningNow,
+        timerEndsAt: synced.endsAt,
+      });
     };
     const onTimerExpired = () => {
       setTimerEndsAt(null);
@@ -1884,6 +2002,15 @@ export default function GamePage() {
     };
 
     const onScoreboard = (data: { teams: any[] }) => {
+      const gsState = sessionLiveStateRef.current;
+      if (
+        gsState === 'FINAL_RESULTS' ||
+        gsState === 'GAME_SHOW_END' ||
+        phaseRef.current === 'game_end' ||
+        phaseRef.current === 'game_show_end'
+      ) {
+        return;
+      }
       setHasInitialState(true);
       if (phaseRef.current !== 'scoreboard') {
         previousPhaseBeforeScoreboardRef.current = phaseRef.current;
@@ -2099,9 +2226,18 @@ export default function GamePage() {
       teams?: { teamId: number; teamName: string; score: number }[];
     }) => {
       setTimerRunning(false);
+      setQuestion(null);
+      setRevealData(null);
+      setSelectedOption(null);
       if (session.pin && session.teamId != null) {
         clearWagerDraft(session.pin, Number(session.teamId));
         clearAnswerDraftsForTeam(session.pin, Number(session.teamId));
+        try {
+          sessionStorage.removeItem('questionActive');
+          sessionStorage.removeItem('roundIntro');
+        } catch {
+          /* ignore */
+        }
       }
       answerDraftResubmitGuardRef.current.clear();
       if (data?.teams) {
@@ -2109,15 +2245,47 @@ export default function GamePage() {
         const myTeam = data.teams.find((t) => sameTeamId(t.teamId, session.teamId));
         if (myTeam) setSession({ score: myTeam.score });
       }
-      clearSession();
-      router.replace('/play/join');
+      sessionLiveStateRef.current = 'FINAL_RESULTS';
+      setRoundInfo(null);
+      setPhase('game_end');
+      if (session.pin && session.teamId != null) {
+        setSnapshotSessionPayload(session.pin, Number(session.teamId), {
+          joined: true,
+          teamId: session.teamId,
+          teamName: session.teamName,
+          score: session.score,
+          gameState: {
+            state: 'FINAL_RESULTS',
+            questionState: 'WAITING',
+            teams: data?.teams
+              ? Object.fromEntries(data.teams.map((t) => [t.teamId, t]))
+              : {},
+          },
+        });
+      }
     };
 
     const pin = session.pin;
     const tid = Number(session.teamId);
     const applyRestoreBundle = (bundle: PlayerRestoreBundle | null | undefined) => {
       if (!bundle?.sessionPayload || !pin || !Number.isFinite(tid)) return;
-      applyPlayerRestoreBundle(bundle, {
+      const gsWrap = bundle.sessionPayload.gameState as { state?: string } | undefined;
+      const terminal =
+        gsWrap?.state === 'FINAL_RESULTS' || gsWrap?.state === 'GAME_SHOW_END';
+      if (terminal) {
+        sessionLiveStateRef.current = gsWrap?.state || 'FINAL_RESULTS';
+        setHasInitialState(true);
+        setRoundInfo(null);
+        setQuestion(null);
+        setRevealData(null);
+        setPhase(gsWrap?.state === 'GAME_SHOW_END' ? 'game_show_end' : 'game_end');
+      }
+      const replays = terminal
+        ? (bundle.replays || []).filter(
+            (r) => r.event === 'game_end' || r.event === 'game_show_end',
+          )
+        : bundle.replays;
+      applyPlayerRestoreBundle({ ...bundle, replays }, {
         session_state: (d) => onSessionState(d),
         round_intro: (d) => onRoundIntro(d as any),
         wager_collection_start: (d) => onWagerCollectionStart(d as any),
@@ -2144,13 +2312,14 @@ export default function GamePage() {
     if (!sameKey && Number.isFinite(tid) && pin) {
       playerRestoreGuardRef.current = { pin, teamId: tid };
       void (async () => {
-        const local = snapshotToRestoreBundle(readPlayerSnapshot(pin, tid));
-        if (local) applyRestoreBundle(local);
         const remote = await fetchPlayerRestore(pin, tid, abortRestore.signal);
         if (remote) {
           setSnapshotFromRemoteBundle(pin, tid, remote);
           applyRestoreBundle(remote);
+          return;
         }
+        const local = snapshotToRestoreBundle(readPlayerSnapshot(pin, tid));
+        if (local) applyRestoreBundle(local);
       })();
     }
 
@@ -2230,7 +2399,8 @@ export default function GamePage() {
         !socket ||
         isEliminatedRef.current ||
         timerRemaining <= 0 ||
-        !timerRunning
+        !timerRunning ||
+        hostTimerPaused
       )
         return;
       setSelectedOption(index);
@@ -2263,6 +2433,7 @@ export default function GamePage() {
       session.pin,
       session.teamId,
       timerRunning,
+      hostTimerPaused,
     ],
   );
 
@@ -2282,7 +2453,8 @@ export default function GamePage() {
       !socket ||
       isEliminatedRef.current ||
       timerRemaining <= 0 ||
-      !timerRunning
+      !timerRunning ||
+      hostTimerPaused
     )
       return;
     setSelectedOption(orderingSelection);
@@ -2313,6 +2485,7 @@ export default function GamePage() {
     session.pin,
     session.teamId,
     timerRunning,
+    hostTimerPaused,
   ]);
 
   const handleSubmitWager = useCallback(
@@ -2414,7 +2587,8 @@ export default function GamePage() {
     isEliminated ||
     timerRemaining <= 0 ||
     phase !== 'question' ||
-    !timerRunning;
+    !timerRunning ||
+    hostTimerPaused;
   const showTimeExpiredState =
     timerRemaining <= 0 &&
     (phase === 'question' || phase === 'answered') &&
@@ -3118,6 +3292,7 @@ export default function GamePage() {
                   <RoundEndTitle
                     variant="player"
                     roundNumber={(roundEndInfo?.roundIndex ?? roundInfo?.roundIndex ?? 0) + 1}
+                    roundType={roundEndInfo?.roundType ?? roundInfo?.round?.type}
                   />
 
                   <div className="min-h-[2rem] flex-1" aria-hidden />
@@ -3190,105 +3365,14 @@ export default function GamePage() {
                 </motion.div>
               )}
 
-              {/* ── GAME END ── */}
+              {/* ── GAME END (gameshow closing — matches venue / host) ── */}
               {phase === 'game_end' && (
                 <motion.div
                   key="game_end"
                   {...pageTransition}
-                  className="flex flex-1 flex-col items-center justify-center p-4 text-center sm:p-6 md:p-8"
+                  className="flex min-h-0 flex-1 flex-col"
                 >
-                  <div className="w-full max-w-sm md:max-w-md">
-                    <motion.div
-                      initial={{ scale: 0, rotate: -30 }}
-                      animate={{ scale: 1, rotate: 0 }}
-                      transition={{ type: 'spring', stiffness: 200, delay: 0.1 }}
-                      className="mb-4 text-5xl sm:text-6xl"
-                    >
-                      🏆
-                    </motion.div>
-                    <motion.h2
-                      initial={{ opacity: 0 }}
-                      animate={{ opacity: 1 }}
-                      transition={{ delay: 0.3 }}
-                      className="mb-2 text-2xl font-bold text-glow-cyan sm:text-3xl md:text-4xl"
-                    >
-                      Thank You For Playing!
-                    </motion.h2>
-                    {myRank === 1 && (
-                      <motion.p
-                        initial={{ opacity: 0, scale: 1.5 }}
-                        animate={{ opacity: 1, scale: 1 }}
-                        transition={{ delay: 0.5 }}
-                        className="text-neon-gold text-glow-gold text-lg font-bold mb-4"
-                      >
-                        You Won! 🎉
-                      </motion.p>
-                    )}
-                    {myRank > 1 && (
-                      <motion.p
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        transition={{ delay: 0.5 }}
-                        className="text-foreground/50 mb-4"
-                      >
-                        You finished in{' '}
-                        <span className="font-bold text-neon-cyan">
-                          {myRank}
-                          {myRank === 2 ? 'nd' : myRank === 3 ? 'rd' : 'th'}
-                        </span>{' '}
-                        place
-                      </motion.p>
-                    )}
-                    <motion.div
-                      initial={{ opacity: 0, y: 15 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{ delay: 0.6 }}
-                      className="neon-border rounded-xl p-5 mb-6 bg-surface/80"
-                    >
-                      <p className="text-foreground/40 text-xs mb-1">Final Score</p>
-                      <p className="text-4xl font-mono font-bold text-neon-cyan text-glow-cyan">
-                        {session.score}
-                      </p>
-                    </motion.div>
-                    <motion.div
-                      variants={staggerContainer}
-                      initial="initial"
-                      animate="animate"
-                      className="space-y-2 mb-6 overflow-y-auto max-h-[40vh] pr-1"
-                    >
-                      {scoreboard.map((team, idx) => (
-                        <motion.div
-                          key={team.teamId}
-                          variants={staggerItem}
-                          className={cn(
-                            'flex items-center justify-between px-4 py-2 rounded-lg',
-                            team.teamId === session.teamId
-                              ? 'bg-neon-cyan/10 border border-neon-cyan/30'
-                              : 'bg-surface/80',
-                          )}
-                        >
-                          <div className="flex items-center gap-2">
-                            <span className="text-sm font-bold text-foreground/40">{idx + 1}</span>
-                            <span className="text-sm font-medium uppercase">
-                              {toDisplayUpper(team.teamName)}
-                            </span>
-                          </div>
-                          <span className="font-mono text-sm font-bold text-neon-cyan">
-                            {team.score}
-                          </span>
-                        </motion.div>
-                      ))}
-                    </motion.div>
-                    <button
-                      onClick={() => {
-                        clearSession();
-                        router.push('/play/join');
-                      }}
-                      className="w-full py-3 rounded-xl bg-neon-cyan/20 text-neon-cyan border border-neon-cyan/50 font-bold hover:bg-neon-cyan/30 transition-colors touch-manipulation"
-                    >
-                      Leave Game
-                    </button>
-                  </div>
+                  <GameshowEndPlayerView />
                 </motion.div>
               )}
             </AnimatePresence>

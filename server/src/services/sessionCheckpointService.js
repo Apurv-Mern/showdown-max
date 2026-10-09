@@ -178,11 +178,26 @@ const hydrateActiveSessions = async () => {
   return restored;
 };
 
+const TERMINAL_GAME_STATES = new Set([GAME_STATES.FINAL_RESULTS, GAME_STATES.GAME_SHOW_END]);
+
 const ensureHydratedGameState = async (pin) => {
   const live = await redisStore.getGameState(pin);
   if (live) return live;
-  const session = await Session.findOne({ where: { pin, status: 'active' } });
+
+  const { Op } = require('sequelize');
+  const session = await Session.findOne({
+    where: { pin, status: { [Op.in]: ['active', 'completed'] } },
+    attributes: ['id', 'pin', 'liveCheckpoint', 'status'],
+  });
   if (!session) return null;
+
+  const checkpoint = parseCheckpoint(session.liveCheckpoint);
+  if (!checkpoint?.gameState) return null;
+
+  if (session.status === 'completed' && !TERMINAL_GAME_STATES.has(checkpoint.gameState.state)) {
+    return null;
+  }
+
   await hydrateFromSession(session);
   return redisStore.getGameState(pin);
 };

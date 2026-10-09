@@ -236,6 +236,7 @@ const venueHandlers = (io, socket) => {
  */
 const emitTriviaReconnectSideEvents = async (socket, pin, gameState) => {
   if (gameState.activeMiniGame) return;
+  if (gameState.miniGameHold?.holdScreen) return;
 
   if (gameState.state === 'QUESTION' && gameState.questionState === 'PREVIEW') {
     // Host preview shows the upcoming question — replaying answer_reveal would flip
@@ -274,6 +275,8 @@ const emitTriviaReconnectSideEvents = async (socket, pin, gameState) => {
   if (
     gameState.scoreboardVisible &&
     gameState.state !== 'SCOREBOARD' &&
+    gameState.state !== 'FINAL_RESULTS' &&
+    gameState.state !== 'GAME_SHOW_END' &&
     !gameState.activeMiniGame
   ) {
     const sortedTeams = Object.values(gameState.teams || {}).sort((a, b) => b.score - a.score);
@@ -282,6 +285,14 @@ const emitTriviaReconnectSideEvents = async (socket, pin, gameState) => {
       teams: sortedTeams,
       source: 'manual',
       ...(revealPayload ? { revealSnapshot: revealPayload } : {}),
+    });
+  }
+  if (gameState.state === 'GAME_SHOW_END') {
+    socket.emit(SOCKET_EVENTS.GAME_SHOW_END, {});
+  }
+  if (gameState.state === 'FINAL_RESULTS') {
+    socket.emit(SOCKET_EVENTS.GAME_END, {
+      teams: Object.values(gameState.teams || {}).sort((a, b) => b.score - a.score),
     });
   }
 };
@@ -300,7 +311,8 @@ const buildFullStatePayload = async (gameState, pin) => {
   // counter can be displayed alongside the question label without waiting for QUESTION_ACTIVE.
   const includeQuestionPayload =
     (gameState.state === 'QUESTION' || gameState.state === 'WAGER_COLLECTION') &&
-    !gameState.activeMiniGame;
+    !gameState.activeMiniGame &&
+    !gameState.miniGameHold?.holdScreen;
   const currentQuestion = includeQuestionPayload ? currentQuestionRow : null;
   const lobbyTeams = await redisStore.getConnectedTeamsData(pin);
   const teams =
@@ -341,7 +353,8 @@ const buildFullStatePayload = async (gameState, pin) => {
     currentRoundIndex: gameState.currentRoundIndex,
     currentQuestionIndex: gameState.currentQuestionIndex,
     timerRemaining: timerManager.getReconnectTimerRemaining(pin, gameState),
-    timerRunning: gameState.timerRunning,
+    timerRunning: timerManager.resolveClientTimerRunning(pin, gameState),
+    timerEndsAt: timerManager.resolveClientTimerEndsAt(pin, gameState),
     responseCount: gameState.responseCount,
     totalTeams,
     rounds: sanitizedRounds,
@@ -358,6 +371,7 @@ const buildFullStatePayload = async (gameState, pin) => {
         ? getBreakRemainingSeconds(gameState)
         : Number(gameState.breakRemaining ?? 0),
     activeMiniGame: gameState.activeMiniGame,
+    miniGameHold: gameState.miniGameHold || null,
     miniGameState: gameState.miniGameState || null,
     miniGameConfig: gameState.miniGameConfig || null,
     scoreboardVisible: Boolean(gameState.scoreboardVisible),

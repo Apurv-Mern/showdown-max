@@ -31,6 +31,7 @@ const ROUND_END_BOX_GRADIENT = 'linear-gradient(180deg, #4020BA 0%, #000000 60%)
 
 export interface RoundEndScreenProps {
   roundIndex: number;
+  roundType?: string;
   size?: RoundEndScreenSize;
   className?: string;
   children?: ReactNode;
@@ -39,6 +40,7 @@ export interface RoundEndScreenProps {
 /** End-of-round transition for venue/host — centered box with gradient fill, title, and logo. */
 export function RoundEndScreen({
   roundIndex,
+  roundType,
   size = 'venue',
   className,
   children,
@@ -69,7 +71,7 @@ export function RoundEndScreen({
           )}
         >
           <div className={cn('flex flex-col items-center', children ? 'gap-5' : 'flex-1 justify-center')}>
-            <RoundEndTitle roundNumber={roundNumber} variant={size} />
+            <RoundEndTitle roundNumber={roundNumber} roundType={roundType} variant={size} />
             {children}
           </div>
 

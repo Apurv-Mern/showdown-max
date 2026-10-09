@@ -264,6 +264,19 @@ const hostHandlers = (io, socket) => {
     }
   });
 
+  socket.on(SOCKET_EVENTS.SKIP_CURRENT_ROUND, async (data) => {
+    try {
+      const pin = data?.pin;
+      if (!assertHostForPin(socket, pin)) {
+        socket.emit(SOCKET_EVENTS.ERROR, { message: 'Unauthorized' });
+        return;
+      }
+      await gameController.skipCurrentRound(io, pin);
+    } catch (err) {
+      logger.error('skip_current_round error', { error: err.message });
+    }
+  });
+
   socket.on(SOCKET_EVENTS.START_BREAK, async (data) => {
     try {
       await gameController.startBreak(io, data.pin);

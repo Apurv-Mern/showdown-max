@@ -600,6 +600,25 @@ export default function MiniGamePage() {
         }
       }
 
+      if (gameState.miniGameHold?.holdScreen) {
+        const gid = normalizeMiniGameId(gameState.miniGameHold.game);
+        if (gid === 'kangaroo_race' || gid === 'card_shuffle') {
+          setGameType(gid);
+          setRoundOpen(false);
+          setWinningValue(null);
+          setMiniGameEndMessage(
+            gameState.miniGameHold.message || MINI_GAME_FINISHED_MESSAGE,
+          );
+          setRoundAnnouncement(
+            gid === 'card_shuffle'
+              ? gameState.miniGameHold.message || CARD_FINISHED_MESSAGE
+              : gameState.miniGameHold.message || MINI_GAME_FINISHED_MESSAGE,
+          );
+          setResultPhase('finished');
+          return;
+        }
+      }
+
       if (!gameState.activeMiniGame && gameState.state !== 'LOBBY') {
         exitMiniGameToGame();
       }

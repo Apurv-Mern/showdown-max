@@ -26,6 +26,20 @@ const { buildAudienceViewPayload } = require('../../utils/audienceView');
 
 const eliminationStates = new Map();
 
+const emitFullSessionState = async (io, pin, gameState) => {
+  const venueHandlers = require('../../socket/venueHandlers');
+  const payload = await venueHandlers.buildFullStatePayload(gameState, pin);
+  io.to(`session:${pin}`).emit(SOCKET_EVENTS.SESSION_STATE, payload);
+};
+
+const clearMiniGameHold = async (pin, gameState) => {
+  if (!gameState?.miniGameHold) return gameState;
+  const next = { ...gameState };
+  delete next.miniGameHold;
+  await redisStore.setGameState(pin, next);
+  return next;
+};
+
 /** Passive socket drops (e.g. refresh) schedule a delayed purge; `join_session` cancels it. */
 const disconnectPurgeTimers = new Map();
 const DISCONNECT_PURGE_DELAY_MS = Math.max(
@@ -529,6 +543,7 @@ const startGame = async (io, pin, quiz, sessionId) => {
 const nextQuestion = async (io, pin) => {
   let gameState = await redisStore.getGameState(pin);
   if (!gameState) return;
+  gameState = await clearMiniGameHold(pin, gameState);
 
   if (
     gameState.state === GAME_STATES.QUESTION &&
@@ -648,15 +663,6 @@ const proceedToStageQuestion = async (
   } else {
     gameState.hostPreviewAwaitingWagerCollection = Boolean(hostPreviewAwaitingWagerCollection);
   }
-  if (
-    !gameState.audienceHoldRoundIntro &&
-    (gameState.lastAudienceQuestionIndex === undefined ||
-      gameState.lastAudienceQuestionIndex === null)
-  ) {
-    const priorIndex = Math.max(0, Number(gameState.currentQuestionIndex) - 1);
-    gameState.lastAudienceQuestionIndex = priorIndex;
-    gameState.lastAudienceQuestionState = QUESTION_STATES.REVEALED;
-  }
   await redisStore.setGameState(pin, gameState);
   const venueHandlers = require('../../socket/venueHandlers');
   const payload = await venueHandlers.buildFullStatePayload(gameState, pin);
@@ -668,6 +674,7 @@ const proceedToStageQuestion = async (
 const presentQuestion = async (io, pin) => {
   let gameState = await redisStore.getGameState(pin);
   if (!gameState || gameState.state !== GAME_STATES.QUESTION) return;
+  gameState = await clearMiniGameHold(pin, gameState);
   if (gameState.questionState !== QUESTION_STATES.PREVIEW) {
     logger.debug('presentQuestion ignored — not in PREVIEW', {
       pin,
@@ -836,13 +843,20 @@ const emitQuestionActiveForCurrent = async (io, pin, { submissionReset = false }
     .map((t) => Number(t.teamId))
     .filter((id) => Number.isFinite(id));
 
+  const timerRunningForClients = timerManager.resolveClientTimerRunning(
+    pin,
+    gsForQuestionActive,
+  );
   io.to(`session:${pin}`).emit(SOCKET_EVENTS.QUESTION_ACTIVE, {
     questionIndex: gsForQuestionActive.currentQuestionIndex,
     totalQuestions: round.questions.length,
     question: mapClientQuestionPayload(question),
     timerDuration: effectiveTimer,
     timerRemaining: trForEmit,
-    timerRunning: Boolean(gsForQuestionActive.timerRunning),
+    timerRunning: timerRunningForClients,
+    timerEndsAt: timerRunningForClients
+      ? timerManager.resolveClientTimerEndsAt(pin, gsForQuestionActive)
+      : null,
     roundType: round.type,
     eliminatedTeamIds,
     pointsForQuestion:
@@ -1021,6 +1035,9 @@ const skipQuestion = async (io, pin) => {
   }
 
   const inPreview = gameState.questionState === QUESTION_STATES.PREVIEW;
+  const audienceNeverSawQuestion =
+    gameState.lastAudienceQuestionIndex === undefined ||
+    gameState.lastAudienceQuestionIndex === null;
   const skipped = stateMachine.getCurrentQuestion(gameState);
   const skippedId = skipped?.id;
 
@@ -1049,19 +1066,28 @@ const skipQuestion = async (io, pin) => {
   }
   gameState = advance.gameState;
 
-  if (isWagerLockRound(round)) {
-    await redisStore.setGameState(pin, gameState);
-    await startQuestionWagerCollection(io, pin);
-    return;
-  }
-
   if (inPreview) {
-    await proceedToStageQuestion(io, pin, gameState);
+    if (audienceNeverSawQuestion) {
+      gameState = {
+        ...gameState,
+        lastAudienceQuestionIndex: undefined,
+        lastAudienceQuestionState: undefined,
+      };
+    }
+    await proceedToStageQuestion(io, pin, gameState, {
+      audienceHoldRoundIntro: audienceNeverSawQuestion,
+    });
     logger.info('Staged preview skipped to next question', {
       pin,
       skippedQuestionId: skippedId,
       questionIndex: gameState.currentQuestionIndex,
     });
+    return;
+  }
+
+  if (isWagerLockRound(round)) {
+    await redisStore.setGameState(pin, gameState);
+    await startQuestionWagerCollection(io, pin);
     return;
   }
 
@@ -1188,6 +1214,7 @@ const submitAnswer = async (io, pin, teamId, data) => {
   if (!question) return;
 
   const currentRound = stateMachine.getCurrentRound(gameState);
+
   const teamExistsInLiveState = Boolean(
     gameState.teams?.[teamId] || gameState.teams?.[String(teamId)],
   );
@@ -1779,6 +1806,7 @@ const proceedFromGameShowEnd = async (io, pin) => {
 const advanceToNextRound = async (io, pin, { skipAhead = 0 } = {}) => {
   let gameState = await redisStore.getGameState(pin);
   if (!gameState) return;
+  gameState = await clearMiniGameHold(pin, gameState);
 
   // After the finale gameshow screen, Finish Game / Next Round ends the session.
   // Final leaderboard is opened via next_question (Continue) from GAME_SHOW_END.
@@ -1831,11 +1859,27 @@ const advanceToNextRound = async (io, pin, { skipAhead = 0 } = {}) => {
   if (!advance.hasNext) {
     const finalResult = stateMachine.transition(gameState, GAME_STATES.FINAL_RESULTS);
     if (finalResult.valid) {
-      await redisStore.setGameState(pin, finalResult.gameState);
+      const terminalState = {
+        ...finalResult.gameState,
+        scoreboardVisible: false,
+      };
+      await redisStore.setGameState(pin, terminalState);
+      try {
+        await require('../sessionCheckpointService').persistNow(pin);
+      } catch (err) {
+        logger.error('Failed to persist terminal checkpoint on natural game end', {
+          pin,
+          error: err.message,
+        });
+      }
       const sortedTeams = Object.values(finalResult.gameState.teams).sort(
         (a, b) => b.score - a.score,
       );
       io.to(`session:${pin}`).emit(SOCKET_EVENTS.GAME_END, { teams: sortedTeams });
+      io.to(`session:${pin}`).emit(
+        SOCKET_EVENTS.SESSION_STATE,
+        await require('../../socket/venueHandlers').buildFullStatePayload(terminalState, pin),
+      );
       logger.info('Final results emitted', {
         pin,
         totalTeams: sortedTeams.length,
@@ -1979,6 +2023,48 @@ const skipNextRound = async (io, pin) => {
   }
 
   await advanceToNextRound(io, pin, { skipAhead: 1 });
+};
+
+/**
+ * Host drops the round they are about to play (e.g. skip round 1 from round intro).
+ * Scores are untouched; the round is never opened on venue or players.
+ */
+const skipCurrentRound = async (io, pin) => {
+  let gameState = await redisStore.getGameState(pin);
+  if (!gameState) return;
+
+  const atRoundStart =
+    gameState.state === GAME_STATES.ROUND_INTRO ||
+    gameState.state === GAME_STATES.WAGER_COLLECTION;
+  if (!atRoundStart) {
+    logger.debug('skip_current_round ignored outside round intro / wager collection', {
+      pin,
+      state: gameState.state,
+    });
+    return;
+  }
+
+  const skipIdx = Number(gameState.currentRoundIndex);
+  const skippedRound = gameState.rounds?.[skipIdx];
+  if (!skippedRound) {
+    logger.debug('skip_current_round ignored — no current round', { pin });
+    return;
+  }
+
+  logger.info('Skipping current round', {
+    pin,
+    skippedRoundIndex: skipIdx,
+    skippedRoundName: skippedRound.name || `Round ${skipIdx + 1}`,
+  });
+
+  timerManager.stopTimer(pin);
+
+  if (gameState.state === GAME_STATES.WAGER_COLLECTION) {
+    gameState = { ...gameState, state: GAME_STATES.ROUND_INTRO };
+    await redisStore.setGameState(pin, gameState);
+  }
+
+  await advanceToNextRound(io, pin);
 };
 
 /**
@@ -2290,10 +2376,7 @@ const endBreak = async (io, pin) => {
       restoredState: gameState.state,
       questionState: gameState.questionState,
     });
-    io.to(`session:${pin}`).emit(
-      SOCKET_EVENTS.SESSION_STATE,
-      clientPayloadFromGameState(gameState),
-    );
+    await emitFullSessionState(io, pin, gameState);
     if (
       gameState.state === GAME_STATES.QUESTION &&
       gameState.questionState === QUESTION_STATES.REVEALED
@@ -2553,22 +2636,28 @@ const endMiniGame = async (io, pin, overrideConfig = {}) => {
   gameState.activeMiniGame = null;
   gameState.miniGameConfig = null;
   gameState.miniGameState = null;
+  if (holdScreen) {
+    gameState.miniGameHold = {
+      game,
+      holdScreen: true,
+      status: config.status,
+      message: config.message || '',
+    };
+  } else {
+    delete gameState.miniGameHold;
+  }
   await redisStore.setGameState(pin, gameState);
 
   io.to(`session:${pin}`).emit(SOCKET_EVENTS.MINI_GAME_END, { game, ...config });
   logger.info('Mini game ended', { pin, game, holdScreen });
 
-  if (!holdScreen) {
+  if (holdScreen) {
+    await emitFullSessionState(io, pin, gameState);
+  } else {
     // Emit session_state immediately so venue/players can reconcile
     // to the correct trivia phase. Socket.io preserves event ordering,
     // so clients process mini_game_end first, then this session_state.
-    // Use clientPayloadFromGameState (not sanitizeForClients) so the
-    // payload includes currentQuestion — without it the venue can't
-    // render the question screen.
-    io.to(`session:${pin}`).emit(
-      SOCKET_EVENTS.SESSION_STATE,
-      clientPayloadFromGameState(gameState),
-    );
+    await emitFullSessionState(io, pin, gameState);
   }
 };
 
@@ -2578,13 +2667,35 @@ const endMiniGame = async (io, pin, overrideConfig = {}) => {
 const pauseTimer = async (io, pin) => {
   const before = timerManager.getTimerState(pin);
   if (!timerManager.hasLiveTimer(pin) || !before.running) {
-    if (before.remaining > 0) {
+    const rem = Math.max(
+      0,
+      before.remaining > 0
+        ? before.remaining
+        : Number((await redisStore.getGameState(pin))?.timerRemaining ?? 0),
+    );
+    if (rem > 0) {
       io.to(`session:${pin}`).emit(SOCKET_EVENTS.TIMER_UPDATE, {
-        remaining: before.remaining,
+        remaining: rem,
         paused: true,
         timerRunning: false,
         timerEndsAt: null,
       });
+    }
+    try {
+      const gs = await redisStore.getGameState(pin);
+      if (
+        gs &&
+        gs.state === GAME_STATES.QUESTION &&
+        gs.questionState === QUESTION_STATES.ACTIVE
+      ) {
+        gs.timerRunning = false;
+        gs.timerEndsAt = null;
+        if (rem > 0) gs.timerRemaining = rem;
+        await redisStore.setGameState(pin, gs);
+        await emitFullSessionState(io, pin, gs);
+      }
+    } catch {
+      /* ignore */
     }
     return;
   }
@@ -2609,6 +2720,7 @@ const pauseTimer = async (io, pin) => {
       gameState.timerRunning = false;
       gameState.timerEndsAt = null;
       await redisStore.setGameState(pin, gameState);
+      await emitFullSessionState(io, pin, gameState);
     }
     const round = gameState ? stateMachine.getCurrentRound(gameState) : null;
     const q = gameState ? stateMachine.getCurrentQuestion(gameState) : null;
@@ -2737,11 +2849,24 @@ const endGame = async (io, pin) => {
   } else {
     gameState.state = GAME_STATES.FINAL_RESULTS;
   }
+  gameState = { ...gameState, scoreboardVisible: false };
 
   await redisStore.setGameState(pin, gameState);
+  try {
+    await require('../sessionCheckpointService').persistNow(pin);
+  } catch (err) {
+    logger.error('Failed to persist terminal checkpoint on end_game', {
+      pin,
+      error: err.message,
+    });
+  }
 
   const sortedTeams = Object.values(gameState.teams).sort((a, b) => b.score - a.score);
   io.to(`session:${pin}`).emit(SOCKET_EVENTS.GAME_END, { teams: sortedTeams });
+  io.to(`session:${pin}`).emit(
+    SOCKET_EVENTS.SESSION_STATE,
+    await require('../../socket/venueHandlers').buildFullStatePayload(gameState, pin),
+  );
 
   persistScoresToDB(gameState.teams).catch((err) =>
     logger.error('Failed to persist scores on end_game', { pin, error: err.message }),
@@ -2749,7 +2874,7 @@ const endGame = async (io, pin) => {
 
   try {
     await Session.update(
-      { status: 'completed', liveCheckpoint: null },
+      { status: 'completed' },
       { where: { pin, status: { [require('sequelize').Op.ne]: 'completed' } } },
     );
   } catch (err) {
@@ -3058,6 +3183,7 @@ module.exports = {
   endRound,
   advanceToNextRound,
   skipNextRound,
+  skipCurrentRound,
   handlePlayerSocketDisconnect,
   cancelScheduledDisconnectPurge,
   cleanupInMemorySession,

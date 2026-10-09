@@ -67,6 +67,14 @@ export function formatRoundTypeStartButtonLabel(roundType?: string): string {
   return `START ${toDisplayUpper(label)} ROUND`;
 }
 
+/** End-of-round splash, e.g. END OF POWER PLAY vs END OF ROUND 2. */
+export function formatRoundEndHeadline(roundType?: string, roundNumber?: number): string {
+  const type = (roundType || '').toUpperCase();
+  if (type === 'WAGER') return 'END OF POWER PLAY';
+  const n = Math.max(1, roundNumber ?? 1);
+  return `END OF ROUND ${n}`;
+}
+
 export function normalizeRoundIntroTitle(
   name?: string,
   roundType?: string,

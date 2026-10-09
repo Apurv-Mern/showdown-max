@@ -17,6 +17,69 @@ const {
 } = require('../utils/audienceView');
 const { QUESTION_STATES } = require('shared/constants/questionStates');
 
+const TERMINAL_GAME_STATES = new Set(['FINAL_RESULTS', 'GAME_SHOW_END']);
+
+const parseCheckpointGameState = (session) => {
+  const raw = session?.liveCheckpoint;
+  if (!raw) return null;
+  try {
+    const cp = typeof raw === 'object' ? raw : JSON.parse(raw);
+    return cp?.gameState || null;
+  } catch {
+    return null;
+  }
+};
+
+const buildCompletedFinalResultsState = async (session) => {
+  const teamsRows = await Team.findAll({
+    where: { sessionId: session.id },
+    attributes: ['id', 'teamName', 'score', 'isEliminated'],
+  });
+  const teams = {};
+  for (const t of teamsRows) {
+    teams[t.id] = {
+      teamId: t.id,
+      teamName: t.teamName,
+      score: Number(t.score) || 0,
+      isEliminated: Boolean(t.isEliminated),
+    };
+  }
+  return {
+    state: 'FINAL_RESULTS',
+    questionState: QUESTION_STATES.WAITING,
+    scoreboardVisible: false,
+    currentRoundIndex: 0,
+    currentQuestionIndex: 0,
+    teams,
+    totalTeams: teamsRows.length,
+    rounds: [],
+    activeTeamIds: teamsRows.map((t) => t.id),
+  };
+};
+
+/**
+ * Live Redis/checkpoint first; completed sessions always resolve to a terminal game-over state.
+ */
+const resolveGameStateForPlayerRestore = async (pin, session) => {
+  const checkpointService = require('./sessionCheckpointService');
+  let gameState = await checkpointService.ensureHydratedGameState(pin);
+  if (gameState) {
+    const refreshed = await redisStore.getGameState(pin);
+    if (refreshed) gameState = refreshed;
+  }
+  if (gameState && TERMINAL_GAME_STATES.has(gameState.state)) {
+    return { ...gameState, scoreboardVisible: false };
+  }
+  if (String(session?.status || '').toLowerCase() !== 'completed') {
+    return gameState;
+  }
+  const checkpointGs = parseCheckpointGameState(session);
+  if (checkpointGs && TERMINAL_GAME_STATES.has(checkpointGs.state)) {
+    return { ...checkpointGs, scoreboardVisible: false };
+  }
+  return buildCompletedFinalResultsState(session);
+};
+
 /** `Number(null) === 0` would falsely mark the timer as expired — only positive epoch ms are valid. */
 const safeClientTimerEndsAt = (raw) => {
   if (raw == null || raw === '') return null;
@@ -74,7 +137,20 @@ const getLockedWager = (gameState, round, teamId, questionId) => {
 /**
  * Builds the same `sessionPayload` object as `join_session` (SESSION_STATE body) from Redis + team.
  */
-const buildSessionPayloadForPlayer = async ({ pin, gameState, team, mySubmittedOptionIndex }) => {
+const buildSessionPayloadForPlayer = async ({
+  pin,
+  gameState,
+  team,
+  mySubmittedOptionIndex,
+  sessionRow,
+}) => {
+  if (
+    !gameState &&
+    sessionRow &&
+    String(sessionRow.status || '').toLowerCase() === 'completed'
+  ) {
+    gameState = await buildCompletedFinalResultsState(sessionRow);
+  }
   const audienceView = gameState ? await buildAudienceViewPayload(gameState, pin) : null;
   const currentRound = gameState?.rounds?.[gameState.currentRoundIndex];
   const currentQuestionRow = currentRound?.questions?.[gameState.currentQuestionIndex] || null;
@@ -82,6 +158,7 @@ const buildSessionPayloadForPlayer = async ({ pin, gameState, team, mySubmittedO
   // anchors to the right question id (per-question wager lock).
   const currentQuestion =
     (gameState?.state === 'QUESTION' || gameState?.state === 'WAGER_COLLECTION') &&
+    gameState?.questionState !== QUESTION_STATES.PREVIEW &&
     currentQuestionRow
       ? currentQuestionRow
       : null;
@@ -153,8 +230,8 @@ const buildSessionPayloadForPlayer = async ({ pin, gameState, team, mySubmittedO
               }
             : null,
           timerRemaining: timerManager.getReconnectTimerRemaining(pin, gameState),
-          timerRunning: Boolean(gameState.timerRunning),
-          timerEndsAt: safeClientTimerEndsAt(gameState.timerEndsAt),
+          timerRunning: timerManager.resolveClientTimerRunning(pin, gameState),
+          timerEndsAt: timerManager.resolveClientTimerEndsAt(pin, gameState),
           mySubmittedOptionIndex,
           responseCount: gameState.responseCount,
           totalTeams: gameState.totalTeams,
@@ -192,6 +269,20 @@ const buildSessionPayloadForPlayer = async ({ pin, gameState, team, mySubmittedO
 const buildJoinReplayEvents = async ({ pin, gameState, team, mySubmittedOptionIndex }) => {
   const events = [];
   if (!gameState || gameState.state === 'LOBBY') return events;
+
+  if (gameState.state === 'FINAL_RESULTS') {
+    events.push({
+      event: SOCKET_EVENTS.GAME_END,
+      data: {
+        teams: Object.values(gameState.teams || {}).sort((a, b) => b.score - a.score),
+      },
+    });
+    return events;
+  }
+  if (gameState.state === 'GAME_SHOW_END') {
+    events.push({ event: SOCKET_EVENTS.GAME_SHOW_END, data: {} });
+    return events;
+  }
 
   const eliminatedTeamIdsForPayload = Object.values(gameState.teams || {})
     .filter((t) => t && t.isEliminated)
@@ -243,8 +334,8 @@ const buildJoinReplayEvents = async ({ pin, gameState, team, mySubmittedOptionIn
             question: mapClientQuestionPayload(audRow),
             timerDuration: Number(audRow.timerDuration ?? round.timerDuration ?? 30) || 30,
             timerRemaining: timerManager.getReconnectTimerRemaining(pin, gameState),
-            timerRunning: Boolean(gameState.timerRunning),
-            timerEndsAt: safeClientTimerEndsAt(gameState.timerEndsAt),
+            timerRunning: timerManager.resolveClientTimerRunning(pin, gameState),
+            timerEndsAt: timerManager.resolveClientTimerEndsAt(pin, gameState),
             serverNow: Date.now(),
             roundType: round.type,
             lockedWagerAmount: getLockedWager(gameState, round, team.id, audRow?.id),
@@ -256,12 +347,14 @@ const buildJoinReplayEvents = async ({ pin, gameState, team, mySubmittedOptionIn
             eliminatedTeamIds: eliminatedTeamIdsForPayload,
           },
         });
+        const runningAud = timerManager.resolveClientTimerRunning(pin, gameState);
         events.push({
           event: SOCKET_EVENTS.TIMER_UPDATE,
           data: {
             remaining: timerManager.getReconnectTimerRemaining(pin, gameState),
-            timerRunning: Boolean(gameState.timerRunning),
-            timerEndsAt: safeClientTimerEndsAt(gameState.timerEndsAt),
+            timerRunning: runningAud,
+            timerEndsAt: timerManager.resolveClientTimerEndsAt(pin, gameState),
+            paused: !runningAud,
             serverNow: Date.now(),
           },
         });
@@ -283,8 +376,8 @@ const buildJoinReplayEvents = async ({ pin, gameState, team, mySubmittedOptionIn
         question: mapClientQuestionPayload(currentQuestion),
         timerDuration: Number(currentQuestion.timerDuration ?? round.timerDuration ?? 30) || 30,
         timerRemaining: timerManager.getReconnectTimerRemaining(pin, gameState),
-        timerRunning: Boolean(gameState.timerRunning),
-        timerEndsAt: safeClientTimerEndsAt(gameState.timerEndsAt),
+        timerRunning: timerManager.resolveClientTimerRunning(pin, gameState),
+        timerEndsAt: timerManager.resolveClientTimerEndsAt(pin, gameState),
         serverNow: Date.now(),
         roundType: round.type,
         lockedWagerAmount: getLockedWager(gameState, round, team.id, currentQuestion?.id),
@@ -296,12 +389,14 @@ const buildJoinReplayEvents = async ({ pin, gameState, team, mySubmittedOptionIn
         eliminatedTeamIds: eliminatedTeamIdsForPayload,
       },
     });
+    const runningActive = timerManager.resolveClientTimerRunning(pin, gameState);
     events.push({
       event: SOCKET_EVENTS.TIMER_UPDATE,
       data: {
         remaining: timerManager.getReconnectTimerRemaining(pin, gameState),
-        timerRunning: Boolean(gameState.timerRunning),
-        timerEndsAt: safeClientTimerEndsAt(gameState.timerEndsAt),
+        timerRunning: runningActive,
+        timerEndsAt: timerManager.resolveClientTimerEndsAt(pin, gameState),
+        paused: !runningActive,
         serverNow: Date.now(),
       },
     });
@@ -358,6 +453,8 @@ const buildJoinReplayEvents = async ({ pin, gameState, team, mySubmittedOptionIn
   if (
     gameState.scoreboardVisible &&
     gameState.state !== 'SCOREBOARD' &&
+    gameState.state !== 'FINAL_RESULTS' &&
+    gameState.state !== 'GAME_SHOW_END' &&
     !gameState.activeMiniGame
   ) {
     const revealSnapshot = await buildRevealSnapshot(pin, gameState);
@@ -511,7 +608,7 @@ const emitJoinReplaysToSocket = (socket, events) => {
  * Read-only restore bundle for HTTP (no socket join, no Redis mutation).
  */
 const buildPlayerHttpRestore = async (pin, teamId) => {
-  const hostReadySession = await sessionService.getPlayerJoinEligibleSessionByPin(pin);
+  const hostReadySession = await sessionService.getPlayerRestoreSessionByPin(pin);
   if (!hostReadySession) {
     return {
       ok: false,
@@ -529,7 +626,7 @@ const buildPlayerHttpRestore = async (pin, teamId) => {
     return { ok: false, status: 404, message: 'Team not found for this session' };
   }
 
-  let gameState = await require('./sessionCheckpointService').ensureHydratedGameState(pin);
+  let gameState = await resolveGameStateForPlayerRestore(pin, hostReadySession);
   const normalizedTeamName = normalizeTeamName(team.teamName);
   const wasRemovedByHost =
     Array.isArray(gameState?.removedTeamNames) &&
@@ -541,11 +638,6 @@ const buildPlayerHttpRestore = async (pin, teamId) => {
       message: 'You have been removed from this game by the host.',
       code: 'TEAM_REMOVED',
     };
-  }
-
-  if (gameState) {
-    const refreshed = await redisStore.getGameState(pin);
-    if (refreshed) gameState = refreshed;
   }
 
   const roundForSubmitted = gameState?.rounds?.[gameState.currentRoundIndex];
@@ -569,6 +661,7 @@ const buildPlayerHttpRestore = async (pin, teamId) => {
     gameState,
     team,
     mySubmittedOptionIndex,
+    sessionRow: hostReadySession,
   });
 
   const replays = gameState
@@ -586,4 +679,5 @@ module.exports = {
   buildJoinReplayEvents,
   emitJoinReplaysToSocket,
   buildPlayerHttpRestore,
+  resolveGameStateForPlayerRestore,
 };

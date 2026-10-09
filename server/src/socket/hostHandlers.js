@@ -338,11 +338,14 @@ const hostHandlers = (io, socket) => {
             const tr = Number(gs.timerRemaining ?? 0);
             const round = gs.rounds?.[gs.currentRoundIndex ?? 0];
             const question = round?.questions?.[gs.currentQuestionIndex ?? 0];
+            const timerManager = require('../services/game-engine/timerManager');
+            const running = timerManager.resolveClientTimerRunning(pin, gs);
             const musicAwaitingHostTimer =
               shouldWaitForHostAudioTimer(round, question) &&
-              !gs.timerRunning &&
+              !running &&
               Number.isFinite(tr) &&
               tr > 0;
+            if (Boolean(gs.timerPaused) && !musicAwaitingHostTimer) return;
             const allowPlay = musicAwaitingHostTimer || tr > 0;
             if (!allowPlay) return;
           }

@@ -857,6 +857,7 @@ function HostDashboardContent() {
             // Non-music timers auto-start; timer_update ticks are authoritative while counting.
             if (!isMusic) return prevPaused;
           }
+          if (data.timerPaused === true) return true;
           return data.timerRunning === false;
         });
         if (data.state === 'QUESTION') {
@@ -1003,9 +1004,11 @@ function HostDashboardContent() {
       setMp3Playing(false);
       setMp4Playing(false);
       setTimerPaused(
-        typeof data.timerRunning === 'boolean'
-          ? !data.timerRunning
-          : shouldWaitForHostAudioTimer(data.roundType, data.question),
+        data.timerPaused === true
+          ? true
+          : typeof data.timerRunning === 'boolean'
+            ? !data.timerRunning
+            : shouldWaitForHostAudioTimer(data.roundType, data.question),
       );
       const incomingQuestionIndex = Number.isFinite(Number(data.questionIndex))
         ? Number(data.questionIndex)
@@ -1022,20 +1025,30 @@ function HostDashboardContent() {
           incomingQuestionIndex !== null
             ? incomingQuestionIndex
             : (prev?.currentQuestionIndex ?? 0),
-        timerRemaining: prev?.timerRemaining ?? 0,
-        timerRunning: prev?.timerRunning ?? true,
+        timerRemaining:
+          typeof tr === 'number' && Number.isFinite(tr)
+            ? tr
+            : (prev?.timerRemaining ?? 0),
+        timerRunning:
+          typeof data.timerRunning === 'boolean' ? data.timerRunning : false,
         totalTeams: prev?.totalTeams ?? 0,
         activeTeamIds: prev?.activeTeamIds || [],
       }));
     };
 
-    const onTimerUpdate = (data: { remaining: number; paused?: boolean; timerRunning?: boolean }) => {
+    const onTimerUpdate = (data: {
+      remaining: number;
+      paused?: boolean;
+      timerRunning?: boolean;
+      timerPaused?: boolean;
+    }) => {
       setTimerRemaining((prev) => {
         const incoming = data.remaining;
         if (Number.isFinite(incoming) && prev > 0 && incoming > prev) return prev;
         return incoming;
       });
-      if (data.paused !== undefined) setTimerPaused(data.paused);
+      if (data.timerPaused === true || data.paused === true) setTimerPaused(true);
+      else if (data.timerPaused === false || data.paused === false) setTimerPaused(false);
       else if (typeof data.timerRunning === 'boolean') setTimerPaused(!data.timerRunning);
     };
 

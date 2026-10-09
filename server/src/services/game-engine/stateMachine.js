@@ -252,7 +252,7 @@ const activateQuestion = (gameState) => {
     ...gameState,
     questionState: QUESTION_STATES.ACTIVE,
     timerRemaining: duration,
-    // Music rounds / MP3 questions: countdown + audio start together when the host presses Start Timer.
+    // Music rounds / MP3 questions: countdown + audio start when the host presses Start Timer.
     timerRunning: !waitForHost,
     responseCount: 0,
   };

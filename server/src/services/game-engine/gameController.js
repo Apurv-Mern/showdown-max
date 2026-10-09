@@ -21,7 +21,18 @@ const logger = require('../../utils/logger');
 const { getBreakRemainingSeconds, getBreakUpNextRoundPayload } = require('../../utils/breakWallClock');
 const { normalizeTeamName } = require('../../utils/teamName');
 const { mapClientQuestionPayload } = require('../../utils/clientQuestionPayload');
-const { shouldWaitForHostAudioTimer } = require('../../utils/questionMedia');
+const { shouldWaitForHostAudioTimer, questionHasMp3 } = require('../../utils/questionMedia');
+
+const emitVenueMp3Control = (io, pin, question, action, { seekTo } = {}) => {
+  if (!questionHasMp3(question)) return;
+  const mediaUrl = question?.mediaUrl;
+  if (!mediaUrl) return;
+  io.to(`session:${pin}`).emit(SOCKET_EVENTS.MUSIC_CONTROL, {
+    action,
+    mediaUrl,
+    ...(Number.isFinite(Number(seekTo)) ? { seekTo: Number(seekTo) } : {}),
+  });
+};
 const { buildAudienceViewPayload } = require('../../utils/audienceView');
 
 const eliminationStates = new Map();
@@ -752,7 +763,7 @@ const proceedToActivateQuestion = async (
     if (gsMusic) {
       gsMusic.timerRemaining = effectiveTimer;
       gsMusic.timerRunning = false;
-      gsMusic.timerPaused = false;
+      gsMusic.timerPaused = true;
       await redisStore.setGameState(pin, gsMusic);
       io.to(`session:${pin}`).emit(
         SOCKET_EVENTS.SESSION_STATE,
@@ -763,6 +774,7 @@ const proceedToActivateQuestion = async (
       remaining: liveMusic.remaining,
       paused: true,
       timerRunning: false,
+      timerPaused: true,
     });
     try {
       io.to(`session:${pin}`).emit(SOCKET_EVENTS.MUSIC_CONTROL, { action: 'pause' });
@@ -2476,6 +2488,7 @@ const endBreak = async (io, pin) => {
           remaining: Number(gameState.timerRemaining || 0),
           paused: true,
           timerRunning: false,
+          timerPaused: true,
         });
         logger.info('Break ended during music question — leaving timer paused for host', {
           pin,
@@ -2732,7 +2745,7 @@ const pauseTimer = async (io, pin) => {
     }
     const round = gameState ? stateMachine.getCurrentRound(gameState) : null;
     const q = gameState ? stateMachine.getCurrentQuestion(gameState) : null;
-    if (shouldWaitForHostAudioTimer(round, q)) {
+    if (questionHasMp3(q)) {
       io.to(`session:${pin}`).emit(SOCKET_EVENTS.MUSIC_CONTROL, { action: 'pause' });
     }
   } catch (err) {
@@ -2822,23 +2835,17 @@ const startTimer = async (io, pin) => {
     remaining: timerState.remaining,
     paused: false,
     timerRunning: true,
+    timerPaused: false,
     timerEndsAt: resumeEndsAt,
   });
 
   if (gameState) {
     const round = stateMachine.getCurrentRound(gameState);
     const q = stateMachine.getCurrentQuestion(gameState);
-    if (shouldWaitForHostAudioTimer(round, q)) {
-      const mediaUrl = q?.mediaUrl || null;
-      if (mediaUrl) {
-        const effectiveTimer = Number(q.timerDuration ?? round.timerDuration ?? 30) || 30;
-        const seekTo = Math.max(0, effectiveTimer - timerState.remaining);
-        io.to(`session:${pin}`).emit(SOCKET_EVENTS.MUSIC_CONTROL, {
-          action: 'play',
-          mediaUrl,
-          seekTo,
-        });
-      }
+    if (questionHasMp3(q)) {
+      const effectiveTimer = Number(q.timerDuration ?? round.timerDuration ?? 30) || 30;
+      const seekTo = Math.max(0, effectiveTimer - timerState.remaining);
+      emitVenueMp3Control(io, pin, q, 'play', { seekTo });
     }
   }
 };

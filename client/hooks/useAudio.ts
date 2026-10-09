@@ -78,7 +78,22 @@ export const useAudio = ({
   }, [volume]);
 
   const play = useCallback(() => {
-    audioRef.current?.play().catch(() => {});
+    const audio = audioRef.current;
+    if (!audio?.src) return;
+    const tryPlay = () => {
+      void audio.play().catch(() => {});
+    };
+    if (audio.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA) {
+      tryPlay();
+      return;
+    }
+    const onReady = () => {
+      audio.removeEventListener('canplay', onReady);
+      audio.removeEventListener('error', onReady);
+      tryPlay();
+    };
+    audio.addEventListener('canplay', onReady);
+    audio.addEventListener('error', onReady);
   }, []);
 
   const pause = useCallback(() => {

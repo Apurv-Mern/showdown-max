@@ -40,7 +40,11 @@ import {
   normalizeWinnerKangaroo,
   resolveKangarooNames,
 } from '@/lib/kangarooRaceDefaults';
-import { shouldWaitForHostAudioTimer } from '@/lib/questionMedia';
+import {
+  questionNeedsVenueMp3,
+  shouldMuteVenueTimerSound,
+  shouldWaitForHostAudioTimer,
+} from '@/lib/questionMedia';
 import {
   LeaderboardScreen,
   type LeaderboardScrollDirection,
@@ -633,7 +637,7 @@ function VenueDisplayContent() {
   }, [phase, scoreboard, teams]);
 
   const muteTimerSound =
-    shouldWaitForHostAudioTimer(question?.roundType, question?.question) ||
+    shouldMuteVenueTimerSound(question?.roundType, question?.question) ||
     phase === 'mini_game' ||
     phase === 'mini_game_result';
   useTimerSound({
@@ -887,13 +891,10 @@ function VenueDisplayContent() {
 
   useEffect(() => {
     questionMediaUrlRef.current = question?.question?.mediaUrl;
-    if (!question?.question?.mediaUrl) return;
-    const mediaType = (question.question.mediaType || '').toLowerCase();
-    if (mediaType === 'mp3') {
-      const resolved = resolveMediaUrl(question.question.mediaUrl);
-      setMp3Source(resolved);
-      venueMp3LoadedUrlRef.current = resolved;
-    }
+    if (!questionNeedsVenueMp3(question?.roundType, question?.question)) return;
+    const resolved = resolveMediaUrl(question!.question!.mediaUrl!);
+    setMp3Source(resolved);
+    venueMp3LoadedUrlRef.current = resolved;
     return () => {
       stopMp3();
       venueMp3LoadedUrlRef.current = '';

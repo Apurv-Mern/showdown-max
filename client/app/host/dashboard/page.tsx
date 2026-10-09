@@ -114,6 +114,8 @@ interface GameState {
   currentQuestionIndex: number;
   timerRemaining: number;
   timerRunning: boolean;
+  /** Server Redis flag: countdown armed but host has not started (MP3 / Music questions). */
+  timerPaused?: boolean;
   responseCount: number;
   totalTeams: number;
   breakDuration?: number;
@@ -164,6 +166,7 @@ interface QuestionData {
   timerDuration: number;
   timerRemaining?: number;
   timerRunning?: boolean;
+  timerPaused?: boolean;
   roundType: string;
   pointsForQuestion?: number;
 }

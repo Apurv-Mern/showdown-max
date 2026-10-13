@@ -173,34 +173,34 @@ function venueQuestionPhaseFromSession(questionState?: string): 'question' | 're
   return String(questionState || '').toUpperCase() === 'REVEALED' ? 'reveal' : 'question';
 }
 
-function bootstrapLiveResponseStats(
-  rosterCount: number,
-  answered = 0,
-): { correct: number; incorrect: number; noAnswer: number; total: number } {
+type VenueHudStats = { correct: number; incorrect: number; noAnswer: number; total: number };
+
+/** While the question is live (timer running or stopped pre-reveal): hide all three counts on venue. */
+function bootstrapLiveResponseStats(rosterCount: number): VenueHudStats {
   const roster = Math.max(0, rosterCount);
-  const ans = Math.max(0, Math.min(roster, answered));
   return {
     correct: 0,
     incorrect: 0,
-    noAnswer: Math.max(0, roster - ans),
+    noAnswer: 0,
     total: Math.max(1, roster),
   };
 }
 
-function liveStatsFromRevealPayload(
-  reveal: RevealData,
-  roundType?: string,
-): { correct: number; incorrect: number; noAnswer: number; total: number } {
+function venueHudStatsForPhase(phase: VenuePhase, liveResponses: VenueHudStats): VenueHudStats {
+  const total = Math.max(1, liveResponses.total);
+  if (phase === 'reveal') {
+    return { ...liveResponses, total };
+  }
+  return bootstrapLiveResponseStats(total);
+}
+
+function liveStatsFromRevealPayload(reveal: RevealData, roundType?: string): VenueHudStats {
   const rt = (roundType || '').toUpperCase();
   const isMajority = rt === 'MAJORITY_RULES';
   const correctIdx = Number(reveal.correctOptionIndex);
   const majorityWinners = new Set(
     (reveal.majorityOptionIndexes || []).map(Number).filter((n) => Number.isFinite(n)),
   );
-  const details = reveal.responseDetails || [];
-  let correct = 0;
-  let incorrect = 0;
-  let noAnswer = 0;
 
   const hasValidSelection = (idx: unknown): boolean => {
     if (idx === undefined || idx === null) return false;
@@ -209,33 +209,45 @@ function liveStatsFromRevealPayload(
     return Number.isFinite(n) && n >= 0;
   };
 
-  for (const r of details) {
-    if (!hasValidSelection(r.selectedOptionIndex)) {
+  const detailsByTeamId = new Map(
+    (reveal.responseDetails || []).map((r) => [Number(r.teamId), r]),
+  );
+  const rosterTeamIds =
+    Array.isArray(reveal.teams) && reveal.teams.length > 0
+      ? reveal.teams.map((t) => Number(t.teamId)).filter((id) => Number.isFinite(id))
+      : (reveal.responseDetails || []).map((r) => Number(r.teamId)).filter((id) => Number.isFinite(id));
+
+  let correct = 0;
+  let incorrect = 0;
+  let noAnswer = 0;
+
+  for (const teamId of rosterTeamIds) {
+    const r = detailsByTeamId.get(teamId);
+    const selectedOptionIndex = r?.selectedOptionIndex;
+
+    if (!hasValidSelection(selectedOptionIndex)) {
       noAnswer += 1;
       continue;
     }
+
     if (isMajority) {
-      const sel = Array.isArray(r.selectedOptionIndex) ? NaN : Number(r.selectedOptionIndex);
+      const sel = Array.isArray(selectedOptionIndex) ? NaN : Number(selectedOptionIndex);
       if (majorityWinners.has(sel)) correct += 1;
       else incorrect += 1;
-    } else if (Array.isArray(r.selectedOptionIndex)) {
+    } else if (Array.isArray(selectedOptionIndex)) {
       const score =
-        reveal.scores?.[String(r.teamId)] ??
-        (reveal.scores as Record<number, number> | undefined)?.[r.teamId];
+        reveal.scores?.[String(teamId)] ??
+        (reveal.scores as Record<number, number> | undefined)?.[teamId];
       if (Number(score) > 0) correct += 1;
       else incorrect += 1;
-    } else if (Number(r.selectedOptionIndex) === correctIdx) {
+    } else if (Number(selectedOptionIndex) === correctIdx) {
       correct += 1;
     } else {
       incorrect += 1;
     }
   }
 
-  if (details.length === 0 && reveal.teams?.length) {
-    noAnswer = reveal.teams.length;
-  }
-
-  const total = Math.max(reveal.teams?.length ?? 0, details.length, correct + incorrect + noAnswer);
+  const total = Math.max(rosterTeamIds.length, correct + incorrect + noAnswer, 1);
   return { correct, incorrect, noAnswer, total };
 }
 
@@ -560,6 +572,8 @@ function VenueDisplayContent() {
   /** Latest SHUFFLE_COMPLETE from Unity; used to re-emit canonical payload after host Reveal. */
   const lastCardShuffleUnityRef = useRef<{ cp: number; cards: number[] } | null>(null);
   const lastKangarooWinnerRef = useRef<number | null>(null);
+  /** Dedupe Unity finish payloads (SendGameResult + WebBridge + console hook can fire twice). */
+  const lastKangarooResultForwardKeyRef = useRef<string>('');
   const cardShuffleRevealFlushTimeoutsRef = useRef<number[]>([]);
   const cardShuffleRevealFlushGenRef = useRef(0);
   const promoVideoRef = useRef<HTMLVideoElement | null>(null);
@@ -964,13 +978,21 @@ function VenueDisplayContent() {
           clientLogger.info('venue', 'Card shuffle SHUFFLE_COMPLETE parsed (game result)', parsed);
         }
       }
+      const normalizedMiniGame = String(miniGameType || '')
+        .toLowerCase()
+        .replace(/-/g, '_');
       socket.emit('mini_game_action', {
         action: resultType || 'game_complete',
         value: result,
         source: 'unity',
         game: miniGameType || undefined,
       });
-      if (resultType && resultType !== 'GAME_COMPLETE') {
+      // Kangaroo: server treats typed finish + game_complete as two scoring events (double points).
+      if (
+        resultType &&
+        resultType !== 'GAME_COMPLETE' &&
+        normalizedMiniGame !== 'kangaroo_race'
+      ) {
         socket.emit('mini_game_action', {
           action: 'game_complete',
           value: result,
@@ -1055,6 +1077,12 @@ function VenueDisplayContent() {
           }
         : rawData;
 
+      const dedupeKey = `${msgType}:${JSON.stringify(finishOrderSlots ?? [])}:${Number(lastKangarooWinnerRef.current)}`;
+      if (dedupeKey === lastKangarooResultForwardKeyRef.current) {
+        return;
+      }
+      lastKangarooResultForwardKeyRef.current = dedupeKey;
+
       console.log('[venue/Kangaroo WebBridge→server] forwarding', msgType, valuePayload);
       socket.emit('mini_game_action', {
         action: msgType,
@@ -1062,16 +1090,6 @@ function VenueDisplayContent() {
         source: 'unity',
         game: 'kangaroo_race',
       });
-
-      // Keep compatibility with the generic completion path used elsewhere.
-      if (msgType !== 'GAME_COMPLETE') {
-        socket.emit('mini_game_action', {
-          action: 'game_complete',
-          value: valuePayload,
-          source: 'unity',
-          game: 'kangaroo_race',
-        });
-      }
     };
 
     const onKangarooWebBridgeMessage = (event: MessageEvent) => {
@@ -1230,11 +1248,33 @@ function VenueDisplayContent() {
         const rosterCount = teamList.length;
         setTeams(teamList);
         setTotalTeams(rosterCount);
-        setLiveResponses((prev) => ({ ...prev, total: rosterCount }));
+        setLiveResponses((prev) => {
+          if (phaseRef.current === 'reveal' && revealDataRef.current) {
+            return liveStatsFromRevealPayload(
+              revealDataRef.current,
+              questionRef.current?.roundType,
+            );
+          }
+          if (phaseRef.current === 'question') {
+            return bootstrapLiveResponseStats(rosterCount);
+          }
+          return { ...prev, total: Math.max(1, rosterCount) };
+        });
       } else if (Number.isFinite(Number(data.totalTeams))) {
         const n = Math.max(0, Number(data.totalTeams));
         setTotalTeams(n);
-        setLiveResponses((prev) => ({ ...prev, total: n }));
+        setLiveResponses((prev) => {
+          if (phaseRef.current === 'reveal' && revealDataRef.current) {
+            return liveStatsFromRevealPayload(
+              revealDataRef.current,
+              questionRef.current?.roundType,
+            );
+          }
+          if (phaseRef.current === 'question') {
+            return bootstrapLiveResponseStats(n);
+          }
+          return { ...prev, total: Math.max(1, n) };
+        });
       }
       const stateToPhase: Record<string, VenuePhase> = {
         LOBBY: lobbyPhaseToVenuePhase(data.lobbyPhase),
@@ -1411,15 +1451,16 @@ function VenueDisplayContent() {
         const rosterCount = Array.isArray(data.activeTeamIds)
           ? data.activeTeamIds.length
           : (data.teams ? Object.keys(data.teams).length : 0) || Number(data.totalTeams || 0);
-        const answered = Math.max(0, Number(data.responseCount ?? 0));
         if (data.state === 'QUESTION' && data.questionState === 'ACTIVE') {
-          if (answered === 0) {
-            return bootstrapLiveResponseStats(rosterCount, 0);
-          }
-          // Keep tallies from live_response_update; session_state only syncs roster size.
-          return { ...prev, total: Math.max(prev.total, rosterCount, 1) };
+          return bootstrapLiveResponseStats(rosterCount);
         }
         if (data.state === 'QUESTION' && data.questionState === 'REVEALED') {
+          if (revealDataRef.current) {
+            return liveStatsFromRevealPayload(
+              revealDataRef.current,
+              questionRef.current?.roundType,
+            );
+          }
           return { ...prev, total: Math.max(prev.total, rosterCount, 1) };
         }
         return {
@@ -1538,12 +1579,7 @@ function VenueDisplayContent() {
             return { ...lr, total: Math.max(1, n) };
           }
           if (phaseRef.current === 'question') {
-            const added = Math.max(0, n - lr.total);
-            return {
-              ...lr,
-              total: Math.max(1, n),
-              noAnswer: Math.max(0, lr.noAnswer + added),
-            };
+            return bootstrapLiveResponseStats(n);
           }
           return bootstrapLiveResponseStats(n);
         });
@@ -1658,6 +1694,9 @@ function VenueDisplayContent() {
     const onTimerExpired = () => {
       setTimerRemaining(0);
       setTimerRunning(false);
+      if (phaseRef.current === 'question') {
+        setLiveResponses((prev) => bootstrapLiveResponseStats(prev.total));
+      }
     };
 
     const onResponseCount = (data: { count: number; total: number }) => {
@@ -1682,20 +1721,13 @@ function VenueDisplayContent() {
       }
     };
 
-    const onLiveResponseUpdate = (data: {
+    const onLiveResponseUpdate = (_data: {
       correct?: number;
       incorrect?: number;
       noAnswer?: number;
       total?: number;
     }) => {
-      const phase = phaseRef.current;
-      if (phase !== 'question' && phase !== 'reveal') return;
-      setLiveResponses({
-        correct: Number(data?.correct || 0),
-        incorrect: Number(data?.incorrect || 0),
-        noAnswer: Number(data?.noAnswer || 0),
-        total: Math.max(1, Number(data?.total || 0)),
-      });
+      // Graded breakdown is applied only on answer_reveal (see liveStatsFromRevealPayload).
     };
 
     const onAnswerReveal = (data: RevealData) => {
@@ -1917,6 +1949,7 @@ function VenueDisplayContent() {
         setKangarooVenueRaceStarted(false);
         setKangarooSelectedCount(0);
         setKangarooPickCounts({ '1': 0, '2': 0, '3': 0, '4': 0, '5': 0, '6': 0 });
+        lastKangarooResultForwardKeyRef.current = '';
         kangarooSelectionNonceRef.current += 1;
         setKangarooSelectionNonce(kangarooSelectionNonceRef.current);
       }
@@ -2502,12 +2535,10 @@ function VenueDisplayContent() {
             options={question.question.options}
             timerRemaining={timerRemaining}
             timerDuration={timerDuration}
-            stats={{
-              correct: liveResponses.correct,
-              incorrect: liveResponses.incorrect,
-              noAnswer: liveResponses.noAnswer,
+            stats={venueHudStatsForPhase('question', {
+              ...liveResponses,
               total: Math.max(1, liveResponses.total || totalTeams || 1),
-            }}
+            })}
             roundType={question.roundType}
             teamCount={liveTotalTeams}
             pointsLabel={liveQuestionPoints}
@@ -2542,12 +2573,10 @@ function VenueDisplayContent() {
             options={question.question.options}
             timerRemaining={timerRemaining}
             timerDuration={timerDuration}
-            stats={{
-              correct: liveResponses.correct,
-              incorrect: liveResponses.incorrect,
-              noAnswer: liveResponses.noAnswer,
+            stats={venueHudStatsForPhase('reveal', {
+              ...liveResponses,
               total: Math.max(1, liveResponses.total || totalTeams || 1),
-            }}
+            })}
             roundType={question.roundType}
             teamCount={liveTotalTeams}
             pointsLabel={liveQuestionPoints}

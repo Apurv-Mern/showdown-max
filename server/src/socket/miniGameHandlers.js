@@ -48,6 +48,24 @@ const createHorseRaceRoundState = (
 const normalizeMiniGameId = (game) =>
   game == null || game === '' ? '' : String(game).toLowerCase().replace(/-/g, '_');
 
+/** Serialize kangaroo scoring per session — venue often emits two result events back-to-back. */
+const kangarooAwardTailByPin = new Map();
+
+const runSerializedKangarooAward = (pin, fn) => {
+  const key = String(pin);
+  const prev = kangarooAwardTailByPin.get(key) || Promise.resolve();
+  const run = prev.then(() => fn(), () => fn());
+  kangarooAwardTailByPin.set(
+    key,
+    run.finally(() => {
+      if (kangarooAwardTailByPin.get(key) === run) {
+        kangarooAwardTailByPin.delete(key);
+      }
+    }),
+  );
+  return run;
+};
+
 const normalizeRevealSlotOneToSix = (n) => {
   if (!Number.isFinite(n)) return NaN;
   const t = Math.trunc(Number(n));
@@ -505,84 +523,93 @@ const applyKangarooRacePointsOnResult = async (io, pin, miniGameState) => {
     return { awarded: false, updatedTeamIds: [] };
   }
 
-  const finishOrder = normalizeFinishOrderSlots(
-    miniGameState.finishOrder,
-    miniGameState.kangarooNames || DEFAULT_KANGAROO_NAMES,
-  );
-  if (finishOrder.length !== KANGAROO_SLOT_COUNT) {
-    return { awarded: false, updatedTeamIds: [] };
-  }
-  if (miniGameState.resultsAwarded) {
-    return { awarded: false, updatedTeamIds: [] };
-  }
+  return runSerializedKangarooAward(pin, async () => {
+    const finishOrder = normalizeFinishOrderSlots(
+      miniGameState.finishOrder,
+      miniGameState.kangarooNames || DEFAULT_KANGAROO_NAMES,
+    );
+    if (finishOrder.length !== KANGAROO_SLOT_COUNT) {
+      return { awarded: false, updatedTeamIds: [] };
+    }
 
-  const gameState = await redisStore.getGameState(pin);
-  if (!gameState?.teams) return { awarded: false, updatedTeamIds: [] };
+    const gameState = await redisStore.getGameState(pin);
+    if (!gameState?.teams) return { awarded: false, updatedTeamIds: [] };
+    if (gameState.miniGameState?.resultsAwarded) {
+      return { awarded: false, updatedTeamIds: [] };
+    }
 
-  const rankBySlot = {};
-  finishOrder.forEach((slot, idx) => {
-    rankBySlot[slot] = idx + 1;
-  });
+    const selections =
+      miniGameState.selections && Object.keys(miniGameState.selections).length > 0
+        ? miniGameState.selections
+        : gameState.miniGameState?.selections || {};
 
-  const updatedTeamIds = [];
-  for (const [teamId, rawChoice] of Object.entries(miniGameState.selections || {})) {
-    const selectedChoice = Number(rawChoice);
-    const rank = Number(rankBySlot[selectedChoice] || 0);
-    const points =
-      rank >= 1 && rank <= KANGAROO_POINTS_BY_RANK.length
-        ? Number(KANGAROO_POINTS_BY_RANK[rank - 1])
-        : 0;
-    const numericTeamId = Number(teamId);
-    if (!Number.isFinite(numericTeamId) || !gameState.teams[numericTeamId]) continue;
-    gameState.teams[numericTeamId].score =
-      Number(gameState.teams[numericTeamId].score || 0) + points;
-    updatedTeamIds.push(numericTeamId);
-  }
-
-  gameState.miniGameState = {
-    ...(gameState.miniGameState || {}),
-    finishOrder,
-    resultsAwarded: true,
-    revealed: true,
-    kangarooNames: normalizeKangarooNames(
-      gameState.miniGameState?.kangarooNames || gameState.miniGameConfig?.kangarooNames,
-    ),
-  };
-  await redisStore.setGameState(pin, gameState);
-
-  for (const teamId of updatedTeamIds) {
-    await redisStore.updateTeamData(pin, teamId, gameState.teams[teamId]);
-  }
-  await Promise.all(
-    updatedTeamIds.map((teamId) =>
-      Team.update({ score: gameState.teams[teamId].score }, { where: { id: teamId } }),
-    ),
-  );
-
-  const room = `session:${pin}`;
-  for (const teamId of updatedTeamIds) {
-    io.to(room).emit(SOCKET_EVENTS.TEAM_UPDATED, {
-      teamId,
-      teamName: gameState.teams[teamId].teamName,
-      score: gameState.teams[teamId].score,
+    const rankBySlot = {};
+    finishOrder.forEach((slot, idx) => {
+      rankBySlot[slot] = idx + 1;
     });
-  }
 
-  io.to(room).emit(SOCKET_EVENTS.SESSION_STATE, {
-    ...gameState,
-    gameState,
-  });
+    const updatedTeamIds = [];
+    for (const [teamId, rawChoice] of Object.entries(selections)) {
+      const selectedChoice = Number(rawChoice);
+      const rank = Number(rankBySlot[selectedChoice] || 0);
+      const points =
+        rank >= 1 && rank <= KANGAROO_POINTS_BY_RANK.length
+          ? Number(KANGAROO_POINTS_BY_RANK[rank - 1])
+          : 0;
+      const numericTeamId = Number(teamId);
+      if (!Number.isFinite(numericTeamId) || !gameState.teams[numericTeamId]) continue;
+      gameState.teams[numericTeamId].score =
+        Number(gameState.teams[numericTeamId].score || 0) + points;
+      updatedTeamIds.push(numericTeamId);
+    }
 
-  if (gameState.scoreboardVisible && !gameState.activeMiniGame) {
-    io.to(room).emit(SOCKET_EVENTS.SCOREBOARD, {
-      teams: Object.values(gameState.teams).sort(
-        (a, b) => Number(b.score || 0) - Number(a.score || 0),
+    gameState.miniGameState = {
+      ...(gameState.miniGameState || {}),
+      ...miniGameState,
+      finishOrder,
+      resultsAwarded: true,
+      revealed: true,
+      selections,
+      kangarooNames: normalizeKangarooNames(
+        gameState.miniGameState?.kangarooNames || gameState.miniGameConfig?.kangarooNames,
       ),
-      source: 'manual',
-    });
-  }
+    };
+    await redisStore.setGameState(pin, gameState);
 
-  return { awarded: true, updatedTeamIds };
+    for (const teamId of updatedTeamIds) {
+      await redisStore.updateTeamData(pin, teamId, gameState.teams[teamId]);
+    }
+    await Promise.all(
+      updatedTeamIds.map((teamId) =>
+        Team.update({ score: gameState.teams[teamId].score }, { where: { id: teamId } }),
+      ),
+    );
+
+    const room = `session:${pin}`;
+    for (const teamId of updatedTeamIds) {
+      io.to(room).emit(SOCKET_EVENTS.TEAM_UPDATED, {
+        teamId,
+        teamName: gameState.teams[teamId].teamName,
+        score: gameState.teams[teamId].score,
+      });
+    }
+
+    io.to(room).emit(SOCKET_EVENTS.SESSION_STATE, {
+      ...gameState,
+      gameState,
+    });
+
+    if (gameState.scoreboardVisible && !gameState.activeMiniGame) {
+      io.to(room).emit(SOCKET_EVENTS.SCOREBOARD, {
+        teams: Object.values(gameState.teams).sort(
+          (a, b) => Number(b.score || 0) - Number(a.score || 0),
+        ),
+        source: 'manual',
+      });
+    }
+
+    return { awarded: true, updatedTeamIds };
+  });
 };
 
 /**
@@ -894,6 +921,14 @@ const miniGameHandlers = (io, socket) => {
             data.action === 'game_complete';
 
           if (isResultSignal && (Array.isArray(finishOrder) || Number.isFinite(winningKangaroo))) {
+            if (currentGameState?.miniGameState?.resultsAwarded) {
+              logger.debug('Kangaroo race result ignored — points already awarded', {
+                pin: eventPin,
+                action: data.action,
+              });
+              return;
+            }
+
             const derivedFinishOrder = Array.isArray(finishOrder)
               ? finishOrder
               : normalizeFinishOrderSlots(

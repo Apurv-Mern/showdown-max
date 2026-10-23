@@ -16,7 +16,6 @@ import { useSocket } from '@/hooks/useSocket';
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner';
 import { BreakTimerDisplay } from '@/components/shared/BreakTimerDisplay';
-import { QuestionTimerArch } from '@/components/shared/QuestionTimerArch';
 import { BreakScreenHeading } from '@/components/shared/BreakScreenHeading';
 import { GameshowEndScreen } from '@/components/shared/GameshowEndScreen';
 import { resolveBreakUpNextLabel } from '@/lib/breakScreenCopy';
@@ -32,7 +31,9 @@ import {
   resolveKangarooNames,
 } from '@/lib/kangarooRaceDefaults';
 import { isQuestionImageMedia, shouldWaitForHostAudioTimer } from '@/lib/questionMedia';
-import { HostLivePreviewPanel } from '@/components/host/HostLivePreviewPanel';
+import { HostQuestionPreviewColumn } from '@/components/host/HostQuestionPreviewColumn';
+import { HostCenterQuestionPanel } from '@/components/host/HostCenterQuestionPanel';
+import { HOST_DASHBOARD } from '@/lib/hostDashboardTheme';
 import { WagerDistributionGrid } from '@/components/shared/WagerDistributionGrid';
 import { emptyWagerDistributionCounts } from '@/lib/wagerGrid';
 import {
@@ -460,7 +461,7 @@ function HostPanelTitle({
   return (
     <h2
       data-node-id={dataNodeId}
-      className="mb-4 text-xl font-bold uppercase leading-tight tracking-wide text-white sm:text-[25px]"
+      className="mb-4 whitespace-nowrap text-xl font-bold uppercase leading-tight tracking-wide text-[#00d9ff] sm:text-[25px]"
     >
       {children}
     </h2>
@@ -491,20 +492,19 @@ function HostSidebarTile({
       onClick={onClick}
       disabled={disabled}
       className={cn(
-        'flex h-27.75 w-38 flex-col items-center justify-center gap-2 rounded-xl border px-2 text-center text-sm font-medium text-white shadow-[inset_0_0_24px_rgba(0,217,255,0.06)] transition hover:border-[rgba(0,217,255,0.55)] disabled:cursor-not-allowed disabled:opacity-35',
+        'flex h-14 w-full flex-row items-center gap-3 rounded-[5px] border border-solid px-3 text-left text-[13px] font-bold text-white shadow-[inset_0_0_24px_rgba(0,217,255,0.06)] transition hover:border-[#00d9ff] disabled:cursor-not-allowed disabled:opacity-35',
+        HOST_DASHBOARD.tileGradient,
         highlight
-          ? 'border-[rgba(103,6,171,0.65)] bg-[linear-gradient(180deg,rgba(80,40,140,0.95)_0%,rgba(40,20,80,0.98)_100%)] shadow-[0_0_20px_rgba(103,6,171,0.25)]'
-          : 'bg-[linear-gradient(180deg,rgba(30,36,58,0.95)_0%,rgba(15,20,32,0.98)_100%)]',
-        !highlight &&
-          (active
-            ? 'border-[rgba(0,217,255,0.55)] shadow-[0_0_16px_rgba(0,217,255,0.15)]'
-            : 'border-[rgba(0,217,255,0.3)]'),
+          ? 'border-[rgba(103,6,171,0.65)] shadow-[0_0_20px_rgba(103,6,171,0.25)]'
+          : active
+            ? 'border-[#00d9ff] shadow-[0_0_12px_rgba(0,217,255,0.2)]'
+            : 'border-[#888]',
       )}
     >
-      <span className="flex size-[50px] items-center justify-center text-[#00d9ff] [&>svg]:h-10 [&>svg]:w-10">
+      <span className="flex size-9 shrink-0 items-center justify-center text-[#00d9ff] [&>img]:h-8 [&>img]:w-8 [&>svg]:h-7 [&>svg]:w-7">
         {icon}
       </span>
-      <span className="leading-tight">{label}</span>
+      <span className="min-w-0 flex-1 leading-tight">{label}</span>
     </button>
   );
 }
@@ -580,7 +580,7 @@ function HostFooterBtn({
         if (e.key === ' ' || e.key === 'Spacebar') e.preventDefault();
       }}
       className={cn(
-        'inline-flex h-12.5 min-w-30 flex-1 max-w-52.5 items-center justify-center gap-2 rounded-lg border px-2 text-[10px] font-bold uppercase tracking-wide text-white shadow-[0_4px_12px_rgba(0,0,0,0.35)] transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-30 disabled:grayscale sm:min-w-35 sm:px-3 sm:text-xs',
+        'inline-flex h-10 w-[168px] shrink-0 items-center justify-center gap-1 rounded-[5px] border px-1.5 text-[11px] font-bold uppercase tracking-wide text-white shadow-[0_4px_12px_rgba(0,0,0,0.35)] transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-30 disabled:grayscale',
         danger
           ? 'border-[#ff4d4d]/70 bg-[linear-gradient(180deg,#b91c1c_0%,#7f1d1d_100%)] shadow-[0_0_18px_rgba(239,68,68,0.22)]'
           : emphasis
@@ -637,7 +637,6 @@ function HostDashboardContent() {
   const [editScoreValue, setEditScoreValue] = useState('');
   const [editTeamNameValue, setEditTeamNameValue] = useState('');
   const [showRegisteredTeams, setShowRegisteredTeams] = useState(false);
-  const [livePreviewOpen, setLivePreviewOpen] = useState(false);
   const [showRoundIntroductionModal, setShowRoundIntroductionModal] = useState(false);
   const [kangarooNames, setKangarooNames] = useState<string[]>(defaultKangarooNames());
   const [kangarooVenueReady, setKangarooVenueReady] = useState(false);
@@ -2431,6 +2430,18 @@ function HostDashboardContent() {
     Array.isArray(currentRound?.questions) &&
     currentRound.questions.length === 0;
   const questionState = gameState?.questionState || 'WAITING';
+  const currentRoundPreviewQuestions = useMemo(() => {
+    const qs = currentRound?.questions;
+    if (!Array.isArray(qs)) return [];
+    return qs as { id?: number; text?: string; mediaUrl?: string | null; mediaType?: string | null }[];
+  }, [currentRound?.questions]);
+  const showQuestionPreviewRail =
+    currentRoundPreviewQuestions.length > 0 &&
+    state !== 'LOBBY' &&
+    state !== 'FINAL_RESULTS' &&
+    !activeMiniGameLocal &&
+    !miniGameLoading &&
+    !cardShuffleFinishedHold;
   const totalRounds = gameState?.rounds?.length || gameStateRef.current?.rounds?.length || 0;
   const currentRoundIndex =
     gameStateRef.current?.currentRoundIndex ?? gameState?.currentRoundIndex ?? 0;
@@ -2543,13 +2554,6 @@ function HostDashboardContent() {
     (state === 'ROUND_INTRO' || state === 'WAGER_COLLECTION') &&
     !isCurrentRoundEmpty &&
     !miniGameLive;
-  const canJumpToQuestion =
-    state === 'QUESTION' &&
-    !miniGameLive &&
-    activeMiniGameLocal == null &&
-    !miniGameLoading &&
-    !cardShuffleFinishedHold;
-
   useLayoutEffect(() => {
     if (!hostMediaReplayLocked) return;
     const v = hostPreviewVideoRef.current;
@@ -2606,19 +2610,18 @@ function HostDashboardContent() {
     <div
       data-name="Host Control Dashboard"
       data-node-id="232:4445"
-      className={cn('font-sans flex min-h-screen flex-col bg-[#0b0f1a] text-white')}
+      className={cn(
+        'font-sans flex h-screen max-h-screen flex-col overflow-hidden bg-[#0b0f1a] text-white',
+      )}
     >
       <header
         data-name="Header"
         data-node-id="232:4447"
-        className="relative z-20 flex h-20 shrink-0 items-center border-b border-white/20 bg-[linear-gradient(180deg,rgba(26,34,52,0.95)_0%,#0b0f1a_100%)] px-4 lg:px-8"
+        className="relative z-20 flex h-20 shrink-0 items-center border-b border-[#888] bg-[#151b2b] px-4 lg:px-8"
       >
         <div className="mx-auto flex w-full max-w-[1920px] flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex flex-wrap items-center gap-2 lg:gap-3" data-node-id="232:4448">
-            <span className="text-[22px] font-bold lg:text-[28px]">
-              MAX <span className="text-[#00d9ff]">SHOWDOWN</span>
-            </span>
-            <span className="text-lg font-normal text-white/80">Host Control</span>
+            <span className="text-[22px] font-bold text-white lg:text-[28px]">Host Control</span>
           </div>
           <div
             className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 whitespace-nowrap text-center text-base font-semibold uppercase tracking-[0.2em] lg:text-xl"
@@ -2691,40 +2694,21 @@ function HostDashboardContent() {
       </header>
 
       <div
-        className="flex min-h-0 flex-1 flex-col lg:flex-row"
+        className="flex min-h-0 flex-1 overflow-hidden lg:flex-row"
         data-name="Main Container"
         data-node-id="232:4459"
       >
         <aside
-          data-name="Venue Display"
-          className="w-full shrink-0 border-white/10 bg-[linear-gradient(180deg,rgba(20,26,42,0.6)_0%,#0b0f1a_100%)] px-4 py-6 lg:w-[min(100%,350px)] lg:border-r"
+          data-name="Director Tools"
+          className={cn(
+            'w-full min-h-0 shrink-0 overflow-y-auto border-solid border-[#888] bg-[#151b2b] px-4 py-4 lg:border-r',
+            HOST_DASHBOARD.directorColumnWidth,
+          )}
         >
           <div className="space-y-10">
             <section data-name="Director Tools Panel">
               <HostPanelTitle>Director Tools</HostPanelTitle>
-              <div className="grid grid-cols-2 gap-3">
-                <HostSidebarTile
-                  label="Live Preview"
-                  highlight={livePreviewOpen}
-                  active={livePreviewOpen}
-                  disabled={!gameState || gameState.state === 'LOBBY' || gameState.state === 'FINAL_RESULTS'}
-                  icon={
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
-                      <circle cx="12" cy="12" r="3" />
-                    </svg>
-                  }
-                  onClick={() => setLivePreviewOpen((o) => !o)}
-                />
-              </div>
-            </section>
-            <section data-name="Team Management Panel" data-node-id="232:4462">
-              <HostPanelTitle data-node-id="232:4463">Team Management</HostPanelTitle>
-              <div
-                className="grid grid-cols-2 gap-3"
-                data-name="Team Management Item"
-                data-node-id="232:4464"
-              >
+              <div className="flex flex-col gap-3">
                 <HostSidebarTile
                   data-node-id="232:4465"
                   label="Add Team"
@@ -2779,13 +2763,9 @@ function HostDashboardContent() {
                 />
               </div>
             </section> */}
-            <section data-name="Main Right Panel" data-node-id="232:4580">
-              <HostPanelTitle data-node-id="232:4581">Game Controls</HostPanelTitle>
-              <div
-                className="grid grid-cols-2 gap-3"
-                data-name="Control Panel"
-                data-node-id="232:4582"
-              >
+            <section data-name="Mini Challenges Panel" data-node-id="232:4580">
+              <HostPanelTitle data-node-id="232:4581">Mini Challenges</HostPanelTitle>
+              <div className="flex flex-col gap-3" data-name="Control Panel" data-node-id="232:4582">
                 <HostSidebarTile
                   data-node-id="232:4583"
                   label="Kangaroo Race"
@@ -2795,7 +2775,7 @@ function HostDashboardContent() {
                       src="/KangarooPic.png"
                       alt=""
                       aria-hidden="true"
-                      className="h-12 w-12 object-contain drop-shadow-[0_2px_4px_rgba(0,0,0,0.45)]"
+                      className="h-8 w-8 object-contain drop-shadow-[0_2px_4px_rgba(0,0,0,0.45)]"
                     />
                   }
                   onClick={handleOpenKangarooRaceControls}
@@ -2809,7 +2789,7 @@ function HostDashboardContent() {
                       src="/games/card-shuffle/queencard.png"
                       alt=""
                       aria-hidden="true"
-                      className="h-12 w-12 object-contain drop-shadow-[0_2px_4px_rgba(0,0,0,0.45)]"
+                      className="h-8 w-8 object-contain drop-shadow-[0_2px_4px_rgba(0,0,0,0.45)]"
                     />
                   }
                   onClick={handleOpenCardShuffleControls}
@@ -2871,8 +2851,25 @@ function HostDashboardContent() {
           </div>
         </aside>
 
+        {showQuestionPreviewRail ? (
+          <HostQuestionPreviewColumn
+            questions={currentRoundPreviewQuestions}
+            currentQuestionIndex={gameState?.currentQuestionIndex ?? 0}
+            pin={pin}
+            socket={socket}
+            questionState={questionState}
+            timerRunning={Boolean(gameState?.timerRunning)}
+            jumpDisabled={
+              miniGameLive ||
+              activeMiniGameLocal != null ||
+              miniGameLoading ||
+              cardShuffleFinishedHold
+            }
+          />
+        ) : null}
+
         <main
-          className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto px-4 py-4"
+          className="flex min-h-0 min-w-0 flex-[1.35] flex-col overflow-y-auto overscroll-y-contain px-2 py-3 lg:px-3"
           data-name="Question Panel"
           data-node-id="232:4518"
         >
@@ -3376,147 +3373,24 @@ function HostDashboardContent() {
               ) : null}
             </div>
           ) : state === 'QUESTION' && currentQuestion ? (
-            <div className="flex min-h-0 flex-1 flex-col animate-fadeIn">
-              <div
-                className={cn(
-                  'mx-auto flex h-full w-full min-h-0 flex-col rounded-2xl border border-white/10 shadow-[0_0_28px_rgba(0,0,0,0.5)]',
-                  isQuestionImageMedia(
-                    currentQuestion.question.mediaType,
-                    currentQuestion.question.mediaUrl,
-                  )
-                    ? 'overflow-y-auto overscroll-y-contain'
-                    : 'overflow-hidden',
-                )}
-              >
-                {/* Media Section */}
-                <div className="relative shrink-0 bg-black/40">
-                  <div className="absolute left-4 top-3 z-10 text-xl font-bold text-white/90 drop-shadow-md">
-                    Question {(currentQuestion.questionIndex || 0) + 1}/
-                    {currentQuestion.totalQuestions}
-                  </div>
-                  {currentQuestion.pointsForQuestion ? (
-                    <div className="absolute right-4 top-3 z-10 text-lg font-black italic text-[#00d9ff]">
-                      {currentQuestion.pointsForQuestion} PTS
-                    </div>
-                  ) : null}
-
-                  {/* Media Content */}
-                  <div
-                    className={cn(
-                      'w-full',
-                      isQuestionImageMedia(
-                        currentQuestion.question.mediaType,
-                        currentQuestion.question.mediaUrl,
-                      )
-                        ? 'flex h-64 items-stretch gap-4 px-4 py-4 sm:h-80 sm:gap-6 lg:h-96'
-                        : 'h-64 sm:h-80 lg:h-96',
-                    )}
-                  >
-                    {currentQuestion.question.mediaUrl &&
-                    isQuestionImageMedia(
-                      currentQuestion.question.mediaType,
-                      currentQuestion.question.mediaUrl,
-                    ) ? (
-                      <>
-                        <div className="flex h-full w-[min(42%,420px)] shrink-0 items-center justify-center overflow-hidden rounded-xl border-2 border-[#00d9ff]/45 bg-black/50 p-2">
-                          <img
-                            src={resolveMediaUrl(currentQuestion.question.mediaUrl)}
-                            className="max-h-full max-w-full object-contain"
-                            alt="Question media"
-                          />
-                        </div>
-                        <div className="flex min-h-0 min-w-0 flex-1 items-center py-2">
-                          <p className="text-left text-lg font-black uppercase leading-tight text-white sm:text-xl lg:text-2xl">
-                            Q{(currentQuestion.questionIndex || 0) + 1}.{' '}
-                            {currentQuestion.question.text}
-                          </p>
-                        </div>
-                      </>
-                    ) : currentQuestion.question.mediaUrl &&
-                      (currentQuestion.question.mediaType || '').toLowerCase() === 'mp4' ? (
-                      <video
-                        ref={hostPreviewVideoRef}
-                        src={resolveMediaUrl(currentQuestion.question.mediaUrl)}
-                        className="h-full w-full bg-black object-contain"
-                        controls={hostVideoPlaybackActive}
-                        autoPlay={hostVideoPlaybackActive}
-                      />
-                    ) : (
-                      <div className="flex h-full w-full items-center justify-center px-6 py-8">
-                        <p className="text-center text-xl font-black uppercase leading-tight text-white sm:text-2xl lg:text-3xl">
-                          {currentQuestion.question.text}
-                        </p>
-                      </div>
-                    )}
-                  </div>
-
-                  <QuestionTimerArch
-                    remainingSeconds={timerRemaining}
-                    totalSeconds={timerDuration}
-                    size="host"
-                  />
-                </div>
-
-                {/* Content Section */}
-                <div className="relative z-20 flex-1 border-t-2 border-t-white/20 bg-[linear-gradient(180deg,#0a0f2b_0%,#04060e_100%)] px-6 pb-6 pt-14 shadow-inner">
-                  {currentQuestion.question.mediaUrl &&
-                  (currentQuestion.question.mediaType || '').toLowerCase() === 'mp4' ? (
-                    <div className="mb-6 text-center">
-                      <p className="text-2xl font-black leading-tight text-white sm:text-3xl">
-                        Q{(currentQuestion.questionIndex || 0) + 1}. {currentQuestion.question.text}
-                      </p>
-                    </div>
-                  ) : null}
-
-                  <div className="grid grid-cols-2 gap-3 pb-2 pt-2">
-                    {currentQuestion.question.options.map((opt, i) => {
-                      const isMajorityRulesRound =
-                        (currentQuestion.roundType || '').toUpperCase() === 'MAJORITY_RULES';
-                      const majorityOptionIndexes = new Set(
-                        revealData?.majorityOptionIndexes || [],
-                      );
-                      const showRevealStyling =
-                        questionState !== 'PREVIEW' && Boolean(revealData);
-                      const isRevealedWinner = Boolean(
-                        showRevealStyling &&
-                        (isMajorityRulesRound
-                          ? majorityOptionIndexes.has(i)
-                          : revealData != null && i === revealData.correctOptionIndex),
-                      );
-                      return (
-                        <div
-                          key={i}
-                          className={cn(
-                            'flex min-h-[64px] items-start gap-2 rounded-xl border-2 px-4 py-3 text-lg font-black text-white transition-all shadow-[0_4px_12px_rgba(0,0,0,0.5)] sm:text-xl',
-                            VENUE_OPTION_COLOR_CLASSES[i % VENUE_OPTION_COLOR_CLASSES.length],
-                            isRevealedWinner
-                              ? 'z-10 scale-[1.03] shadow-[0_0_12px_8px_rgba(57,255,74,0.8)]'
-                              : showRevealStyling
-                                ? 'scale-[0.98] brightness-50 contrast-75 opacity-30'
-                                : '',
-                          )}
-                        >
-                          <span className="shrink-0 font-black text-white/50">
-                            {OPTION_LETTERS[i]}.
-                          </span>
-                          <span className="min-w-0 flex-1 break-words leading-tight">{opt.text}</span>
-                          {isRevealedWinner && !isMajorityRulesRound && (
-                            <div className="ml-2 flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-white bg-green-500 shadow-lg">
-                              <span className="text-sm text-white">✓</span>
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-
-                  {/* {revealData?.allWrong && (
-                    <div className="mt-4 animate-pulse rounded-xl border border-orange-500/30 bg-orange-500/10 px-4 py-2.5 text-center text-sm font-bold text-orange-400">
-                      All teams answered incorrectly — no eliminations
-                    </div>
-                  )} */}
-                </div>
-              </div>
+            <div className="flex min-h-0 flex-1 flex-col items-stretch justify-start overflow-y-auto overscroll-y-contain animate-fadeIn">
+              <HostCenterQuestionPanel
+                questionIndex={currentQuestion.questionIndex || 0}
+                totalQuestions={currentQuestion.totalQuestions}
+                questionText={currentQuestion.question.text}
+                options={currentQuestion.question.options}
+                roundType={currentQuestion.roundType}
+                mediaUrl={currentQuestion.question.mediaUrl}
+                mediaType={currentQuestion.question.mediaType}
+                pointsForQuestion={currentQuestion.pointsForQuestion}
+                questionState={questionState}
+                timerRemaining={timerRemaining}
+                timerDuration={timerDuration}
+                revealData={revealData}
+                resolveMediaUrl={resolveMediaUrl}
+                hostPreviewVideoRef={hostPreviewVideoRef}
+                hostVideoPlaybackActive={hostVideoPlaybackActive}
+              />
             </div>
           ) : (
             <div className="flex flex-1 items-center justify-center rounded-2xl border border-[rgba(0,217,255,0.25)] bg-[#151b2e]/40 p-8">
@@ -3736,9 +3610,12 @@ function HostDashboardContent() {
 
         <aside
           data-name="Right Panel"
-          className="w-full shrink-0 border-white/10 bg-[linear-gradient(180deg,rgba(20,26,42,0.6)_0%,#0b0f1a_100%)] px-4 py-6 lg:w-[min(100%,350px)] lg:border-l"
+          className={cn(
+            'flex w-full min-h-0 shrink-0 flex-col overflow-hidden border-solid border-[#888] bg-[#151b2b] px-4 py-4 lg:border-l',
+            HOST_DASHBOARD.columnWidth,
+          )}
         >
-          <div className="space-y-10">
+          <div className="min-h-0 flex-1 space-y-10 overflow-y-auto overscroll-y-contain">
             <section data-name="Live Responses Panel" data-node-id="232:4549">
               <HostPanelTitle data-node-id="232:4556">
                 {state === 'WAGER_COLLECTION' ? 'Wager Lock Progress' : 'Live Responses'}
@@ -3862,8 +3739,11 @@ function HostDashboardContent() {
             </section>
 
             <section data-name="Leaderboard Panel" data-node-id="232:4557">
-              <h2 className=" text-xl font-bold text-white sm:text-[25px]" data-node-id="232:4579">
-                Leaderboard{' '}
+              <h2
+                className="text-xl font-bold uppercase text-[#00d9ff] sm:text-[25px]"
+                data-node-id="232:4579"
+              >
+                Leaderboard
               </h2>
               <span className="text-sm font-semibold text-[#00d9ff]" data-node-id="232:4458">
                 {rosterTeamCount} {rosterTeamCount === 1 ? 'Team' : 'Teams'} Connected
@@ -3880,7 +3760,7 @@ function HostDashboardContent() {
                     <div
                       key={team.teamId}
                       className={cn(
-                        'flex items-center gap-3 border-b border-white/20 bg-[#1a1f2e] px-4 py-3 last:border-b-0',
+                        'flex h-[57px] items-center gap-3 border-b border-[#888] bg-[#1a1f2e] px-4 last:border-b-0',
                         eliminationLeaderboardStyle &&
                           team.isEliminated &&
                           eliminationLeaderboardRowClasses.eliminated,
@@ -3917,9 +3797,9 @@ function HostDashboardContent() {
         <footer
           data-name="Button Container"
           data-node-id="232:4596"
-          className="shrink-0 border-t border-white/20 bg-[linear-gradient(180deg,#1e2538_0%,#0b0f1a_100%)] px-3 py-4"
+          className="shrink-0 border-t border-[#888] bg-[#151b2b] px-2 py-2"
         >
-          <div className="mx-auto flex w-full max-w-[1920px] flex-wrap items-stretch justify-center gap-2">
+          <div className="mx-auto flex min-h-10 w-full max-w-[1920px] flex-nowrap items-center justify-center gap-2 overflow-x-auto overscroll-x-contain [scrollbar-color:rgba(255,255,255,0.2)_transparent]">
             <HostFooterBtn
               icon={
                 <svg viewBox="0 0 24 24" fill="currentColor" className="text-[#00d9ff]">
@@ -3955,14 +3835,21 @@ function HostDashboardContent() {
                     : 'Start Round'}
             </HostFooterBtn>
             <HostFooterBtn
-              emphasis={showRevealAnswerAction || showNextQuestionAction}
               icon={
                 <svg viewBox="0 0 24 24" fill="currentColor" className="text-[#00d9ff]">
-                  {showNextQuestionAction || revealOnLastQuestionOfRound ? (
-                    <path d="M6 18l8.5-6L6 6v12zm8-12v12h2V6h-2z" />
-                  ) : (
-                    <path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z" />
-                  )}
+                  <path d="M13 18V6l-8.5 6 8.5 6zm8 0V6l-8.5 6 8.5 6z" />
+                </svg>
+              }
+              disabled
+              onClick={() => {}}
+            >
+              Prev Question
+            </HostFooterBtn>
+            <HostFooterBtn
+              emphasis={showNextQuestionAction}
+              icon={
+                <svg viewBox="0 0 24 24" fill="currentColor" className="text-[#00d9ff]">
+                  <path d="M6 18l8.5-6L6 6v12zm8-12v12h2V6h-2z" />
                 </svg>
               }
               disabled={
@@ -3971,36 +3858,23 @@ function HostDashboardContent() {
                 activeMiniGameLocal != null ||
                 miniGameLoading ||
                 cardShuffleFinishedHold ||
-                !(showRevealAnswerAction || showNextQuestionAction)
+                !showNextQuestionAction
               }
               onClick={handleNextQuestion}
             >
               Next Question
             </HostFooterBtn>
-            {canSkipCurrentRound ? (
-              <HostFooterBtn
-                icon={
-                  <svg viewBox="0 0 24 24" fill="currentColor" className="text-[#00d9ff]">
-                    <path d="M4 18l8.5-6L4 6v12zm9 0l8.5-6L13 6v12z" />
-                  </svg>
-                }
-                onClick={handleSkipCurrentRound}
-              >
-                Skip This Round
-              </HostFooterBtn>
-            ) : null}
-            {canSkipNextRound ? (
-              <HostFooterBtn
-                icon={
-                  <svg viewBox="0 0 24 24" fill="currentColor" className="text-[#00d9ff]">
-                    <path d="M4 18l8.5-6L4 6v12zm9 0l8.5-6L13 6v12z" />
-                  </svg>
-                }
-                onClick={handleSkipNextRound}
-              >
-                Skip Next Round
-              </HostFooterBtn>
-            ) : null}
+            <HostFooterBtn
+              icon={
+                <svg viewBox="0 0 24 24" fill="currentColor" className="text-[#00d9ff]">
+                  <path d="M4 19h16v2H4v-2zm2-4h12v2H6v-2zm4-4h4v2h-4v-2zm2-10.5c.83 0 1.5.67 1.5 1.5s-.67 1.5-1.5 1.5S11 6.83 11 6s.67-1.5 1.5-1.5z" />
+                </svg>
+              }
+              disabled={miniGameLive || state === 'FINAL_RESULTS' || !canToggleBreak}
+              onClick={() => (state === 'BREAK' ? handleEndBreak() : handleStartBreak())}
+            >
+              {state === 'BREAK' ? 'End Break' : 'Start Break'}
+            </HostFooterBtn>
             {timerPausedAwaitingResume ? (
               <HostFooterBtn
                 emphasis
@@ -4027,31 +3901,69 @@ function HostDashboardContent() {
               </HostFooterBtn>
             ) : null}
             <HostFooterBtn
-              icon={
-                <svg viewBox="0 0 24 24" fill="currentColor" className="text-[#00d9ff]">
-                  <path d="M4 19h16v2H4v-2zm2-4h12v2H6v-2zm4-4h4v2h-4v-2zm2-10.5c.83 0 1.5.67 1.5 1.5s-.67 1.5-1.5 1.5S11 6.83 11 6s.67-1.5 1.5-1.5z" />
-                </svg>
-              }
-              disabled={miniGameLive || state === 'FINAL_RESULTS' || !canToggleBreak}
-              onClick={() => (state === 'BREAK' ? handleEndBreak() : handleStartBreak())}
-            >
-              {state === 'BREAK' ? 'End Break' : 'Start Break'}
-            </HostFooterBtn>
-            <HostFooterBtn
               emphasis={isScoreboardVisible}
               icon={
                 <svg viewBox="0 0 24 24" fill="currentColor" className="text-[#00d9ff]">
                   <path d="M5 3h4v2H5V3zm0 6h4v2H5V9zm0 6h4v2H5v-2zm6-12h10v2H11V3zm0 6h10v2H11V9zm0 6h10v2H11v-2z" />
                 </svg>
               }
-              // Leaderboard only between rounds (round-end / scoreboard), not mid-round.
               disabled={miniGameLive || state === 'FINAL_RESULTS' || !canOpenScoreboard}
               onClick={handleShowScoreboard}
             >
               {isScoreboardVisible ? 'Hide Leaderboard' : 'Show Leaderboard'}
             </HostFooterBtn>
+            <HostFooterBtn
+              emphasis={
+                state === 'SCOREBOARD' ||
+                (state === 'QUESTION' && questionState === 'REVEALED' && isLastQuestionOfRound)
+              }
+              danger={isFinalRoundCompletionState}
+              icon={
+                <svg viewBox="0 0 24 24" fill="currentColor" className="text-[#00d9ff]">
+                  <path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z" />
+                </svg>
+              }
+              disabled={
+                miniGameLive ||
+                (!isCurrentRoundEmpty &&
+                  state !== 'SCOREBOARD' &&
+                  state !== 'GAME_SHOW_END' &&
+                  !(state === 'QUESTION' && questionState === 'REVEALED' && isLastQuestionOfRound))
+              }
+              onClick={state === 'GAME_SHOW_END' ? handleEndGame : handleAdvanceRound}
+            >
+              {isCurrentRoundEmpty
+                ? 'Skip Empty Round'
+                : isFinalRoundCompletionState || state === 'GAME_SHOW_END'
+                  ? 'Finish Game'
+                  : 'Next Round'}
+            </HostFooterBtn>
+            {canSkipCurrentRound ? (
+              <HostFooterBtn
+                icon={
+                  <svg viewBox="0 0 24 24" fill="currentColor" className="text-[#00d9ff]">
+                    <path d="M4 18l8.5-6L4 6v12zm9 0l8.5-6L13 6v12z" />
+                  </svg>
+                }
+                onClick={handleSkipCurrentRound}
+              >
+                Skip This Round
+              </HostFooterBtn>
+            ) : null}
+            {canSkipNextRound ? (
+              <HostFooterBtn
+                icon={
+                  <svg viewBox="0 0 24 24" fill="currentColor" className="text-[#00d9ff]">
+                    <path d="M4 18l8.5-6L4 6v12zm9 0l8.5-6L13 6v12z" />
+                  </svg>
+                }
+                onClick={handleSkipNextRound}
+              >
+                Skip Next Round
+              </HostFooterBtn>
+            ) : null}
             {isScoreboardVisible ? (
-              <div className="inline-flex h-12.5 shrink-0 items-center gap-1.5 rounded-lg border border-white/15 bg-[linear-gradient(180deg,#2e354c_0%,#1a2030_100%)] px-2 shadow-[0_4px_12px_rgba(0,0,0,0.35)]">
+              <div className="inline-flex h-10 shrink-0 items-center gap-1.5 rounded-[5px] border border-white/15 bg-[linear-gradient(180deg,#2e354c_0%,#1a2030_100%)] px-2 shadow-[0_4px_12px_rgba(0,0,0,0.35)]">
                 <span className="text-[9px] font-bold uppercase leading-[1.1] tracking-wide text-white/55">
                   Venue
                   <br />
@@ -4079,50 +3991,13 @@ function HostDashboardContent() {
                 ) : null}
               </div>
             ) : null}
-            <HostFooterBtn
-              emphasis={
-                state === 'SCOREBOARD' ||
-                (state === 'QUESTION' && questionState === 'REVEALED' && isLastQuestionOfRound)
-              }
-              danger={isFinalRoundCompletionState}
-              icon={
-                <svg viewBox="0 0 24 24" fill="currentColor" className="text-[#00d9ff]">
-                  <path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z" />
-                </svg>
-              }
-              disabled={
-                miniGameLive ||
-                (!isCurrentRoundEmpty &&
-                  state !== 'SCOREBOARD' &&
-                  state !== 'GAME_SHOW_END' &&
-                  !(state === 'QUESTION' && questionState === 'REVEALED' && isLastQuestionOfRound))
-              }
-              onClick={state === 'GAME_SHOW_END' ? handleEndGame : handleAdvanceRound}
-            >
-              {isCurrentRoundEmpty
-                ? 'Skip Empty Round'
-                : isFinalRoundCompletionState || state === 'GAME_SHOW_END'
-                  ? 'Finish Game'
-                  : 'Next Round'}
-            </HostFooterBtn>
           </div>
-          <p className="mt-2 text-center text-[10px] text-white/30">
+          <p className="hidden text-center text-[10px] text-white/30 lg:block">
             Space=Next · T=Start Timer · P=Pause/Resume · S=Leaderboard — Music: T starts countdown +
             media; P pauses/resumes both
           </p>
         </footer>
       ) : null}
-
-      <HostLivePreviewPanel
-        open={livePreviewOpen}
-        onClose={() => setLivePreviewOpen(false)}
-        pin={pin}
-        socket={socket}
-        currentQuestionIndex={gameState?.currentQuestionIndex ?? 0}
-        jumpDisabled={!canJumpToQuestion}
-        questionState={questionState}
-        timerRunning={timerCanPause}
-      />
 
       {/* ═══════ MODALS ═══════ */}
       {showRegisteredTeams ? (

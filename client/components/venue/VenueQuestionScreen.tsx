@@ -83,19 +83,19 @@ export function VenueQuestionScreen({
         }}
       >
         {hasImage ? (
-          <div className="flex h-full min-h-0 w-full items-stretch gap-10">
-            <div className="flex h-full w-[min(42%,520px)] shrink-0 items-center justify-center overflow-hidden rounded-[16px] border-2 border-[#00D9FF]/55 bg-black/35 p-2">
+          <div className="flex h-full min-h-0 w-full flex-col items-center justify-center gap-6 py-4">
+            <div className="flex max-h-[min(52%,240px)] w-full max-w-[560px] shrink-0 items-center justify-center overflow-hidden rounded-[16px] border-2 border-[#00D9FF]/55 bg-black/35 p-2">
               <img
                 src={media?.url}
                 alt=""
                 className="max-h-full max-w-full object-contain"
               />
             </div>
-            <div className="flex min-h-0 min-w-0 flex-1 items-center justify-center py-2">
+            <div className="flex min-h-0 w-full flex-1 items-center justify-center px-2">
               <VenueAutoFitText
-                className="w-full text-left font-extrabold uppercase leading-tight text-white [text-shadow:0_2px_4px_rgba(0,0,0,0.5)]"
-                minFontSize={32}
-                maxFontSize={56}
+                className="w-full text-center font-extrabold uppercase leading-tight text-white [text-shadow:0_2px_4px_rgba(0,0,0,0.5)]"
+                minFontSize={28}
+                maxFontSize={48}
                 step={2}
               >
                 {`Q${questionIndex + 1}. ${toDisplayUpper(questionText)}`}

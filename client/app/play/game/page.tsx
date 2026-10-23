@@ -2844,7 +2844,7 @@ export default function GamePage() {
                     'mt-2 flex min-h-0 flex-1 flex-col px-3 pb-4 pt-2 sm:mt-4 sm:px-4 sm:pb-6 md:px-6',
                     activeQuestionHasImage
                       ? playerImageQuestionScrollClass
-                      : 'overflow-hidden',
+                      : 'min-h-0 overflow-y-auto overflow-x-visible',
                   )}
                 >
                   <QuestionStagePanel
@@ -2879,7 +2879,7 @@ export default function GamePage() {
                       variants={staggerContainer}
                       initial="initial"
                       animate="animate"
-                      className="mt-2 flex flex-col gap-3 sm:mt-3 sm:gap-4"
+                      className="mt-2 flex flex-col gap-3 px-2 py-1 sm:mt-3 sm:gap-4 sm:px-3"
                     >
                       {(() => {
                         if (question.question.isOrdering) {
@@ -3034,7 +3034,7 @@ export default function GamePage() {
                     'mt-2 flex min-h-0 flex-1 flex-col px-3 pb-4 pt-2 sm:mt-4 sm:px-4 sm:pb-6 md:px-6',
                     activeQuestionHasImage
                       ? playerImageQuestionScrollClass
-                      : 'overflow-hidden',
+                      : 'min-h-0 overflow-y-auto overflow-x-visible',
                   )}
                 >
                   <QuestionStagePanel
@@ -3069,7 +3069,7 @@ export default function GamePage() {
                       variants={staggerContainer}
                       initial="initial"
                       animate="animate"
-                      className="mt-2 flex flex-col gap-3 sm:mt-3 sm:gap-4"
+                      className="mt-2 flex flex-col gap-3 px-2 py-1 sm:mt-3 sm:gap-4 sm:px-3"
                     >
                       {(() => {
                         if (question.question.isOrdering) {
@@ -3179,11 +3179,7 @@ export default function GamePage() {
                               key={i}
                               variants={staggerItem}
                               className={cn(
-                                'relative',
-                                showCorrectRing &&
-                                  'rounded-[10px] ring-2 ring-[#39ff14] shadow-[0_0_18px_4px_rgba(57,255,20,0.7)]',
-                                showWrongRing &&
-                                  'rounded-[10px] ring-2 ring-[#ff2525] shadow-[0_0_18px_4px_rgba(255,37,37,0.7)]',
+                                'relative mx-0.5 px-0.5 py-1',
                                 shouldDim && 'opacity-30 brightness-50 contrast-75 scale-[0.98]',
                               )}
                             >
@@ -3193,6 +3189,9 @@ export default function GamePage() {
                                 letter={FIGMA_OPTION_LETTERS[i] || OPTION_LETTERS[i]}
                                 label={toDisplayUpper(opt.text)}
                                 selected={isSelectedOption}
+                                revealHighlight={
+                                  showCorrectRing ? 'correct' : showWrongRing ? 'wrong' : undefined
+                                }
                                 trailing={
                                   showCorrectIcon ? (
                                     <RevealOptionStatusIcon variant="correct" />

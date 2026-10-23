@@ -2486,7 +2486,14 @@ function VenueDisplayContent() {
         )}
 
         {/* ── LOBBY ── */}
-        {phase === 'lobby' && <VenueLobbyScreen teams={teams} maxTeams={maxTeams} />}
+        {phase === 'lobby' && (
+          <VenueLobbyScreen
+            teams={teams}
+            maxTeams={maxTeams}
+            joinUrl={welcomeJoinUrl}
+            sessionPin={sessionPin}
+          />
+        )}
 
         {phase === 'code_of_conduct' && <VenueCodeOfConductScreen />}
 

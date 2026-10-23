@@ -14,6 +14,8 @@ type PlayerChoiceBarProps = {
   className?: string;
   as?: 'button' | 'div';
   trailing?: ReactNode;
+  /** Reveal phase: one outline only (no outer ring wrapper). */
+  revealHighlight?: 'correct' | 'wrong';
 };
 
 /**
@@ -30,16 +32,32 @@ export function PlayerChoiceBar({
   className,
   as = 'button',
   trailing,
+  revealHighlight,
 }: PlayerChoiceBarProps) {
   const tone = optionAccent(index);
   const Comp = as;
+  const borderColor =
+    revealHighlight === 'correct'
+      ? '#38FF00'
+      : revealHighlight === 'wrong'
+        ? '#FF2525'
+        : tone.accent;
+  const boxShadow =
+    revealHighlight === 'correct'
+      ? '0 0 14px rgba(56, 255, 0, 0.85)'
+      : revealHighlight === 'wrong'
+        ? '0 0 14px rgba(255, 37, 37, 0.75)'
+        : selected
+          ? `0 0 16px ${tone.accent}, inset 0 0 10px rgba(0, 217, 255, 0.18)`
+          : `0 0 10px ${tone.accent}66`;
+
   return (
     <Comp
       type={as === 'button' ? 'button' : undefined}
       onClick={disabled ? undefined : onClick}
       disabled={as === 'button' ? disabled : undefined}
       className={cn(
-        'relative flex min-h-[50px] w-full items-stretch overflow-hidden rounded-[10px]',
+        'relative box-border flex min-h-[50px] w-full max-w-full items-stretch overflow-hidden rounded-[10px]',
         'touch-manipulation select-none text-left transition-transform',
         !disabled && as === 'button' && 'active:scale-[0.99]',
         disabled && 'cursor-not-allowed',
@@ -47,14 +65,12 @@ export function PlayerChoiceBar({
       )}
       style={{
         background: 'linear-gradient(180deg, #00072F 0%, #00010A 100%)',
-        border: `1.5px solid ${tone.accent}`,
-        boxShadow: selected
-          ? `0 0 16px ${tone.accent}, inset 0 0 10px rgba(0, 217, 255, 0.18)`
-          : `0 0 10px ${tone.accent}66`,
+        border: `2px solid ${borderColor}`,
+        boxShadow,
       }}
     >
       <span
-        className="flex w-[50px] shrink-0 items-center justify-center rounded-l-[10px]"
+        className="flex w-[50px] shrink-0 items-center justify-center self-stretch rounded-l-[8px]"
         style={{
           background: `linear-gradient(180deg, ${tone.from} 0%, ${tone.to} 100%)`,
         }}

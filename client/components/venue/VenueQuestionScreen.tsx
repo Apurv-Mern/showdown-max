@@ -64,7 +64,7 @@ export function VenueQuestionScreen({
   );
 
   const optionsGrid = (
-    <div className="grid shrink-0 grid-cols-2 gap-x-[clamp(1rem,3vw,2.5rem)] gap-y-[clamp(0.35rem,1.2vh,1.875rem)]">
+    <div className="grid w-full shrink-0 grid-cols-2 gap-x-[clamp(1rem,3vw,2.5rem)] gap-y-[clamp(0.35rem,1.2vh,1.875rem)]">
       {options.map((opt, i) => (
         <VenueChoiceBar
           key={i}
@@ -89,7 +89,7 @@ export function VenueQuestionScreen({
         </div>
       </div>
 
-      <div className="relative z-0 mt-6 flex min-h-0 flex-1 flex-col gap-[clamp(0.35rem,1vh,0.85rem)] overflow-hidden">
+      <div className="relative z-0 mt-6 flex min-h-0 flex-1 flex-col gap-[clamp(0.35rem,1vh,0.85rem)] overflow-y-auto overflow-x-visible">
         {hasImage ? (
           <>
             <div
@@ -145,7 +145,7 @@ export function VenueQuestionScreen({
           </p>
         ) : null}
 
-        <div className="mt-auto min-h-0 w-full shrink-0 pt-[clamp(0.25rem,0.6vh,0.5rem)]">
+        <div className="mt-auto min-h-0 w-full shrink-0 px-[14px] py-[10px] pt-[clamp(0.25rem,0.6vh,0.5rem)]">
           {optionsGrid}
         </div>
       </div>

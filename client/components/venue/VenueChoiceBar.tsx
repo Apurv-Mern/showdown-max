@@ -25,23 +25,21 @@ export function VenueChoiceBar({
 }: VenueChoiceBarProps) {
   const tone = optionAccent(index);
   const dimmed = revealed && !isWinner;
+  const borderColor = isWinner ? '#38FF00' : dimmed ? `${tone.accent}66` : tone.accent;
+  const outerGlow = isWinner ? '0 0 16px rgba(56, 255, 0, 0.9)' : `0 0 12px ${tone.accent}55`;
 
   return (
-    <div
-      className={cn(
-        'relative flex h-[110px] w-full items-center overflow-hidden rounded-[20px]',
-        className,
-      )}
-      style={{
-        background: 'linear-gradient(180deg, #00072F 0%, #00010A 100%)',
-        border: `2px solid ${dimmed ? `${tone.accent}66` : tone.accent}`,
-        boxShadow: isWinner
-          ? `0 0 18px ${tone.accent}, 0 0 10px #38FF00`
-          : `0 0 12px ${tone.accent}55`,
-      }}
-    >
+    <div className={cn('relative min-w-0', className)}>
+      <div
+        className="relative flex h-[110px] w-full items-center overflow-hidden rounded-[20px]"
+        style={{
+          background: 'linear-gradient(180deg, #00072F 0%, #00010A 100%)',
+          border: `2px solid ${borderColor}`,
+          boxShadow: outerGlow,
+        }}
+      >
       <span
-        className="flex h-full w-[120px] shrink-0 items-center justify-center"
+        className="flex h-full w-[120px] shrink-0 items-center justify-center rounded-l-[18px]"
         style={{
           background: `linear-gradient(180deg, ${tone.from} 0%, ${tone.to} 100%)`,
           opacity: dimmed ? 0.45 : 1,
@@ -77,6 +75,7 @@ export function VenueChoiceBar({
           </svg>
         </span>
       ) : null}
+      </div>
     </div>
   );
 }

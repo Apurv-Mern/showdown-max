@@ -112,14 +112,20 @@ export function HostCenterQuestionPanel({
 
       {isImage ? (
         <>
-          <div className="mx-auto mb-4 flex h-[230px] w-full max-w-[440px] items-center justify-center overflow-hidden rounded-[5px] border border-[#00d9ff] bg-black/60 p-2">
+          <div
+            className="mx-auto mb-3 flex h-[clamp(12rem,32vh,22rem)] w-full max-w-[min(92%,720px)] items-center justify-center overflow-hidden rounded-[20px] shadow-[0_0_24px_rgba(0,217,255,0.35)]"
+            style={{
+              background: 'linear-gradient(180deg, #00072F 0%, #00010A 100%)',
+              border: '3px solid #00D9FF',
+            }}
+          >
             <img
               src={resolveMediaUrl(mediaUrl)}
               alt=""
-              className="max-h-full max-w-full object-contain"
+              className="size-full object-contain"
             />
           </div>
-          <p className="mb-4 text-center text-[22px] font-bold uppercase leading-snug text-white lg:text-[28px] lg:leading-tight">
+          <p className="mb-4 text-center text-[clamp(1.375rem,2.8vh,1.875rem)] font-bold uppercase leading-snug text-white lg:text-[clamp(1.5rem,3vh,2rem)]">
             {questionText}
           </p>
         </>
@@ -134,12 +140,12 @@ export function HostCenterQuestionPanel({
               autoPlay={hostVideoPlaybackActive}
             />
           </div>
-          <p className="mb-4 text-center text-[22px] font-bold uppercase leading-snug text-white lg:text-[28px] lg:leading-tight">
+          <p className="mb-4 text-center text-[clamp(1.375rem,2.8vh,1.875rem)] font-bold uppercase leading-snug text-white lg:text-[clamp(1.5rem,3vh,2rem)]">
             {questionText}
           </p>
         </>
       ) : (
-        <p className="mb-4 text-center text-[22px] font-bold uppercase leading-snug text-white lg:text-[28px] lg:leading-tight">
+        <p className="mb-4 text-center text-[clamp(1.375rem,2.8vh,1.875rem)] font-bold uppercase leading-snug text-white lg:text-[clamp(1.5rem,3vh,2rem)]">
           {questionText}
         </p>
       )}

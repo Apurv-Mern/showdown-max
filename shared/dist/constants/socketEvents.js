@@ -43,7 +43,6 @@ const SOCKET_EVENTS = Object.freeze({
   ADVANCE_LOBBY: 'advance_lobby',
   GET_LIVE_ROUND_PREVIEW: 'get_live_round_preview',
   UPDATE_LIVE_QUESTION: 'update_live_question',
-  SKIP_QUESTION: 'skip_question',
   JUMP_TO_QUESTION: 'jump_to_question',
   VENUE_LEADERBOARD_SCROLL: 'venue_leaderboard_scroll',
   VENUE_LEADERBOARD_STATE: 'venue_leaderboard_state',

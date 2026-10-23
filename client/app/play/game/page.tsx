@@ -14,8 +14,7 @@ import {
   isStandardWagerRoundFromState,
   isAudienceRevealHoldDuringHostPreview,
 } from '@/lib/audienceSession';
-import { RoundIntroScoringLines } from '@/lib/roundIntroInstructions';
-import { RoundIntroHeadline } from '@/components/shared/RoundIntroHeadline';
+import { PlayerRoundIntroScreen } from '@/components/player/PlayerRoundIntroScreen';
 import { RoundEndTitle } from '@/components/shared/RoundEndTitle';
 import { GameshowEndPlayerView } from '@/components/shared/GameshowEndPlayerView';
 import { LeaderboardScreen } from '@/components/shared/LeaderboardScreen';
@@ -36,7 +35,6 @@ import {
   FINAL_WAGER_PERCENT_OPTIONS,
   WAGER_POINT_OPTIONS,
 } from '@/components/player/PlayerWagerSelectionScreen';
-import { normalizeRoundIntroTitle } from '@/lib/roundDisplayLabels';
 import {
   resolveBreakUpNextLabel,
   resolveBreakUpNextLabelFromBreakStart,
@@ -2729,37 +2727,7 @@ export default function GamePage() {
                     transition={{ delay: 0.1 }}
                     className="relative w-full max-w-[min(26rem,92vw)] md:max-w-[34rem] lg:max-w-[38rem]"
                   >
-                    <img src="/Venue Round Intro.png" alt="Round intro" className="w-full h-auto" />
-
-                    <div className="pointer-events-none absolute inset-0">
-                      {/* Solid fill masks baked-in "ROUND N" text inside round intro.png so only live data shows */}
-                      <div className="absolute left-1/2 top-[20%] flex h-[42%] w-[64%] -translate-x-1/2 items-center justify-center overflow-hidden rounded-full">
-                        <RoundIntroHeadline
-                          size="player"
-                          roundNumber={(roundInfo.roundIndex || 0) + 1}
-                          roundType={roundInfo.round?.type}
-                          subtitle={normalizeRoundIntroTitle(
-                            roundInfo.round?.name,
-                            roundInfo.round?.type,
-                            roundInfo.roundIndex,
-                          )}
-                        />
-                      </div>
-
-                      <div
-                        className={cn(
-                          'absolute inset-x-[7%] flex flex-col items-stretch overflow-hidden px-0',
-                          (roundInfo.round?.type || '').toUpperCase() === 'ELIMINATION'
-                            ? 'top-[71%] bottom-[6.5%] justify-start pt-1.5 sm:pt-2'
-                            : 'top-[68%] bottom-[8%] justify-center',
-                        )}
-                      >
-                        <RoundIntroScoringLines
-                          roundType={roundInfo.round?.type}
-                          variant="player"
-                        />
-                      </div>
-                    </div>
+                    <PlayerRoundIntroScreen roundNumber={(roundInfo.roundIndex || 0) + 1} />
                   </motion.div>
                 </motion.div>
               )}

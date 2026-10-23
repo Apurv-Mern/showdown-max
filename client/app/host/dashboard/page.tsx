@@ -23,8 +23,7 @@ import { resolveBreakUpNextLabel } from '@/lib/breakScreenCopy';
 import { clientLogger } from '@/lib/clientLogger';
 import { breakSecondsFromEndsAt, resolveBreakWallClock } from '@/lib/breakWallClock';
 import { cn } from '@/lib/utils';
-import { RoundIntroScoringLines } from '@/lib/roundIntroInstructions';
-import { RoundIntroHeadline } from '@/components/shared/RoundIntroHeadline';
+import { VenueRoundIntroScreen } from '@/components/venue/VenueRoundIntroScreen';
 import { useAuth } from '@/lib/auth';
 import { PUBLIC_API_URL } from '@/lib/env';
 import {
@@ -1813,19 +1812,15 @@ function HostDashboardContent() {
         emit('next_question');
         return;
       }
-      if (qs === 'ACTIVE' || qs === 'PREVIEW') return;
+      if (qs === 'ACTIVE') return;
+      if (qs === 'PREVIEW') {
+        emit('next_question');
+        return;
+      }
       if (timerRemainingRef.current > 0) return;
     }
     emit('next_question');
   };
-  const handlePresentQuestion = () => {
-    if (activeMiniGameLocal || miniGameLoading || cardShuffleFinishedHold) return;
-    const gs = gameStateRef.current;
-    if (gs?.state !== 'QUESTION' || gs.questionState !== 'PREVIEW') return;
-    emit('present_question');
-  };
-  const handleCollectWagers = () => emit('collect_wagers');
-  const handleOpenWagerQuestionPreview = () => emit('open_wager_question_preview');
   const handleStartNextRoundAfterCardShuffle = () => {
     setCardShuffleFinishedHold(false);
     setFinishedMiniGameType(null);
@@ -1896,7 +1891,6 @@ function HostDashboardContent() {
   const handleAdvanceRound = () => emit('advance_round');
   const handleSkipNextRound = () => emit('skip_next_round');
   const handleSkipCurrentRound = () => emit('skip_current_round');
-  const handleSkipQuestion = () => emit('skip_question');
   const handleStartBreak = () => {
     if (state === 'LOBBY' || state === 'FINAL_RESULTS' || state === 'BREAK') return;
     emit('start_break');
@@ -2286,23 +2280,7 @@ function HostDashboardContent() {
       const qLen = round?.questions?.length ?? 0;
       const isLast = qLen > 0 && idx === qLen - 1;
       if (qs === 'PREVIEW') {
-        const rt = (round?.type || '').toUpperCase();
-        const stdWager = rt === 'WAGER';
-        const finalWager = rt === 'FINAL_WAGER';
-        if (stdWager && gs?.audienceHoldRoundIntro && !gs?.hostViewingQuestionPreview) {
-          handleOpenWagerQuestionPreview();
-          return;
-        }
-        const wagerNeedsCollect =
-          (stdWager &&
-            !gs?.audienceWagerCollectionOpen &&
-            (!gs?.audienceHoldRoundIntro || gs?.hostViewingQuestionPreview)) ||
-          (finalWager && !gs?.audienceWagerCollectionOpen);
-        if (wagerNeedsCollect) {
-          handleCollectWagers();
-        } else {
-          handlePresentQuestion();
-        }
+        handleNextQuestion();
         return;
       }
       if (qs === 'ACTIVE') {
@@ -2326,10 +2304,7 @@ function HostDashboardContent() {
     miniGameLoading,
     cardShuffleFinishedHold,
     handleAdvanceRound,
-    handleCollectWagers,
-    handleOpenWagerQuestionPreview,
     handleNextQuestion,
-    handlePresentQuestion,
     socket,
     pin,
   ]);
@@ -2535,42 +2510,6 @@ function HostDashboardContent() {
     : miniGameFinishTriviaNotStarted
       ? 'Start Next Round'
       : 'Next Question';
-  const showHostPreviewBanner = state === 'QUESTION' && questionState === 'PREVIEW';
-  /** Power Play only: host stays on round intro art while server is QUESTION+PREVIEW (no question payload). */
-  const showWagerHostRoundIntroMirror =
-    isStandardWagerRound &&
-    state === 'QUESTION' &&
-    questionState === 'PREVIEW' &&
-    Boolean(gameState?.audienceHoldRoundIntro) &&
-    !gameState?.hostViewingQuestionPreview;
-  const showWagerOpenQuestionPreviewAction =
-    isStandardWagerRound &&
-    state === 'QUESTION' &&
-    questionState === 'PREVIEW' &&
-    Boolean(gameState?.audienceHoldRoundIntro) &&
-    !gameState?.hostViewingQuestionPreview;
-  /** Power Play: Collect before Present whenever preview is open and wagers not yet collected. */
-  const showWagerPreviewNeedsCollect =
-    isStandardWagerRound &&
-    state === 'QUESTION' &&
-    questionState === 'PREVIEW' &&
-    !gameState?.audienceWagerCollectionOpen &&
-    (!gameState?.audienceHoldRoundIntro || Boolean(gameState?.hostViewingQuestionPreview));
-  const showFinalWagerPreviewNeedsCollect =
-    isFinalWagerRound &&
-    state === 'QUESTION' &&
-    questionState === 'PREVIEW' &&
-    !gameState?.audienceWagerCollectionOpen;
-  const showCollectWagerDuringPreview =
-    showHostPreviewBanner &&
-    (showWagerPreviewNeedsCollect || showFinalWagerPreviewNeedsCollect);
-  const showPresentQuestionAction =
-    showHostPreviewBanner &&
-    (isStandardWagerRound
-      ? !showWagerPreviewNeedsCollect
-      : isFinalWagerRound
-        ? !showFinalWagerPreviewNeedsCollect
-        : !isCurrentRoundWagerLockRound || !gameState?.hostPreviewAwaitingWagerCollection);
   const showNextQuestionAction =
     state === 'QUESTION' && questionState === 'REVEALED' && !isLastQuestionOfRound;
   // const showRevealAnswerAction = state === 'QUESTION' && questionState === 'ACTIVE';
@@ -2604,16 +2543,6 @@ function HostDashboardContent() {
     (state === 'ROUND_INTRO' || state === 'WAGER_COLLECTION') &&
     !isCurrentRoundEmpty &&
     !miniGameLive;
-  const showSkipQuestionAction =
-    (isStandardWagerRound
-      ? showCollectWagerDuringPreview
-      : state === 'QUESTION' && questionState === 'PREVIEW') &&
-    !(isStandardWagerRound && gameState?.audienceWagerCollectionOpen) &&
-    !miniGameLive &&
-    activeMiniGameLocal == null &&
-    !miniGameLoading &&
-    !cardShuffleFinishedHold;
-
   const canJumpToQuestion =
     state === 'QUESTION' &&
     !miniGameLive &&
@@ -3446,45 +3375,8 @@ function HostDashboardContent() {
                 </div>
               ) : null}
             </div>
-          ) : state === 'QUESTION' && currentQuestion && !showWagerHostRoundIntroMirror ? (
+          ) : state === 'QUESTION' && currentQuestion ? (
             <div className="flex min-h-0 flex-1 flex-col animate-fadeIn">
-              {showHostPreviewBanner ? (
-                <div className="mb-3 shrink-0 rounded-xl border border-[#f59e0b]/45 bg-[rgba(245,158,11,0.12)] px-4 py-2.5 text-center shadow-[0_0_16px_rgba(245,158,11,0.15)]">
-                  <p className="text-xs font-black uppercase tracking-[0.12em] text-[#fcd34d]">
-                    Host preview only
-                  </p>
-                  <p className="mt-1 text-sm font-medium text-white/75">
-                    {showCollectWagerDuringPreview ? (
-                      <>
-                        Review this question, then press{' '}
-                        <span className="font-bold text-white">Collect Wager</span> so venue and
-                        players lock points for this question. After wagers are in, use{' '}
-                        <span className="font-bold text-white">Present Question</span> or{' '}
-                        <span className="font-bold text-white">Space</span> to go live.
-                      </>
-                    ) : gameState?.audienceWagerCollectionOpen ? (
-                      <>
-                        Venue and players are locking wagers. When ready, use{' '}
-                        <span className="font-bold text-white">Present Question</span> or{' '}
-                        <span className="font-bold text-white">Space</span> to go live.
-                      </>
-                    ) : gameState?.audienceHoldRoundIntro ? (
-                      <>
-                        Venue and players still see the{' '}
-                        <span className="font-bold text-white">round intro</span>. Use{' '}
-                        <span className="font-bold text-white">Present Question</span> or{' '}
-                        <span className="font-bold text-white">Space</span> to go live.
-                      </>
-                    ) : (
-                      <>
-                        Venue and players still see the previous screen. Use{' '}
-                        <span className="font-bold text-white">Present Question</span> or{' '}
-                        <span className="font-bold text-white">Space</span> to go live.
-                      </>
-                    )}
-                  </p>
-                </div>
-              ) : null}
               <div
                 className={cn(
                   'mx-auto flex h-full w-full min-h-0 flex-col rounded-2xl border border-white/10 shadow-[0_0_28px_rgba(0,0,0,0.5)]',
@@ -3628,9 +3520,7 @@ function HostDashboardContent() {
             </div>
           ) : (
             <div className="flex flex-1 items-center justify-center rounded-2xl border border-[rgba(0,217,255,0.25)] bg-[#151b2e]/40 p-8">
-              {state === 'ROUND_INTRO' ||
-              state === 'WAGER_COLLECTION' ||
-              showWagerHostRoundIntroMirror ? (
+              {state === 'ROUND_INTRO' || state === 'WAGER_COLLECTION' ? (
                 <div className="w-full max-w-[1120px] animate-fadeIn">
                   {state === 'WAGER_COLLECTION' ? (
                     <div className="flex flex-col items-center justify-center gap-6 py-8 text-center">
@@ -3678,42 +3568,20 @@ function HostDashboardContent() {
                       </p>
                     </div>
                   ) : (
-                    <div className="relative mx-auto aspect-[860/680] w-full max-w-[860px]">
-                      <img
-                        src="/Venue Round Intro.png"
-                        alt="Round intro background"
-                        className="absolute inset-0 h-full w-full object-contain drop-shadow-[0_0_26px_rgba(0,0,0,0.6)]"
+                    <div className="relative mx-auto h-[min(72vh,880px)] w-full max-w-[860px] drop-shadow-[0_0_26px_rgba(0,0,0,0.6)]">
+                      <VenueRoundIntroScreen
+                        roundNumber={(gameState?.currentRoundIndex || 0) + 1}
                       />
-
-                      <div className="absolute inset-0 pointer-events-none text-center">
-                        <div className="absolute left-1/2 top-[38%] flex h-[36%] w-[64%] -translate-x-1/2 -translate-y-1/2 items-center justify-center overflow-hidden">
-                          <RoundIntroHeadline
-                            size="host"
-                            roundNumber={(gameState?.currentRoundIndex || 0) + 1}
-                            roundType={currentRound?.type}
-                            subtitle={normalizeRoundIntroTitle(
-                              currentRound?.name,
-                              currentRound?.type,
-                              gameState?.currentRoundIndex,
-                            )}
-                          />
+                      {isCurrentRoundEmpty ? (
+                        <div className="pointer-events-none absolute left-1/2 top-1/2 z-10 w-[72%] -translate-x-1/2 -translate-y-1/2 rounded-2xl border border-[#ffd166]/60 bg-[rgba(40,28,8,0.9)] px-6 py-5 text-center shadow-[0_0_20px_rgba(255,209,102,0.3)]">
+                          <p className="text-base font-extrabold uppercase tracking-[0.14em] text-[#ffd166]">
+                            No Questions In This Round
+                          </p>
+                          <p className="mt-2 text-sm font-medium text-[#ffe6a8]/95">
+                            Click Skip Empty Round to continue.
+                          </p>
                         </div>
-
-                        <div className="absolute inset-x-[6%] top-[69%] bottom-[6%] flex flex-col items-stretch justify-center overflow-hidden">
-                          <RoundIntroScoringLines roundType={currentRound?.type} variant="host" />
-                        </div>
-
-                        {isCurrentRoundEmpty ? (
-                          <div className="absolute left-1/2 top-[56%] w-[72%] -translate-x-1/2 -translate-y-1/2 rounded-2xl border border-[#ffd166]/60 bg-[rgba(40,28,8,0.9)] px-6 py-5 text-center shadow-[0_0_20px_rgba(255,209,102,0.3)]">
-                            <p className="text-base font-extrabold uppercase tracking-[0.14em] text-[#ffd166]">
-                              No Questions In This Round
-                            </p>
-                            <p className="mt-2 text-sm font-medium text-[#ffe6a8]/95">
-                              Click Skip Empty Round to continue.
-                            </p>
-                          </div>
-                        ) : null}
-                      </div>
+                      ) : null}
                     </div>
                   )}
                 </div>
@@ -3873,21 +3741,13 @@ function HostDashboardContent() {
           <div className="space-y-10">
             <section data-name="Live Responses Panel" data-node-id="232:4549">
               <HostPanelTitle data-node-id="232:4556">
-                {state === 'WAGER_COLLECTION' ||
-                (state === 'QUESTION' &&
-                  questionState === 'PREVIEW' &&
-                  gameState?.audienceWagerCollectionOpen)
-                  ? 'Wager Lock Progress'
-                  : 'Live Responses'}
+                {state === 'WAGER_COLLECTION' ? 'Wager Lock Progress' : 'Live Responses'}
               </HostPanelTitle>
               <div
                 className="rounded-xl border border-[rgba(0,217,255,0.25)] bg-[#151b2e]/80 px-4 py-4"
                 data-name="Response Progress Container"
               >
-                {state === 'WAGER_COLLECTION' ||
-                (state === 'QUESTION' &&
-                  questionState === 'PREVIEW' &&
-                  gameState?.audienceWagerCollectionOpen) ? (
+                {state === 'WAGER_COLLECTION' ? (
                   <>
                     <p className="text-lg text-white" data-node-id="232:4555">
                       <span className="font-bold text-[#00d9ff]">{wagerLockedCount}</span>{' '}
@@ -4094,35 +3954,11 @@ function HostDashboardContent() {
                     ? 'Start Question'
                     : 'Start Round'}
             </HostFooterBtn>
-            {showCollectWagerDuringPreview ? (
-              <HostFooterBtn
-                emphasis
-                icon={
-                  <svg viewBox="0 0 24 24" fill="currentColor" className="text-[#00d9ff]">
-                    <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z" />
-                  </svg>
-                }
-                disabled={miniGameLive || activeMiniGameLocal != null || miniGameLoading}
-                onClick={handleCollectWagers}
-              >
-                Collect Wager
-              </HostFooterBtn>
-            ) : null}
             <HostFooterBtn
-              emphasis={
-                showRevealAnswerAction ||
-                showNextQuestionAction ||
-                showPresentQuestionAction ||
-                showCollectWagerDuringPreview ||
-                showWagerOpenQuestionPreviewAction
-              }
+              emphasis={showRevealAnswerAction || showNextQuestionAction}
               icon={
                 <svg viewBox="0 0 24 24" fill="currentColor" className="text-[#00d9ff]">
-                  {showPresentQuestionAction ? (
-                    <path d="M8 5v14l11-7z" />
-                  ) : showNextQuestionAction ||
-                      showWagerOpenQuestionPreviewAction ||
-                      revealOnLastQuestionOfRound ? (
+                  {showNextQuestionAction || revealOnLastQuestionOfRound ? (
                     <path d="M6 18l8.5-6L6 6v12zm8-12v12h2V6h-2z" />
                   ) : (
                     <path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z" />
@@ -4135,41 +3971,12 @@ function HostDashboardContent() {
                 activeMiniGameLocal != null ||
                 miniGameLoading ||
                 cardShuffleFinishedHold ||
-                !(
-                  showRevealAnswerAction ||
-                  showNextQuestionAction ||
-                  showPresentQuestionAction ||
-                  showWagerOpenQuestionPreviewAction
-                )
+                !(showRevealAnswerAction || showNextQuestionAction)
               }
-              onClick={
-                showWagerOpenQuestionPreviewAction
-                  ? handleOpenWagerQuestionPreview
-                  : showPresentQuestionAction
-                    ? handlePresentQuestion
-                    : handleNextQuestion
-              }
+              onClick={handleNextQuestion}
             >
-              {showWagerOpenQuestionPreviewAction
-                ? 'Preview Question'
-                : showPresentQuestionAction
-                  ? 'Present Question'
-                  : showNextQuestionAction
-                    ? 'Preview Next Question'
-                    : 'Next Question'}
+              Next Question
             </HostFooterBtn>
-            {showSkipQuestionAction ? (
-              <HostFooterBtn
-                icon={
-                  <svg viewBox="0 0 24 24" fill="currentColor" className="text-[#00d9ff]">
-                    <path d="M6 6h2v12H6V6zm10 0h2v12h-2V6z" />
-                  </svg>
-                }
-                onClick={handleSkipQuestion}
-              >
-                Skip This Question
-              </HostFooterBtn>
-            ) : null}
             {canSkipCurrentRound ? (
               <HostFooterBtn
                 icon={
@@ -4300,13 +4107,8 @@ function HostDashboardContent() {
             </HostFooterBtn>
           </div>
           <p className="mt-2 text-center text-[10px] text-white/30">
-            {showWagerOpenQuestionPreviewAction
-              ? 'Space=Preview Question · venue stays on round intro'
-              : showCollectWagerDuringPreview
-                ? 'Space=Collect Wager · then Present Question to go live'
-                : showPresentQuestionAction
-                  ? 'Space=Present Question · Skip advances preview without going live'
-                  : 'Space=Next · T=Start Timer · P=Pause/Resume · S=Leaderboard — Music: T starts countdown + media; P pauses/resumes both'}
+            Space=Next · T=Start Timer · P=Pause/Resume · S=Leaderboard — Music: T starts countdown +
+            media; P pauses/resumes both
           </p>
         </footer>
       ) : null}
@@ -4518,33 +4320,8 @@ function HostDashboardContent() {
 
             <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-6" data-node-id="232:2649">
               {currentRound ? (
-                <div className="flex items-center justify-center">
-                  <div className="relative h-[640px] w-full max-w-[780px]">
-                    <img
-                      src="/Venue Round Intro.png"
-                      alt="Round intro background"
-                      className="absolute inset-0 h-full w-full object-contain drop-shadow-[0_0_26px_rgba(0,0,0,0.6)]"
-                    />
-
-                    <div className="pointer-events-none absolute inset-0 text-center">
-                      <div className="absolute left-1/2 top-[34%] flex h-[38%] w-[64%] -translate-x-1/2 -translate-y-1/2 items-center justify-center overflow-hidden">
-                        <RoundIntroHeadline
-                          size="hostModal"
-                          roundNumber={(gameState?.currentRoundIndex ?? 0) + 1}
-                          roundType={currentRound?.type}
-                          subtitle={normalizeRoundIntroTitle(
-                            currentRound?.name,
-                            currentRound?.type,
-                            gameState?.currentRoundIndex,
-                          )}
-                        />
-                      </div>
-
-                      <div className="absolute inset-x-[6%] top-[69%] bottom-[6%] flex flex-col items-stretch justify-center overflow-hidden">
-                        <RoundIntroScoringLines roundType={currentRound?.type} variant="host" />
-                      </div>
-                    </div>
-                  </div>
+                <div className="flex h-[min(70vh,640px)] items-center justify-center">
+                  <VenueRoundIntroScreen roundNumber={(gameState?.currentRoundIndex ?? 0) + 1} />
                 </div>
               ) : (
                 <div

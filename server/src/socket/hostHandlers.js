@@ -519,20 +519,6 @@ const hostHandlers = (io, socket) => {
     }
   });
 
-  socket.on(SOCKET_EVENTS.SKIP_QUESTION, async (data) => {
-    try {
-      const pin = data?.pin;
-      if (!assertHostForPin(socket, pin)) {
-        socket.emit(SOCKET_EVENTS.ERROR, { message: 'Unauthorized' });
-        return;
-      }
-      await gameController.skipQuestion(io, pin);
-    } catch (err) {
-      logger.error('skip_question error', { error: err.message });
-      socket.emit(SOCKET_EVENTS.ERROR, { message: 'Failed to skip question' });
-    }
-  });
-
   socket.on(SOCKET_EVENTS.JUMP_TO_QUESTION, async (data, ack) => {
     try {
       const pin = data?.pin;

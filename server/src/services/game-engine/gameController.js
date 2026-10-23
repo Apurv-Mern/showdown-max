@@ -607,18 +607,7 @@ const nextQuestion = async (io, pin) => {
     gameState.state === GAME_STATES.QUESTION &&
     gameState.questionState === QUESTION_STATES.PREVIEW
   ) {
-    if (gameState.audienceHoldRoundIntro) {
-      const venueHandlers = require('../../socket/venueHandlers');
-      io.to(`session:${pin}`).emit(
-        SOCKET_EVENTS.SESSION_STATE,
-        await venueHandlers.buildFullStatePayload(gameState, pin),
-      );
-      logger.debug('nextQuestion while host preview — refreshed session_state for clients', {
-        pin,
-      });
-    } else {
-      logger.debug('nextQuestion ignored while question is staged for preview', { pin });
-    }
+    await proceedToActivateQuestion(io, pin, gameState);
     return;
   }
 
@@ -656,27 +645,28 @@ const nextQuestion = async (io, pin) => {
     return;
   }
 
-  /** @type {{ hostPreviewAwaitingWagerCollection?: boolean | null, audienceHoldRoundIntro?: boolean }} */
-  let previewOptions = {};
-
   if (gameState.state === GAME_STATES.ROUND_INTRO) {
     const round = stateMachine.getCurrentRound(gameState);
     gameState = clearStandardWagerAudiencePointers(gameState);
-    const transResult = stateMachine.transition(gameState, GAME_STATES.QUESTION);
-    if (!transResult.valid) return;
-    gameState = transResult.gameState;
-    previewOptions = { audienceHoldRoundIntro: true };
-    if (isStandardWagerRound(round)) {
-      previewOptions = { ...previewOptions, ...standardWagerPreviewStageOpts(gameState) };
+    if (isWagerLockRound(round)) {
+      await redisStore.setGameState(pin, gameState);
+      await startQuestionWagerCollection(io, pin);
+      return;
     }
-  } else if (gameState.state === GAME_STATES.WAGER_COLLECTION) {
-    // Host pressed "Start Question" after wager collection: host preview (wagers already locked).
     const transResult = stateMachine.transition(gameState, GAME_STATES.QUESTION);
     if (!transResult.valid) return;
-    gameState = transResult.gameState;
-    await proceedToStageQuestion(io, pin, gameState, { hostPreviewAwaitingWagerCollection: false });
+    await proceedToActivateQuestion(io, pin, transResult.gameState);
     return;
-  } else if (gameState.state === GAME_STATES.SCOREBOARD) {
+  }
+
+  if (gameState.state === GAME_STATES.WAGER_COLLECTION) {
+    const transResult = stateMachine.transition(gameState, GAME_STATES.QUESTION);
+    if (!transResult.valid) return;
+    await proceedToActivateQuestion(io, pin, transResult.gameState);
+    return;
+  }
+
+  if (gameState.state === GAME_STATES.SCOREBOARD) {
     // Post-round scoreboard — advance to the next round intro, never reopen the
     // last question at the same index.
     await advanceToNextRound(io, pin);
@@ -698,19 +688,25 @@ const nextQuestion = async (io, pin) => {
       return;
     }
 
+    if (isWagerLockRound(round)) {
+      await startQuestionWagerCollection(io, pin);
+      return;
+    }
+
     const advance = stateMachine.advanceQuestion(gameState);
     if (!advance.hasNext) {
       await endRound(io, pin, gameState);
       return;
     }
-    gameState = advance.gameState;
-    previewOptions = { audienceHoldRoundIntro: false };
-    if (isStandardWagerRound(round)) {
-      previewOptions.hostPreviewAwaitingWagerCollection = true;
-    }
+    await proceedToActivateQuestion(io, pin, advance.gameState);
+    return;
   }
 
-  await proceedToStageQuestion(io, pin, gameState, previewOptions);
+  logger.debug('nextQuestion ignored — no valid transition', {
+    pin,
+    state: gameState.state,
+    questionState: gameState.questionState,
+  });
 };
 
 /** Stage current question index for host preview (no question_active). */
@@ -772,18 +768,12 @@ const proceedToStageQuestion = async (
   require('../sessionCheckpointService').persistNow(pin).catch(() => {});
 };
 
-/** Host confirmed preview — same go-live path as legacy immediate next_question. */
+/** Legacy alias — host preview removed; always activates the current question index. */
 const presentQuestion = async (io, pin) => {
   let gameState = await redisStore.getGameState(pin);
   if (!gameState || gameState.state !== GAME_STATES.QUESTION) return;
   gameState = await clearMiniGameHold(pin, gameState);
-  if (gameState.questionState !== QUESTION_STATES.PREVIEW) {
-    logger.debug('presentQuestion ignored — not in PREVIEW', {
-      pin,
-      questionState: gameState.questionState,
-    });
-    return;
-  }
+  if (gameState.questionState === QUESTION_STATES.ACTIVE) return;
   await proceedToActivateQuestion(io, pin, gameState);
 };
 
@@ -1134,97 +1124,6 @@ const updateLiveQuestion = async (io, pin, payload) => {
   logger.info('Live question updated', { pin, questionId });
 };
 
-const skipQuestion = async (io, pin) => {
-  let gameState = await redisStore.getGameState(pin);
-  if (!gameState || gameState.state !== GAME_STATES.QUESTION) return;
-
-  if (gameState.questionState === QUESTION_STATES.REVEALED) {
-    logger.debug('skipQuestion ignored while question is revealed', { pin });
-    return;
-  }
-
-  const inPreview = gameState.questionState === QUESTION_STATES.PREVIEW;
-  const audienceNeverSawQuestion =
-    gameState.lastAudienceQuestionIndex === undefined ||
-    gameState.lastAudienceQuestionIndex === null;
-  const skipped = stateMachine.getCurrentQuestion(gameState);
-  const skippedId = skipped?.id;
-  const roundBeforeSkip = stateMachine.getCurrentRound(gameState);
-
-  timerManager.stopTimer(pin);
-  try {
-    io.to(`session:${pin}`).emit(SOCKET_EVENTS.MUSIC_CONTROL, { action: 'pause' });
-  } catch {
-    /* ignore */
-  }
-
-  if (skippedId != null) {
-    await redisStore.clearResponsesForQuestion(pin, skippedId);
-    if (gameState.questionWagers?.[String(skippedId)]) {
-      const nextWagers = { ...gameState.questionWagers };
-      delete nextWagers[String(skippedId)];
-      gameState = { ...gameState, questionWagers: nextWagers };
-    }
-  }
-
-  const advance = stateMachine.advanceQuestion(gameState);
-  if (!advance.hasNext) {
-    await redisStore.setGameState(pin, gameState);
-    await endRound(io, pin, gameState);
-    return;
-  }
-  gameState = advance.gameState;
-  const roundAfterSkip = stateMachine.getCurrentRound(gameState);
-
-  if (inPreview) {
-    if (audienceNeverSawQuestion) {
-      gameState = clearStandardWagerAudiencePointers(gameState);
-    }
-    const stageOpts = isStandardWagerRound(roundAfterSkip)
-      ? {
-          ...standardWagerPreviewStageOpts(gameState),
-          /** Host already in preview flow — do not rewind to round-intro art. */
-          hostViewingQuestionPreview: true,
-        }
-      : { audienceHoldRoundIntro: audienceNeverSawQuestion };
-    await proceedToStageQuestion(io, pin, gameState, stageOpts);
-    logger.info('Staged preview skipped to next question', {
-      pin,
-      skippedQuestionId: skippedId,
-      questionIndex: gameState.currentQuestionIndex,
-      roundType: roundAfterSkip?.type,
-    });
-    return;
-  }
-
-  if (isStandardWagerRound(roundBeforeSkip) || isStandardWagerRound(roundAfterSkip)) {
-    await proceedToStageQuestion(io, pin, gameState, {
-      ...standardWagerPreviewStageOpts(gameState),
-      hostViewingQuestionPreview: true,
-    });
-    logger.info('Wager round question skipped — staged next host preview', {
-      pin,
-      skippedQuestionId: skippedId,
-      questionIndex: gameState.currentQuestionIndex,
-    });
-    return;
-  }
-
-  if (isWagerLockRound(roundBeforeSkip)) {
-    await redisStore.setGameState(pin, gameState);
-    await startQuestionWagerCollection(io, pin);
-    return;
-  }
-
-  await redisStore.setGameState(pin, gameState);
-  await proceedToActivateQuestion(io, pin, gameState);
-  logger.info('Question skipped (no scoring)', {
-    pin,
-    skippedQuestionId: skippedId,
-    questionIndex: gameState.currentQuestionIndex,
-  });
-};
-
 /**
  * Host jump to any question index in the current round (cumulative scores unchanged).
  */
@@ -1278,17 +1177,6 @@ const jumpToQuestion = async (io, pin, questionIndex) => {
   };
   await redisStore.setGameState(pin, gameState);
 
-  if (isStandardWagerRound(round)) {
-    await proceedToStageQuestion(io, pin, gameState, standardWagerPreviewStageOpts(gameState));
-    require('../sessionCheckpointService').persistNow(pin).catch(() => {});
-    logger.info('Jumped to question (wager host preview)', {
-      pin,
-      questionIndex: idx,
-      questionId: targetId,
-    });
-    return;
-  }
-
   if (isWagerLockRound(round)) {
     await startQuestionWagerCollection(io, pin);
     require('../sessionCheckpointService').persistNow(pin).catch(() => {});
@@ -1300,9 +1188,9 @@ const jumpToQuestion = async (io, pin, questionIndex) => {
     return;
   }
 
-  await proceedToStageQuestion(io, pin, gameState);
+  await proceedToActivateQuestion(io, pin, gameState);
   require('../sessionCheckpointService').persistNow(pin).catch(() => {});
-  logger.info('Jumped to question (host preview)', {
+  logger.info('Jumped to question (live)', {
     pin,
     questionIndex: idx,
     questionId: targetId,
@@ -3188,14 +3076,6 @@ const openWagerQuestionPreview = async (io, pin) => {
 };
 
 const collectWagers = async (io, pin) => {
-  const gameState = await redisStore.getGameState(pin);
-  if (
-    gameState?.state === GAME_STATES.QUESTION &&
-    gameState.questionState === QUESTION_STATES.PREVIEW
-  ) {
-    await openAudienceWagerCollectionDuringPreview(io, pin);
-    return;
-  }
   await startQuestionWagerCollection(io, pin);
 };
 
@@ -3369,7 +3249,6 @@ module.exports = {
   getEliminationStateSnapshot,
   getLiveRoundPreview,
   updateLiveQuestion,
-  skipQuestion,
   jumpToQuestion,
   restoreEliminationState,
   publishQuestionLiveStatsAfterRosterChange,

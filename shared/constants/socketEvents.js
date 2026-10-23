@@ -49,8 +49,6 @@ const SOCKET_EVENTS = Object.freeze({
   GET_LIVE_ROUND_PREVIEW: 'get_live_round_preview',
   /** Host: patch question text/options during a live session. */
   UPDATE_LIVE_QUESTION: 'update_live_question',
-  /** Host: abandon current question without scoring. */
-  SKIP_QUESTION: 'skip_question',
   /** Host: jump to a question index in the current round (no score changes). */
   JUMP_TO_QUESTION: 'jump_to_question',
   /** Host: scroll the venue leaderboard without touching the venue machine. */

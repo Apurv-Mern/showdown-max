@@ -1918,6 +1918,32 @@ function HostDashboardContent() {
     const cleaned = value.replace(/\s+/g, ' ').slice(0, 32);
     setKangarooNames((prev) => prev.map((name, idx) => (idx === slotIndex ? cleaned : name)));
   };
+
+  const kangarooNamesSyncPayloadRef = useRef('');
+
+  useEffect(() => {
+    if (activeMiniGameLocal !== 'kangaroo_race') return;
+    if (!kangarooVenueLoading && !kangarooVenueReady) return;
+    if (kangarooRaceStarted) return;
+    if (!isKangarooNamesValid) return;
+
+    const payloadKey = JSON.stringify(normalizedKangarooNames);
+    const timer = window.setTimeout(() => {
+      if (kangarooNamesSyncPayloadRef.current === payloadKey) return;
+      kangarooNamesSyncPayloadRef.current = payloadKey;
+      emit('update_kangaroo_names', { kangarooNames: normalizedKangarooNames });
+    }, 350);
+
+    return () => window.clearTimeout(timer);
+  }, [
+    activeMiniGameLocal,
+    kangarooVenueLoading,
+    kangarooVenueReady,
+    kangarooRaceStarted,
+    isKangarooNamesValid,
+    normalizedKangarooNames,
+    emit,
+  ]);
   const handleKangarooRaceStart = () => {
     if (activeMiniGameLocal !== 'kangaroo_race' || !kangarooVenueReady) return;
     const selected = kangarooBetCounts.reduce((sum, n) => sum + Number(n || 0), 0);
@@ -1981,6 +2007,7 @@ function HostDashboardContent() {
       game: 'kangaroo_race',
       config: { kangarooNames: normalizedKangarooNames },
     });
+    kangarooNamesSyncPayloadRef.current = JSON.stringify(normalizedKangarooNames);
     setActiveMiniGameLocal('kangaroo_race');
   }, [emit, isKangarooNamesValid, normalizedKangarooNames]);
 
@@ -2430,13 +2457,35 @@ function HostDashboardContent() {
     Array.isArray(currentRound?.questions) &&
     currentRound.questions.length === 0;
   const questionState = gameState?.questionState || 'WAITING';
+  const previewRoundsFallback = useMemo(() => {
+    const rounds = gameState?.rounds;
+    if (!Array.isArray(rounds)) return [];
+    return rounds.map((round) => ({
+      name: round.name,
+      type: round.type,
+      questions: (round.questions || []) as {
+        id?: number;
+        text?: string;
+        mediaUrl?: string | null;
+        mediaType?: string | null;
+      }[],
+    }));
+  }, [gameState?.rounds]);
   const currentRoundPreviewQuestions = useMemo(() => {
     const qs = currentRound?.questions;
     if (!Array.isArray(qs)) return [];
     return qs as { id?: number; text?: string; mediaUrl?: string | null; mediaType?: string | null }[];
   }, [currentRound?.questions]);
+  const totalPreviewQuestionCount = useMemo(
+    () =>
+      previewRoundsFallback.reduce(
+        (sum, round) => sum + (Array.isArray(round.questions) ? round.questions.length : 0),
+        0,
+      ),
+    [previewRoundsFallback],
+  );
   const showQuestionPreviewRail =
-    currentRoundPreviewQuestions.length > 0 &&
+    totalPreviewQuestionCount > 0 &&
     state !== 'LOBBY' &&
     state !== 'FINAL_RESULTS' &&
     !activeMiniGameLocal &&
@@ -2854,6 +2903,8 @@ function HostDashboardContent() {
         {showQuestionPreviewRail ? (
           <HostQuestionPreviewColumn
             questions={currentRoundPreviewQuestions}
+            roundsFallback={previewRoundsFallback}
+            currentRoundIndex={currentRoundIndex}
             currentQuestionIndex={gameState?.currentQuestionIndex ?? 0}
             pin={pin}
             socket={socket}

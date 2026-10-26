@@ -314,6 +314,20 @@ const hostHandlers = (io, socket) => {
     }
   });
 
+  socket.on(SOCKET_EVENTS.UPDATE_KANGAROO_NAMES, async (data) => {
+    try {
+      const pin = data?.pin;
+      if (!assertHostForPin(socket, pin)) {
+        socket.emit(SOCKET_EVENTS.ERROR, { message: 'Unauthorized' });
+        return;
+      }
+      await gameController.updateKangarooNames(io, pin, data.kangarooNames);
+    } catch (err) {
+      logger.error('update_kangaroo_names error', { error: err.message });
+      socket.emit(SOCKET_EVENTS.ERROR, { message: err.message || 'Could not update kangaroo names' });
+    }
+  });
+
   socket.on(SOCKET_EVENTS.RESTART_MINI_GAME, async (data) => {
     try {
       await gameController.restartMiniGame(io, data.pin);
@@ -529,7 +543,11 @@ const hostHandlers = (io, socket) => {
         return;
       }
       const questionIndex = Number(data?.questionIndex);
-      await gameController.jumpToQuestion(io, pin, questionIndex);
+      const roundIndex =
+        data?.roundIndex !== undefined && data?.roundIndex !== null
+          ? Number(data.roundIndex)
+          : undefined;
+      await gameController.jumpToQuestion(io, pin, questionIndex, roundIndex);
       if (typeof ack === 'function') ack({ ok: true });
     } catch (err) {
       logger.error('jump_to_question error', { error: err.message });

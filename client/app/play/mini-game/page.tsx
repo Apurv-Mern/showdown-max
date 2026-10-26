@@ -424,9 +424,18 @@ export default function MiniGamePage() {
       action?: string;
       value?: unknown;
       game?: string;
+      kangarooNames?: string[];
     }) => {
       logSocketIn('mini_game_update', data);
       const gid = normalizeMiniGameId(data?.game);
+
+      if (gid === 'kangaroo_race' && data.action === 'kangaroo_names') {
+        if (Array.isArray(data.kangarooNames) && data.kangarooNames.length >= 6) {
+          setKangarooNames(resolveKangarooNames(data.kangarooNames));
+        }
+        return;
+      }
+
       if (gid && gid !== 'card_shuffle' && data?.source !== 'unity') return;
 
       const action = String(data?.action || '').toUpperCase();

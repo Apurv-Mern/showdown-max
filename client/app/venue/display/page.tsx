@@ -2226,8 +2226,19 @@ function VenueDisplayContent() {
       value?: number;
       pickCounts?: Record<string, number>;
       totalSelected?: number;
+      kangarooNames?: string[];
     }) => {
       const gid = normalizeVenueMiniGameId(data?.game);
+
+      if (gid === 'kangaroo_race' && data.action === 'kangaroo_names') {
+        if (Array.isArray(data.kangarooNames) && data.kangarooNames.length >= 6) {
+          setVenueKangarooNames(resolveKangarooNames(data.kangarooNames));
+          kangarooSelectionNonceRef.current += 1;
+          setKangarooSelectionNonce(kangarooSelectionNonceRef.current);
+        }
+        return;
+      }
+
       if (data.action !== 'select') return;
 
       if (gid === 'kangaroo_race') {

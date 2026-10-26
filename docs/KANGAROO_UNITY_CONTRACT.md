@@ -49,6 +49,8 @@ Sent as soon as Unity is ready after **Load on Venue**, then again after every p
 
 Replace the on-screen names and badge with the latest payload. Do not increment locally.
 
+The host may edit names after **Load on Venue**; the venue sends a new `SELECTION_COUNT` whenever names change (same fields as above).
+
 ### Event: `MINIGAME_START`
 
 Sent when the host presses **Start Race**.

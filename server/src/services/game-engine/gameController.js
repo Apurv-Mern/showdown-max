@@ -972,6 +972,16 @@ const emitQuestionActiveForCurrent = async (io, pin, { submissionReset = false }
   emitWagerLockUpdate(io, pin, gsForQuestionActive);
 };
 
+const mapLivePreviewQuestion = (q) => ({
+  id: q.id,
+  text: q.text,
+  options: Array.isArray(q.options) ? q.options : [],
+  mediaUrl: q.mediaUrl ?? null,
+  mediaType: q.mediaType ?? null,
+  timerDuration: q.timerDuration ?? null,
+  category: q.category ?? null,
+});
+
 const getLiveRoundPreview = async (pin) => {
   const gameState = await redisStore.getGameState(pin);
   if (!gameState?.rounds?.length) return null;
@@ -980,20 +990,22 @@ const getLiveRoundPreview = async (pin) => {
   const round = gameState.rounds[roundIndex];
   if (!round) return null;
 
+  const rounds = gameState.rounds.map((r, idx) => ({
+    roundIndex: idx,
+    roundName: r.name || '',
+    roundType: r.type || '',
+    questions: (r.questions || []).map(mapLivePreviewQuestion),
+  }));
+
+  const currentRound = rounds[roundIndex];
+
   return {
     roundIndex,
     roundName: round.name || '',
     roundType: round.type || '',
     currentQuestionIndex: Number(gameState.currentQuestionIndex) || 0,
-    questions: (round.questions || []).map((q) => ({
-      id: q.id,
-      text: q.text,
-      options: Array.isArray(q.options) ? q.options : [],
-      mediaUrl: q.mediaUrl ?? null,
-      mediaType: q.mediaType ?? null,
-      timerDuration: q.timerDuration ?? null,
-      category: q.category ?? null,
-    })),
+    questions: currentRound?.questions ?? [],
+    rounds,
   };
 };
 
@@ -1125,24 +1137,53 @@ const updateLiveQuestion = async (io, pin, payload) => {
 };
 
 /**
- * Host jump to any question index in the current round (cumulative scores unchanged).
+ * Host jump to any question in any round (cumulative scores unchanged).
  */
-const jumpToQuestion = async (io, pin, questionIndex) => {
+const jumpToQuestion = async (io, pin, questionIndex, roundIndexArg = undefined) => {
   let gameState = await redisStore.getGameState(pin);
-  if (!gameState || gameState.state !== GAME_STATES.QUESTION) {
-    throw new Error('Jump is only available during an active question round.');
+  if (!gameState) {
+    throw new Error('No live game for this session.');
   }
   if (gameState.activeMiniGame) {
     throw new Error('Cannot jump while a mini-game is active.');
   }
 
+  const jumpAllowedStates = new Set([
+    GAME_STATES.QUESTION,
+    GAME_STATES.ROUND_INTRO,
+    GAME_STATES.SCOREBOARD,
+    GAME_STATES.WAGER_COLLECTION,
+    GAME_STATES.ROUND_END,
+  ]);
+  if (!jumpAllowedStates.has(gameState.state)) {
+    throw new Error('Jump is not available in the current game phase.');
+  }
+
+  const targetRoundIdx =
+    roundIndexArg !== undefined && roundIndexArg !== null
+      ? Number(roundIndexArg)
+      : Number(gameState.currentRoundIndex);
   const idx = Number(questionIndex);
-  const round = stateMachine.getCurrentRound(gameState);
-  const qLen = round?.questions?.length ?? 0;
-  if (!round || qLen === 0 || !Number.isFinite(idx) || idx < 0 || idx >= qLen) {
+
+  if (
+    !Number.isFinite(targetRoundIdx) ||
+    targetRoundIdx < 0 ||
+    targetRoundIdx >= gameState.rounds.length
+  ) {
+    throw new Error('Invalid round.');
+  }
+
+  const targetRound = gameState.rounds[targetRoundIdx];
+  const qLen = targetRound?.questions?.length ?? 0;
+  if (!targetRound || qLen === 0 || !Number.isFinite(idx) || idx < 0 || idx >= qLen) {
     throw new Error('Invalid question index.');
   }
-  if (Number(gameState.currentQuestionIndex) === idx) {
+
+  const alreadyThere =
+    gameState.state === GAME_STATES.QUESTION &&
+    Number(gameState.currentRoundIndex) === targetRoundIdx &&
+    Number(gameState.currentQuestionIndex) === idx;
+  if (alreadyThere) {
     return;
   }
 
@@ -1153,7 +1194,7 @@ const jumpToQuestion = async (io, pin, questionIndex) => {
     /* ignore */
   }
 
-  const targetQuestion = round.questions[idx];
+  const targetQuestion = targetRound.questions[idx];
   const targetId = targetQuestion?.id;
 
   if (targetId != null) {
@@ -1166,22 +1207,38 @@ const jumpToQuestion = async (io, pin, questionIndex) => {
   }
 
   const nextDuration =
-    Number(targetQuestion?.timerDuration ?? round.timerDuration ?? 30) || 30;
+    Number(targetQuestion?.timerDuration ?? targetRound.timerDuration ?? 30) || 30;
+
+  gameState = clearStandardWagerAudiencePointers(gameState);
   gameState = {
     ...gameState,
+    state: GAME_STATES.QUESTION,
+    currentRoundIndex: targetRoundIdx,
     currentQuestionIndex: idx,
     questionState: QUESTION_STATES.WAITING,
     responseCount: 0,
     timerRemaining: nextDuration,
     timerRunning: false,
+    timerPaused: false,
+    scoreboardVisible: false,
+    audienceHoldRoundIntro: false,
+    hostPreviewAwaitingWagerCollection: false,
+    hostViewingQuestionPreview: false,
+    audienceWagerCollectionOpen: false,
   };
   await redisStore.setGameState(pin, gameState);
 
-  if (isWagerLockRound(round)) {
+  io.to(`session:${pin}`).emit(
+    SOCKET_EVENTS.SESSION_STATE,
+    clientPayloadFromGameState(gameState, pin),
+  );
+
+  if (isWagerLockRound(targetRound)) {
     await startQuestionWagerCollection(io, pin);
     require('../sessionCheckpointService').persistNow(pin).catch(() => {});
     logger.info('Jumped to question (wager collection)', {
       pin,
+      roundIndex: targetRoundIdx,
       questionIndex: idx,
       questionId: targetId,
     });
@@ -1192,6 +1249,7 @@ const jumpToQuestion = async (io, pin, questionIndex) => {
   require('../sessionCheckpointService').persistNow(pin).catch(() => {});
   logger.info('Jumped to question (live)', {
     pin,
+    roundIndex: targetRoundIdx,
     questionIndex: idx,
     questionId: targetId,
   });
@@ -2613,6 +2671,37 @@ const launchMiniGame = async (io, pin, gameType, config = {}) => {
 };
 
 /**
+ * Host edits kangaroo names after "Load on venue" — sync venue Unity lineup + player UI.
+ */
+const updateKangarooNames = async (io, pin, names) => {
+  const gameState = await redisStore.getGameState(pin);
+  if (!gameState || gameState.activeMiniGame !== 'kangaroo_race') {
+    throw new Error('Kangaroo race is not active on this session');
+  }
+  if (!hasValidKangarooNames(names)) {
+    throw new Error('Kangaroo race requires exactly 6 non-empty kangaroo names');
+  }
+  if (gameState.miniGameState?.gameStarted) {
+    throw new Error('Cannot change kangaroo names after the race has started');
+  }
+
+  const normalized = normalizeKangarooNames(names);
+  gameState.miniGameConfig = { ...(gameState.miniGameConfig || {}), kangarooNames: normalized };
+  if (gameState.miniGameState?.game === 'kangaroo_race') {
+    gameState.miniGameState = { ...gameState.miniGameState, kangarooNames: normalized };
+  }
+  await redisStore.setGameState(pin, gameState);
+
+  io.to(`session:${pin}`).emit(SOCKET_EVENTS.MINI_GAME_UPDATE, {
+    game: 'kangaroo_race',
+    action: 'kangaroo_names',
+    kangarooNames: normalized,
+    source: 'host',
+  });
+  logger.info('Kangaroo names updated live', { pin });
+};
+
+/**
  * Reset the current mini-game to a fresh intro state without clearing `activeMiniGame`
  * or emitting the trivia `session_state` that `end_mini_game` sends. Used when the host
  * chooses "Restart" so the venue stays on the mini-game surface instead of flashing the quiz.
@@ -3238,6 +3327,7 @@ module.exports = {
   startBreak,
   endBreak,
   launchMiniGame,
+  updateKangarooNames,
   restartMiniGame,
   endMiniGame,
   pauseTimer,

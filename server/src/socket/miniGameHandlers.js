@@ -4,7 +4,6 @@ const {
   KANGAROO_NAME_MAX_LENGTH,
   KANGAROO_POINTS_BY_RANK,
   KANGAROO_SLOT_COUNT,
-  resolveKangarooNamesInput,
 } = require('shared/constants/kangarooRace');
 const logger = require('../utils/logger');
 const gameController = require('../services/game-engine/gameController');
@@ -84,7 +83,7 @@ const KANGAROO_NAME_TO_SLOT = Object.freeze({
 });
 
 const normalizeKangarooNames = (input) => {
-  const rawNames = resolveKangarooNamesInput(Array.isArray(input) ? input : []);
+  const rawNames = Array.isArray(input) ? input : [];
   const names = [];
   for (let i = 0; i < KANGAROO_SLOT_COUNT; i += 1) {
     const fallback = DEFAULT_KANGAROO_NAMES[i] || `Kangaroo #${i + 1}`;

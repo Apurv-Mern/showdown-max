@@ -1696,9 +1696,11 @@ function HostDashboardContent() {
         data.teamId != null &&
         typeof data.value === 'number'
       ) {
+        const teamId = data.teamId;
+        const choice = data.value;
         setMiniGameTeamSelections((prev) => ({
           ...prev,
-          [String(data.teamId)]: data.value,
+          [String(teamId)]: choice,
         }));
       }
 

@@ -38,8 +38,8 @@ function VenueStageInner({ children }: { children: ReactNode }) {
   }, []);
 
   // Fit the full 1920×1080 stage inside the viewport (no top/bottom or side clipping).
-  // Standard 16:9 displays (1080p–8K) scale uniformly to fill the screen; ultrawide keeps
-  // the entire UI visible with the stage backdrop filling any side letterbox.
+  // 16:9 outputs (1080p, 4K UHD, 8K, large venue TVs ~100") scale uniformly; physical size
+  // follows display inches + resolution. Ultrawide letterboxes with backdrop filling bars.
   const scaleX = viewport.width / STAGE_WIDTH;
   const scaleY = viewport.height / STAGE_HEIGHT;
   const scale = Math.min(scaleX, scaleY);

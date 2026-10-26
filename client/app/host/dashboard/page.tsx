@@ -79,6 +79,18 @@ const KANGAROO_SLOTS = [1, 2, 3, 4, 5, 6] as const;
 /** Matches player mini-game (left / middle / right). */
 const CARD_SHUFFLE_SLOTS = [1, 2, 3] as const;
 const CARD_POSITION_LABELS: Record<number, string> = { 1: 'Left', 2: 'Middle', 3: 'Right' };
+
+function normalizeMiniGameSelections(
+  raw: Record<string, unknown> | undefined,
+): Record<string, number> {
+  if (!raw || typeof raw !== 'object') return {};
+  const out: Record<string, number> = {};
+  for (const [teamId, choice] of Object.entries(raw)) {
+    const n = Number(choice);
+    if (Number.isFinite(n)) out[String(teamId)] = n;
+  }
+  return out;
+}
 const TEAM_NAME_MAX_LENGTH = 20;
 
 /** Figma row groups for Leaderboard modal list */
@@ -150,6 +162,7 @@ interface GameState {
     kangarooNames?: string[];
     finishOrder?: number[];
     pickCounts?: Record<string, number>;
+    selections?: Record<string, number>;
   } | null;
   currentQuestion?: QuestionData | null;
   /** Standard WAGER host PREVIEW — question text for host only (players use audienceView). */
@@ -255,8 +268,7 @@ function bootstrapLiveResponseStats(
     total: Math.max(1, roster),
     correctTeamIds: [],
     incorrectTeamIds: [],
-    noAnswerTeamIds:
-      ans === 0 && rosterIds.length > 0 ? rosterIds : [],
+    noAnswerTeamIds: ans === 0 && rosterIds.length > 0 ? rosterIds : [],
     responseDetails: [],
   };
 }
@@ -646,6 +658,10 @@ function HostDashboardContent() {
   const [kangarooFinishOrder, setKangarooFinishOrder] = useState<number[]>([]);
   const [kangarooBetCounts, setKangarooBetCounts] = useState([0, 0, 0, 0, 0, 0]);
   const [cardPickCounts, setCardPickCounts] = useState([0, 0, 0]);
+  const [miniGameTeamSelections, setMiniGameTeamSelections] = useState<Record<string, number>>({});
+  const [miniGamePickModal, setMiniGamePickModal] = useState<
+    { type: 'choice'; choice: number } | { type: 'no_response' } | null
+  >(null);
   const [cardShuffleVenueReady, setCardShuffleVenueReady] = useState(false);
   // Mirrors `kangarooVenueLoading` — true while we're waiting for the venue
   // to confirm Unity is ready after the host taps "Load Card Game on Venue".
@@ -822,8 +838,7 @@ function HostDashboardContent() {
           setHostBreakRemaining(w.remaining);
         }
         setIsScoreboardVisible(
-          !data.activeMiniGame &&
-            (data.state === 'SCOREBOARD' || Boolean(data.scoreboardVisible)),
+          !data.activeMiniGame && (data.state === 'SCOREBOARD' || Boolean(data.scoreboardVisible)),
         );
         // The round-over transition is only meaningful while the server keeps us in
         // ROUND_END; once we move on (scoreboard, next intro, break, etc.) drop the info.
@@ -850,8 +865,7 @@ function HostDashboardContent() {
           if (data.state === 'QUESTION' && qs === 'ACTIVE' && timerRemainingRef.current > 0) {
             const round = data.rounds?.[data.currentRoundIndex ?? 0];
             const q =
-              data.currentQuestion?.question ||
-              round?.questions?.[data.currentQuestionIndex ?? 0];
+              data.currentQuestion?.question || round?.questions?.[data.currentQuestionIndex ?? 0];
             const isMusic = shouldWaitForHostAudioTimer(round?.type, q);
             // Non-music timers auto-start; timer_update ticks are authoritative while counting.
             if (!isMusic) return prevPaused;
@@ -864,8 +878,7 @@ function HostDashboardContent() {
           const trNum = qs === 'REVEALED' ? 0 : Number(data.timerRemaining ?? 0);
           const round = data.rounds?.[data.currentRoundIndex ?? 0];
           const q =
-            data.currentQuestion?.question ||
-            round?.questions?.[data.currentQuestionIndex ?? 0];
+            data.currentQuestion?.question || round?.questions?.[data.currentQuestionIndex ?? 0];
           const isMusic = shouldWaitForHostAudioTimer(round?.type, q);
           const musicAwaiting =
             isMusic && qs === 'ACTIVE' && data.timerRunning === false && trNum > 0;
@@ -932,6 +945,11 @@ function HostDashboardContent() {
           setCardPickCounts(
             [1, 2, 3].map((slot) => Number(data.miniGameState?.pickCounts?.[slot] || 0)),
           );
+          setMiniGameTeamSelections(
+            normalizeMiniGameSelections(
+              data.miniGameState?.selections as Record<string, unknown> | undefined,
+            ),
+          );
           if (data.miniGameState.revealed) {
             setMiniGameRevealing(false);
           }
@@ -958,6 +976,11 @@ function HostDashboardContent() {
           setKangarooBetCounts(
             [1, 2, 3, 4, 5, 6].map((slot) => Number(data.miniGameState?.pickCounts?.[slot] || 0)),
           );
+          setMiniGameTeamSelections(
+            normalizeMiniGameSelections(
+              data.miniGameState?.selections as Record<string, unknown> | undefined,
+            ),
+          );
         }
       } else if (data?.activeMiniGame === null) {
         setActiveMiniGameLocal(null);
@@ -978,6 +1001,8 @@ function HostDashboardContent() {
         setKangarooFinishOrder([]);
         setKangarooBetCounts([0, 0, 0, 0, 0, 0]);
         setKangarooNames(defaultKangarooNames());
+        setMiniGameTeamSelections({});
+        setMiniGamePickModal(null);
         setMiniGameRevealing(false);
       }
     };
@@ -996,9 +1021,7 @@ function HostDashboardContent() {
       {
         const g = gameStateRef.current;
         const roster = resolveHostRosterCount(g?.activeTeamIds, g?.teams, g?.totalTeams);
-        setLiveResponses(
-          bootstrapLiveResponseStats(roster, 0, g?.activeTeamIds),
-        );
+        setLiveResponses(bootstrapLiveResponseStats(roster, 0, g?.activeTeamIds));
       }
       setMp3Playing(false);
       setMp4Playing(false);
@@ -1025,11 +1048,8 @@ function HostDashboardContent() {
             ? incomingQuestionIndex
             : (prev?.currentQuestionIndex ?? 0),
         timerRemaining:
-          typeof tr === 'number' && Number.isFinite(tr)
-            ? tr
-            : (prev?.timerRemaining ?? 0),
-        timerRunning:
-          typeof data.timerRunning === 'boolean' ? data.timerRunning : false,
+          typeof tr === 'number' && Number.isFinite(tr) ? tr : (prev?.timerRemaining ?? 0),
+        timerRunning: typeof data.timerRunning === 'boolean' ? data.timerRunning : false,
         totalTeams: prev?.totalTeams ?? 0,
         activeTeamIds: prev?.activeTeamIds || [],
       }));
@@ -1350,9 +1370,7 @@ function HostDashboardContent() {
         const g = gameStateRef.current;
         const roster = resolveHostRosterCount(g?.activeTeamIds, g?.teams, g?.totalTeams);
         const answered = Math.max(0, Number(g?.responseCount ?? 0));
-        setLiveResponses(
-          bootstrapLiveResponseStats(roster, answered, g?.activeTeamIds),
-        );
+        setLiveResponses(bootstrapLiveResponseStats(roster, answered, g?.activeTeamIds));
       }
     };
 
@@ -1424,13 +1442,7 @@ function HostDashboardContent() {
       }
     };
 
-    const onTeamRemoved = ({
-      teamId,
-      reason,
-    }: {
-      teamId: number;
-      reason?: string;
-    }) => {
+    const onTeamRemoved = ({ teamId, reason }: { teamId: number; reason?: string }) => {
       const isHostRemoval = reason === 'host_removed' || reason === 'removed_by_host';
       if (isHostRemoval) {
         setLiveResponses((prev) => removeTeamFromLiveResponseBuckets(prev, teamId));
@@ -1459,11 +1471,7 @@ function HostDashboardContent() {
         }
         const teams = { ...prev.teams };
         const resolvedKey =
-          teams[teamId] != null
-            ? teamId
-            : teams[String(teamId)] != null
-              ? String(teamId)
-              : null;
+          teams[teamId] != null ? teamId : teams[String(teamId)] != null ? String(teamId) : null;
         if (resolvedKey == null) return prev;
         teams[resolvedKey] = { ...teams[resolvedKey], isConnected: false };
         return { ...prev, teams };
@@ -1511,6 +1519,8 @@ function HostDashboardContent() {
       if (normalizeHostMiniGameId(data?.game) === 'card_shuffle') {
         setCardShuffleVenueLoading(true);
         setCardPickCounts([0, 0, 0]);
+        setMiniGameTeamSelections({});
+        setMiniGamePickModal(null);
       }
       if (normalizeHostMiniGameId(data?.game) === 'kangaroo_race') {
         setKangarooRaceStarted(false);
@@ -1519,6 +1529,8 @@ function HostDashboardContent() {
         setKangarooVenueLoading(true);
         setKangarooFinishOrder([]);
         setKangarooBetCounts([0, 0, 0, 0, 0, 0]);
+        setMiniGameTeamSelections({});
+        setMiniGamePickModal(null);
       }
     };
 
@@ -1580,6 +1592,8 @@ function HostDashboardContent() {
         setCardShuffleRevealPosition(null);
         setCardShuffleCardsRevealed(false);
         setCardPickCounts([0, 0, 0]);
+        setMiniGameTeamSelections({});
+        setMiniGamePickModal(null);
         if (data?.holdScreen) {
           setCardShuffleFinishedHold(true);
           setFinishedMiniGameType('card_shuffle');
@@ -1595,6 +1609,8 @@ function HostDashboardContent() {
         setKangarooFinishOrder([]);
         setKangarooBetCounts([0, 0, 0, 0, 0, 0]);
         setKangarooNames(defaultKangarooNames());
+        setMiniGameTeamSelections({});
+        setMiniGamePickModal(null);
         if (data?.holdScreen) {
           setCardShuffleFinishedHold(true);
           setFinishedMiniGameType('kangaroo_race');
@@ -1667,11 +1683,27 @@ function HostDashboardContent() {
     const onMiniGameUpdate = (data: {
       action?: string;
       value?: number;
+      teamId?: number;
       game?: string;
       pickCounts?: Record<string, number>;
+      selections?: Record<string, number>;
       totalSelected?: number;
     }) => {
-      if (data.action !== 'select' || typeof data.value !== 'number') return;
+      if (data.selections && typeof data.selections === 'object') {
+        setMiniGameTeamSelections(normalizeMiniGameSelections(data.selections));
+      } else if (
+        data.action === 'select' &&
+        data.teamId != null &&
+        typeof data.value === 'number'
+      ) {
+        setMiniGameTeamSelections((prev) => ({
+          ...prev,
+          [String(data.teamId)]: data.value,
+        }));
+      }
+
+      if (data.action !== 'select') return;
+
       const ag = gameStateRef.current?.activeMiniGame;
       const isHorse = ag === 'kangaroo_race' || ag === 'kangaroo-race';
       const isCards = ag === 'card_shuffle';
@@ -1682,6 +1714,7 @@ function HostDashboardContent() {
           );
           return;
         }
+        if (typeof data.value !== 'number') return;
         const idx = data.value - 1;
         if (idx < 0 || idx > 5) return;
         setKangarooBetCounts((prev) => {
@@ -1693,11 +1726,10 @@ function HostDashboardContent() {
       }
       if (isCards) {
         if (data.pickCounts && typeof data.pickCounts === 'object') {
-          setCardPickCounts(
-            [1, 2, 3].map((slot) => Number(data.pickCounts?.[slot] || 0)),
-          );
+          setCardPickCounts([1, 2, 3].map((slot) => Number(data.pickCounts?.[slot] || 0)));
           return;
         }
+        if (typeof data.value !== 'number') return;
         const idx = data.value - 1;
         if (idx < 0 || idx > 2) return;
         setCardPickCounts((prev) => {
@@ -1948,7 +1980,6 @@ function HostDashboardContent() {
     if (activeMiniGameLocal !== 'kangaroo_race' || !kangarooVenueReady) return;
     const selected = kangarooBetCounts.reduce((sum, n) => sum + Number(n || 0), 0);
     const roster = gameState?.teams ? Object.values(gameState.teams).length : 0;
-    setKangarooBetCounts([0, 0, 0, 0, 0, 0]);
     setKangarooRaceStarted(true);
     setKangarooRaceRevealed(false);
     setKangarooFinishOrder([]);
@@ -2002,6 +2033,8 @@ function HostDashboardContent() {
     setKangarooVenueLoading(true);
     setKangarooFinishOrder([]);
     setKangarooBetCounts([0, 0, 0, 0, 0, 0]);
+    setMiniGameTeamSelections({});
+    setMiniGamePickModal(null);
     setMiniGameLoading(true);
     emit('launch_mini_game', {
       game: 'kangaroo_race',
@@ -2110,6 +2143,8 @@ function HostDashboardContent() {
     setKangarooVenueLoading(false);
     setKangarooFinishOrder([]);
     setKangarooBetCounts([0, 0, 0, 0, 0, 0]);
+    setMiniGameTeamSelections({});
+    setMiniGamePickModal(null);
     setMiniGameRevealing(false);
     emit('end_mini_game');
     setPendingMiniGameExit(null);
@@ -2132,6 +2167,8 @@ function HostDashboardContent() {
     setKangarooVenueReady(false);
     setKangarooFinishOrder([]);
     setKangarooBetCounts([0, 0, 0, 0, 0, 0]);
+    setMiniGameTeamSelections({});
+    setMiniGamePickModal(null);
     setCardShuffleVenueReady(false);
     setCardShuffleGameStarted(false);
     setCardShuffleUnityStartSent(false);
@@ -2430,9 +2467,7 @@ function HostDashboardContent() {
           ? liveResponses.incorrectTeamIds
           : liveResponses.noAnswerTeamIds;
     const teams = gameState.teams;
-    return ids
-      .map((id) => teams[id] ?? teams[String(id)])
-      .filter((t): t is Team => Boolean(t));
+    return ids.map((id) => teams[id] ?? teams[String(id)]).filter((t): t is Team => Boolean(t));
   }, [liveResponseModal, liveResponses, gameState?.teams]);
 
   const liveResponseModalTitle = useMemo(() => {
@@ -2474,7 +2509,12 @@ function HostDashboardContent() {
   const currentRoundPreviewQuestions = useMemo(() => {
     const qs = currentRound?.questions;
     if (!Array.isArray(qs)) return [];
-    return qs as { id?: number; text?: string; mediaUrl?: string | null; mediaType?: string | null }[];
+    return qs as {
+      id?: number;
+      text?: string;
+      mediaUrl?: string | null;
+      mediaType?: string | null;
+    }[];
   }, [currentRound?.questions]);
   const totalPreviewQuestionCount = useMemo(
     () =>
@@ -2508,6 +2548,12 @@ function HostDashboardContent() {
   const rosterTeamCount = Math.max(0, connectedTeamList.length);
   const kangarooSelectedTotal = kangarooBetCounts.reduce((sum, n) => sum + Number(n || 0), 0);
   const cardSelectedTotal = cardPickCounts.reduce((sum, n) => sum + Number(n || 0), 0);
+  const miniGameSelectedTotal =
+    activeMiniGameLocal === 'kangaroo_race'
+      ? kangarooSelectedTotal
+      : activeMiniGameLocal === 'card_shuffle'
+        ? cardSelectedTotal
+        : 0;
   const activeTeamCountForLive =
     Array.isArray(gameState?.activeTeamIds) && gameState.activeTeamIds.length > 0
       ? gameState.activeTeamIds.length
@@ -2575,15 +2621,9 @@ function HostDashboardContent() {
   // const showRevealAnswerAction = state === 'QUESTION' && questionState === 'ACTIVE';
   const showRevealAnswerAction = false;
   const timerPausedAwaitingResume =
-    state === 'QUESTION' &&
-    questionState === 'ACTIVE' &&
-    timerPaused &&
-    timerRemaining > 0;
+    state === 'QUESTION' && questionState === 'ACTIVE' && timerPaused && timerRemaining > 0;
   const timerCanPause =
-    state === 'QUESTION' &&
-    questionState === 'ACTIVE' &&
-    !timerPaused &&
-    timerRemaining > 0;
+    state === 'QUESTION' && questionState === 'ACTIVE' && !timerPaused && timerRemaining > 0;
   const hostMediaReplayLocked =
     state === 'QUESTION' &&
     (questionState === 'REVEALED' ||
@@ -2596,6 +2636,28 @@ function HostDashboardContent() {
   // automatically once the mini-game finish action resets activeMiniGameLocal.
   const miniGameLive =
     activeMiniGameLocal === 'kangaroo_race' || activeMiniGameLocal === 'card_shuffle';
+  const miniGameNoResponseTeams = useMemo(() => {
+    if (!miniGameLive) return [];
+    const picked = new Set(Object.keys(miniGameTeamSelections));
+    return connectedTeamList.filter((team) => !picked.has(String(team.teamId)));
+  }, [miniGameLive, miniGameTeamSelections, connectedTeamList]);
+  const miniGamePickModalTeams = useMemo((): Team[] => {
+    if (!miniGamePickModal) return [];
+    if (miniGamePickModal.type === 'no_response') return miniGameNoResponseTeams;
+    const choice = miniGamePickModal.choice;
+    return connectedTeamList.filter(
+      (team) => Number(miniGameTeamSelections[String(team.teamId)]) === choice,
+    );
+  }, [miniGamePickModal, miniGameTeamSelections, connectedTeamList, miniGameNoResponseTeams]);
+  const miniGamePickModalTitle = useMemo(() => {
+    if (!miniGamePickModal) return '';
+    if (miniGamePickModal.type === 'no_response') return 'No response';
+    if (activeMiniGameLocal === 'kangaroo_race') {
+      const idx = miniGamePickModal.choice - 1;
+      return normalizedKangarooNames[idx] || `Kangaroo #${miniGamePickModal.choice}`;
+    }
+    return CARD_POSITION_LABELS[miniGamePickModal.choice] || `Position ${miniGamePickModal.choice}`;
+  }, [miniGamePickModal, activeMiniGameLocal, normalizedKangarooNames]);
   // Dropping a round is only offered between rounds, and only when one is actually queued up.
   const canSkipNextRound =
     (state === 'ROUND_END' || state === 'SCOREBOARD') && Boolean(nextRound) && !miniGameLive;
@@ -2814,7 +2876,11 @@ function HostDashboardContent() {
             </section> */}
             <section data-name="Mini Challenges Panel" data-node-id="232:4580">
               <HostPanelTitle data-node-id="232:4581">Mini Challenges</HostPanelTitle>
-              <div className="flex flex-col gap-3" data-name="Control Panel" data-node-id="232:4582">
+              <div
+                className="flex flex-col gap-3"
+                data-name="Control Panel"
+                data-node-id="232:4582"
+              >
                 <HostSidebarTile
                   data-node-id="232:4583"
                   label="Kangaroo Race"
@@ -2920,7 +2986,12 @@ function HostDashboardContent() {
         ) : null}
 
         <main
-          className="flex min-h-0 min-w-0 flex-[1.35] flex-col overflow-y-auto overscroll-y-contain px-2 py-3 lg:px-3"
+          className={cn(
+            'flex min-h-0 min-w-0 flex-[1.35] flex-col px-2 py-3 lg:px-3',
+            activeMiniGameLocal || miniGameLoading || cardShuffleFinishedHold
+              ? 'overflow-hidden'
+              : 'overflow-y-auto overscroll-y-contain',
+          )}
           data-name="Question Panel"
           data-node-id="232:4518"
         >
@@ -2951,8 +3022,8 @@ function HostDashboardContent() {
               </div>
             </div>
           ) : activeMiniGameLocal || miniGameLoading ? (
-            <div className="flex min-h-0 flex-1 flex-col rounded-2xl border-2 border-[rgba(0,217,255,0.45)] bg-[linear-gradient(180deg,rgba(26,31,46,0.85)_0%,rgba(11,15,26,0.92)_100%)] p-4 shadow-[0_0_28px_rgba(0,217,255,0.12)] sm:p-6">
-              <div className="mb-4 flex shrink-0 items-center justify-between">
+            <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+              <div className="mb-3 flex shrink-0 items-start justify-between gap-4">
                 <h2 className="text-2xl font-semibold text-white sm:text-[30px]">
                   {activeMiniGameLocal === 'kangaroo_race'
                     ? 'Kangaroo Race'
@@ -2960,27 +3031,45 @@ function HostDashboardContent() {
                       ? 'Card Shuffle'
                       : 'Mini-Game'}
                 </h2>
-                <div className="flex items-center gap-3">
-                  {miniGameRevealing ? (
-                    <span className="rounded-full bg-amber-500/20 border border-amber-500/40 px-3 py-1 text-xs font-bold uppercase tracking-wider text-amber-400 animate-pulse">
-                      Revealing Winner on Venue
-                    </span>
-                  ) : activeMiniGameLocal ? (
-                    <>
-                      <span className="rounded-full bg-green-500/20 border border-green-500/40 px-3 py-1 text-xs font-bold uppercase tracking-wider text-green-400">
-                        Live on Venue
+                <div className="flex flex-col items-end gap-2">
+                  <div className="flex items-center gap-3">
+                    {miniGameRevealing ? (
+                      <span className="rounded-full bg-amber-500/20 border border-amber-500/40 px-3 py-1 text-xs font-bold uppercase tracking-wider text-amber-400 animate-pulse">
+                        Revealing Winner on Venue
                       </span>
-                      <button
-                        type="button"
-                        onClick={handleExitMiniGame}
-                        className="flex items-center gap-2 rounded-lg border border-red-500/40 bg-[linear-gradient(180deg,#dc2626_0%,#7f1d1d_100%)] px-4 py-2 text-sm font-bold uppercase tracking-wide text-white shadow-[0_4px_16px_rgba(0,0,0,0.4)] transition hover:brightness-110"
-                      >
-                        <svg viewBox="0 0 24 24" fill="currentColor" className="size-4">
-                          <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" />
-                        </svg>
-                        Exit Game
-                      </button>
-                    </>
+                    ) : activeMiniGameLocal ? (
+                      <>
+                        <span className="rounded-full bg-green-500/20 border border-green-500/40 px-3 py-1 text-xs font-bold uppercase tracking-wider text-green-400">
+                          Live on Venue
+                        </span>
+                        <button
+                          type="button"
+                          onClick={handleExitMiniGame}
+                          className="flex items-center gap-2 rounded-lg border border-red-500/40 bg-[linear-gradient(180deg,#dc2626_0%,#7f1d1d_100%)] px-4 py-2 text-sm font-bold uppercase tracking-wide text-white shadow-[0_4px_16px_rgba(0,0,0,0.4)] transition hover:brightness-110"
+                        >
+                          <svg viewBox="0 0 24 24" fill="currentColor" className="size-4">
+                            <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" />
+                          </svg>
+                          Exit Game
+                        </button>
+                      </>
+                    ) : null}
+                  </div>
+                  {activeMiniGameLocal === 'kangaroo_race' ||
+                  activeMiniGameLocal === 'card_shuffle' ? (
+                    <div
+                      className="inline-flex items-center justify-center gap-2 self-end rounded-lg border border-[#00d9ff]/40 bg-[linear-gradient(180deg,#00a9df_0%,#075a89_100%)] px-4 py-2 text-sm font-bold uppercase tracking-wide text-white shadow-[0_4px_16px_rgba(0,0,0,0.4)]"
+                      aria-live="polite"
+                    >
+                      <span className="text-white/90">Teams</span>
+                      <span className="tabular-nums">
+                        {miniGameSelectedTotal}
+                        <span className="text-white/55">
+                          {' '}
+                          / {Math.max(rosterTeamCount, miniGameSelectedTotal)}
+                        </span>
+                      </span>
+                    </div>
                   ) : null}
                 </div>
               </div>
@@ -3006,19 +3095,26 @@ function HostDashboardContent() {
                   </div>
                 </div>
               ) : activeMiniGameLocal === 'card_shuffle' ? (
-                <div className="flex flex-1 flex-col items-center justify-center gap-4">
-                  <div className="text-6xl">
-                    <img src="/games/card-shuffle/queencard.png" alt="Card" className="w-15 h-20" />
+                <div className="flex min-h-0 flex-1 flex-col items-stretch justify-start gap-3 overflow-hidden">
+                  <div className="flex shrink-0 items-center gap-3">
+                    <img
+                      src="/games/card-shuffle/queencard.png"
+                      alt=""
+                      aria-hidden="true"
+                      className="h-12 w-12 shrink-0 object-contain drop-shadow-[0_2px_4px_rgba(0,0,0,0.45)]"
+                    />
+                    <div className="min-w-0">
+                      <p className="text-lg font-bold leading-tight text-white">
+                        Card Shuffle is running on the big screen
+                      </p>
+                      <p className="text-sm text-white/50">
+                        Players are choosing Left, Middle, or Right on their phones
+                      </p>
+                    </div>
                   </div>
-                  <p className="text-xl font-bold text-white">
-                    Card Shuffle is running on the big screen
-                  </p>
-                  <p className="text-sm text-white/50">
-                    Players are choosing Left, Middle, or Right on their phones
-                  </p>
 
-                  <div className="w-full max-w-3xl rounded-2xl border border-[#00d9ff]/25 bg-[#080d1c]/80 p-4 shadow-[0_0_24px_rgba(0,217,255,0.12)]">
-                    <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                  <div className="w-full shrink-0 rounded-2xl border border-[#00d9ff]/25 bg-[#080d1c]/80 p-4 shadow-[0_0_24px_rgba(0,217,255,0.12)]">
+                    <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
                       <div>
                         <p className="text-xs font-bold uppercase tracking-[0.22em] text-[#00d9ff]">
                           Card Shuffle Controls
@@ -3180,51 +3276,8 @@ function HostDashboardContent() {
                     )}
                   </div>
 
-                  <div className="mt-2 w-full max-w-3xl rounded-xl border border-[#00d9ff]/30 bg-[#00d9ff]/10 px-4 py-3 text-center">
-                    <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-[#00d9ff]">
-                      Teams selected
-                    </p>
-                    <p className="mt-1 text-3xl font-black tabular-nums text-white">
-                      {cardSelectedTotal}
-                      <span className="text-lg font-bold text-white/45">
-                        {' '}
-                        / {Math.max(rosterTeamCount, cardSelectedTotal)}
-                      </span>
-                    </p>
-                  </div>
-
-                  <div className="mt-2 flex gap-4">
-                    {CARD_SHUFFLE_SLOTS.map((n, i) => (
-                      <div
-                        key={n}
-                        className={cn(
-                          'flex flex-col items-center gap-2 rounded-xl border-2 px-6 py-4 transition-all',
-                          cardShuffleCardsRevealed && cardShuffleRevealPosition === n
-                            ? 'border-green-500/60 bg-green-500/10'
-                            : 'border-white/10 bg-white/5',
-                        )}
-                      >
-                        <span className="text-3xl">
-                          <img
-                            src={`/games/card-shuffle/queencard.png`}
-                            alt={CARD_POSITION_LABELS[n]}
-                            className="h-12 w-12 object-contain"
-                          />
-                        </span>
-                        <span className="text-sm font-bold text-white">
-                          {CARD_POSITION_LABELS[n]}
-                        </span>
-                        <span className="text-lg font-mono font-bold text-[#00d9ff]">
-                          {cardPickCounts[i] ?? 0}
-                        </span>
-                        <span className="text-[10px] uppercase tracking-wider text-white/40">
-                          picks
-                        </span>
-                      </div>
-                    ))}
-                  </div>
                   {cardShuffleCardsRevealed && cardShuffleRevealPosition ? (
-                    <p className="text-xs text-white/50 mt-2">
+                    <p className="text-lg text-white/50 mt-2">
                       Winning position:{' '}
                       <span className="text-green-400 font-semibold">
                         {CARD_POSITION_LABELS[cardShuffleRevealPosition]}
@@ -3233,22 +3286,24 @@ function HostDashboardContent() {
                   ) : null}
                 </div>
               ) : activeMiniGameLocal === 'kangaroo_race' ? (
-                <div className="flex flex-1 flex-col items-center justify-center gap-4">
-                  <div className="text-6xl">
+                <div className="flex min-h-0 flex-1 flex-col items-stretch justify-start gap-3 overflow-hidden">
+                  <div className="flex shrink-0 items-center gap-3">
                     <img
                       src="/KangarooPic.png"
                       alt=""
                       aria-hidden="true"
-                      className="h-20 w-20 object-contain drop-shadow-[0_2px_4px_rgba(0,0,0,0.45)]"
+                      className="h-12 w-12 shrink-0 object-contain drop-shadow-[0_2px_4px_rgba(0,0,0,0.45)]"
                     />
+                    <div className="min-w-0">
+                      <p className="text-lg font-bold leading-tight text-white">
+                        Kangaroo Race is running on the big screen
+                      </p>
+                      <p className="text-sm text-white/50">Players are betting on their phones</p>
+                    </div>
                   </div>
-                  <p className="text-xl font-bold text-white">
-                    Kangaroo Race is running on the big screen
-                  </p>
-                  <p className="text-sm text-white/50">Players are betting on their phones</p>
 
-                  <div className="w-full max-w-3xl rounded-2xl border border-[#00d9ff]/25 bg-[#080d1c]/80 p-4 shadow-[0_0_24px_rgba(0,217,255,0.12)]">
-                    <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                  <div className="w-full shrink-0 rounded-2xl border border-[#00d9ff]/25 bg-[#080d1c]/80 p-4 shadow-[0_0_24px_rgba(0,217,255,0.12)]">
+                    <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
                       <div>
                         <p className="text-xs font-bold uppercase tracking-[0.22em] text-[#00d9ff]">
                           Kangaroo Race Controls
@@ -3283,11 +3338,11 @@ function HostDashboardContent() {
                             key={slot}
                             className="flex items-center gap-2 text-xs text-white/70"
                           >
-                            <span className="w-6 text-center font-bold">#{slot}</span>
+                            <span className="w-6 shrink-0 text-center font-bold">#{slot}</span>
                             <input
                               value={kangarooNames[idx] ?? ''}
                               onChange={(event) => updateKangarooName(idx, event.target.value)}
-                              className="h-9 w-full rounded-md border border-white/15 bg-white/5 px-3 text-sm text-white outline-none focus:border-[#00d9ff]"
+                              className="h-9 min-w-0 flex-1 rounded-md border border-white/15 bg-white/5 px-3 text-sm text-white outline-none focus:border-[#00d9ff]"
                               maxLength={32}
                               placeholder={`Kangaroo ${slot}`}
                             />
@@ -3370,55 +3425,6 @@ function HostDashboardContent() {
                         Finish Race
                       </button>
                     </div>
-                  </div>
-
-                  <div className="mt-2 w-full max-w-3xl rounded-xl border border-[#00d9ff]/30 bg-[#00d9ff]/10 px-4 py-3 text-center">
-                    <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-[#00d9ff]">
-                      Teams selected
-                    </p>
-                    <p className="mt-1 text-3xl font-black tabular-nums text-white">
-                      {kangarooSelectedTotal}
-                      <span className="text-lg font-bold text-white/45">
-                        {' '}
-                        / {Math.max(rosterTeamCount, kangarooSelectedTotal)}
-                      </span>
-                    </p>
-                  </div>
-
-                  <div className="mt-2 flex flex-wrap justify-center gap-3">
-                    {KANGAROO_SLOTS.map((n, i) => (
-                      <div
-                        key={n}
-                        className={cn(
-                          'flex flex-col items-center gap-1 rounded-xl border-2 px-4 py-3 transition-all',
-                          kangarooFinishOrder[0] === n
-                            ? 'border-green-500/60 bg-green-500/10'
-                            : 'border-white/10 bg-white/5',
-                        )}
-                      >
-                        <span className="text-2xl">
-                          <img
-                            src="/KangarooPic.png"
-                            alt={normalizedKangarooNames[i] || `Kangaroo ${n}`}
-                            className="h-10 w-10 object-contain"
-                          />
-                        </span>
-                        <span className="text-xs font-bold text-white">
-                          #{n} {normalizedKangarooNames[i]}
-                        </span>
-                        <span className="text-base font-mono font-bold text-[#00d9ff]">
-                          {kangarooBetCounts[i] ?? 0}
-                        </span>
-                        <span className="text-[10px] uppercase tracking-wider text-green-300">
-                          {kangarooFinishOrder.length > 0
-                            ? `P${kangarooFinishOrder.indexOf(n) + 1}`
-                            : '—'}
-                        </span>
-                        <span className="text-[10px] uppercase tracking-wider text-white/40">
-                          bets
-                        </span>
-                      </div>
-                    ))}
                   </div>
                 </div>
               ) : null}
@@ -3667,127 +3673,201 @@ function HostDashboardContent() {
           )}
         >
           <div className="min-h-0 flex-1 space-y-10 overflow-y-auto overscroll-y-contain">
-            <section data-name="Live Responses Panel" data-node-id="232:4549">
-              <HostPanelTitle data-node-id="232:4556">
-                {state === 'WAGER_COLLECTION' ? 'Wager Lock Progress' : 'Live Responses'}
-              </HostPanelTitle>
-              <div
-                className="rounded-xl border border-[rgba(0,217,255,0.25)] bg-[#151b2e]/80 px-4 py-4"
-                data-name="Response Progress Container"
-              >
-                {state === 'WAGER_COLLECTION' ? (
-                  <>
-                    <p className="text-lg text-white" data-node-id="232:4555">
-                      <span className="font-bold text-[#00d9ff]">{wagerLockedCount}</span>{' '}
-                      <span className="font-medium">
-                        of {wagerLockedTotal || respondedLineTotal} Teams wagered
-                      </span>
-                    </p>
-                    <p className="mt-3 text-[10px] font-bold uppercase tracking-wider text-white/45">
-                      {(currentRound?.type || '').toUpperCase() === 'FINAL_WAGER'
-                        ? 'Teams per risk %'
-                        : 'Teams per wager'}
-                    </p>
-                    <div className="mt-2">
-                      <WagerDistributionGrid
-                        variant="host"
-                        roundType={currentRound?.type}
-                        counts={wagerDistributionCounts}
-                      />
-                    </div>
-                  </>
-                ) : (
-                  <p className="mb-4 text-lg text-white" data-node-id="232:4555">
-                    <span className="font-bold text-[#00d9ff]">
-                      {gameState?.responseCount ?? 0}
-                    </span>{' '}
-                    <span className="font-medium">of {respondedLineTotal} Teams responded</span>
+            {miniGameLive ? (
+              <section data-name="Mini-Game Picks Panel">
+                <HostPanelTitle>
+                  {activeMiniGameLocal === 'kangaroo_race' ? 'Kangaroo Picks' : 'Card Picks'}
+                </HostPanelTitle>
+                <div className="rounded-xl border border-[rgba(0,217,255,0.25)] bg-[#151b2e]/80 px-3 py-3">
+                  <p className="mb-2 text-base text-white">
+                    <span className="font-bold tabular-nums text-[#00d9ff]">
+                      {miniGameSelectedTotal}
+                    </span>
+                    <span className="font-medium text-white/70">
+                      {' '}
+                      of {Math.max(rosterTeamCount, miniGameSelectedTotal)} teams selected
+                    </span>
                   </p>
-                )}
-
-                {state !== 'WAGER_COLLECTION' && (
-                  <div className="space-y-4">
-                    {(
-                      [
-                        {
-                          bucket: 'correct' as const,
-                          label: isMajorityRulesLiveRound ? 'Majority' : 'Correct',
-                          value: liveResponses.correct,
-                          color: 'from-[#00ff00] to-[#008000]',
-                          track: 'bg-[#3d7a3d]/60',
-                          icon: isMajorityRulesLiveRound ? '+' : '✓',
-                          iconBg: 'bg-green-500',
-                        },
-                        {
-                          bucket: 'incorrect' as const,
-                          label: isMajorityRulesLiveRound ? 'Minority' : 'Incorrect',
-                          value: liveResponses.incorrect,
-                          color: 'from-[#ff0000] to-[#800000]',
-                          track: 'bg-[#7a3d3d]/60',
-                          icon: isMajorityRulesLiveRound ? '-' : '×',
-                          iconBg: 'bg-red-500',
-                        },
-                        {
-                          bucket: 'noAnswer' as const,
-                          label: 'No Answer',
-                          value: liveResponses.noAnswer,
-                          color: 'from-[#3b82f6] to-[#1e3a8a]',
-                          track: 'bg-[#3d507a]/60',
-                          icon: '?',
-                          iconBg: 'bg-blue-500',
-                        },
-                      ] as const
-                    ).map((item) => {
-                      const total = liveResponseDenominator;
-                      const width = Math.max(
-                        0,
-                        Math.min(100, Math.round((item.value / total) * 100)),
-                      );
+                  <p className="mb-3 text-xs text-white/50">
+                    Tap a count to see team names for that pick.
+                  </p>
+                  <div className="space-y-1">
+                    {(activeMiniGameLocal === 'kangaroo_race'
+                      ? KANGAROO_SLOTS
+                      : CARD_SHUFFLE_SLOTS
+                    ).map((slot, idx) => {
+                      const label =
+                        activeMiniGameLocal === 'kangaroo_race'
+                          ? normalizedKangarooNames[idx] || `Kangaroo ${slot}`
+                          : CARD_POSITION_LABELS[slot];
+                      const count =
+                        activeMiniGameLocal === 'kangaroo_race'
+                          ? (kangarooBetCounts[idx] ?? 0)
+                          : (cardPickCounts[idx] ?? 0);
                       return (
-                        <button
-                          key={item.label}
-                          type="button"
-                          onClick={() => setLiveResponseModal(item.bucket)}
-                          className="flex w-full cursor-pointer flex-col gap-1.5 rounded-lg px-1 py-1.5 text-left transition hover:bg-white/5"
-                        >
-                          <div className="flex items-center justify-between text-[11px] font-bold uppercase tracking-wider text-white/70">
-                            <div className="flex items-center gap-2">
-                              <div
-                                className={cn(
-                                  item.iconBg,
-                                  'flex h-4 w-4 items-center justify-center rounded-full border border-white/20 text-[10px] text-white',
-                                )}
-                              >
-                                {item.icon}
-                              </div>
-                              <span>{item.label}</span>
-                            </div>
-                            <span className="text-sm italic text-[#00d9ff]">{item.value}</span>
-                          </div>
-                          <div
-                            className={cn(
-                              'h-2.5 overflow-hidden rounded-full border border-white/10',
-                              item.track,
-                            )}
-                          >
-                            <div
-                              className={cn(
-                                'h-full rounded-full bg-linear-to-r shadow-[0_0_12px_rgba(255,255,255,0.2)] transition-all duration-500',
-                                item.color,
-                              )}
-                              style={{
-                                width: `${width}%`,
-                                minWidth: item.value > 0 ? '6px' : '0px',
-                              }}
+                        <div key={slot} className="flex items-center gap-2 rounded-lg px-2 py-1.5">
+                          {activeMiniGameLocal === 'card_shuffle' ? (
+                            <img
+                              src="/games/card-shuffle/queencard.png"
+                              alt=""
+                              aria-hidden
+                              className="size-8 shrink-0 object-contain opacity-90"
                             />
-                          </div>
-                        </button>
+                          ) : null}
+                          <span className="min-w-0 flex-1 truncate text-sm font-medium text-white">
+                            {activeMiniGameLocal === 'kangaroo_race'
+                              ? `#${slot} ${label}`
+                              : `${label}`}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => setMiniGamePickModal({ type: 'choice', choice: slot })}
+                            className="min-w-10 rounded-lg border border-[#00d9ff]/45 bg-[#00d9ff]/15 px-3 py-1 text-sm font-bold tabular-nums text-[#00d9ff] transition hover:bg-[#00d9ff]/25"
+                            title={`${count} team${count === 1 ? '' : 's'} — tap to view names`}
+                          >
+                            {count}
+                          </button>
+                        </div>
                       );
                     })}
+                    <div className="mt-2 flex items-center gap-2 border-t border-white/10 pt-3">
+                      <span className="min-w-0 flex-1 text-sm font-medium text-white/80">
+                        No response
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setMiniGamePickModal({ type: 'no_response' })}
+                        className="min-w-10 rounded-lg border border-[#3b82f6]/45 bg-[#3b82f6]/15 px-3 py-1 text-sm font-bold tabular-nums text-[#93c5fd] transition hover:bg-[#3b82f6]/25"
+                      >
+                        {miniGameNoResponseTeams.length}
+                      </button>
+                    </div>
                   </div>
-                )}
-              </div>
-            </section>
+                </div>
+              </section>
+            ) : (
+              <section data-name="Live Responses Panel" data-node-id="232:4549">
+                <HostPanelTitle data-node-id="232:4556">
+                  {state === 'WAGER_COLLECTION' ? 'Wager Lock Progress' : 'Live Responses'}
+                </HostPanelTitle>
+                <div
+                  className="rounded-xl border border-[rgba(0,217,255,0.25)] bg-[#151b2e]/80 px-4 py-4"
+                  data-name="Response Progress Container"
+                >
+                  {state === 'WAGER_COLLECTION' ? (
+                    <>
+                      <p className="text-lg text-white" data-node-id="232:4555">
+                        <span className="font-bold text-[#00d9ff]">{wagerLockedCount}</span>{' '}
+                        <span className="font-medium">
+                          of {wagerLockedTotal || respondedLineTotal} Teams wagered
+                        </span>
+                      </p>
+                      <p className="mt-3 text-[10px] font-bold uppercase tracking-wider text-white/45">
+                        {(currentRound?.type || '').toUpperCase() === 'FINAL_WAGER'
+                          ? 'Teams per risk %'
+                          : 'Teams per wager'}
+                      </p>
+                      <div className="mt-2">
+                        <WagerDistributionGrid
+                          variant="host"
+                          roundType={currentRound?.type}
+                          counts={wagerDistributionCounts}
+                        />
+                      </div>
+                    </>
+                  ) : (
+                    <p className="mb-4 text-lg text-white" data-node-id="232:4555">
+                      <span className="font-bold text-[#00d9ff]">
+                        {gameState?.responseCount ?? 0}
+                      </span>{' '}
+                      <span className="font-medium">of {respondedLineTotal} Teams responded</span>
+                    </p>
+                  )}
+
+                  {state !== 'WAGER_COLLECTION' && (
+                    <div className="space-y-4">
+                      {(
+                        [
+                          {
+                            bucket: 'correct' as const,
+                            label: isMajorityRulesLiveRound ? 'Majority' : 'Correct',
+                            value: liveResponses.correct,
+                            color: 'from-[#00ff00] to-[#008000]',
+                            track: 'bg-[#3d7a3d]/60',
+                            icon: isMajorityRulesLiveRound ? '+' : '✓',
+                            iconBg: 'bg-green-500',
+                          },
+                          {
+                            bucket: 'incorrect' as const,
+                            label: isMajorityRulesLiveRound ? 'Minority' : 'Incorrect',
+                            value: liveResponses.incorrect,
+                            color: 'from-[#ff0000] to-[#800000]',
+                            track: 'bg-[#7a3d3d]/60',
+                            icon: isMajorityRulesLiveRound ? '-' : '×',
+                            iconBg: 'bg-red-500',
+                          },
+                          {
+                            bucket: 'noAnswer' as const,
+                            label: 'No Answer',
+                            value: liveResponses.noAnswer,
+                            color: 'from-[#3b82f6] to-[#1e3a8a]',
+                            track: 'bg-[#3d507a]/60',
+                            icon: '?',
+                            iconBg: 'bg-blue-500',
+                          },
+                        ] as const
+                      ).map((item) => {
+                        const total = liveResponseDenominator;
+                        const width = Math.max(
+                          0,
+                          Math.min(100, Math.round((item.value / total) * 100)),
+                        );
+                        return (
+                          <button
+                            key={item.label}
+                            type="button"
+                            onClick={() => setLiveResponseModal(item.bucket)}
+                            className="flex w-full cursor-pointer flex-col gap-1.5 rounded-lg px-1 py-1.5 text-left transition hover:bg-white/5"
+                          >
+                            <div className="flex items-center justify-between text-[11px] font-bold uppercase tracking-wider text-white/70">
+                              <div className="flex items-center gap-2">
+                                <div
+                                  className={cn(
+                                    item.iconBg,
+                                    'flex h-4 w-4 items-center justify-center rounded-full border border-white/20 text-[10px] text-white',
+                                  )}
+                                >
+                                  {item.icon}
+                                </div>
+                                <span>{item.label}</span>
+                              </div>
+                              <span className="text-sm italic text-[#00d9ff]">{item.value}</span>
+                            </div>
+                            <div
+                              className={cn(
+                                'h-2.5 overflow-hidden rounded-full border border-white/10',
+                                item.track,
+                              )}
+                            >
+                              <div
+                                className={cn(
+                                  'h-full rounded-full bg-linear-to-r shadow-[0_0_12px_rgba(255,255,255,0.2)] transition-all duration-500',
+                                  item.color,
+                                )}
+                                style={{
+                                  width: `${width}%`,
+                                  minWidth: item.value > 0 ? '6px' : '0px',
+                                }}
+                              />
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              </section>
+            )}
 
             <section data-name="Leaderboard Panel" data-node-id="232:4557">
               <h2
@@ -3882,8 +3962,8 @@ function HostDashboardContent() {
                   ? 'Show Code of Conduct'
                   : 'Start Game'
                 : state === 'WAGER_COLLECTION'
-                    ? 'Start Question'
-                    : 'Start Round'}
+                  ? 'Start Question'
+                  : 'Start Round'}
             </HostFooterBtn>
             <HostFooterBtn
               icon={
@@ -4044,8 +4124,8 @@ function HostDashboardContent() {
             ) : null}
           </div>
           <p className="hidden text-center text-[10px] text-white/30 lg:block">
-            Space=Next · T=Start Timer · P=Pause/Resume · S=Leaderboard — Music: T starts countdown +
-            media; P pauses/resumes both
+            Space=Next · T=Start Timer · P=Pause/Resume · S=Leaderboard — Music: T starts countdown
+            + media; P pauses/resumes both
           </p>
         </footer>
       ) : null}
@@ -4496,9 +4576,7 @@ function HostDashboardContent() {
           <input
             type="text"
             value={editTeamNameValue}
-            onChange={(e) =>
-              setEditTeamNameValue(e.target.value.slice(0, TEAM_NAME_MAX_LENGTH))
-            }
+            onChange={(e) => setEditTeamNameValue(e.target.value.slice(0, TEAM_NAME_MAX_LENGTH))}
             maxLength={TEAM_NAME_MAX_LENGTH}
             className="mb-3 w-full rounded-lg border border-border bg-surface-light px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-neon-cyan/50"
             autoFocus
@@ -4635,6 +4713,48 @@ function HostDashboardContent() {
           )}
         </ModalOverlay>
       ) : null}
+      {miniGamePickModal ? (
+        <ModalOverlay
+          onClose={() => setMiniGamePickModal(null)}
+          title={miniGamePickModalTitle}
+          showCloseButton
+          panelClassName="w-full max-w-md border border-[#888] bg-[#151b2b] text-white shadow-[0_8px_32px_rgba(0,0,0,0.55)]"
+        >
+          {miniGamePickModalTeams.length === 0 ? (
+            <p className="py-6 text-center text-sm text-white/50">No teams in this group.</p>
+          ) : (
+            <div className="max-h-[min(50vh,360px)] overflow-x-hidden overflow-y-auto overscroll-y-contain rounded-lg border border-white/20">
+              <table className="w-full table-fixed border-collapse text-left text-sm">
+                <colgroup>
+                  <col className="w-[72px]" />
+                  <col />
+                </colgroup>
+                <thead className="sticky top-0 z-[1] bg-[#1a1f2e]">
+                  <tr className="border-b border-white/15 text-[11px] font-bold uppercase tracking-wider text-white/55">
+                    <th className="px-3 py-2.5 font-bold">Sr. No.</th>
+                    <th className="px-3 py-2.5 font-bold">Team</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {miniGamePickModalTeams.map((team, index) => (
+                    <tr
+                      key={team.teamId}
+                      className="border-b border-white/10 bg-[#151b2b] last:border-b-0 even:bg-[#1a1f2e]/60"
+                    >
+                      <td className="px-3 py-2.5 tabular-nums font-semibold text-[#00d9ff]">
+                        {index + 1}
+                      </td>
+                      <td className="truncate px-3 py-2.5 font-medium text-white">
+                        {team.teamName}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </ModalOverlay>
+      ) : null}
       {teamPendingRemoval && (
         <ModalOverlay onClose={() => setTeamPendingRemoval(null)} title="Remove Team?">
           <p className="mb-5 text-sm leading-relaxed text-white/70">
@@ -4701,25 +4821,48 @@ function ModalOverlay({
   onClose,
   title,
   panelClassName,
+  showCloseButton = false,
 }: {
   children: React.ReactNode;
   onClose: () => void;
   title: string;
   panelClassName?: string;
+  showCloseButton?: boolean;
 }) {
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-[#0b0f1a]/80"
       onClick={onClose}
     >
       <div
         className={cn(
-          'neon-border bg-surface max-w-[90vw] rounded-2xl p-5',
-          panelClassName ?? 'w-80',
+          'max-w-[90vw] rounded-2xl p-5',
+          panelClassName ?? 'neon-border bg-surface w-80',
         )}
         onClick={(e) => e.stopPropagation()}
       >
-        <h3 className="text-lg font-bold mb-3 text-neon-cyan">{title}</h3>
+        <div className="mb-3 flex items-start justify-between gap-3">
+          <h3
+            className={cn(
+              'text-lg font-bold',
+              showCloseButton ? 'text-[#00d9ff]' : 'text-neon-cyan',
+            )}
+          >
+            {title}
+          </h3>
+          {showCloseButton ? (
+            <button
+              type="button"
+              onClick={onClose}
+              className="inline-flex size-9 shrink-0 items-center justify-center rounded-lg border border-white/15 bg-[#1a1f2e] text-white/80 transition hover:border-[#00d9ff]/45 hover:text-white"
+              aria-label="Close"
+            >
+              <svg viewBox="0 0 24 24" fill="currentColor" className="size-5" aria-hidden>
+                <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" />
+              </svg>
+            </button>
+          ) : null}
+        </div>
         {children}
       </div>
     </div>

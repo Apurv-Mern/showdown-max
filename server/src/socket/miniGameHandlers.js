@@ -1200,6 +1200,9 @@ const miniGameHandlers = (io, socket) => {
         value: data.value,
         source: data.source || 'player',
         ...(pickCounts ? { pickCounts } : {}),
+        ...(mgs?.selections && typeof mgs.selections === 'object'
+          ? { selections: mgs.selections }
+          : {}),
         ...(Number.isFinite(totalSelected) ? { totalSelected } : {}),
         ...extraRevealFields,
       });

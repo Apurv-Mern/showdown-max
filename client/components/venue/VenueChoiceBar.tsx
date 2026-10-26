@@ -38,7 +38,7 @@ export function VenueChoiceBar({
   return (
     <div className={cn('relative min-w-0', className)}>
       <div
-        className="relative flex h-[110px] w-full items-center overflow-hidden rounded-[20px]"
+        className="venue-option-bar relative flex h-[110px] w-full items-center overflow-hidden rounded-[20px] font-semibold"
         style={{
           background: answerBg,
           border: `2px solid ${borderColor}`,
@@ -56,7 +56,7 @@ export function VenueChoiceBar({
         >
           <span
             className={cn(
-              'text-[80px] font-extrabold uppercase leading-none [text-shadow:0_4px_6px_rgba(0,0,0,0.8)]',
+              'text-[80px] font-semibold leading-none [text-shadow:0_4px_6px_rgba(0,0,0,0.8)]',
               dimmed ? 'text-[#9A9A9A]' : 'text-white',
             )}
           >
@@ -65,7 +65,7 @@ export function VenueChoiceBar({
         </span>
         <span
           className={cn(
-            'min-w-0 flex-1 truncate px-4 text-[35px] font-extrabold uppercase leading-none',
+            'min-w-0 flex-1 truncate px-4 text-[35px] font-semibold leading-none',
             dimmed ? 'text-[#7F8084]' : 'text-black',
           )}
           style={{ background: answerBg }}

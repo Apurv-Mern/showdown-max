@@ -58,7 +58,7 @@ export function VenueQuestionScreen({
   const winners = new Set(winnerIndexes);
 
   const questionLine = (
-    <p className="line-clamp-3 shrink-0 text-center text-[clamp(1.75rem,4.2cqh,2.875rem)] font-extrabold uppercase leading-snug text-white [text-shadow:0_2px_4px_rgba(0,0,0,0.5)]">
+    <p className="venue-question-text line-clamp-3 shrink-0 text-center text-[clamp(1.75rem,4.2cqh,2.875rem)] font-normal leading-snug text-white [text-shadow:0_2px_4px_rgba(0,0,0,0.5)]">
       Q{questionIndex + 1}. {toDisplayUpper(questionText)}
     </p>
   );
@@ -125,7 +125,7 @@ export function VenueQuestionScreen({
                 />
               ) : (
                 <VenueAutoFitText
-                  className="flex h-full w-full items-center justify-center text-center font-extrabold uppercase leading-tight text-white [text-shadow:0_2px_4px_rgba(0,0,0,0.5)]"
+                  className="venue-question-text flex h-full w-full items-center justify-center text-center font-normal leading-tight text-white [text-shadow:0_2px_4px_rgba(0,0,0,0.5)]"
                   minFontSize={28}
                   maxFontSize={56}
                   step={2}

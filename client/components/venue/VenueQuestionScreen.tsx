@@ -5,7 +5,10 @@ import { toDisplayUpper } from '@/lib/utils';
 import { FIGMA_OPTION_LETTERS } from '@/lib/designTokens';
 import { VenueAutoFitText } from '@/components/venue/VenueAutoFitText';
 import { VenueChoiceBar } from '@/components/venue/VenueChoiceBar';
-import { VenueLiveResponseHud, type VenueLiveResponseStats } from '@/components/venue/VenueLiveResponseHud';
+import {
+  VenueLiveResponseHud,
+  type VenueLiveResponseStats,
+} from '@/components/venue/VenueLiveResponseHud';
 import { VenueStatBadge } from '@/components/venue/VenueStatBadge';
 import { VenueTimerRing } from '@/components/venue/VenueTimerRing';
 
@@ -33,6 +36,20 @@ const QUESTION_FRAME_STYLE: CSSProperties = {
   background: 'linear-gradient(180deg, #00072F 0%, #00010A 100%)',
   border: '3px solid #00D9FF',
   boxShadow: '0 0 24px rgba(0, 217, 255, 0.45)',
+};
+
+/** Figma node 88:729 — image question: question bar, image left, options stacked right. */
+const IMAGE_QUESTION_BAR_STYLE: CSSProperties = {
+  ...QUESTION_FRAME_STYLE,
+  borderWidth: 3,
+  minHeight: 180,
+  height: 180,
+};
+
+const IMAGE_MEDIA_FRAME_STYLE: CSSProperties = {
+  border: '6px solid #00D9FF',
+  boxShadow: '0 4px 20px 0 #0085FF',
+  borderRadius: 20,
 };
 
 /** Fills logical 1920×1080 stage (scaled by VenueStage for 1080p–4K+ / large venue TVs). */
@@ -63,8 +80,14 @@ export function VenueQuestionScreen({
     </p>
   );
 
-  const optionsGrid = (
-    <div className="grid w-full shrink-0 grid-cols-2 gap-x-[clamp(1rem,3cqw,2.5rem)] gap-y-[clamp(0.35rem,1.2cqh,1.875rem)]">
+  const renderOptions = (layout: 'grid' | 'stack') => (
+    <div
+      className={
+        layout === 'stack'
+          ? 'flex min-h-0 w-full flex-col gap-[40px]'
+          : 'grid w-full shrink-0 grid-cols-2 gap-x-[clamp(1rem,3cqw,2.5rem)] gap-y-[clamp(0.35rem,1.2cqh,1.875rem)]'
+      }
+    >
       {options.map((opt, i) => (
         <VenueChoiceBar
           key={i}
@@ -93,16 +116,30 @@ export function VenueQuestionScreen({
         {hasImage ? (
           <>
             <div
-              className="mx-auto w-full shrink-0 overflow-hidden rounded-[30px]"
-              style={{
-                ...QUESTION_FRAME_STYLE,
-                height: 'min(320px, 34cqh)',
-                maxHeight: 'min(320px, 34cqh)',
-              }}
+              className="flex w-full shrink-0 items-center justify-center overflow-hidden rounded-[20px] px-[clamp(1rem,3cqw,2.5rem)]"
+              style={IMAGE_QUESTION_BAR_STYLE}
             >
-              <img src={media?.url} alt="" className="size-full object-contain" />
+              <VenueAutoFitText
+                className="venue-question-text flex h-full w-full items-center justify-center text-center font-normal leading-tight text-white [text-shadow:0_2px_4px_rgba(0,0,0,0.5)]"
+                minFontSize={32}
+                maxFontSize={60}
+                step={2}
+              >
+                {`Q${questionIndex + 1}. ${toDisplayUpper(questionText)}`}
+              </VenueAutoFitText>
             </div>
-            <div className="shrink-0 px-1">{questionLine}</div>
+
+            <div className="flex min-h-0 flex-1 gap-[clamp(1rem,2.5cqw,2.5rem)] overflow-hidden pt-[clamp(0.25rem,1.2cqh,1.5rem)]">
+              <div
+                className="h-[560px] max-h-full w-[787px] max-w-[41%] shrink-0 overflow-hidden bg-[#e1d7cf]"
+                style={IMAGE_MEDIA_FRAME_STYLE}
+              >
+                <img src={media?.url} alt="" className="size-full " />
+              </div>
+              <div className="flex min-h-0 min-w-0 flex-1 flex-col justify-start overflow-y-auto overflow-x-hidden pr-1 pt-0">
+                {renderOptions('stack')}
+              </div>
+            </div>
           </>
         ) : (
           <>
@@ -144,9 +181,11 @@ export function VenueQuestionScreen({
           </p>
         ) : null}
 
-        <div className="min-h-0 w-full shrink-0 px-[14px] pb-[10px] pt-[clamp(0.1rem,0.35cqh,0.35rem)]">
-          {optionsGrid}
-        </div>
+        {!hasImage ? (
+          <div className="min-h-0 w-full shrink-0 px-[14px] pb-[10px] pt-[clamp(0.1rem,0.35cqh,0.35rem)]">
+            {renderOptions('grid')}
+          </div>
+        ) : null}
       </div>
     </div>
   );

@@ -6,8 +6,8 @@ import { connectSocket } from '@/lib/socket';
 import { PUBLIC_API_URL } from '@/lib/env';
 import { usePlayerSession } from './playerSession';
 
-/** Mirrors `client/app/play/join/page.tsx` — a sessionStorage flash banner shown on the next
- * mount of /play/join so the player understands why they were bounced. */
+/** Mirrors `client/app/join/page.tsx` — a sessionStorage flash banner shown on the next
+ * mount of /join so the player understands why they were bounced. */
 const PLAY_JOIN_FLASH_KEY = 'playJoinFlash';
 
 /** When admin deletes the live session OR the host removes this team from the registered
@@ -26,7 +26,7 @@ export function PlayerSessionDeletedBridge() {
       });
       if (res.status === 404) {
         clearSession();
-        router.replace('/play/join');
+        router.replace('/join');
       }
     } catch {
       /* ignore network errors */
@@ -39,7 +39,7 @@ export function PlayerSessionDeletedBridge() {
       const pin = data?.pin ? String(data.pin) : '';
       if (!pin || !session.pin || pin !== String(session.pin)) return;
       clearSession();
-      router.replace('/play/join');
+      router.replace('/join');
     };
 
     // Host removed this team from the Registered Teams panel — broadcast travels through the
@@ -57,7 +57,7 @@ export function PlayerSessionDeletedBridge() {
       if (removedId !== myId) return;
       // Passive tab refresh / network blip: server purges the old socket and broadcasts
       // `team_removed` with `reason: 'disconnected'`. That must NOT clear `playerSession` or
-      // the next paint sends the player to /play/join even though they are still in the game.
+      // the next paint sends the player to /join even though they are still in the game.
       if (data?.reason === 'disconnected') return;
 
       const hostRemoved = data?.reason === 'host_removed' || data?.reason === 'removed_by_host';
@@ -72,7 +72,7 @@ export function PlayerSessionDeletedBridge() {
         }
       }
       clearSession();
-      router.replace('/play/join');
+      router.replace('/join');
     };
 
     socket.on('session_deleted', onDeleted);
@@ -88,7 +88,7 @@ export function PlayerSessionDeletedBridge() {
     void exitIfSessionMissing();
   }, [session.pin, exitIfSessionMissing]);
 
-  /** Players on /play/join (not yet in the socket room) still have a stored PIN — poll + focus check. */
+  /** Players on /join (not yet in the socket room) still have a stored PIN — poll + focus check. */
   useEffect(() => {
     if (!session.pin) return;
     const t = window.setInterval(() => {

@@ -75,7 +75,7 @@ const createSession = async (data) => {
   const hostToken = generateHostToken();
   const { env } = require('../config/env');
   const frontendBase = (env.CLIENT_PUBLIC_URL || 'https://showdown-frontend.24livehost.com').replace(/\/$/, '');
-  const joinUrl = `${frontendBase}/play/join?pin=${pin}`;
+  const joinUrl = `${frontendBase}/join?pin=${pin}`;
   const qrCodeData = await generateQRCode(joinUrl);
 
   const session = await Session.create({

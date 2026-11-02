@@ -1,0 +1,3511 @@
+'use client';
+
+import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
+import { useRouter } from 'next/navigation';
+import { motion, AnimatePresence } from 'framer-motion';
+import { useSocket } from '@/hooks/useSocket';
+import { usePlayerSession } from './playerSession';
+import { LoadingDots } from './LoadingDots';
+import { clientLogger } from '@/lib/clientLogger';
+import { breakSecondsFromEndsAt, resolveBreakWallClock } from '@/lib/breakWallClock';
+import { cn, toDisplayUpper } from '@/lib/utils';
+import {
+  applyAudienceSessionPayload,
+  isStandardWagerRoundFromState,
+  isAudienceRevealHoldDuringHostPreview,
+} from '@/lib/audienceSession';
+import { PlayerRoundIntroScreen } from '@/components/player/PlayerRoundIntroScreen';
+import { RoundEndTitle } from '@/components/shared/RoundEndTitle';
+import { GameshowEndPlayerView } from '@/components/shared/GameshowEndPlayerView';
+import { LeaderboardScreen } from '@/components/shared/LeaderboardScreen';
+import { isEliminationRoundType } from '@/lib/eliminationLeaderboard';
+import {
+  formatQuestionPointsAtStake,
+  getStandardRoundCorrectPoints,
+  QUESTION_STAKE_POINTS,
+} from '@/lib/questionPointsDisplay';
+import { QuestionStagePanel } from '@/components/shared/QuestionStagePanel';
+import { PlayerScreenShell } from '@/components/player/PlayerScreenShell';
+import { PlayerChoiceBar } from '@/components/player/PlayerChoiceBar';
+import { FIGMA_OPTION_LETTERS } from '@/lib/designTokens';
+import { BreakTimerDisplay } from '@/components/shared/BreakTimerDisplay';
+import { BreakScreenHeading } from '@/components/shared/BreakScreenHeading';
+import {
+  PlayerWagerSelectionScreen,
+  FINAL_WAGER_PERCENT_OPTIONS,
+  WAGER_POINT_OPTIONS,
+} from '@/components/player/PlayerWagerSelectionScreen';
+import {
+  resolveBreakUpNextLabel,
+  resolveBreakUpNextLabelFromBreakStart,
+} from '@/lib/breakScreenCopy';
+import { PUBLIC_API_URL } from '@/lib/env';
+import { isQuestionImageMedia, shouldWaitForHostAudioTimer } from '@/lib/questionMedia';
+import {
+  appendSnapshotReplay,
+  applyPlayerRestoreBundle,
+  fetchPlayerRestore,
+  readPlayerSnapshot,
+  setSnapshotFromRemoteBundle,
+  setSnapshotSessionPayload,
+  snapshotToRestoreBundle,
+  type PlayerRestoreBundle,
+} from './playerSnapshotStorage';
+
+const API_URL = PUBLIC_API_URL;
+
+type GamePhase =
+  | 'round_intro'
+  | 'waiting'
+  | 'question'
+  | 'wager_input'
+  | 'answered'
+  | 'reveal'
+  | 'round_end'
+  | 'game_show_end'
+  | 'scoreboard'
+  | 'eliminated'
+  | 'break'
+  | 'game_end';
+
+interface RoundEndInfo {
+  roundIndex: number;
+  roundName: string;
+  roundType: string;
+  nextRound: { index: number; name: string; type: string } | null;
+  isFinalRound: boolean;
+}
+
+type ScoreboardTeamRow = {
+  teamId: number;
+  teamName: string;
+  score: number;
+  isEliminated?: boolean;
+};
+
+function normalizeScoreboardTeams(teams: unknown[]): ScoreboardTeamRow[] {
+  return (teams || []).map((raw) => {
+    const t = raw as Record<string, unknown>;
+    return {
+      teamId: Number(t.teamId),
+      teamName: String(t.teamName || ''),
+      score: Number(t.score ?? 0),
+      isEliminated: Boolean(t.isEliminated),
+    };
+  });
+}
+
+interface QuestionData {
+  questionIndex: number;
+  totalQuestions: number;
+  question: {
+    id: number;
+    text: string;
+    options: { text: string }[];
+    mediaUrl?: string;
+    mediaType?: string;
+    category?: string | null;
+    isOrdering?: boolean;
+  };
+  timerDuration: number;
+  timerRemaining?: number;
+  timerRunning?: boolean;
+  timerPaused?: boolean;
+  paused?: boolean;
+  timerEndsAt?: number | null;
+  serverNow?: number;
+  roundType: string;
+  pointsForQuestion?: number;
+  lockedWagerAmount?: number | null;
+  /** Present on reconnect when this team already submitted for the active question. */
+  mySubmittedOptionIndex?: number | null;
+  /** Teams knocked out this elimination round (still in session, must not answer). */
+  eliminatedTeamIds?: number[];
+}
+
+interface RevealData {
+  correctOptionIndex: number;
+  correctText: string;
+  correctOrderArray?: number[];
+  scores: Record<string, number>;
+  responseDetails?: { teamId: number; selectedOptionIndex: number; responseTime?: number | null }[];
+  /** Majority Rules: option index(es) that tied for the most votes (scoring winners). */
+  majorityOptionIndexes?: number[];
+  voteCounts?: Record<number, number>;
+  eliminations: number[];
+  allWrong: boolean;
+  teams: { teamId: number; teamName: string; score: number; isEliminated?: boolean }[];
+}
+
+// const OPTION_BG: Record<number, string> = {
+//   0: 'bg-[#11a7ff]', // A - blue
+//   1: 'bg-[#ff8a1f]', // B - orange
+//   2: 'bg-[#2bc62b]', // C - green
+//   3: 'bg-[#ffd319]', // D - yellow
+//   4: 'bg-[#8f2bff]', // E - purple
+//   5: 'bg-[#ff103b]', // F - red
+// };
+
+const OPTION_BG: Record<number, string> = {
+  0: 'bg-linear-to-b from-[#0190F5] to-[#015FB4]',
+  1: 'bg-linear-to-b from-[#FF6F00] to-[#994200]',
+  2: 'bg-linear-to-b from-[#2DA600] to-[#227E00]',
+  3: 'bg-linear-to-b from-[#F29B00] to-[#B97700]',
+  4: 'bg-linear-to-b from-[#460073] to-[#5C0098]',
+  5: 'bg-linear-to-b from-[#990003] to-[#D20023]',
+};
+
+const OPTION_LETTERS = ['A', 'B', 'C', 'D', 'E', 'F'];
+
+function initialWagerAmountForRoundType(roundType?: string): number {
+  return (roundType || '').toUpperCase() === 'FINAL_WAGER' ? FINAL_WAGER_PERCENT_OPTIONS[0] : 0;
+}
+
+/**
+ * Resolve this team's locked wager from join payloads or broadcast `session_state`.
+ * Per-question lock: prefers `questionWagers[questionId][teamId]`; falls back to the legacy
+ * `roundWagers[roundId][teamId]` so older sessions keep working.
+ */
+function resolveLockedWagerFromPayload(
+  teamId: number | null | undefined,
+  roundId: number | string | null | undefined,
+  questionId: number | string | null | undefined,
+  sources: {
+    currentQuestionLocked?: number | null;
+    topLevelLocked?: number | null;
+    roundWagers?: Record<string, Record<string, number>> | null;
+    questionWagers?: Record<string, Record<string, number>> | null;
+  },
+): { amount: number | null; hasLocked: boolean } {
+  const fromQuestion =
+    sources.currentQuestionLocked !== undefined && sources.currentQuestionLocked !== null
+      ? Number(sources.currentQuestionLocked)
+      : null;
+  const fromTop =
+    sources.topLevelLocked !== undefined && sources.topLevelLocked !== null
+      ? Number(sources.topLevelLocked)
+      : null;
+  const fromPerQuestion =
+    teamId != null && questionId != null
+      ? sources.questionWagers?.[String(questionId)]?.[String(teamId)]
+      : undefined;
+  const fromRedis =
+    teamId != null && roundId != null
+      ? sources.roundWagers?.[String(roundId)]?.[String(teamId)]
+      : undefined;
+  const scopedToQuestion = questionId != null;
+  const raw = scopedToQuestion
+    ? fromPerQuestion !== undefined && fromPerQuestion !== null
+      ? Number(fromPerQuestion)
+      : fromQuestion != null && Number.isFinite(fromQuestion)
+        ? fromQuestion
+        : null
+    : fromQuestion != null && Number.isFinite(fromQuestion)
+      ? fromQuestion
+      : fromTop != null && Number.isFinite(fromTop)
+        ? fromTop
+        : fromPerQuestion !== undefined && fromPerQuestion !== null
+          ? Number(fromPerQuestion)
+          : fromRedis !== undefined && fromRedis !== null
+            ? Number(fromRedis)
+            : null;
+  const hasLocked = raw !== null && Number.isFinite(Number(raw));
+  return { amount: hasLocked ? Number(raw) : null, hasLocked };
+}
+
+function isWagerRoundType(roundType?: string | null): boolean {
+  const rt = (roundType || '').toUpperCase();
+  return rt === 'WAGER' || rt === 'FINAL_WAGER';
+}
+
+/** QUESTION state: wager lock is only required before the host opens the question. */
+function pickQuestionPlayerPhase(opts: {
+  roundType?: string;
+  hasLockedWager: boolean;
+  questionState?: string;
+  hasRevealData?: boolean;
+  restoredIdx: number | number[] | null;
+  eliminated: boolean;
+}): GamePhase {
+  if (opts.eliminated) return 'eliminated';
+  const qs = (opts.questionState || '').toUpperCase();
+  const questionHasStarted = qs === 'ACTIVE' || qs === 'REVEALED';
+  if (isWagerRoundType(opts.roundType) && !opts.hasLockedWager && !questionHasStarted) {
+    return 'wager_input';
+  }
+  if (qs === 'REVEALED') {
+    if (opts.hasRevealData) return 'reveal';
+    if (hasSelectionIdx(opts.restoredIdx)) return 'answered';
+    return 'question';
+  }
+  if (hasSelectionIdx(opts.restoredIdx)) return 'answered';
+  return 'question';
+}
+
+function teamNeedsWagerLockScreen(
+  roundType?: string,
+  hasLockedWager?: boolean,
+  questionState?: string,
+): boolean {
+  const qs = (questionState || '').toUpperCase();
+  if (qs === 'ACTIVE' || qs === 'REVEALED') return false;
+  return isWagerRoundType(roundType) && !hasLockedWager;
+}
+
+function resolveUnlockedWagerAmount(
+  pin: string | undefined,
+  teamId: number | undefined,
+  questionId: number | string | null | undefined,
+  roundType: string | undefined,
+): { amount: number; draftMeta: { amount: number | null; pendingLock: boolean; locked: boolean } } {
+  let nextAmount = initialWagerAmountForRoundType(roundType);
+  let draftMeta: { amount: number | null; pendingLock: boolean; locked: boolean } = {
+    amount: null,
+    pendingLock: false,
+    locked: false,
+  };
+  if (pin && teamId != null && questionId != null) {
+    draftMeta = readWagerDraft(pin, Number(teamId), questionId);
+    const d = draftMeta.amount;
+    if (d != null && isValidWagerDraftAmount(roundType, d)) {
+      nextAmount = d;
+    }
+  }
+  return { amount: nextAmount, draftMeta };
+}
+
+const WAGER_DRAFT_STORAGE_PREFIX = 'mst:wagerDraft:';
+
+function wagerDraftStorageKey(pin: string, teamId: number) {
+  return `${WAGER_DRAFT_STORAGE_PREFIX}${pin}:${teamId}`;
+}
+
+/**
+ * Drafts are keyed per-question: each question in a Wager / Final Wager round opens its
+ * own lock screen, so we discard drafts from previous questions automatically.
+ */
+function readWagerDraft(
+  pin: string,
+  teamId: number,
+  questionId: number | string | undefined,
+): { amount: number | null; pendingLock: boolean; locked: boolean } {
+  if (!pin || teamId == null || questionId == null)
+    return { amount: null, pendingLock: false, locked: false };
+  try {
+    const raw = sessionStorage.getItem(wagerDraftStorageKey(pin, teamId));
+    if (!raw) return { amount: null, pendingLock: false, locked: false };
+    const o = JSON.parse(raw) as {
+      questionId?: unknown;
+      amount?: unknown;
+      pendingLock?: unknown;
+      locked?: unknown;
+    };
+    if (String(o.questionId ?? '') !== String(questionId)) {
+      return { amount: null, pendingLock: false, locked: false };
+    }
+    const n = Number(o.amount);
+    const amount = Number.isFinite(n) ? n : null;
+    return { amount, pendingLock: Boolean(o.pendingLock), locked: Boolean(o.locked) };
+  } catch {
+    return { amount: null, pendingLock: false, locked: false };
+  }
+}
+
+function writeWagerDraft(
+  pin: string,
+  teamId: number,
+  questionId: number | string,
+  amount: number,
+  opts?: { pendingLock?: boolean; locked?: boolean },
+) {
+  try {
+    sessionStorage.setItem(
+      wagerDraftStorageKey(pin, teamId),
+      JSON.stringify({
+        questionId,
+        amount,
+        pendingLock: Boolean(opts?.pendingLock),
+        locked: Boolean(opts?.locked),
+      }),
+    );
+  } catch {
+    /* quota / private mode */
+  }
+}
+
+/** Remember a server-confirmed lock locally so a refresh still shows the selection instantly. */
+function persistWagerLockCache(
+  pin: string,
+  teamId: number,
+  questionId: number | string,
+  amount: number,
+) {
+  writeWagerDraft(pin, teamId, questionId, amount, { pendingLock: false, locked: true });
+}
+
+/**
+ * Merge Redis/server wager lock with a local sessionStorage mirror (written after a
+ * successful lock). Covers the gap between `submit_wager` and reconnect when Redis
+ * already has the lock, and gives instant UI on refresh before `join_session` returns.
+ */
+function resolveWagerLockForPlayer(
+  teamId: number | null | undefined,
+  roundId: number | string | null | undefined,
+  questionId: number | string | null | undefined,
+  roundType: string | undefined,
+  pin: string | undefined,
+  sources: {
+    currentQuestionLocked?: number | null;
+    topLevelLocked?: number | null;
+    roundWagers?: Record<string, Record<string, number>> | null;
+    questionWagers?: Record<string, Record<string, number>> | null;
+  },
+): {
+  amount: number | null;
+  hasLocked: boolean;
+  resubmitAmount: number | null;
+  fromLocalCache: boolean;
+} {
+  const fromServer = resolveLockedWagerFromPayload(teamId, roundId, questionId, sources);
+  if (fromServer.hasLocked) {
+    return {
+      amount: fromServer.amount,
+      hasLocked: true,
+      resubmitAmount: null,
+      fromLocalCache: false,
+    };
+  }
+  if (pin && teamId != null && questionId != null) {
+    const cached = readWagerDraft(pin, Number(teamId), questionId);
+    if (
+      cached.locked &&
+      cached.amount != null &&
+      isValidWagerDraftAmount(roundType, cached.amount)
+    ) {
+      return {
+        amount: cached.amount,
+        hasLocked: true,
+        resubmitAmount: cached.amount,
+        fromLocalCache: true,
+      };
+    }
+  }
+  return {
+    amount: fromServer.amount,
+    hasLocked: false,
+    resubmitAmount: null,
+    fromLocalCache: false,
+  };
+}
+
+function clearWagerDraft(pin: string, teamId: number) {
+  try {
+    sessionStorage.removeItem(wagerDraftStorageKey(pin, teamId));
+  } catch {
+    /* ignore */
+  }
+}
+
+function isValidWagerDraftAmount(roundType: string | undefined, amount: number): boolean {
+  const rt = (roundType || '').toUpperCase();
+  if (rt === 'FINAL_WAGER') {
+    return FINAL_WAGER_PERCENT_OPTIONS.includes(
+      amount as (typeof FINAL_WAGER_PERCENT_OPTIONS)[number],
+    );
+  }
+  if (rt === 'WAGER') {
+    return WAGER_POINT_OPTIONS.includes(amount as (typeof WAGER_POINT_OPTIONS)[number]);
+  }
+  // Reconnect payloads sometimes omit `roundType`; accept either grid as a permissive default.
+  return (
+    (WAGER_POINT_OPTIONS as readonly number[]).includes(amount) ||
+    (FINAL_WAGER_PERCENT_OPTIONS as readonly number[]).includes(amount)
+  );
+}
+
+const ANSWER_DRAFT_PREFIX = 'mst:answerDraft:';
+
+type AnswerDraftPayload = {
+  selectedOptionIndex: number | number[];
+  wagerAmount?: number;
+};
+
+function answerDraftStorageKey(pin: string, teamId: number, questionId: string) {
+  return `${ANSWER_DRAFT_PREFIX}${pin}:${teamId}:${questionId}`;
+}
+
+function writeAnswerDraft(
+  pin: string,
+  teamId: number,
+  questionId: string | number,
+  payload: AnswerDraftPayload,
+) {
+  try {
+    sessionStorage.setItem(
+      answerDraftStorageKey(pin, teamId, String(questionId)),
+      JSON.stringify(payload),
+    );
+  } catch {
+    /* ignore */
+  }
+}
+
+function patchQuestionActiveTimerCache(
+  timerRemaining: number,
+  opts: { timerRunning?: boolean; timerEndsAt?: number | null },
+) {
+  try {
+    const raw = sessionStorage.getItem('questionActive');
+    if (!raw) return;
+    const o = JSON.parse(raw) as Record<string, unknown>;
+    o.timerRemaining = timerRemaining;
+    if (typeof opts.timerRunning === 'boolean') o.timerRunning = opts.timerRunning;
+    if (opts.timerEndsAt !== undefined) o.timerEndsAt = opts.timerEndsAt;
+    sessionStorage.setItem('questionActive', JSON.stringify(o));
+  } catch {
+    /* ignore */
+  }
+}
+
+function readAnswerDraft(
+  pin: string,
+  teamId: number,
+  questionId: string,
+): AnswerDraftPayload | null {
+  try {
+    const raw = sessionStorage.getItem(answerDraftStorageKey(pin, teamId, questionId));
+    if (!raw) return null;
+    const o = JSON.parse(raw) as AnswerDraftPayload;
+    if (Array.isArray(o?.selectedOptionIndex)) return o;
+    const n = Number(o?.selectedOptionIndex);
+    if (!Number.isFinite(n) || n < 0) return null;
+    return o;
+  } catch {
+    return null;
+  }
+}
+
+function clearAnswerDraft(pin: string, teamId: number, questionId: string) {
+  try {
+    sessionStorage.removeItem(answerDraftStorageKey(pin, teamId, questionId));
+  } catch {
+    /* ignore */
+  }
+}
+
+function clearAnswerDraftsForTeam(pin: string, teamId: number) {
+  try {
+    const prefix = `${ANSWER_DRAFT_PREFIX}${pin}:${teamId}:`;
+    for (let i = sessionStorage.length - 1; i >= 0; i--) {
+      const k = sessionStorage.key(i);
+      if (k?.startsWith(prefix)) sessionStorage.removeItem(k);
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
+/** Server `mySubmittedOptionIndex` or Redis-parsed value — never treat -1 as a selection. */
+function parseSubmittedIdxFromMineRaw(mineRaw: unknown): number | number[] | null {
+  if (mineRaw === undefined || mineRaw === null) return null;
+  if (Array.isArray(mineRaw)) return mineRaw.length > 0 ? mineRaw : null;
+  const n = Number(mineRaw);
+  if (Number.isFinite(n) && n >= 0) return n;
+  return null;
+}
+
+function hasSelectionIdx(idx: number | number[] | null | undefined): idx is number | number[] {
+  if (idx === null || idx === undefined) return false;
+  if (Array.isArray(idx)) return idx.length > 0;
+  return Number.isFinite(Number(idx)) && Number(idx) >= 0;
+}
+
+/** Reveal fallback when server score is missing — must match shared/constants/scoring.js */
+const REVEAL_FIXED_WRONG_PTS = QUESTION_STAKE_POINTS.INCORRECT;
+
+/** Trophy badge during a question: points at stake for *this* question. */
+function formatQuestionPointsHeader(
+  question: QuestionData | null | undefined,
+  lockedWagerAmount?: number | null,
+): string {
+  const rt = (question?.roundType || '').toUpperCase();
+  if (rt === 'WAGER' || rt === 'FINAL_WAGER') return '?';
+
+  return formatQuestionPointsAtStake({
+    roundType: question?.roundType,
+    questionIndex: question?.questionIndex,
+    pointsForQuestion: question?.pointsForQuestion,
+    lockedWagerAmount: lockedWagerAmount ?? question?.lockedWagerAmount,
+  });
+}
+
+function revealUsesServerPointsLabel(roundType: string | undefined): boolean {
+  const rt = (roundType || '').toUpperCase();
+  return rt === 'WAGER' || rt === 'FINAL_WAGER' || rt === 'ELIMINATION' || rt === 'MAJORITY_RULES';
+}
+
+/** Fixed MC/music reveal copy (includes empty roundType when payload omits it). */
+function revealUsesFixedTenTwoLabel(
+  roundType: string | undefined,
+  isMajorityRulesRound: boolean,
+): boolean {
+  if (isMajorityRulesRound) return false;
+  if (revealUsesServerPointsLabel(roundType)) return false;
+  const rt = (roundType || '').toUpperCase();
+  return rt === 'MULTIPLE_CHOICE' || rt === 'MUSIC' || rt === 'FINAL_MULTIPLE_CHOICE' || rt === '';
+}
+
+/** Payloads / sessionStorage may mix numeric and string team ids — avoid `===` misses. */
+function sameTeamId(a: unknown, b: unknown): boolean {
+  const na = Number(a);
+  const nb = Number(b);
+  return Number.isFinite(na) && Number.isFinite(nb) && na === nb;
+}
+
+function RevealOptionStatusIcon({ variant }: { variant: 'correct' | 'wrong' }) {
+  const src = variant === 'correct' ? '/rightAnswer.png' : '/wrongAnswer.png';
+  const alt = variant === 'correct' ? 'Correct answer' : 'Wrong answer';
+
+  return (
+    <img
+      src={src}
+      alt={alt}
+      className="h-9 w-9 shrink-0 object-contain drop-shadow-[0_2px_8px_rgba(0,0,0,0.35)] sm:h-10 sm:w-10"
+      aria-hidden
+    />
+  );
+}
+
+const resolveMediaUrl = (mediaUrl?: string) => {
+  if (!mediaUrl) return '';
+  const normalized = mediaUrl
+    .replace(/\\/g, '/')
+    .replace('/api/media/files/', '/api/public/media/files/')
+    .trim();
+  if (
+    normalized.startsWith('http://') ||
+    normalized.startsWith('https://') ||
+    normalized.startsWith('data:') ||
+    normalized.startsWith('blob:')
+  ) {
+    return normalized;
+  }
+  if (normalized.startsWith('/')) {
+    return `${API_URL}${normalized}`;
+  }
+  return `${API_URL}/${normalized}`;
+};
+
+function QuestionImage({ mediaUrl }: { mediaUrl: string }) {
+  const candidates = useMemo(() => {
+    const raw = (mediaUrl || '').replace(/\\/g, '/').trim();
+    const normalized = raw.replace('/api/media/files/', '/api/public/media/files/');
+    if (!normalized) return [];
+    const resolved = resolveMediaUrl(normalized);
+    const out = [resolved];
+    const apiOrigin = (() => {
+      try {
+        return new URL(API_URL).origin;
+      } catch {
+        return '';
+      }
+    })();
+    const apiOriginNoPort = apiOrigin.replace(/:\d+$/, '');
+
+    if (
+      !normalized.startsWith('http://') &&
+      !normalized.startsWith('https://') &&
+      !normalized.startsWith('data:') &&
+      !normalized.startsWith('blob:')
+    ) {
+      const path = normalized.startsWith('/') ? normalized : `/${normalized}`;
+      out.push(path);
+      if (apiOrigin) out.push(`${apiOrigin}${path}`);
+      if (apiOriginNoPort) out.push(`${apiOriginNoPort}${path}`);
+
+      // Try both media routes because some environments expose only one of these.
+      const legacyPath = path.replace('/api/public/media/files/', '/api/media/files/');
+      const publicPath = path.replace('/api/media/files/', '/api/public/media/files/');
+      if (legacyPath !== path) {
+        out.push(legacyPath);
+        if (apiOrigin) out.push(`${apiOrigin}${legacyPath}`);
+        if (apiOriginNoPort) out.push(`${apiOriginNoPort}${legacyPath}`);
+      }
+      if (publicPath !== path) {
+        out.push(publicPath);
+        if (apiOrigin) out.push(`${apiOrigin}${publicPath}`);
+        if (apiOriginNoPort) out.push(`${apiOriginNoPort}${publicPath}`);
+      }
+    }
+    const filename = raw.split('/').pop()?.split('?')[0] || '';
+    if (filename) {
+      out.push(`${API_URL}/api/public/media/files/${filename}`);
+      out.push(`${API_URL}/api/media/files/${filename}`);
+      if (apiOrigin) out.push(`${apiOrigin}/api/public/media/files/${filename}`);
+      if (apiOriginNoPort) out.push(`${apiOriginNoPort}/api/public/media/files/${filename}`);
+    }
+
+    return Array.from(new Set(out.map((u) => encodeURI(u))));
+  }, [mediaUrl]);
+  const [index, setIndex] = useState(0);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    setIndex(0);
+    setFailed(false);
+  }, [mediaUrl]);
+
+  if (!candidates.length || failed) {
+    return null;
+  }
+
+  return (
+    <img
+      src={candidates[index]}
+      alt="Question media"
+      className="h-auto max-h-full max-w-full w-full object-contain"
+      onError={() => {
+        const next = index + 1;
+        if (next < candidates.length) {
+          setIndex(next);
+          return;
+        }
+        setFailed(true);
+        if (typeof window !== 'undefined') {
+          console.warn('[mobile-question-image] failed all URL candidates', {
+            mediaUrl,
+            candidates,
+          });
+        }
+      }}
+    />
+  );
+}
+
+function QuestionMediaVisual({
+  question,
+  musicBanner,
+}: {
+  question: QuestionData;
+  /** Music / MP3 questions: venue copy — `waiting` until host starts timer; `playing` after. */
+  musicBanner: 'none' | 'waiting' | 'playing';
+}) {
+  const q = question.question;
+  const roundType = question.roundType;
+
+  if (isQuestionImageMedia(q.mediaType, q.mediaUrl) && q.mediaUrl) {
+    return null;
+  }
+  if ((q.mediaType || '').toLowerCase() === 'mp4' && q.mediaUrl) {
+    // Per design: MP4 plays on the venue projector only — players see a caption only.
+    const caption =
+      musicBanner === 'playing'
+        ? 'Video is playing on Venue Screen'
+        : musicBanner === 'waiting'
+          ? 'Waiting for host to start the video'
+          : 'Video is playing on Venue Screen';
+    return (
+      <div className="shrink-0 px-2 py-3">
+        <p className="text-center text-sm font-semibold text-white sm:text-base">{caption}</p>
+      </div>
+    );
+  }
+  if ((q.mediaType || '').toLowerCase() === 'mp3' || roundType === 'MUSIC') {
+    return null;
+  }
+
+  return null;
+}
+
+const pageTransition = {
+  initial: { opacity: 0, y: 20 },
+  animate: { opacity: 1, y: 0 },
+  exit: { opacity: 0, y: -20 },
+  transition: { duration: 0.35, ease: 'easeOut' as const },
+};
+
+const staggerContainer = {
+  animate: { transition: { staggerChildren: 0.08 } },
+};
+
+const staggerItem = {
+  initial: { opacity: 0, scale: 0.92 },
+  animate: { opacity: 1, scale: 1 },
+};
+
+/** Scrollable answer list — needed when questions have 5–6 options on short phone viewports. */
+const playerOptionsScrollClass =
+  'min-h-0 flex-1 overflow-y-auto overscroll-y-contain [-webkit-overflow-scrolling:touch] touch-pan-y pb-1';
+
+/** Image questions: scroll header, image, and options together on small screens. */
+const playerImageQuestionScrollClass =
+  'min-h-0 flex-1 overflow-y-auto overscroll-y-contain [-webkit-overflow-scrolling:touch] touch-pan-y pb-4';
+
+const toTimerEndsAt = (value: unknown): number | null => {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) return null;
+  return parsed;
+};
+
+const getRemainingFromEndsAt = (timerEndsAt: number): number => {
+  return Math.max(0, Math.ceil((timerEndsAt - Date.now()) / 1000));
+};
+
+/** Prefer wall clock when valid; if `timerEndsAt` is stale but the server still reports time left, trust the server. */
+function coercePlayerTimerFromServer(
+  serverRemaining: unknown,
+  endsAt: unknown,
+): { remaining: number; endsAt: number | null } {
+  const tr = Number(serverRemaining);
+  const safeTr = Number.isFinite(tr) ? Math.max(0, Math.floor(tr)) : 0;
+  const syncEndsAt = toTimerEndsAt(endsAt);
+  if (syncEndsAt === null) {
+    return { remaining: safeTr, endsAt: null };
+  }
+  const fromWall = getRemainingFromEndsAt(syncEndsAt);
+  if (safeTr <= 0 && fromWall <= 0) {
+    return { remaining: 0, endsAt: null };
+  }
+  if (safeTr > 0 && fromWall <= 0) {
+    return { remaining: safeTr, endsAt: null };
+  }
+  if (safeTr <= 0 && fromWall > 0) {
+    return { remaining: fromWall, endsAt: syncEndsAt };
+  }
+  return { remaining: fromWall, endsAt: syncEndsAt };
+}
+
+/** Apply server timer fields — never arm local countdown while paused. */
+function pauseHintFromTimerPayload(data?: {
+  paused?: boolean;
+  timerPaused?: boolean;
+}): boolean | undefined {
+  if (!data) return undefined;
+  if (data.paused === true || data.timerPaused === true) return true;
+  if (data.paused === false) return false;
+  return undefined;
+}
+
+function syncPlayerTimerFromServer(
+  serverRemaining: unknown,
+  endsAt: unknown,
+  timerRunningFlag: unknown,
+  paused?: boolean,
+): { remaining: number; endsAt: number | null; running: boolean } {
+  const running =
+    paused === true
+      ? false
+      : timerRunningFlag === true
+        ? true
+        : timerRunningFlag === false
+          ? false
+          : false;
+  const coerced = coercePlayerTimerFromServer(serverRemaining, running ? endsAt : null);
+  return {
+    remaining: coerced.remaining,
+    endsAt: running ? coerced.endsAt : null,
+    running,
+  };
+}
+
+export default function GamePage() {
+  const router = useRouter();
+  const { socket } = useSocket();
+  const { session, setSession, clearSession } = usePlayerSession();
+
+  const [phase, setPhase] = useState<GamePhase>('waiting');
+  const [showExitConfirm, setShowExitConfirm] = useState(false);
+  const [roundInfo, setRoundInfo] = useState<{
+    round: any;
+    roundIndex: number;
+    totalRounds: number;
+  } | null>(null);
+  // Drives the player-side "round is over" transition screen between the last reveal
+  // and the scoreboard / next round intro.
+  const [roundEndInfo, setRoundEndInfo] = useState<RoundEndInfo | null>(null);
+  const roundEndInfoRef = useRef<RoundEndInfo | null>(null);
+  const [question, setQuestion] = useState<QuestionData | null>(null);
+  const [timerRemaining, setTimerRemaining] = useState(0);
+  const [timerEndsAt, setTimerEndsAt] = useState<number | null>(null);
+  const [timerDuration, setTimerDuration] = useState(30);
+  const [selectedOption, setSelectedOption] = useState<number | number[] | null>(null);
+  const [orderingSelection, setOrderingSelection] = useState<number[]>([]);
+  const [orderingDragIndex, setOrderingDragIndex] = useState<number | null>(null);
+  const [wagerAmount, setWagerAmount] = useState(0);
+  const [wagerSubmitted, setWagerSubmitted] = useState(false);
+  const [wagerCollectionCategory, setWagerCollectionCategory] = useState<string | null>(null);
+  const [revealData, setRevealData] = useState<RevealData | null>(null);
+  const [pointsGained, setPointsGained] = useState<number | null>(null);
+  const [scoreboard, setScoreboard] = useState<ScoreboardTeamRow[]>([]);
+  const [isEliminated, setIsEliminated] = useState(false);
+  const [breakDuration, setBreakDuration] = useState(300);
+  const [breakRemaining, setBreakRemaining] = useState(300);
+  const [breakEndsAtMs, setBreakEndsAtMs] = useState<number | null>(null);
+  const [breakSkewMs, setBreakSkewMs] = useState(0);
+  const [breakUpNextLabel, setBreakUpNextLabel] = useState<string | null>(null);
+  const [timerRunning, setTimerRunning] = useState(false);
+  /** Host paused the question timer — answers locked until resume (independent of stale timerRunning). */
+  const [hostTimerPaused, setHostTimerPaused] = useState(false);
+  /** MUSIC round: host has started the venue timer at least once this question (incl. after pause). */
+  const [musicVenuePlaybackStarted, setMusicVenuePlaybackStarted] = useState(false);
+  const [showBreakEndedNotice, setShowBreakEndedNotice] = useState(false);
+  // Becomes true the first time we receive any state (session_state OR a sessionStorage replay
+  // from the lobby/join page). Used to suppress the "Waiting for game to start" splash on a
+  // bare refresh until the server has actually told us we're in LOBBY — otherwise the
+  // 100–500 ms gap between mount and join_session reply renders a misleading "Waiting" UI.
+  const [hasInitialState, setHasInitialState] = useState(false);
+  /** Synced in socket handlers (same tick as session_state) so question_active cannot overwrite elimination. */
+  const isEliminatedRef = useRef(false);
+  const phaseRef = useRef<GamePhase>('waiting');
+  const previousPhaseBeforeScoreboardRef = useRef<GamePhase | null>(null);
+  const questionRef = useRef<QuestionData | null>(null);
+  const revealDataRef = useRef<RevealData | null>(null);
+  /** When `session_state` / `question_active` omits `mySubmittedOptionIndex` (room broadcasts), keep the last authoritative pick for this question id. */
+  const answerRestoreRef = useRef<{
+    qid: string | null;
+    idx: number | number[] | null;
+  }>({ qid: null, idx: null });
+  const answerDraftResubmitGuardRef = useRef<Set<string>>(new Set());
+  const wagerLockResubmitGuardRef = useRef<Set<string>>(new Set());
+  /** Set synchronously in session_state so answer_reveal replays cannot flash reveal before React commits. */
+  const wagerLockRequiredRef = useRef(false);
+  const wagerSourcesRef = useRef<{
+    roundWagers?: Record<string, Record<string, number>> | null;
+    questionWagers?: Record<string, Record<string, number>> | null;
+    topLevelLocked?: number | null;
+  }>({});
+  const quizRoundsRef = useRef<Array<{ name?: string; type?: string }>>([]);
+  const quizRoundIndexRef = useRef(0);
+  const questionStateRef = useRef<string>('');
+  /** Updated synchronously in session_state (before setPhase) for replay handlers in the same tick. */
+  const sessionLiveStateRef = useRef<string>('');
+  const ensureRevealAfterWagerLockRef = useRef<(() => void) | null>(null);
+  /** Same pin+team: run local + HTTP restore only once per mount cycle (socket effect may re-run). */
+  const playerRestoreGuardRef = useRef<{ pin: string; teamId: number } | null>(null);
+
+  const scoreboardEliminationStyle = useMemo(
+    () =>
+      phase === 'scoreboard' &&
+      (isEliminationRoundType(roundEndInfo?.roundType) ||
+        isEliminationRoundType(roundInfo?.round?.type) ||
+        isEliminationRoundType(question?.roundType)),
+    [phase, roundEndInfo?.roundType, roundInfo?.round?.type, question?.roundType],
+  );
+
+  useEffect(() => {
+    phaseRef.current = phase;
+    roundEndInfoRef.current = roundEndInfo;
+    // Drop the cached round-end payload once we leave the round-end / scoreboard flow.
+    if (phase !== 'round_end' && phase !== 'game_show_end' && phase !== 'scoreboard') {
+      setRoundEndInfo(null);
+    }
+  }, [phase, roundEndInfo]);
+
+  useEffect(() => {
+    if (question?.question?.options) {
+      if (question.question.isOrdering) {
+        setOrderingSelection((prev) => {
+          if (Array.isArray(selectedOption)) return selectedOption;
+          if (prev.length !== question.question.options.length) {
+            return question.question.options.map((_, i) => i);
+          }
+          return prev;
+        });
+      }
+    }
+  }, [question, selectedOption]);
+
+  useEffect(() => {
+    clientLogger.info('play', 'Mobile game phase changed', {
+      phase,
+      sessionPin: session.pin,
+      teamId: session.teamId,
+      questionId: question?.question?.id,
+    });
+  }, [phase, question?.question?.id, session.pin, session.teamId]);
+
+  useEffect(() => {
+    questionRef.current = question;
+  }, [question]);
+
+  useEffect(() => {
+    revealDataRef.current = revealData;
+  }, [revealData]);
+
+  useEffect(() => {
+    if (!session.pin || !session.teamId) {
+      router.replace('/join');
+    }
+  }, [session, router]);
+
+  useEffect(() => {
+    const pin = session.pin;
+    const tid = session.teamId != null ? Number(session.teamId) : NaN;
+    if (pin && Number.isFinite(tid)) {
+      const snap = readPlayerSnapshot(pin, tid);
+      const snapState = (snap?.sessionPayload?.gameState as { state?: string } | undefined)?.state;
+      if (snapState === 'FINAL_RESULTS' || snapState === 'GAME_SHOW_END') {
+        try {
+          sessionStorage.removeItem('roundIntro');
+          sessionStorage.removeItem('questionActive');
+        } catch {
+          /* ignore */
+        }
+        sessionLiveStateRef.current = snapState;
+        setHasInitialState(true);
+        setRoundInfo(null);
+        setQuestion(null);
+        setPhase(snapState === 'GAME_SHOW_END' ? 'game_show_end' : 'game_end');
+        return;
+      }
+    }
+
+    const savedRoundIntro = sessionStorage.getItem('roundIntro');
+    if (savedRoundIntro) {
+      try {
+        const data = JSON.parse(savedRoundIntro);
+        setRoundInfo(data);
+        setPhase('round_intro');
+        setHasInitialState(true);
+      } catch {
+        /* ignore */
+      }
+      sessionStorage.removeItem('roundIntro');
+    }
+    const savedQuestion = sessionStorage.getItem('questionActive');
+    if (savedQuestion) {
+      try {
+        const data = JSON.parse(savedQuestion);
+        setHasInitialState(true);
+        const tid = session.teamId != null ? Number(session.teamId) : NaN;
+        const inEliminatedList =
+          Number.isFinite(tid) &&
+          Array.isArray(data.eliminatedTeamIds) &&
+          data.eliminatedTeamIds.map(Number).includes(tid);
+        const knockedOut = Boolean(data.isEliminated) || inEliminatedList;
+        setQuestion(data);
+        setTimerDuration(Number(data.timerDuration ?? 30) || 30);
+        // sessionStorage may predate a host pause — do not start a local countdown here.
+        const bootTimer = syncPlayerTimerFromServer(
+          data.timerRemaining ?? data.timerDuration,
+          null,
+          false,
+        );
+        setTimerRemaining(bootTimer.remaining);
+        setTimerEndsAt(null);
+        setTimerRunning(false);
+        const running = false;
+        const td = Number(data.timerDuration ?? 30) || 30;
+        const tr = bootTimer.remaining;
+        const isMusicRound = shouldWaitForHostAudioTimer(data.roundType, data.question);
+        if (isMusicRound) {
+          setMusicVenuePlaybackStarted(running || (tr > 0 && tr < td));
+        } else {
+          setMusicVenuePlaybackStarted(false);
+        }
+        if (knockedOut) {
+          isEliminatedRef.current = true;
+          setIsEliminated(true);
+          setSelectedOption(null);
+          setPhase('eliminated');
+        } else {
+          const mine = data.mySubmittedOptionIndex;
+          let restored = parseSubmittedIdxFromMineRaw(mine);
+          const qidStr =
+            data.question?.id != null && session.pin && session.teamId != null
+              ? String(data.question.id)
+              : null;
+          if (!hasSelectionIdx(restored) && qidStr && session.pin && session.teamId != null) {
+            const draft = readAnswerDraft(session.pin, Number(session.teamId), qidStr);
+            if (draft && hasSelectionIdx(draft.selectedOptionIndex)) {
+              restored = draft.selectedOptionIndex;
+            }
+          }
+          const isWagerRound = isWagerRoundType(data.roundType);
+          let hasLockedWager = true;
+          if (isWagerRound) {
+            const { amount, hasLocked } = resolveLockedWagerFromPayload(
+              session.teamId,
+              null,
+              data.question?.id ?? null,
+              { currentQuestionLocked: data.lockedWagerAmount },
+            );
+            hasLockedWager = hasLocked;
+            if (hasLocked && amount != null) {
+              wagerLockRequiredRef.current = false;
+              setWagerAmount(amount);
+              setWagerSubmitted(true);
+            } else {
+              hasLockedWager = true;
+              wagerLockRequiredRef.current = false;
+              setWagerAmount(0);
+              setWagerSubmitted(true);
+            }
+          }
+
+          if (hasSelectionIdx(restored) && hasLockedWager) {
+            setSelectedOption(restored);
+            setPhase('answered');
+          } else {
+            setSelectedOption(null);
+            setPhase(
+              pickQuestionPlayerPhase({
+                roundType: data.roundType,
+                hasLockedWager,
+                questionState: questionStateRef.current,
+                hasRevealData: Boolean(revealDataRef.current),
+                restoredIdx: hasLockedWager ? restored : null,
+                eliminated: false,
+              }),
+            );
+          }
+        }
+      } catch {
+        /* ignore */
+      }
+      sessionStorage.removeItem('questionActive');
+    }
+  }, [session.pin, session.teamId]);
+
+  useEffect(() => {
+    if (phase !== 'round_intro' || roundInfo) return;
+    const live = sessionLiveStateRef.current;
+    if (live === 'FINAL_RESULTS') {
+      setPhase('game_end');
+    } else if (live === 'GAME_SHOW_END') {
+      setPhase('game_show_end');
+    }
+  }, [phase, roundInfo]);
+
+  useEffect(() => {
+    if (phase !== 'break') return;
+    const tick = () => {
+      if (breakEndsAtMs != null && Number.isFinite(breakEndsAtMs) && breakEndsAtMs > 0) {
+        const next = breakSecondsFromEndsAt(breakEndsAtMs, breakSkewMs);
+        setBreakRemaining(Math.min(breakDuration, Math.max(0, next)));
+      } else {
+        setBreakRemaining((prev) => {
+          const capped = prev > breakDuration ? breakDuration : prev;
+          return capped > 0 ? capped - 1 : 0;
+        });
+      }
+    };
+    tick();
+    const t = setInterval(tick, 250);
+    const onVis = () => {
+      if (document.visibilityState === 'visible') {
+        tick();
+        // Coming back from a backgrounded/throttled tab: ask the server for an authoritative
+        // resync, otherwise a missed break_end leaves the break screen stuck.
+        if (socket && session.pin && session.teamName) {
+          socket.emit('join_session', {
+            pin: session.pin,
+            teamName: session.teamName,
+            teamId: session.teamId,
+          });
+        }
+      }
+    };
+    document.addEventListener('visibilitychange', onVis);
+    return () => {
+      clearInterval(t);
+      document.removeEventListener('visibilitychange', onVis);
+    };
+  }, [phase, breakDuration, breakEndsAtMs, breakSkewMs, socket, session.pin, session.teamName]);
+
+  useEffect(() => {
+    if (!timerEndsAt || !timerRunning) return;
+
+    const syncTimer = () => {
+      setTimerRemaining(getRemainingFromEndsAt(timerEndsAt));
+    };
+
+    syncTimer();
+    const interval = window.setInterval(syncTimer, 250);
+    return () => window.clearInterval(interval);
+  }, [timerEndsAt, timerRunning]);
+
+  useEffect(() => {
+    if (!socket || !session.pin || !session.teamName || session.teamId == null) return;
+
+    const onSessionState = (data: any) => {
+      // Server emits SESSION_STATE in two shapes:
+      //   • on join_session reply, the gameState is wrapped under `data.gameState`
+      //   • on every other update (break_end, scoreboard, etc.) it is the flat payload itself
+      // Handling both keeps players in sync even when discrete events (break_end, etc.) are
+      // dropped on flaky mobile networks or backgrounded tabs.
+      if (data) {
+        const rawSession = (data && typeof data === 'object' ? data : {}) as Record<
+          string,
+          unknown
+        >;
+        let gs = applyAudienceSessionPayload(rawSession) as typeof data.gameState extends object
+          ? typeof data.gameState
+          : typeof data;
+        if (
+          gs &&
+          typeof gs === 'object' &&
+          gs.state === 'QUESTION' &&
+          String(gs.questionState || '').toUpperCase() === 'PREVIEW' &&
+          isAudienceRevealHoldDuringHostPreview(rawSession)
+        ) {
+          const av = (rawSession.audienceView ??
+            (rawSession.gameState as Record<string, unknown> | undefined)?.audienceView) as
+            | { currentQuestion?: unknown; currentQuestionIndex?: number }
+            | undefined;
+          gs = {
+            ...gs,
+            state: 'QUESTION',
+            questionState: 'REVEALED',
+            currentQuestion: av?.currentQuestion ?? gs.currentQuestion,
+            currentQuestionIndex: av?.currentQuestionIndex ?? gs.currentQuestionIndex,
+            timerRemaining: 0,
+            timerRunning: false,
+          } as typeof gs;
+        }
+        if (!gs || typeof gs !== 'object' || !('state' in gs)) return;
+        sessionLiveStateRef.current = String(gs.state || '');
+        setHasInitialState(true);
+        // Join reply carries the server's current team name — adopt it so a rename made while
+        // this device was disconnected doesn't linger in sessionStorage.
+        if (data.teamName && String(data.teamName) !== session.teamName) {
+          setSession({ teamName: String(data.teamName) });
+        }
+        if (session.pin && session.teamId != null) {
+          setSnapshotSessionPayload(session.pin, Number(session.teamId), data);
+        }
+        if (gs.state !== 'BREAK') {
+          setBreakEndsAtMs(null);
+          setBreakSkewMs(0);
+        }
+        const teamsMap = gs.teams as
+          | Record<number | string, { isEliminated?: boolean; score?: number }>
+          | undefined;
+        const stid = session.teamId;
+        const myTeam = stid != null && teamsMap ? (teamsMap[stid] ?? teamsMap[String(stid)]) : null;
+        const currentlyEliminated = Boolean(myTeam?.isEliminated);
+        isEliminatedRef.current = currentlyEliminated;
+        if (myTeam?.score !== undefined) {
+          setSession({ score: myTeam.score });
+        }
+        setIsEliminated(currentlyEliminated);
+
+        if (Array.isArray(gs.rounds)) {
+          quizRoundsRef.current = gs.rounds;
+        }
+        if (gs.currentRoundIndex !== undefined && gs.currentRoundIndex !== null) {
+          quizRoundIndexRef.current = Number(gs.currentRoundIndex);
+        }
+
+        if (gs.activeMiniGame) {
+          router.push(`/mini-game?game=${gs.activeMiniGame}`);
+          return;
+        }
+
+        if (gs.miniGameHold?.holdScreen) {
+          const holdGame = String(gs.miniGameHold.game || 'card_shuffle');
+          router.push(`/mini-game?game=${holdGame}`);
+          return;
+        }
+
+        if (gs.state === 'FINAL_RESULTS') {
+          setTimerRunning(false);
+          setQuestion(null);
+          setRoundInfo(null);
+          setRevealData(null);
+          setSelectedOption(null);
+          setPhase('game_end');
+          return;
+        }
+
+        if (gs.state === 'GAME_SHOW_END') {
+          setTimerRunning(false);
+          setSelectedOption(null);
+          setRevealData(null);
+          setPointsGained(null);
+          setPhase('game_show_end');
+          return;
+        }
+
+        if (gs.scoreboardVisible && gs.teams && !gs.activeMiniGame) {
+          if (phaseRef.current !== 'scoreboard') {
+            previousPhaseBeforeScoreboardRef.current = phaseRef.current;
+          }
+          const sorted = normalizeScoreboardTeams(Object.values(gs.teams)).sort(
+            (a, b) => b.score - a.score,
+          );
+          setScoreboard(sorted);
+          setPhase('scoreboard');
+          setTimerRunning(false);
+          return;
+        }
+
+        // Same as venue: `currentRound` may be absent on payload — derive from `rounds[index]`.
+        if (gs.state === 'ROUND_INTRO') {
+          if (
+            rawSession.audienceWagerCollectionOpen ||
+            phaseRef.current === 'wager_input'
+          ) {
+            return;
+          }
+          const idx = Number(gs.currentRoundIndex ?? 0);
+          const round =
+            gs.currentRound ??
+            (Array.isArray(gs.rounds) && idx >= 0 && idx < gs.rounds.length
+              ? gs.rounds[idx]
+              : null);
+          if (round) {
+            setRoundInfo({
+              round,
+              roundIndex: idx,
+              totalRounds: gs.rounds?.length ?? gs.totalRounds ?? 0,
+            });
+            setQuestion(null);
+            setRevealData(null);
+            setPhase('round_intro');
+            setTimerRunning(false);
+          } else {
+            if (phaseRef.current === 'break') setBreakRemaining(0);
+            setPhase(currentlyEliminated ? 'eliminated' : 'waiting');
+            setTimerRunning(false);
+          }
+          return;
+        }
+
+        if (gs.state === 'QUESTION') {
+          questionStateRef.current = String(gs.questionState || '');
+          if (
+            gs.state === 'QUESTION' &&
+            (gs.questionState || '').toUpperCase() === 'PREVIEW'
+          ) {
+            // Host-only preview — audienceView merge should remap; never show staged question.
+            if (phaseRef.current === 'wager_input') return;
+            if (
+              isAudienceRevealHoldDuringHostPreview(rawSession) ||
+              isAudienceRevealHoldDuringHostPreview(gs as Record<string, unknown>) ||
+              phaseRef.current === 'reveal' ||
+              phaseRef.current === 'answered' ||
+              (revealDataRef.current && questionRef.current)
+            ) {
+              return;
+            }
+            const idx = Number(gs.currentRoundIndex ?? 0);
+            const round =
+              gs.currentRound ??
+              (Array.isArray(gs.rounds) && idx >= 0 && idx < gs.rounds.length
+                ? gs.rounds[idx]
+                : null);
+            if (
+              gs.audienceHoldRoundIntro ||
+              (gs.audienceView as { state?: string } | null | undefined)?.state ===
+                'ROUND_INTRO'
+            ) {
+              if (round) {
+                setRoundInfo({
+                  round,
+                  roundIndex: idx,
+                  totalRounds: gs.rounds?.length ?? gs.totalRounds ?? 0,
+                });
+                setQuestion(null);
+                setRevealData(null);
+                setPhase('round_intro');
+                setTimerRunning(false);
+                return;
+              }
+            }
+            setPhase(currentlyEliminated ? 'eliminated' : 'waiting');
+            setTimerRunning(false);
+            return;
+          }
+          if (!gs.currentQuestion) {
+            // Incomplete QUESTION payloads (e.g. legacy sanitize-only broadcasts) must not
+            // kick players off an active question / wager screen.
+            const keepLocalQuestionUi =
+              questionRef.current &&
+              (phaseRef.current === 'question' ||
+                phaseRef.current === 'answered' ||
+                phaseRef.current === 'wager_input' ||
+                phaseRef.current === 'reveal');
+            if (keepLocalQuestionUi) {
+              return;
+            }
+            // After break, server can emit QUESTION before currentQuestion is attached — leave break UI.
+            setBreakRemaining(0);
+            setTimerRunning(false);
+            if (currentlyEliminated) {
+              setPhase('eliminated');
+            } else {
+              setPhase('waiting');
+            }
+            return;
+          }
+          setQuestion(gs.currentQuestion);
+          setTimerDuration(Number(gs.currentQuestion.timerDuration ?? 30) || 30);
+          const synced = syncPlayerTimerFromServer(
+            gs.timerRemaining,
+            gs.timerEndsAt ?? gs.currentQuestion.timerEndsAt,
+            gs.timerRunning,
+            pauseHintFromTimerPayload(gs as { paused?: boolean; timerPaused?: boolean }),
+          );
+          setTimerRemaining(synced.remaining);
+          setTimerEndsAt(synced.endsAt);
+          setTimerRunning(synced.running);
+          setHostTimerPaused(
+            gs.questionState === 'ACTIVE' &&
+              synced.remaining > 0 &&
+              (!synced.running || Boolean((gs as { timerPaused?: boolean }).timerPaused)),
+          );
+          patchQuestionActiveTimerCache(synced.remaining, {
+            timerRunning: synced.running,
+            timerEndsAt: synced.endsAt,
+          });
+          const running = synced.running;
+          const td = Number(gs.currentQuestion.timerDuration ?? 30) || 30;
+          const tr = synced.remaining;
+          const isMusicRound = shouldWaitForHostAudioTimer(
+            gs.currentQuestion.roundType,
+            gs.currentQuestion.question,
+          );
+          if (isMusicRound) {
+            setMusicVenuePlaybackStarted(running || (tr > 0 && tr < td));
+          } else {
+            setMusicVenuePlaybackStarted(false);
+          }
+          // Only clear reveal state when the question is still ACTIVE (new question).
+          // When REVEALED, the server follows up with `answer_reveal` carrying the full
+          // reveal payload — preserve existing revealData/pointsGained so the correct/wrong
+          // answer message stays visible across page refreshes without a flash.
+          if (gs.questionState !== 'REVEALED') {
+            setRevealData(null);
+            setPointsGained(null);
+          }
+
+          const wagerRoundIdxForLock = Number(gs.currentRoundIndex ?? 0);
+          const roundMetaForLock =
+            gs.currentRound ??
+            (Array.isArray(gs.rounds) &&
+            wagerRoundIdxForLock >= 0 &&
+            wagerRoundIdxForLock < gs.rounds.length
+              ? gs.rounds[wagerRoundIdxForLock]
+              : null);
+          const roundIdForLock = roundMetaForLock?.id;
+          const questionIdForLock = gs.currentQuestion?.question?.id ?? null;
+          wagerSourcesRef.current = {
+            roundWagers: gs.roundWagers,
+            questionWagers: gs.questionWagers,
+            topLevelLocked: gs.lockedWagerAmount,
+          };
+          if (roundMetaForLock?.type) {
+            setRoundInfo({
+              round: roundMetaForLock,
+              roundIndex: wagerRoundIdxForLock,
+              totalRounds: Number(gs.totalRounds ?? gs.rounds?.length ?? 0),
+            });
+          }
+          const {
+            amount: lockedWagerAmount,
+            hasLocked: hasLockedWager,
+            resubmitAmount,
+          } = resolveWagerLockForPlayer(
+            session.teamId,
+            roundIdForLock,
+            questionIdForLock,
+            gs.currentQuestion.roundType,
+            session.pin,
+            {
+              currentQuestionLocked: gs.currentQuestion.lockedWagerAmount,
+              topLevelLocked: gs.lockedWagerAmount,
+              roundWagers: gs.roundWagers,
+              questionWagers: gs.questionWagers,
+            },
+          );
+          const isWagerQuestionRound = isWagerRoundType(gs.currentQuestion.roundType);
+          const questionHasStarted =
+            gs.questionState === 'ACTIVE' || gs.questionState === 'REVEALED';
+          wagerLockRequiredRef.current =
+            isWagerQuestionRound && !hasLockedWager && !questionHasStarted;
+          if (isWagerQuestionRound) {
+            if (hasLockedWager && lockedWagerAmount != null) {
+              setWagerAmount(lockedWagerAmount);
+              setWagerSubmitted(true);
+              if (session.pin && session.teamId != null && questionIdForLock != null) {
+                persistWagerLockCache(
+                  session.pin,
+                  Number(session.teamId),
+                  questionIdForLock,
+                  lockedWagerAmount,
+                );
+              }
+              if (
+                resubmitAmount != null &&
+                socket &&
+                questionIdForLock != null &&
+                !wagerLockResubmitGuardRef.current.has(String(questionIdForLock))
+              ) {
+                wagerLockResubmitGuardRef.current.add(String(questionIdForLock));
+                window.requestAnimationFrame(() => {
+                  socket.emit('submit_wager', { amount: resubmitAmount });
+                });
+              }
+            } else if (questionHasStarted) {
+              setWagerAmount(0);
+              setWagerSubmitted(true);
+              wagerLockRequiredRef.current = false;
+            } else {
+              setWagerSubmitted(false);
+              const { amount: draftAmount, draftMeta } = resolveUnlockedWagerAmount(
+                session.pin,
+                session.teamId != null ? Number(session.teamId) : undefined,
+                questionIdForLock,
+                gs.currentQuestion.roundType,
+              );
+              setWagerAmount(draftAmount);
+              const dAmt = draftMeta.amount;
+              if (
+                draftMeta.pendingLock &&
+                dAmt != null &&
+                isValidWagerDraftAmount(gs.currentQuestion.roundType, dAmt) &&
+                socket &&
+                questionIdForLock != null
+              ) {
+                const qk = String(questionIdForLock);
+                if (!wagerLockResubmitGuardRef.current.has(qk)) {
+                  wagerLockResubmitGuardRef.current.add(qk);
+                  setWagerSubmitted(true);
+                  window.requestAnimationFrame(() => {
+                    socket.emit('submit_wager', { amount: dAmt });
+                  });
+                }
+              }
+            }
+          } else {
+            wagerLockRequiredRef.current = false;
+            setWagerSubmitted(false);
+            setWagerAmount(0);
+          }
+
+          const qid = gs.currentQuestion?.question?.id;
+          const qidStr = qid != null ? String(qid) : null;
+          const hasMineKey =
+            gs != null &&
+            typeof gs === 'object' &&
+            Object.prototype.hasOwnProperty.call(gs, 'mySubmittedOptionIndex');
+
+          let restoredIdx: number | number[] | null = null;
+          if (hasMineKey) {
+            restoredIdx = parseSubmittedIdxFromMineRaw(gs.mySubmittedOptionIndex);
+            if (qidStr) {
+              answerRestoreRef.current = { qid: qidStr, idx: restoredIdx };
+            }
+            if (qidStr && session.pin && session.teamId != null && hasSelectionIdx(restoredIdx)) {
+              clearAnswerDraft(session.pin, Number(session.teamId), qidStr);
+              answerDraftResubmitGuardRef.current.delete(qidStr);
+            }
+          } else if (qidStr && answerRestoreRef.current.qid === qidStr) {
+            restoredIdx = answerRestoreRef.current.idx;
+          }
+
+          if (
+            !hasSelectionIdx(restoredIdx) &&
+            gs.questionState === 'ACTIVE' &&
+            Boolean(gs.timerRunning) &&
+            qidStr &&
+            session.pin &&
+            session.teamId != null
+          ) {
+            const draft = readAnswerDraft(session.pin, Number(session.teamId), qidStr);
+            if (draft && hasSelectionIdx(draft.selectedOptionIndex)) {
+              const d = draft.selectedOptionIndex;
+              restoredIdx = d;
+              answerRestoreRef.current = { qid: qidStr, idx: restoredIdx };
+              const rt = (gs.currentQuestion.roundType || '').toUpperCase();
+              const wa =
+                rt === 'WAGER' || rt === 'FINAL_WAGER'
+                  ? hasLockedWager
+                    ? Number(lockedWagerAmount)
+                    : draft.wagerAmount
+                  : undefined;
+              if (!answerDraftResubmitGuardRef.current.has(qidStr)) {
+                answerDraftResubmitGuardRef.current.add(qidStr);
+                window.requestAnimationFrame(() => {
+                  socket.emit('submit_answer', {
+                    selectedOptionIndex: d,
+                    wagerAmount: wa,
+                  });
+                });
+              }
+            }
+          }
+
+          if (currentlyEliminated) {
+            setSelectedOption(null);
+            setPhase('eliminated');
+          } else if (gs.questionState === 'ACTIVE' || gs.questionState === 'REVEALED') {
+            const needsWagerLock = teamNeedsWagerLockScreen(
+              gs.currentQuestion.roundType,
+              hasLockedWager,
+              gs.questionState,
+            );
+            if (needsWagerLock) {
+              setSelectedOption(null);
+              setRevealData(null);
+              setPointsGained(null);
+            } else if (hasSelectionIdx(restoredIdx)) {
+              setSelectedOption(restoredIdx);
+            } else {
+              setSelectedOption(null);
+            }
+            const nextPhase = pickQuestionPlayerPhase({
+              roundType: gs.currentQuestion.roundType,
+              hasLockedWager,
+              questionState: gs.questionState,
+              hasRevealData: Boolean(revealDataRef.current),
+              restoredIdx,
+              eliminated: false,
+            });
+            setPhase(nextPhase);
+            if (
+              hasLockedWager &&
+              (gs.questionState || '').toUpperCase() === 'REVEALED' &&
+              !revealDataRef.current &&
+              nextPhase !== 'wager_input'
+            ) {
+              ensureRevealAfterWagerLockRef.current?.();
+            }
+          } else {
+            setSelectedOption(null);
+            setPhase('waiting');
+          }
+          return;
+        }
+
+        if (gs.state === 'SCOREBOARD' && gs.teams) {
+          if (phaseRef.current !== 'scoreboard') {
+            previousPhaseBeforeScoreboardRef.current = phaseRef.current;
+          }
+          const sorted = normalizeScoreboardTeams(Object.values(gs.teams)).sort(
+            (a, b) => b.score - a.score,
+          );
+          setScoreboard(sorted);
+          setPhase('scoreboard');
+          setTimerRunning(false);
+          return;
+        }
+
+        if (gs.state === 'ROUND_END') {
+          // Keep showing the round-over transition screen. The `round_end` event
+          // (which arrives in parallel) populates roundEndInfo with the next-round
+          // preview; this branch just guarantees the phase sticks even on a
+          // refresh / reconnect that lands directly in ROUND_END.
+          setTimerRunning(false);
+          setSelectedOption(null);
+          setRevealData(null);
+          setPointsGained(null);
+          setPhase('round_end');
+          return;
+        }
+
+        if (gs.state === 'WAGER_COLLECTION') {
+          questionStateRef.current = String(gs.questionState || 'WAITING');
+          // Keep the upcoming question handle so the per-question wager draft + submit can
+          // resolve `question.question.id`. The wager_input UI never renders the question
+          // text/options, so exposing it here is purely a state plumbing concern.
+          setQuestion(gs.currentQuestion || null);
+          const upcomingCategory = gs.currentQuestion?.question?.category;
+          if (upcomingCategory != null && String(upcomingCategory).trim()) {
+            setWagerCollectionCategory(String(upcomingCategory).trim());
+          }
+          setTimerEndsAt(null);
+          setTimerRemaining(0);
+          setTimerRunning(false);
+          setMusicVenuePlaybackStarted(false);
+          setSelectedOption(null);
+          answerRestoreRef.current = { qid: null, idx: null };
+          setRevealData(null);
+          setPointsGained(null);
+          const wagerRoundIdx = Number(gs.currentRoundIndex ?? 0);
+          const roundMeta =
+            gs.currentRound ??
+            (Array.isArray(gs.rounds) && wagerRoundIdx >= 0 && wagerRoundIdx < gs.rounds.length
+              ? gs.rounds[wagerRoundIdx]
+              : null);
+          const wagerRoundType = roundMeta?.type ?? gs.rounds?.[wagerRoundIdx]?.type;
+          const roundId = roundMeta?.id;
+          const wagerQuestionId = gs.currentQuestion?.question?.id ?? null;
+          const {
+            amount: lockedRaw,
+            hasLocked: hasLockedWager,
+            resubmitAmount: wagerResubmitAmount,
+          } = resolveWagerLockForPlayer(
+            session.teamId,
+            roundId,
+            wagerQuestionId,
+            wagerRoundType,
+            session.pin,
+            {
+              currentQuestionLocked: gs.currentQuestion?.lockedWagerAmount,
+              topLevelLocked: gs.lockedWagerAmount,
+              roundWagers: gs.roundWagers,
+              questionWagers: gs.questionWagers,
+            },
+          );
+          if (hasLockedWager) {
+            setWagerAmount(Number(lockedRaw));
+            setWagerSubmitted(true);
+            if (session.pin && session.teamId != null && wagerQuestionId != null) {
+              persistWagerLockCache(
+                session.pin,
+                Number(session.teamId),
+                wagerQuestionId,
+                Number(lockedRaw),
+              );
+            }
+            if (
+              wagerResubmitAmount != null &&
+              socket &&
+              wagerQuestionId != null &&
+              !wagerLockResubmitGuardRef.current.has(String(wagerQuestionId))
+            ) {
+              wagerLockResubmitGuardRef.current.add(String(wagerQuestionId));
+              window.requestAnimationFrame(() => {
+                socket.emit('submit_wager', { amount: wagerResubmitAmount });
+              });
+            }
+          } else {
+            setWagerSubmitted(false);
+            const { amount: nextAmount, draftMeta: wagerDraftMeta } = resolveUnlockedWagerAmount(
+              session.pin,
+              session.teamId != null ? Number(session.teamId) : undefined,
+              wagerQuestionId,
+              wagerRoundType,
+            );
+            setWagerAmount(nextAmount);
+            const dAmt = wagerDraftMeta.amount;
+            if (
+              wagerDraftMeta.pendingLock &&
+              dAmt != null &&
+              isValidWagerDraftAmount(wagerRoundType, dAmt) &&
+              socket &&
+              wagerQuestionId != null
+            ) {
+              const qk = String(wagerQuestionId);
+              if (!wagerLockResubmitGuardRef.current.has(qk)) {
+                wagerLockResubmitGuardRef.current.add(qk);
+                setWagerSubmitted(true);
+                window.requestAnimationFrame(() => {
+                  socket.emit('submit_wager', { amount: dAmt });
+                });
+              }
+            }
+          }
+          // Room `session_state` often omits top-level `currentRound` (only `rounds` + index).
+          // Without `roundInfo.round.id` the draft effect never runs, so a refresh loses the grid selection.
+          if (roundMeta?.type) {
+            setRoundInfo({
+              round: roundMeta,
+              roundIndex: wagerRoundIdx,
+              totalRounds: Number(gs.totalRounds ?? gs.rounds?.length ?? 0),
+            });
+          }
+
+          if (currentlyEliminated) {
+            setPhase('eliminated');
+          } else {
+            setPhase('wager_input');
+          }
+          return;
+        }
+
+        if (gs.state === 'BREAK') {
+          const w = resolveBreakWallClock({
+            breakEndsAt: gs.breakEndsAt,
+            breakRemaining: gs.breakRemaining,
+            breakDuration: gs.breakDuration,
+            serverNow: gs.serverNow,
+          });
+          setBreakDuration(w.duration);
+          setBreakSkewMs(w.skewMs);
+          setBreakEndsAtMs(w.endsAt);
+          setBreakRemaining(w.remaining);
+          setBreakUpNextLabel(
+            resolveBreakUpNextLabelFromBreakStart({
+              upNextRound: gs.upNextRound,
+              rounds: gs.rounds ?? quizRoundsRef.current,
+              currentRoundIndex: gs.currentRoundIndex ?? quizRoundIndexRef.current,
+            }),
+          );
+          setTimerRunning(false);
+          setPhase('break');
+        } else if (gs.state === 'LOBBY') {
+          setTimerRunning(false);
+          if (gs.lobbyPhase === 'code_of_conduct') {
+            router.replace('/lobby');
+            return;
+          }
+          setPhase('waiting');
+        } else if (phaseRef.current === 'break' && gs.state !== 'BREAK') {
+          // Host ended break but no branch above matched — stop break countdown UI.
+          setBreakRemaining(0);
+          setTimerRunning(false);
+          setPhase(currentlyEliminated ? 'eliminated' : 'waiting');
+        }
+      }
+    };
+
+    const onRoundIntro = (data: any) => {
+      const live = sessionLiveStateRef.current;
+      if (
+        live === 'FINAL_RESULTS' ||
+        live === 'GAME_SHOW_END' ||
+        phaseRef.current === 'game_end' ||
+        phaseRef.current === 'game_show_end'
+      ) {
+        return;
+      }
+      setHasInitialState(true);
+      sessionLiveStateRef.current = 'ROUND_INTRO';
+      setRoundInfo(
+        data?.round
+          ? {
+              round: data.round,
+              roundIndex: Number(data.roundIndex ?? 0),
+              totalRounds: Number(data.totalRounds ?? 0),
+            }
+          : data,
+      );
+      setPhase('round_intro');
+      isEliminatedRef.current = false;
+      setIsEliminated(false);
+      setQuestion(null);
+      setTimerEndsAt(null);
+      setTimerRemaining(0);
+      setSelectedOption(null);
+      setRevealData(null);
+      setWagerSubmitted(false);
+      setWagerAmount(0);
+      setTimerRunning(false);
+      setMusicVenuePlaybackStarted(false);
+      answerRestoreRef.current = { qid: null, idx: null };
+      answerDraftResubmitGuardRef.current.clear();
+      wagerLockResubmitGuardRef.current.clear();
+      if (session.pin && session.teamId != null) {
+        clearWagerDraft(session.pin, Number(session.teamId));
+        clearAnswerDraftsForTeam(session.pin, Number(session.teamId));
+      }
+    };
+
+    const onWagerCollectionStart = (data: any) => {
+      questionStateRef.current = 'WAITING';
+      if (data) {
+        setRoundInfo(data);
+        if (data.category != null && String(data.category).trim()) {
+          setWagerCollectionCategory(String(data.category).trim());
+        }
+      }
+      setQuestion(null);
+      setTimerEndsAt(null);
+      setTimerRemaining(0);
+      setSelectedOption(null);
+      setRevealData(null);
+      answerRestoreRef.current = { qid: null, idx: null };
+      answerDraftResubmitGuardRef.current.clear();
+      // Do not reset wagerAmount / wagerSubmitted here: `session_state` (emitted right after this on
+      // the server) carries Redis `roundWagers` + join replays `lockedWagerAmount`. Socket.io
+      // connection recovery can deliver this event *after* a refresh `session_state`, which
+      // would wipe a legitimately locked wager if we zeroed state here.
+      setPhase('wager_input');
+      setTimerRunning(false);
+      setMusicVenuePlaybackStarted(false);
+    };
+
+    const onQuestionActive = (data: QuestionData) => {
+      setHasInitialState(true);
+      const teamId = session.teamId != null ? Number(session.teamId) : NaN;
+      const onEliminatedList =
+        Number.isFinite(teamId) &&
+        Array.isArray(data.eliminatedTeamIds) &&
+        data.eliminatedTeamIds.map(Number).includes(teamId);
+      if (onEliminatedList) {
+        isEliminatedRef.current = true;
+        setIsEliminated(true);
+      }
+      const dead = isEliminatedRef.current;
+
+      const prevQid = questionRef.current?.question?.id;
+      const nextQid = data.question?.id;
+      const sameQuestion =
+        prevQid != null && nextQid != null && Number(prevQid) === Number(nextQid);
+      const submissionReset = Boolean((data as { submissionReset?: boolean }).submissionReset);
+
+      if (!sameQuestion || submissionReset) {
+        setRevealData(null);
+        if (!sameQuestion) {
+          setWagerCollectionCategory(null);
+          setPointsGained(null);
+        }
+      }
+
+      setQuestion(data);
+      setTimerDuration(data.timerDuration);
+      const tr = data.timerRemaining;
+      const synced = syncPlayerTimerFromServer(
+        typeof tr === 'number' && Number.isFinite(tr) ? tr : 0,
+        data.timerEndsAt,
+        data.timerRunning,
+        pauseHintFromTimerPayload(data),
+      );
+      setTimerRemaining(synced.remaining);
+      setTimerEndsAt(synced.endsAt);
+      setTimerRunning(synced.running);
+      setHostTimerPaused(
+        synced.remaining > 0 && (!synced.running || Boolean(data.timerPaused)),
+      );
+      patchQuestionActiveTimerCache(synced.remaining, {
+        timerRunning: synced.running,
+        timerEndsAt: synced.endsAt,
+      });
+      const running = synced.running;
+      const td = Number(data.timerDuration ?? 30) || 30;
+      const isMusicRound = shouldWaitForHostAudioTimer(data.roundType, data.question);
+      if (isMusicRound) {
+        setMusicVenuePlaybackStarted(running || (synced.remaining > 0 && synced.remaining < td));
+      } else {
+        setMusicVenuePlaybackStarted(false);
+      }
+
+      const nextQidStr = nextQid != null ? String(nextQid) : null;
+      const hasMineKey =
+        data != null &&
+        typeof data === 'object' &&
+        Object.prototype.hasOwnProperty.call(data, 'mySubmittedOptionIndex');
+
+      let restored: number | number[] | null = null;
+      if (submissionReset) {
+        answerRestoreRef.current = { qid: '', idx: null };
+        if (session.pin && session.teamId != null && nextQidStr) {
+          clearAnswerDraftsForTeam(session.pin, Number(session.teamId));
+        }
+      } else if (hasMineKey) {
+        restored = parseSubmittedIdxFromMineRaw(data.mySubmittedOptionIndex);
+        if (nextQidStr) {
+          answerRestoreRef.current = { qid: nextQidStr, idx: restored };
+        }
+      } else if (nextQidStr && answerRestoreRef.current.qid === nextQidStr) {
+        restored = answerRestoreRef.current.idx;
+      }
+
+      setSelectedOption(dead || submissionReset ? null : restored);
+
+      const isWagerQuestion = isWagerRoundType(data.roundType);
+      let hasLockedWager = true;
+      if (isWagerQuestion) {
+        const { amount, hasLocked } = resolveWagerLockForPlayer(
+          session.teamId,
+          roundInfo?.round?.id ?? null,
+          data.question?.id ?? null,
+          data.roundType,
+          session.pin,
+          {
+            currentQuestionLocked: data.lockedWagerAmount,
+            topLevelLocked: wagerSourcesRef.current.topLevelLocked,
+            roundWagers: wagerSourcesRef.current.roundWagers,
+            questionWagers: wagerSourcesRef.current.questionWagers,
+          },
+        );
+        hasLockedWager = hasLocked;
+        if (hasLocked && amount != null) {
+          wagerLockRequiredRef.current = false;
+          setWagerAmount(amount);
+          setWagerSubmitted(true);
+          if (session.pin && session.teamId != null && data.question?.id != null) {
+            persistWagerLockCache(session.pin, Number(session.teamId), data.question.id, amount);
+          }
+        } else {
+          // Host started the question without this team locking — default 0 and show the question.
+          hasLockedWager = true;
+          wagerLockRequiredRef.current = false;
+          setWagerAmount(0);
+          setWagerSubmitted(true);
+        }
+      }
+
+      if (dead) {
+        setPhase('eliminated');
+        return;
+      }
+      setPhase(
+        pickQuestionPlayerPhase({
+          roundType: data.roundType,
+          hasLockedWager,
+          questionState: questionStateRef.current || 'ACTIVE',
+          hasRevealData: Boolean(revealDataRef.current),
+          restoredIdx: restored,
+          eliminated: false,
+        }),
+      );
+    };
+
+    const onTimerUpdate = (data: {
+      remaining: number;
+      timerEndsAt?: number | null;
+      timerRunning?: boolean;
+      timerPaused?: boolean;
+      paused?: boolean;
+    }) => {
+      const synced = syncPlayerTimerFromServer(
+        data.remaining,
+        data.timerEndsAt,
+        data.timerRunning,
+        pauseHintFromTimerPayload(data),
+      );
+      const runningNow = synced.remaining <= 0 ? false : synced.running;
+      setTimerRemaining(synced.remaining);
+      setTimerEndsAt(synced.endsAt);
+      setTimerRunning(runningNow);
+      if (
+        data.paused === true ||
+        data.timerPaused === true ||
+        data.timerRunning === false
+      ) {
+        setHostTimerPaused(synced.remaining > 0);
+      } else if (data.timerRunning === true && data.paused === false) {
+        setHostTimerPaused(false);
+      }
+      if (
+        runningNow &&
+        shouldWaitForHostAudioTimer(questionRef.current?.roundType, questionRef.current?.question)
+      ) {
+        setMusicVenuePlaybackStarted(true);
+      } else if (!runningNow) {
+        setMusicVenuePlaybackStarted(false);
+      }
+      patchQuestionActiveTimerCache(synced.remaining, {
+        timerRunning: runningNow,
+        timerEndsAt: synced.endsAt,
+      });
+    };
+    const onTimerExpired = () => {
+      setTimerEndsAt(null);
+      setTimerRemaining(0);
+      setTimerRunning(false);
+    };
+
+    const onAnswerReveal = (data: RevealData) => {
+      if (phaseRef.current === 'wager_input') return;
+      setHasInitialState(true);
+      wagerLockRequiredRef.current = false;
+      revealDataRef.current = data;
+      setRevealData(data);
+      setTimerRunning(false);
+      // If the player is already eliminated coming into this reveal (e.g. they got knocked out
+      // on an earlier elimination question and are just resyncing on a refresh), keep them on
+      // the "eliminated" UI instead of flashing the live reveal screen. The
+      // `data.eliminations` array only carries this question's knockouts, so by itself it
+      // can't tell us about prior rounds.
+      const myTeam = data.teams.find((t) => sameTeamId(t.teamId, session.teamId));
+      const persistEliminated = isEliminatedRef.current || Boolean(myTeam?.isEliminated);
+      setPhase(persistEliminated ? 'eliminated' : 'reveal');
+      const myResponse = data.responseDetails?.find((r) => sameTeamId(r.teamId, session.teamId));
+      let finalSel: number | number[] | null = null;
+      if (myResponse && Array.isArray(myResponse.selectedOptionIndex)) {
+        finalSel =
+          myResponse.selectedOptionIndex.length > 0 ? myResponse.selectedOptionIndex : null;
+      } else if (myResponse && Number.isFinite(Number(myResponse.selectedOptionIndex))) {
+        const selectedIdx = Number(myResponse.selectedOptionIndex);
+        finalSel = selectedIdx >= 0 ? selectedIdx : null;
+      }
+      setSelectedOption(finalSel);
+
+      const qidReveal = questionRef.current?.question?.id;
+      if (qidReveal != null && session.pin && session.teamId != null) {
+        const qs = String(qidReveal);
+        if (hasSelectionIdx(finalSel)) {
+          answerRestoreRef.current = { qid: qs, idx: finalSel };
+        }
+        clearAnswerDraft(session.pin, Number(session.teamId), qs);
+      }
+      const sid = session.teamId != null ? Number(session.teamId) : NaN;
+      const teamIdStr = Number.isFinite(sid) ? String(sid) : '';
+
+      let myScore = 0;
+      if (teamIdStr && data.scores) {
+        if (data.scores[teamIdStr] !== undefined) {
+          myScore = data.scores[teamIdStr];
+        } else if (Number.isFinite(sid) && data.scores[sid] !== undefined) {
+          myScore = data.scores[sid];
+        }
+      }
+      setPointsGained(myScore);
+      if (myTeam) setSession({ score: myTeam.score });
+      // Per the all-teams-wrong rule (`server/.../knockoutEngine.js`), nobody is knocked out
+      // when every active team got the question wrong — the server already keeps them in
+      // `activeTeamIds` and now also skips the PLAYER_ELIMINATED emit, but the eliminations
+      // array on `answer_reveal` still carries the wrong-team list for telemetry. Honour
+      // `allWrong` here so the last surviving player isn't bounced into the eliminated UI
+      // when they answer alone and miss.
+      if (
+        !data.allWrong &&
+        (data.eliminations?.some((id) => sameTeamId(id, session.teamId)) ||
+          Boolean(myTeam?.isEliminated))
+      ) {
+        isEliminatedRef.current = true;
+        setIsEliminated(true);
+        setPhase('eliminated');
+      } else if (persistEliminated) {
+        isEliminatedRef.current = true;
+        setIsEliminated(true);
+        setPhase('eliminated');
+      }
+      if (session.pin && session.teamId != null) {
+        appendSnapshotReplay(session.pin, Number(session.teamId), 'answer_reveal', data);
+      }
+    };
+
+    const ensureRevealAfterWagerLock = () => {
+      if (phaseRef.current === 'wager_input') return;
+      if (wagerLockRequiredRef.current || revealDataRef.current) return;
+      const pin = session.pin;
+      const tid = session.teamId;
+      if (!pin || tid == null) return;
+      const snap = readPlayerSnapshot(pin, Number(tid));
+      const ar = snap?.replays?.find((r) => r.event === 'answer_reveal');
+      if (ar?.data) {
+        onAnswerReveal(ar.data as RevealData);
+        return;
+      }
+      if (socket && session.teamName) {
+        socket.emit('join_session', {
+          pin,
+          teamName: session.teamName,
+          teamId: tid,
+        });
+      }
+    };
+    ensureRevealAfterWagerLockRef.current = ensureRevealAfterWagerLock;
+
+    const onPlayerEliminated = (data: { teamId: number }) => {
+      if (sameTeamId(data.teamId, session.teamId)) {
+        isEliminatedRef.current = true;
+        setIsEliminated(true);
+        setPhase('eliminated');
+      }
+    };
+
+    const onScoreboard = (data: { teams: any[] }) => {
+      const gsState = sessionLiveStateRef.current;
+      if (
+        gsState === 'FINAL_RESULTS' ||
+        gsState === 'GAME_SHOW_END' ||
+        phaseRef.current === 'game_end' ||
+        phaseRef.current === 'game_show_end'
+      ) {
+        return;
+      }
+      setHasInitialState(true);
+      if (phaseRef.current !== 'scoreboard') {
+        previousPhaseBeforeScoreboardRef.current = phaseRef.current;
+      }
+      setScoreboard(normalizeScoreboardTeams(data.teams));
+      setPhase('scoreboard');
+      setTimerRunning(false);
+      if (session.pin && session.teamId != null) {
+        appendSnapshotReplay(session.pin, Number(session.teamId), 'scoreboard', data);
+      }
+    };
+
+    const onTeamJoined = (team: { teamId: number; teamName: string; score?: number }) => {
+      if (phaseRef.current !== 'scoreboard') return;
+      setScoreboard((prev) => {
+        const entry = {
+          teamId: Number(team.teamId),
+          teamName: String(team.teamName || ''),
+          score: Number(team.score ?? 0),
+        };
+        const next = [...prev.filter((t) => Number(t.teamId) !== entry.teamId), entry];
+        return next.sort((a, b) => b.score - a.score);
+      });
+    };
+
+    const onTeamUpdated = (data: { teamId: number; score: number; teamName?: string }) => {
+      if (!data || !Number.isFinite(Number(data.teamId))) return;
+      const teamId = Number(data.teamId);
+      const score = Number(data.score || 0);
+      const teamName =
+        data.teamName != null && String(data.teamName).trim() !== ''
+          ? String(data.teamName)
+          : undefined;
+
+      if (session.teamId && Number(session.teamId) === teamId) {
+        setSession({
+          score,
+          ...(teamName ? { teamName } : {}),
+        });
+      }
+
+      setScoreboard((prev) =>
+        prev.map((team) =>
+          Number(team.teamId) === teamId
+            ? { ...team, score, ...(teamName ? { teamName } : {}) }
+            : team,
+        ),
+      );
+    };
+
+    const onScoreboardHidden = () => {
+      if (isEliminatedRef.current) {
+        setPhase('eliminated');
+        return;
+      }
+      const previous = previousPhaseBeforeScoreboardRef.current;
+      if (previous && previous !== 'scoreboard') {
+        setPhase(previous);
+        return;
+      }
+      if (roundEndInfoRef.current) {
+        setPhase('round_end');
+        return;
+      }
+      if (revealDataRef.current && questionRef.current) {
+        setPhase('reveal');
+        return;
+      }
+      if (questionRef.current) {
+        setPhase('question');
+        return;
+      }
+      setPhase('waiting');
+    };
+
+    const onRoundEnd = (payload?: {
+      roundIndex?: number;
+      roundName?: string;
+      roundType?: string;
+      nextRound?: { index?: number; name?: string; type?: string } | null;
+      isFinalRound?: boolean;
+    }) => {
+      setTimerRunning(false);
+      const nextRound = payload?.nextRound;
+      setRoundEndInfo({
+        roundIndex: Number(payload?.roundIndex ?? 0),
+        roundName: String(payload?.roundName || ''),
+        roundType: String(payload?.roundType || ''),
+        nextRound:
+          nextRound && typeof nextRound === 'object'
+            ? {
+                index: Number(nextRound.index ?? 0),
+                name: String(nextRound.name || ''),
+                type: String(nextRound.type || ''),
+              }
+            : null,
+        isFinalRound: Boolean(payload?.isFinalRound),
+      });
+      setPhase('round_end');
+    };
+
+    const onGameShowEnd = () => {
+      setTimerRunning(false);
+      setSelectedOption(null);
+      setRevealData(null);
+      setPointsGained(null);
+      setPhase('game_show_end');
+    };
+
+    const onBreakStart = (data: {
+      duration?: number;
+      breakDuration?: number;
+      breakRemaining?: number;
+      breakEndsAt?: number;
+      serverNow?: number;
+      currentRoundIndex?: number;
+      upNextRound?: { name?: string; type?: string; index?: number } | null;
+    }) => {
+      setHasInitialState(true);
+      const w = resolveBreakWallClock({
+        breakEndsAt: data?.breakEndsAt,
+        breakRemaining: data?.breakRemaining ?? data?.duration,
+        breakDuration: data?.breakDuration ?? data?.duration,
+        serverNow: data?.serverNow,
+      });
+      setBreakDuration(w.duration);
+      setBreakSkewMs(w.skewMs);
+      setBreakEndsAtMs(w.endsAt);
+      setBreakRemaining(w.remaining);
+      setBreakUpNextLabel(
+        resolveBreakUpNextLabelFromBreakStart({
+          upNextRound: data?.upNextRound,
+          rounds: quizRoundsRef.current,
+          currentRoundIndex: data?.currentRoundIndex ?? quizRoundIndexRef.current,
+        }),
+      );
+      setTimerRunning(false);
+      setPhase('break');
+      if (session.pin && session.teamId != null) {
+        appendSnapshotReplay(session.pin, Number(session.teamId), 'break_start', data);
+      }
+    };
+
+    const onBreakEnd = () => {
+      // Don't reload (unreliable when tab is throttled/backgrounded — break_end can be missed
+      // entirely). Clear break locals; the follow-up `session_state` flips us out of break phase
+      // even if this event is dropped.
+      setBreakRemaining(0);
+      setBreakEndsAtMs(null);
+      setBreakSkewMs(0);
+      setShowBreakEndedNotice(true);
+      window.setTimeout(() => setShowBreakEndedNotice(false), 2000);
+      if (phaseRef.current === 'break') {
+        setTimerRunning(false);
+        if (isEliminatedRef.current) {
+          setPhase('eliminated');
+        } else if (revealDataRef.current && questionRef.current) {
+          const q = questionRef.current;
+          const { hasLocked: hasLockedWager } = resolveWagerLockForPlayer(
+            session.teamId,
+            roundInfo?.round?.id,
+            q.question?.id ?? null,
+            q.roundType,
+            session.pin,
+            {
+              currentQuestionLocked: q.lockedWagerAmount,
+              topLevelLocked: wagerSourcesRef.current.topLevelLocked,
+              roundWagers: wagerSourcesRef.current.roundWagers,
+              questionWagers: wagerSourcesRef.current.questionWagers,
+            },
+          );
+          if (teamNeedsWagerLockScreen(q.roundType, hasLockedWager, 'REVEALED')) {
+            setPhase('wager_input');
+          } else {
+            setPhase('reveal');
+          }
+        } else if (questionRef.current) {
+          const q = questionRef.current;
+          const { hasLocked: hasLockedWager } = resolveWagerLockForPlayer(
+            session.teamId,
+            roundInfo?.round?.id,
+            q.question?.id ?? null,
+            q.roundType,
+            session.pin,
+            {
+              currentQuestionLocked: q.lockedWagerAmount,
+              topLevelLocked: wagerSourcesRef.current.topLevelLocked,
+              roundWagers: wagerSourcesRef.current.roundWagers,
+              questionWagers: wagerSourcesRef.current.questionWagers,
+            },
+          );
+          setPhase(
+            pickQuestionPlayerPhase({
+              roundType: q.roundType,
+              hasLockedWager,
+              questionState: questionStateRef.current || 'ACTIVE',
+              hasRevealData: Boolean(revealDataRef.current),
+              restoredIdx: null,
+              eliminated: false,
+            }),
+          );
+        } else {
+          setPhase('waiting');
+        }
+      }
+    };
+
+    const onMiniGameStart = (data: { game: string }) => {
+      router.push(`/mini-game?game=${data.game}`);
+    };
+
+    const onGameEnd = (data?: {
+      teams?: { teamId: number; teamName: string; score: number }[];
+    }) => {
+      setTimerRunning(false);
+      setQuestion(null);
+      setRevealData(null);
+      setSelectedOption(null);
+      if (session.pin && session.teamId != null) {
+        clearWagerDraft(session.pin, Number(session.teamId));
+        clearAnswerDraftsForTeam(session.pin, Number(session.teamId));
+        try {
+          sessionStorage.removeItem('questionActive');
+          sessionStorage.removeItem('roundIntro');
+        } catch {
+          /* ignore */
+        }
+      }
+      answerDraftResubmitGuardRef.current.clear();
+      if (data?.teams) {
+        setScoreboard(data.teams);
+        const myTeam = data.teams.find((t) => sameTeamId(t.teamId, session.teamId));
+        if (myTeam) setSession({ score: myTeam.score });
+      }
+      sessionLiveStateRef.current = 'FINAL_RESULTS';
+      setRoundInfo(null);
+      setPhase('game_end');
+      if (session.pin && session.teamId != null) {
+        setSnapshotSessionPayload(session.pin, Number(session.teamId), {
+          joined: true,
+          teamId: session.teamId,
+          teamName: session.teamName,
+          score: session.score,
+          gameState: {
+            state: 'FINAL_RESULTS',
+            questionState: 'WAITING',
+            teams: data?.teams
+              ? Object.fromEntries(data.teams.map((t) => [t.teamId, t]))
+              : {},
+          },
+        });
+      }
+    };
+
+    const pin = session.pin;
+    const tid = Number(session.teamId);
+    const applyRestoreBundle = (bundle: PlayerRestoreBundle | null | undefined) => {
+      if (!bundle?.sessionPayload || !pin || !Number.isFinite(tid)) return;
+      const gsWrap = bundle.sessionPayload.gameState as { state?: string } | undefined;
+      const terminal =
+        gsWrap?.state === 'FINAL_RESULTS' || gsWrap?.state === 'GAME_SHOW_END';
+      if (terminal) {
+        sessionLiveStateRef.current = gsWrap?.state || 'FINAL_RESULTS';
+        setHasInitialState(true);
+        setRoundInfo(null);
+        setQuestion(null);
+        setRevealData(null);
+        setPhase(gsWrap?.state === 'GAME_SHOW_END' ? 'game_show_end' : 'game_end');
+      }
+      const replays = terminal
+        ? (bundle.replays || []).filter(
+            (r) => r.event === 'game_end' || r.event === 'game_show_end',
+          )
+        : bundle.replays;
+      applyPlayerRestoreBundle({ ...bundle, replays }, {
+        session_state: (d) => onSessionState(d),
+        round_intro: (d) => onRoundIntro(d as any),
+        wager_collection_start: (d) => onWagerCollectionStart(d as any),
+        question_active: (d) => onQuestionActive(d as QuestionData),
+        timer_update: (d) => onTimerUpdate(d as any),
+        timer_expired: () => onTimerExpired(),
+        answer_reveal: (d) => onAnswerReveal(d as RevealData),
+        player_eliminated: (d) => onPlayerEliminated(d as { teamId: number }),
+        scoreboard: (d) => onScoreboard(d as { teams: any[] }),
+        team_updated: (d) => onTeamUpdated(d as { teamId: number; score: number }),
+        scoreboard_hidden: () => onScoreboardHidden(),
+        round_end: () => onRoundEnd(),
+        game_show_end: () => onGameShowEnd(),
+        break_start: (d) => onBreakStart(d as any),
+        break_end: () => onBreakEnd(),
+        mini_game_start: (d) => onMiniGameStart(d as { game: string }),
+        game_end: (d) => onGameEnd(d as any),
+      });
+    };
+
+    const abortRestore = new AbortController();
+    const g = playerRestoreGuardRef.current;
+    const sameKey = g && g.pin === pin && Number(g.teamId) === tid && Number.isFinite(tid);
+    if (!sameKey && Number.isFinite(tid) && pin) {
+      playerRestoreGuardRef.current = { pin, teamId: tid };
+      void (async () => {
+        const remote = await fetchPlayerRestore(pin, tid, abortRestore.signal);
+        if (remote) {
+          setSnapshotFromRemoteBundle(pin, tid, remote);
+          applyRestoreBundle(remote);
+          return;
+        }
+        const local = snapshotToRestoreBundle(readPlayerSnapshot(pin, tid));
+        if (local) applyRestoreBundle(local);
+      })();
+    }
+
+    // Re-emit join_session on socket (re)connect so server replays a fresh session_state — this
+    // is the safety net for long disconnects (mobile screen lock, tab throttling) where transient
+    // events like break_end / question_active were missed during the gap.
+    const rejoinSession = () => {
+      if (session.pin && session.teamName) {
+        socket.emit('join_session', {
+          pin: session.pin,
+          teamName: session.teamName,
+          teamId: session.teamId,
+        });
+      }
+    };
+    socket.on('connect', rejoinSession);
+
+    socket.on('session_state', onSessionState);
+    socket.on('round_intro', onRoundIntro);
+    socket.on('wager_collection_start', onWagerCollectionStart);
+    socket.on('question_active', onQuestionActive);
+    socket.on('timer_update', onTimerUpdate);
+    socket.on('timer_expired', onTimerExpired);
+    socket.on('answer_reveal', onAnswerReveal);
+    socket.on('player_eliminated', onPlayerEliminated);
+    socket.on('scoreboard', onScoreboard);
+    socket.on('team_joined', onTeamJoined);
+    socket.on('team_updated', onTeamUpdated);
+    socket.on('scoreboard_hidden', onScoreboardHidden);
+    socket.on('round_end', onRoundEnd);
+    socket.on('game_show_end', onGameShowEnd);
+    socket.on('break_start', onBreakStart);
+    socket.on('break_end', onBreakEnd);
+    socket.on('mini_game_start', onMiniGameStart);
+    socket.on('game_end', onGameEnd);
+
+    return () => {
+      abortRestore.abort();
+      playerRestoreGuardRef.current = null;
+      socket.off('connect', rejoinSession);
+      socket.off('session_state', onSessionState);
+      socket.off('round_intro', onRoundIntro);
+      socket.off('wager_collection_start', onWagerCollectionStart);
+      socket.off('question_active', onQuestionActive);
+      socket.off('timer_update', onTimerUpdate);
+      socket.off('timer_expired', onTimerExpired);
+      socket.off('answer_reveal', onAnswerReveal);
+      socket.off('player_eliminated', onPlayerEliminated);
+      socket.off('scoreboard', onScoreboard);
+      socket.off('team_joined', onTeamJoined);
+      socket.off('team_updated', onTeamUpdated);
+      socket.off('scoreboard_hidden', onScoreboardHidden);
+      socket.off('round_end', onRoundEnd);
+      socket.off('game_show_end', onGameShowEnd);
+      socket.off('break_start', onBreakStart);
+      socket.off('break_end', onBreakEnd);
+      socket.off('mini_game_start', onMiniGameStart);
+      socket.off('game_end', onGameEnd);
+    };
+  }, [socket, session.pin, session.teamName, session.teamId, router, setSession, clearSession]);
+
+  // Declared after the listener effect so `session_state` from this emit is never missed.
+  // Join → /play/game reuses an already-connected socket, so `connect` does not fire again.
+  useEffect(() => {
+    if (!socket || !session.pin || !session.teamName || session.teamId == null) return;
+    socket.emit('join_session', {
+      pin: session.pin,
+      teamName: session.teamName,
+      teamId: session.teamId,
+    });
+  }, [socket, session.pin, session.teamName, session.teamId]);
+
+  const handleSelectOption = useCallback(
+    (index: number) => {
+      if (
+        selectedOption !== null ||
+        !socket ||
+        isEliminatedRef.current ||
+        timerRemaining <= 0 ||
+        !timerRunning ||
+        hostTimerPaused
+      )
+        return;
+      setSelectedOption(index);
+      setPhase('answered');
+      const rt = (question?.roundType || '').toUpperCase();
+      const isWagerQuestion = rt === 'WAGER' || rt === 'FINAL_WAGER';
+      if (session.pin && session.teamId != null && question?.question?.id != null) {
+        const qis = String(question.question.id);
+        writeAnswerDraft(session.pin, Number(session.teamId), qis, {
+          selectedOptionIndex: index,
+          wagerAmount: isWagerQuestion ? wagerAmount : undefined,
+        });
+        answerRestoreRef.current = { qid: qis, idx: index };
+      }
+      socket.emit('submit_answer', {
+        selectedOptionIndex: index,
+        // Always send the amount the player sees for wager rounds so the server can persist it
+        // if submit_answer is processed before submit_wager finishes writing Redis (race → +0).
+        wagerAmount: isWagerQuestion ? wagerAmount : wagerSubmitted ? wagerAmount : undefined,
+      });
+    },
+    [
+      selectedOption,
+      socket,
+      timerRemaining,
+      wagerAmount,
+      wagerSubmitted,
+      question?.roundType,
+      question?.question?.id,
+      session.pin,
+      session.teamId,
+      timerRunning,
+      hostTimerPaused,
+    ],
+  );
+
+  const reorderOrdering = useCallback((fromIndex: number, toIndex: number) => {
+    if (fromIndex === toIndex) return;
+    setOrderingSelection((prev) => {
+      const next = [...prev];
+      const [moved] = next.splice(fromIndex, 1);
+      next.splice(toIndex, 0, moved);
+      return next;
+    });
+  }, []);
+
+  const handleLockOrdering = useCallback(() => {
+    if (
+      selectedOption !== null ||
+      !socket ||
+      isEliminatedRef.current ||
+      timerRemaining <= 0 ||
+      !timerRunning ||
+      hostTimerPaused
+    )
+      return;
+    setSelectedOption(orderingSelection);
+    setPhase('answered');
+    const rt = (question?.roundType || '').toUpperCase();
+    const isWagerQuestion = rt === 'WAGER' || rt === 'FINAL_WAGER';
+    if (session.pin && session.teamId != null && question?.question?.id != null) {
+      const qis = String(question.question.id);
+      writeAnswerDraft(session.pin, Number(session.teamId), qis, {
+        selectedOptionIndex: orderingSelection,
+        wagerAmount: isWagerQuestion ? wagerAmount : undefined,
+      });
+      answerRestoreRef.current = { qid: qis, idx: orderingSelection };
+    }
+    socket.emit('submit_answer', {
+      selectedOptionIndex: orderingSelection,
+      wagerAmount: isWagerQuestion ? wagerAmount : wagerSubmitted ? wagerAmount : undefined,
+    });
+  }, [
+    selectedOption,
+    socket,
+    timerRemaining,
+    wagerAmount,
+    wagerSubmitted,
+    orderingSelection,
+    question?.roundType,
+    question?.question?.id,
+    session.pin,
+    session.teamId,
+    timerRunning,
+    hostTimerPaused,
+  ]);
+
+  const handleSubmitWager = useCallback(
+    (amountOverride?: number) => {
+      if (!socket || wagerSubmitted) return;
+      const amount = amountOverride ?? wagerAmount;
+      const pin = session.pin;
+      const tid = session.teamId;
+      const qid = question?.question?.id;
+      const rt = question?.roundType || roundInfo?.round?.type;
+      if (!isValidWagerDraftAmount(rt, amount)) return;
+      setWagerAmount(amount);
+      // Mirror the lock locally immediately so a refresh before Redis round-trips still
+      // shows the chosen amount as locked.
+      if (pin && tid != null && qid != null) {
+        persistWagerLockCache(pin, Number(tid), qid, amount);
+      }
+      socket.emit('submit_wager', { amount });
+      setWagerSubmitted(true);
+      wagerLockRequiredRef.current = false;
+      // Only replay reveal for the same question that was REVEALED (missed reveal before lock).
+      // During host PREVIEW + Collect Wager, questionStateRef can still be REVEALED for the
+      // *previous* audience question — must not pull that snapshot while on wager_input.
+      if (phaseRef.current !== 'wager_input') {
+        const qs = (questionStateRef.current || '').toUpperCase();
+        if (qs === 'REVEALED' && !revealDataRef.current) {
+          ensureRevealAfterWagerLockRef.current?.();
+        }
+      }
+    },
+    [
+      socket,
+      wagerSubmitted,
+      wagerAmount,
+      session.pin,
+      session.teamId,
+      question?.question?.id,
+      question?.roundType,
+      roundInfo?.round?.type,
+    ],
+  );
+
+  const handleSelectWagerAmount = useCallback(
+    (amount: number) => {
+      handleSubmitWager(amount);
+    },
+    [handleSubmitWager],
+  );
+
+  useEffect(() => {
+    if (phase !== 'wager_input' || wagerSubmitted) return;
+    const pin = session.pin;
+    const tid = session.teamId;
+    const qid = question?.question?.id;
+    const rt = question?.roundType || roundInfo?.round?.type;
+    if (!pin || tid == null || qid == null) return;
+    if (!isValidWagerDraftAmount(rt, wagerAmount)) return;
+    writeWagerDraft(pin, Number(tid), qid, wagerAmount, { pendingLock: false });
+  }, [
+    phase,
+    wagerSubmitted,
+    session.pin,
+    session.teamId,
+    question?.question?.id,
+    question?.roundType,
+    roundInfo?.round?.type,
+    wagerAmount,
+  ]);
+
+  const isFinalWagerRound =
+    (question?.roundType || roundInfo?.round?.type || '').toUpperCase() === 'FINAL_WAGER';
+  const wagerChoiceValues = isFinalWagerRound ? FINAL_WAGER_PERCENT_OPTIONS : WAGER_POINT_OPTIONS;
+
+  useEffect(() => {
+    if (phase !== 'wager_input' || wagerSubmitted) return;
+    const rt = (roundInfo?.round?.type || '').toUpperCase();
+    if (rt === 'FINAL_WAGER') {
+      if (
+        !FINAL_WAGER_PERCENT_OPTIONS.includes(
+          wagerAmount as (typeof FINAL_WAGER_PERCENT_OPTIONS)[number],
+        )
+      ) {
+        setWagerAmount(FINAL_WAGER_PERCENT_OPTIONS[0]);
+      }
+      return;
+    }
+    if (rt === 'WAGER') {
+      if (!WAGER_POINT_OPTIONS.includes(wagerAmount as (typeof WAGER_POINT_OPTIONS)[number])) {
+        setWagerAmount(0);
+      }
+    }
+  }, [phase, wagerSubmitted, roundInfo?.round?.type, wagerAmount]);
+
+  const myRank = scoreboard.findIndex((t) => t.teamId === session.teamId) + 1;
+  const isMusicQuestion = shouldWaitForHostAudioTimer(question?.roundType, question?.question);
+  const isAnswerSelectionLocked =
+    selectedOption !== null ||
+    isEliminatedRef.current ||
+    isEliminated ||
+    timerRemaining <= 0 ||
+    phase !== 'question' ||
+    !timerRunning ||
+    hostTimerPaused;
+  const showTimeExpiredState =
+    timerRemaining <= 0 &&
+    (phase === 'question' || phase === 'answered') &&
+    selectedOption === null;
+
+  const questionMusicBanner: 'none' | 'waiting' | 'playing' = (() => {
+    if (!question || !shouldWaitForHostAudioTimer(question.roundType, question.question))
+      return 'none';
+    if (phase !== 'question' && phase !== 'answered') return 'none';
+    // Once the answer is on its way / revealed, never show "Waiting for host to play music" —
+    // even if the player UI hasn't transitioned to the reveal phase yet (race between
+    // answer_reveal arrival and phase state update).
+    if (revealData) return 'none';
+    if (timerRunning) return 'playing';
+    if (musicVenuePlaybackStarted && timerRemaining > 0) return 'playing';
+    if (timerRemaining > 0) return 'waiting';
+    return 'none';
+  })();
+
+  const activeQuestionHasImage = Boolean(
+    question?.question?.mediaUrl &&
+      isQuestionImageMedia(question.question.mediaType, question.question.mediaUrl),
+  );
+
+  return (
+    <div className="flex-1 h-full min-h-0 w-full bg-[#00010a]">
+      <PlayerScreenShell className="flex min-h-0 h-full w-full flex-col">
+        <div className="relative flex min-h-0 h-full w-full flex-col overflow-hidden">
+          {showBreakEndedNotice ? (
+            <div className="absolute top-4 left-1/2 -translate-x-1/2 z-50 rounded-xl border border-[#2bdcff]/60 bg-[rgba(8,20,56,0.9)] px-4 py-2 shadow-[0_0_18px_rgba(43,220,255,0.32)]">
+              <p className="text-sm font-extrabold tracking-wide text-[#2be9ff]">Break Ended</p>
+            </div>
+          ) : null}
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+            <AnimatePresence mode="wait">
+              {/* ── ROUND INTRO ── */}
+              {phase === 'round_intro' && roundInfo && (
+                <motion.div
+                  key="round_intro"
+                  {...pageTransition}
+                  className="flex flex-1 items-center justify-center p-3 sm:p-4 md:p-6"
+                >
+                  <motion.div
+                    initial={{ opacity: 0, scale: 0.94 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    transition={{ delay: 0.1 }}
+                    className="relative w-full max-w-[min(26rem,92vw)] md:max-w-[34rem] lg:max-w-[38rem]"
+                  >
+                    <PlayerRoundIntroScreen roundNumber={(roundInfo.roundIndex || 0) + 1} />
+                  </motion.div>
+                </motion.div>
+              )}
+
+              {/* ── WAITING ── */}
+              {phase === 'waiting' && hasInitialState && (
+                <motion.div
+                  key="waiting"
+                  {...pageTransition}
+                  className="flex-1 relative overflow-hidden mobile-play-bg"
+                >
+                  <div className="absolute inset-0 opacity-25 bg-[radial-gradient(circle_at_22%_16%,rgba(145,105,255,0.36)_0_4px,transparent_4px)] [background-size:110px_110px]" />
+                  <div className="absolute bottom-0 left-1/2 h-42.5 w-[min(92vw,280px)] -translate-x-1/2 opacity-55 bg-[radial-gradient(circle,rgba(0,229,255,0.26)_0_2px,transparent_2px)] [background-size:14px_14px] md:w-[min(92vw,360px)]" />
+
+                  <div className="relative z-10 flex h-full items-center justify-center p-3 sm:p-4 md:p-6">
+                    <div className="w-full max-w-sm border-2 border-[#00d8ff] bg-[linear-gradient(180deg,rgba(45,13,121,0.72)_0%,rgba(15,8,66,0.82)_100%)] px-5 py-7 text-center shadow-[0_0_26px_rgba(0,216,255,0.24)] sm:max-w-md sm:px-6 sm:py-8 md:max-w-lg">
+                      <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-full border-2 border-[#00d8ff] bg-[rgba(5,14,34,0.75)] shadow-[0_0_18px_rgba(0,216,255,0.35)] sm:mb-6 sm:h-20 sm:w-20 md:h-[5.25rem] md:w-[5.25rem]">
+                        <svg
+                          className="h-10 w-10 sm:h-11 sm:w-11 md:h-12 md:w-12"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                        >
+                          <path
+                            d="M16 21v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2"
+                            stroke="#00d8ff"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          />
+                          <circle cx="9.5" cy="7" r="3" stroke="#00d8ff" strokeWidth="2" />
+                          <path
+                            d="M22 21v-2a4 4 0 0 0-3-3.87"
+                            stroke="#00d8ff"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          />
+                          <path
+                            d="M16 3.13a4 4 0 0 1 0 7.75"
+                            stroke="#00d8ff"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          />
+                        </svg>
+                      </div>
+
+                      <h2 className="text-[clamp(2rem,7vw,3.4rem)] font-extrabold uppercase leading-[0.95] text-white sm:text-[clamp(2.25rem,5.5vw,3.5rem)] md:text-6xl">
+                        Waiting for game
+                        <br />
+                        to start
+                      </h2>
+                      <p className="mt-3 text-base uppercase leading-tight text-white/70 sm:text-lg md:text-xl">
+                        The host will start the game shortly
+                      </p>
+
+                      <button
+                        onClick={() => setShowExitConfirm(true)}
+                        className="mt-5 text-base font-medium text-[#ff4f61] sm:text-lg"
+                      >
+                        Leave Game
+                      </button>
+
+                      <LoadingDots className="mt-3" gapClass="gap-2" />
+                    </div>
+                  </div>
+                </motion.div>
+              )}
+
+              {/* ── CONNECTING ── While we wait for the first session_state after a refresh,
+                show a neutral reconnecting splash instead of the LOBBY-flavoured "Waiting for
+                game to start" text — that copy is reserved for the legitimate pre-game state. */}
+              {phase === 'waiting' && !hasInitialState && (
+                <motion.div
+                  key="connecting"
+                  {...pageTransition}
+                  className="flex-1 relative overflow-hidden mobile-play-bg"
+                >
+                  <div className="relative z-10 flex h-full items-center justify-center p-4">
+                    <div className="flex flex-col items-center gap-4 text-white/80">
+                      <div className="h-10 w-10 animate-spin rounded-full border-2 border-white/20 border-t-[#00d8ff]" />
+                      <p className="text-sm font-medium tracking-wide sm:text-base">
+                        Reconnecting…
+                      </p>
+                    </div>
+                  </div>
+                </motion.div>
+              )}
+
+              {/* ── WAGER INPUT ── */}
+              {phase === 'wager_input' && (
+                <motion.div
+                  key="wager"
+                  {...pageTransition}
+                  className="relative flex h-full min-h-0 w-full max-w-full flex-1 flex-col overflow-hidden"
+                >
+                  <PlayerWagerSelectionScreen
+                    category={wagerCollectionCategory ?? question?.question?.category}
+                    isFinalWagerRound={isFinalWagerRound}
+                    wagerAmount={wagerAmount}
+                    wagerSubmitted={wagerSubmitted}
+                    wagerChoiceValues={wagerChoiceValues}
+                    onSelectAmount={handleSelectWagerAmount}
+                  />
+                </motion.div>
+              )}
+
+              {/* ── QUESTION / ANSWERED ── */}
+              {(phase === 'question' || phase === 'answered') && question && (
+                <motion.div
+                  key="question"
+                  {...pageTransition}
+                  className={cn(
+                    'mt-2 flex min-h-0 flex-1 flex-col px-3 pb-4 pt-2 sm:mt-4 sm:px-4 sm:pb-6 md:px-6',
+                    activeQuestionHasImage
+                      ? playerImageQuestionScrollClass
+                      : 'min-h-0 overflow-y-auto overflow-x-visible',
+                  )}
+                >
+                  <QuestionStagePanel
+                    className="mb-3 shrink-0 sm:mb-4"
+                    timerDisplay={timerRemaining}
+                    timerDuration={timerDuration}
+                    questionIndex={question.questionIndex || 0}
+                    totalQuestions={question.totalQuestions}
+                    teamName={session.teamName}
+                    score={session.score}
+                    pointsDisplay={formatQuestionPointsHeader(
+                      question,
+                      wagerSubmitted ? wagerAmount : question.lockedWagerAmount,
+                    )}
+                    questionText={question.question.text}
+                    questionMedia={
+                      activeQuestionHasImage && question.question.mediaUrl ? (
+                        <QuestionImage mediaUrl={question.question.mediaUrl} />
+                      ) : undefined
+                    }
+                  />
+
+                  <QuestionMediaVisual question={question} musicBanner={questionMusicBanner} />
+
+                  <div
+                    className={
+                      activeQuestionHasImage ? 'mt-2 shrink-0' : playerOptionsScrollClass
+                    }
+                  >
+                    {/* Options - Single column vertical list */}
+                    <motion.div
+                      variants={staggerContainer}
+                      initial="initial"
+                      animate="animate"
+                      className="mt-2 flex flex-col gap-3 px-2 py-1 sm:mt-3 sm:gap-4 sm:px-3"
+                    >
+                      {(() => {
+                        if (question.question.isOrdering) {
+                          return (
+                            <div className="flex flex-col gap-3">
+                              <div className="mb-1 flex items-center justify-center gap-2 text-sm font-bold text-[#00e5ff] drop-shadow-[0_0_5px_rgba(0,229,255,0.5)] sm:text-base">
+                                <span aria-hidden>☰</span>
+                                <span>Drag tiles or use arrows to reorder</span>
+                              </div>
+                              {orderingSelection.map((optIdx, index) => {
+                                const opt = question.question.options[optIdx];
+                                if (!opt) return null;
+                                const isLocked = isAnswerSelectionLocked;
+                                return (
+                                  <div
+                                    key={`${optIdx}-${index}`}
+                                    draggable={!isLocked}
+                                    onDragStart={(e) => {
+                                      if (isLocked) return;
+                                      setOrderingDragIndex(index);
+                                      e.dataTransfer.effectAllowed = 'move';
+                                      e.dataTransfer.setData('text/plain', String(index));
+                                    }}
+                                    onDragEnd={() => setOrderingDragIndex(null)}
+                                    onDragOver={(e) => {
+                                      if (isLocked) return;
+                                      e.preventDefault();
+                                      e.dataTransfer.dropEffect = 'move';
+                                    }}
+                                    onDrop={(e) => {
+                                      if (isLocked) return;
+                                      e.preventDefault();
+                                      const from = Number(e.dataTransfer.getData('text/plain'));
+                                      if (Number.isFinite(from)) reorderOrdering(from, index);
+                                      setOrderingDragIndex(null);
+                                    }}
+                                    className={cn(
+                                      'flex min-h-14 w-full items-center justify-between rounded-xl px-3 py-3 text-white font-bold shadow-[0_4px_10px_rgba(0,0,0,0.5),inset_0_1px_1px_rgba(255,255,255,0.2)] sm:min-h-16 sm:px-4 sm:py-4 md:min-h-[4.75rem]',
+                                      OPTION_BG[optIdx] || 'bg-[#1565c0]',
+                                      isLocked && 'opacity-60 grayscale-[0.3] cursor-not-allowed',
+                                      !isLocked && 'cursor-grab active:cursor-grabbing',
+                                      orderingDragIndex === index && 'ring-2 ring-white/80',
+                                    )}
+                                  >
+                                    <span className="flex min-w-0 flex-1 items-center gap-2 text-left text-lg font-black leading-tight drop-shadow-md sm:gap-3 sm:text-xl md:text-2xl">
+                                      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-black/40 text-sm shadow-inner">
+                                        {index + 1}
+                                      </span>
+                                      <span className="min-w-0 flex-1">
+                                        {toDisplayUpper(opt.text)}
+                                      </span>
+                                    </span>
+                                    {!isLocked && (
+                                      <div className="ml-2 flex shrink-0 flex-col gap-1">
+                                        <button
+                                          type="button"
+                                          aria-label="Move up"
+                                          className="rounded bg-black/30 px-3 py-1.5 text-xs transition hover:bg-black/50 active:bg-white/20"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            if (index === 0) return;
+                                            reorderOrdering(index, index - 1);
+                                          }}
+                                        >
+                                          ▲
+                                        </button>
+                                        <button
+                                          type="button"
+                                          aria-label="Move down"
+                                          className="rounded bg-black/30 px-3 py-1.5 text-xs transition hover:bg-black/50 active:bg-white/20"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            if (index === orderingSelection.length - 1) return;
+                                            reorderOrdering(index, index + 1);
+                                          }}
+                                        >
+                                          ▼
+                                        </button>
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                              {!isAnswerSelectionLocked && (
+                                <button
+                                  onClick={handleLockOrdering}
+                                  className="mt-2 w-full py-3.5 rounded-xl bg-[#00e5ff]/20 text-[#00e5ff] border border-[#00e5ff]/50 font-bold text-lg hover:bg-[#00e5ff]/30 transition-colors"
+                                >
+                                  Lock Answer
+                                </button>
+                              )}
+                            </div>
+                          );
+                        }
+
+                        return question.question.options.map((opt, i) => {
+                          const isSelected = selectedOption === i;
+                          const isLocked = isAnswerSelectionLocked;
+
+                          return (
+                            <motion.div key={i} variants={staggerItem}>
+                              <PlayerChoiceBar
+                                index={i}
+                                letter={FIGMA_OPTION_LETTERS[i] || OPTION_LETTERS[i]}
+                                label={toDisplayUpper(opt.text)}
+                                selected={isSelected}
+                                disabled={isLocked}
+                                onClick={() => handleSelectOption(i)}
+                                className={cn(
+                                  isLocked && !isSelected && 'opacity-60 grayscale-[0.3]',
+                                )}
+                              />
+                            </motion.div>
+                          );
+                        });
+                      })()}
+                    </motion.div>
+                  </div>
+
+                  {showTimeExpiredState && (
+                    <motion.div
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className="mt-3 shrink-0 text-center sm:mt-4"
+                    >
+                      <p className="text-2xl font-black leading-none text-[#ff5252] drop-shadow-[0_0_10px_rgba(255,82,82,0.6)] sm:text-3xl md:text-4xl">
+                        TIME IS OVER
+                      </p>
+                    </motion.div>
+                  )}
+
+                  {phase === 'answered' && (
+                    <motion.div
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className="mt-3 shrink-0 text-center sm:mt-4"
+                    >
+                      <p className="text-2xl font-black leading-none text-[#ffffff] drop-shadow-[0_0_10px_rgba(255,255,255,0.4)] sm:text-2xl md:text-3xl">
+                        ANSWER LOCKED IN !!
+                      </p>
+                    </motion.div>
+                  )}
+                </motion.div>
+              )}
+
+              {/* ── REVEAL ── */}
+              {phase === 'reveal' && revealData && question && (
+                <motion.div
+                  key="reveal"
+                  {...pageTransition}
+                  className={cn(
+                    'mt-2 flex min-h-0 flex-1 flex-col px-3 pb-4 pt-2 sm:mt-4 sm:px-4 sm:pb-6 md:px-6',
+                    activeQuestionHasImage
+                      ? playerImageQuestionScrollClass
+                      : 'min-h-0 overflow-y-auto overflow-x-visible',
+                  )}
+                >
+                  <QuestionStagePanel
+                    className="mb-3 shrink-0 sm:mb-4"
+                    timerDisplay={0}
+                    timerDuration={timerDuration}
+                    questionIndex={question.questionIndex || 0}
+                    totalQuestions={question.totalQuestions}
+                    teamName={session.teamName}
+                    score={session.score}
+                    pointsDisplay={formatQuestionPointsHeader(
+                      question,
+                      wagerSubmitted ? wagerAmount : question.lockedWagerAmount,
+                    )}
+                    questionText={question.question.text}
+                    questionMedia={
+                      activeQuestionHasImage && question.question.mediaUrl ? (
+                        <QuestionImage mediaUrl={question.question.mediaUrl} />
+                      ) : undefined
+                    }
+                  />
+
+                  <QuestionMediaVisual question={question} musicBanner={questionMusicBanner} />
+
+                  <div
+                    className={
+                      activeQuestionHasImage ? 'mt-2 shrink-0' : playerOptionsScrollClass
+                    }
+                  >
+                    {/* Options - Single column vertical list */}
+                    <motion.div
+                      variants={staggerContainer}
+                      initial="initial"
+                      animate="animate"
+                      className="mt-2 flex flex-col gap-3 px-2 py-1 sm:mt-3 sm:gap-4 sm:px-3"
+                    >
+                      {(() => {
+                        if (question.question.isOrdering) {
+                          return (
+                            <div className="flex flex-col gap-3">
+                              <div className="mb-2 text-center">
+                                <span className="inline-block px-4 py-2 rounded-lg bg-black/40 border border-green-500/50 text-green-400 font-bold text-sm sm:text-base md:text-lg uppercase tracking-wider shadow-inner">
+                                  Correct Order:{' '}
+                                  {(revealData.correctOrderArray || [])
+                                    .map((idx: number) =>
+                                      toDisplayUpper(question.question.options[idx]?.text),
+                                    )
+                                    .join(' → ')}
+                                </span>
+                              </div>
+                              {(() => {
+                                const userArr =
+                                  Array.isArray(selectedOption) &&
+                                  selectedOption.length === question.question.options.length
+                                    ? selectedOption
+                                    : question.question.options.map((_, i) => i);
+                                const correctArr =
+                                  revealData.correctOrderArray ||
+                                  question.question.options.map((_, i) => i);
+
+                                return userArr.map((optIdx: number, userPos: number) => {
+                                  const opt = question.question.options[optIdx];
+                                  const expectedPos = correctArr.indexOf(optIdx);
+                                  const isCorrectPos = userPos === expectedPos;
+                                  return (
+                                    <motion.div
+                                      key={optIdx}
+                                      variants={staggerItem}
+                                      className={cn(
+                                        'flex min-h-14 w-full items-center justify-between gap-3 rounded-xl border border-white/20 px-4 py-3 text-white font-bold sm:min-h-16 sm:px-6 sm:py-4 md:min-h-[4.75rem]',
+                                        'touch-manipulation select-none transition-all',
+                                        OPTION_BG[optIdx] || 'bg-[#1565c0]',
+                                      )}
+                                    >
+                                      <span className="min-w-0 flex-1 text-left text-lg font-black leading-tight drop-shadow-md flex items-center gap-2 sm:text-xl md:text-2xl">
+                                        <span className="w-7 h-7 flex items-center justify-center bg-black/40 rounded-full text-sm shrink-0 shadow-inner">
+                                          {userPos + 1}
+                                        </span>
+                                        {toDisplayUpper(opt.text)}
+                                      </span>
+                                      {/* <span
+                                      className={cn(
+                                        'text-xs font-bold px-2 py-1.5 rounded-md bg-black/40 shadow-inner whitespace-nowrap',
+                                        isCorrectPos ? 'text-[#39ff14]' : 'text-[#ff2525]',
+                                      )}
+                                    >
+                                      Correct Pos: {expectedPos >= 0 ? expectedPos + 1 : '-'}
+                                    </span> */}
+                                    </motion.div>
+                                  );
+                                });
+                              })()}
+                            </div>
+                          );
+                        }
+
+                        const isMajorityRulesRound =
+                          (question.roundType || '').toUpperCase() === 'MAJORITY_RULES';
+
+                        return question.question.options.map((opt, i) => {
+                          const majorityWinners = new Set(
+                            (revealData.majorityOptionIndexes || [])
+                              .map(Number)
+                              .filter(Number.isFinite),
+                          );
+                          const fallbackIdx = Number(revealData.correctOptionIndex);
+                          if (
+                            isMajorityRulesRound &&
+                            majorityWinners.size === 0 &&
+                            Number.isFinite(fallbackIdx) &&
+                            fallbackIdx >= 0
+                          ) {
+                            majorityWinners.add(fallbackIdx);
+                          }
+                          const isVoteWinner = majorityWinners.has(i);
+
+                          const correctIdxNum = Number(revealData.correctOptionIndex);
+                          const isCorrectOption =
+                            Number.isFinite(correctIdxNum) &&
+                            correctIdxNum >= 0 &&
+                            i === correctIdxNum;
+                          const selNum = Number(selectedOption);
+                          const isSelectedOption =
+                            selectedOption !== null &&
+                            selectedOption !== undefined &&
+                            Number.isFinite(selNum) &&
+                            selNum === i;
+                          const isSelectedWrong = isSelectedOption && !isCorrectOption;
+
+                          const shouldDim = isMajorityRulesRound
+                            ? !isVoteWinner
+                            : !isCorrectOption && !isSelectedWrong;
+                          const showCorrectRing = isMajorityRulesRound
+                            ? isVoteWinner
+                            : isCorrectOption;
+                          const showWrongRing = isMajorityRulesRound ? false : isSelectedWrong;
+                          const showCorrectIcon = isMajorityRulesRound ? false : isCorrectOption;
+                          const showWrongIcon = isMajorityRulesRound ? false : isSelectedWrong;
+
+                          return (
+                            <motion.div
+                              key={i}
+                              variants={staggerItem}
+                              className={cn(
+                                'relative mx-0.5 px-0.5 py-1',
+                                shouldDim && 'opacity-30 brightness-50 contrast-75 scale-[0.98]',
+                              )}
+                            >
+                              <PlayerChoiceBar
+                                as="div"
+                                index={i}
+                                letter={FIGMA_OPTION_LETTERS[i] || OPTION_LETTERS[i]}
+                                label={toDisplayUpper(opt.text)}
+                                selected={isSelectedOption}
+                                revealHighlight={
+                                  showCorrectRing ? 'correct' : showWrongRing ? 'wrong' : undefined
+                                }
+                                trailing={
+                                  showCorrectIcon ? (
+                                    <RevealOptionStatusIcon variant="correct" />
+                                  ) : showWrongIcon ? (
+                                    <RevealOptionStatusIcon variant="wrong" />
+                                  ) : null
+                                }
+                              />
+                            </motion.div>
+                          );
+                        });
+                      })()}
+                    </motion.div>
+                  </div>
+
+                  <motion.div
+                    initial={{ opacity: 0, y: 15 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.2 }}
+                    className="mt-4 shrink-0 text-center sm:mt-6"
+                  >
+                    {(() => {
+                      const isMajorityRulesRound =
+                        (question.roundType || '').toUpperCase() === 'MAJORITY_RULES';
+                      const isOrdering = question.question.isOrdering;
+                      const usesServerPtsLabel = revealUsesServerPointsLabel(question.roundType);
+                      const usesFixedTenTwo = revealUsesFixedTenTwoLabel(
+                        question.roundType,
+                        isMajorityRulesRound,
+                      );
+                      const myRevealResponse = revealData.responseDetails?.find((r) =>
+                        sameTeamId(r.teamId, session.teamId),
+                      );
+                      const fromRevealIdx = myRevealResponse
+                        ? parseSubmittedIdxFromMineRaw(myRevealResponse.selectedOptionIndex)
+                        : null;
+                      const fromUiIdx = parseSubmittedIdxFromMineRaw(selectedOption);
+                      // Server row wins when present; otherwise trust local only if this team has no row
+                      // (late join / resync). Never treat `null` as option 0 — `Number(null) === 0`.
+                      const didSubmitOnReveal = myRevealResponse
+                        ? hasSelectionIdx(fromRevealIdx)
+                        : hasSelectionIdx(fromUiIdx);
+                      const resolvedSelectedOption = hasSelectionIdx(fromRevealIdx)
+                        ? Array.isArray(fromRevealIdx)
+                          ? null
+                          : Number(fromRevealIdx)
+                        : hasSelectionIdx(fromUiIdx) && !Array.isArray(fromUiIdx)
+                          ? Number(fromUiIdx)
+                          : null;
+                      const correctIdxReveal = Number(revealData.correctOptionIndex);
+                      const answeredCorrectly = didSubmitOnReveal
+                        ? resolvedSelectedOption !== null &&
+                          Number.isFinite(correctIdxReveal) &&
+                          correctIdxReveal >= 0
+                          ? resolvedSelectedOption === correctIdxReveal
+                          : Number(pointsGained ?? 0) > 0
+                        : false;
+                      const fixedCorrectFallback = getStandardRoundCorrectPoints(
+                        question.roundType,
+                      );
+                      const correctPointsDisplay = usesServerPtsLabel
+                        ? Math.max(Number(pointsGained ?? 0), 0)
+                        : usesFixedTenTwo && answeredCorrectly
+                          ? Math.max(Number(pointsGained ?? fixedCorrectFallback), 0)
+                          : Math.max(Number(pointsGained ?? 0), 0);
+                      const incorrectPointsDisplay = usesServerPtsLabel
+                        ? Number(pointsGained ?? 0)
+                        : usesFixedTenTwo
+                          ? Number(pointsGained ?? REVEAL_FIXED_WRONG_PTS)
+                          : Number(pointsGained ?? 0);
+                      if (isOrdering) {
+                        const ordSel = Array.isArray(selectedOption)
+                          ? selectedOption
+                          : Array.isArray(myRevealResponse?.selectedOptionIndex)
+                            ? myRevealResponse.selectedOptionIndex
+                            : null;
+                        const expected = revealData.correctOrderArray;
+                        const isCorrect =
+                          Array.isArray(expected) &&
+                          Array.isArray(ordSel) &&
+                          ordSel.length === expected.length &&
+                          ordSel.every((v, i) => Number(v) === Number(expected[i]))
+                            ? true
+                            : (pointsGained ?? 0) > 0;
+                        return (
+                          <p
+                            className={cn(
+                              'text-lg font-black leading-none sm:text-xl md:text-2xl',
+                              !didSubmitOnReveal
+                                ? 'text-[#00D9FF] drop-shadow-[0_0_15px_rgba(255,255,255,0.4)]'
+                                : isCorrect
+                                  ? 'text-[#53ff57] drop-shadow-[0_0_15px_rgba(83,255,87,0.8)]'
+                                  : 'text-[#ff2525] drop-shadow-[0_0_15px_rgba(255,37,37,0.8)]',
+                            )}
+                          >
+                            {!didSubmitOnReveal
+                              ? 'NO ANSWER SUBMITTED !! (0)'
+                              : isCorrect
+                                ? `CORRECT ANSWER !!`
+                                : `OOPS - WRONG ANSWER !!`}
+                          </p>
+                        );
+                      }
+
+                      if (!isMajorityRulesRound) {
+                        return (
+                          <p
+                            className={cn(
+                              'text-lg font-black leading-none sm:text-xl md:text-2xl',
+                              !didSubmitOnReveal
+                                ? 'text-[#00D9FF] drop-shadow-[0_0_15px_rgba(255,255,255,0.4)]'
+                                : answeredCorrectly
+                                  ? 'text-[#53ff57] drop-shadow-[0_0_15px_rgba(83,255,87,0.8)]'
+                                  : 'text-[#ff2525] drop-shadow-[0_0_15px_rgba(255,37,37,0.8)]',
+                            )}
+                          >
+                            {!didSubmitOnReveal
+                              ? 'NO ANSWER SUBMITTED !!'
+                              : answeredCorrectly
+                                ? `CORRECT ANSWER !!`
+                                : `OOPS - WRONG ANSWER !!`}
+                          </p>
+                        );
+                      }
+
+                      // Majority Rules: only the vote winner is highlighted; wrong picks get no
+                      // red ring. Scoring (+50 / −50) still comes from the server via pointsGained.
+                      return (
+                        <p
+                          className={cn(
+                            'text-lg font-black leading-none sm:text-xl md:text-2xl',
+                            !didSubmitOnReveal
+                              ? 'text-[#00D9FF] drop-shadow-[0_0_15px_rgba(255,255,255,0.4)]'
+                              : (pointsGained ?? 0) > 0
+                                ? 'text-[#53ff57] drop-shadow-[0_0_15px_rgba(83,255,87,0.8)]'
+                                : 'text-[#ff2525] drop-shadow-[0_0_15px_rgba(255,37,37,0.8)]',
+                          )}
+                        >
+                          {!didSubmitOnReveal
+                            ? 'NO ANSWER SUBMITTED !!'
+                            : (pointsGained ?? 0) > 0
+                              ? 'CORRECT ANSWER !!'
+                              : 'OOPS - WRONG ANSWER !!'}
+                        </p>
+                      );
+                    })()}
+                  </motion.div>
+                </motion.div>
+              )}
+
+              {/* ELIMINATED */}
+              {phase === 'eliminated' && (
+                <motion.div
+                  key="eliminated"
+                  {...pageTransition}
+                  className="flex-1 flex items-center justify-center p-6 text-center"
+                >
+                  <div>
+                    {/* <motion.div
+                    initial={{ scale: 0 }}
+                    animate={{ scale: 1 }}
+                    transition={{ type: 'spring', stiffness: 200 }}
+                    className="text-5xl mb-4"
+                  >
+                    💀
+                  </motion.div> */}
+                    <h2 className="text-2xl font-bold uppercase text-neon-red text-glow-red mb-2">
+                      Knocked Out!
+                    </h2>
+                    <p className="text-foreground/50 text-sm uppercase max-w-xs">
+                      You are knocked out for this round. You can play in the next round.
+                    </p>
+                    <div className="neon-border rounded-xl p-4 mt-6 bg-surface/80">
+                      <p className="text-foreground/40 text-xs mb-1">Your Score</p>
+                      <p className="text-2xl font-mono font-bold text-neon-cyan text-glow-cyan">
+                        {session.score}
+                      </p>
+                    </div>
+                  </div>
+                </motion.div>
+              )}
+
+              {/* ── Round Over (transition screen between last reveal and leaderboard) ── */}
+              {phase === 'round_end' && (
+                <motion.div
+                  key="round-end"
+                  {...pageTransition}
+                  className="flex min-h-0 flex-1 flex-col px-4 pb-[max(1.25rem,env(safe-area-inset-bottom))]"
+                >
+                  <RoundEndTitle
+                    variant="player"
+                    roundNumber={(roundEndInfo?.roundIndex ?? roundInfo?.roundIndex ?? 0) + 1}
+                    roundType={roundEndInfo?.roundType ?? roundInfo?.round?.type}
+                  />
+
+                  <div className="min-h-[2rem] flex-1" aria-hidden />
+
+                  <div className="flex shrink-0 justify-center">
+                    <img
+                      src="/logo.png"
+                      alt="Max Showdown Trivia"
+                      className="h-auto w-[min(88vw,360px)] max-w-full object-contain drop-shadow-[0_8px_28px_rgba(0,0,0,0.5)]"
+                    />
+                  </div>
+                </motion.div>
+              )}
+
+              {/* ── Gameshow closing (after final round, before final leaderboard) ── */}
+              {phase === 'game_show_end' && (
+                <motion.div
+                  key="game-show-end"
+                  {...pageTransition}
+                  className="flex min-h-0 flex-1 flex-col"
+                >
+                  <GameshowEndPlayerView />
+                </motion.div>
+              )}
+
+              {/* ── Leaderboard ── */}
+              {phase === 'scoreboard' && (
+                <motion.div
+                  key="scoreboard"
+                  {...pageTransition}
+                  className="mt-2 flex min-h-0 flex-1 flex-col px-3 pb-4 pt-2 sm:mt-4 sm:px-4 md:px-6"
+                >
+                  <LeaderboardScreen
+                    teams={scoreboard}
+                    size="player"
+                    highlightTeamId={session.teamId != null ? Number(session.teamId) : null}
+                    eliminationStyle={scoreboardEliminationStyle}
+                    showScene={false}
+                    className="min-h-0 flex-1"
+                  />
+                </motion.div>
+              )}
+
+              {/* Break */}
+              {phase === 'break' && (
+                <motion.div
+                  key="break"
+                  {...pageTransition}
+                  className="relative min-h-0 flex-1 overflow-hidden mobile-play-bg"
+                >
+                  <div className="absolute inset-0 opacity-25 bg-[radial-gradient(circle_at_22%_16%,rgba(145,105,255,0.36)_0_4px,transparent_4px)] [background-size:110px_110px]" />
+
+                  <div className="absolute inset-0 z-10 flex items-center justify-center overflow-y-auto px-4 py-4 text-center sm:px-6 sm:py-6">
+                    <div className="flex w-full max-w-md flex-col items-center">
+                      <BreakScreenHeading size="player" />
+                      <BreakTimerDisplay
+                        remainingSeconds={breakRemaining}
+                        totalSeconds={breakDuration}
+                        size="player"
+                        className="mt-4 shrink-0 sm:mt-6"
+                      />
+
+                      <img
+                        src="/logo.png"
+                        alt="Max Showdown Trivia"
+                        className="relative z-10 mt-4 h-auto w-[min(68vw,220px)] max-w-[260px] shrink-0 object-contain drop-shadow-[0_6px_24px_rgba(0,0,0,0.4)] sm:mt-6 sm:w-[min(48vw,240px)] sm:max-w-[320px]"
+                      />
+                    </div>
+                  </div>
+                </motion.div>
+              )}
+
+              {/* ── GAME END (gameshow closing — matches venue / host) ── */}
+              {phase === 'game_end' && (
+                <motion.div
+                  key="game_end"
+                  {...pageTransition}
+                  className="flex min-h-0 flex-1 flex-col"
+                >
+                  <GameshowEndPlayerView />
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+
+          {/* Exit confirmation */}
+          {showExitConfirm && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
+              <motion.div
+                initial={{ opacity: 0, scale: 0.9 }}
+                animate={{ opacity: 1, scale: 1 }}
+                className="neon-border bg-surface w-full max-w-xs rounded-2xl p-5 text-center sm:max-w-sm sm:p-6"
+              >
+                <h3 className="mb-2 text-lg font-bold sm:text-xl">Leave Game?</h3>
+                <p className="text-foreground/50 text-sm mb-6">
+                  You will be removed from the active game. You can rejoin with the same team name.
+                </p>
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => setShowExitConfirm(false)}
+                    className="flex-1 py-2.5 rounded-lg border border-border text-sm font-medium hover:bg-surface-light transition-colors"
+                  >
+                    Stay
+                  </button>
+                  <button
+                    onClick={() => {
+                      socket?.emit('leave_session');
+                      clearSession();
+                      router.replace('/join');
+                    }}
+                    className="flex-1 py-2.5 rounded-lg bg-neon-red/20 text-neon-red border border-neon-red/40 text-sm font-medium hover:bg-neon-red/30 transition-colors"
+                  >
+                    Leave
+                  </button>
+                </div>
+              </motion.div>
+            </div>
+          )}
+        </div>
+      </PlayerScreenShell>
+    </div>
+  );
+  // changes
+}

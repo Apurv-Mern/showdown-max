@@ -35,7 +35,7 @@ function PlayerReconnector({
           sessionStorage.setItem(PLAY_JOIN_FLASH_KEY, data.message);
         }
         clearSession();
-        router.replace('/play/join');
+        router.replace('/join');
         return;
       }
       if (data?.code === 'NO_ASSIGNED_HOST' && session.pin) {
@@ -44,7 +44,7 @@ function PlayerReconnector({
           sessionStorage.setItem(PLAY_JOIN_FLASH_KEY, data.message);
         }
         clearSession();
-        router.replace(`/play/join?pin=${encodeURIComponent(p)}`);
+        router.replace(`/join?pin=${encodeURIComponent(p)}`);
       }
     },
   });

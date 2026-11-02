@@ -1,7 +1,7 @@
 'use client';
 
 import { motion } from 'framer-motion';
-import { LoadingDots } from '@/app/play/LoadingDots';
+import { LoadingDots } from '@/app/(player)/LoadingDots';
 import { PLAYER_WAGER_LOCKED_ASSETS } from '@/lib/playerWagerChoiceAssets';
 import { formatWagerButtonLabel } from '@/lib/wagerGrid';
 

@@ -58,7 +58,7 @@ import { PUBLIC_API_URL } from '@/lib/env';
 
 const API_URL = PUBLIC_API_URL;
 const VENUE_PIN_STORAGE_KEY = 'venue_display_pin';
-const VENUE_JOIN_BASE_URL = 'https://maxshowdownlive.com/play/join';
+const VENUE_JOIN_BASE_URL = 'https://maxshowdownlive.com/join';
 const VENUE_STATE_STORAGE_KEY_PREFIX = 'venue_display_state';
 
 const getVenueStateStorageKey = (pin: string) => `${VENUE_STATE_STORAGE_KEY_PREFIX}:${pin}`;
@@ -585,10 +585,9 @@ function VenueDisplayContent() {
   const playerJoinUrl = useMemo(() => {
     const pin = encodeURIComponent(sessionPin);
     if (typeof window !== 'undefined') {
-      return `${window.location.origin}/play/join?pin=${pin}`;
+      return `${window.location.origin}/join?pin=${pin}`;
     }
-    // return `http://localhost:3000/play/join?pin=${pin}`;
-    return `${PUBLIC_API_URL}/play/join?pin=${pin}`;
+    return `${PUBLIC_API_URL}/join?pin=${pin}`;
   }, [sessionPin]);
 
   const welcomeJoinUrl = useMemo(() => {

@@ -3,6 +3,7 @@
 import type { RefObject } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
 import { VenueLogo } from '@/components/venue/VenueLogo';
+import { VenueSessionPinBadge } from '@/components/venue/VenueSessionPinBadge';
 
 type VenueWelcomeScreenProps = {
   sessionPin: string;
@@ -23,9 +24,8 @@ export function VenueWelcomeScreen({
 }: VenueWelcomeScreenProps) {
   return (
     <div className="relative h-full w-full overflow-hidden animate-fadeIn">
-      <div className="absolute left-[40px] top-[50px] z-10 text-white">
-        <p className="text-[40px] font-bold uppercase leading-[90px]">SESSION PIN</p>
-        <p className="-mt-6 text-[80px] font-extrabold leading-[90px] text-[#00D9FF]">{sessionPin}</p>
+      <div className="absolute left-[40px] top-[50px] z-10">
+        <VenueSessionPinBadge sessionPin={sessionPin} />
       </div>
 
       <div className="absolute left-[670px] top-[20px] z-10">

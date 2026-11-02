@@ -2047,12 +2047,24 @@ function HostDashboardContent() {
   }, [emit, isKangarooNamesValid, normalizedKangarooNames]);
 
   const handleOpenKangarooRaceControls = useCallback(() => {
+    if (cardShuffleFinishedHold) {
+      setCardShuffleFinishedHold(false);
+      setFinishedMiniGameType(null);
+      launchKangarooRaceOnVenue();
+      return;
+    }
     if (activeMiniGameLocal !== 'kangaroo_race') {
       setActiveMiniGameLocal('kangaroo_race');
     }
-  }, [activeMiniGameLocal]);
+  }, [activeMiniGameLocal, cardShuffleFinishedHold, launchKangarooRaceOnVenue]);
 
   const handleOpenCardShuffleControls = useCallback(() => {
+    if (cardShuffleFinishedHold) {
+      setCardShuffleFinishedHold(false);
+      setFinishedMiniGameType(null);
+      launchCardShuffleOnVenue();
+      return;
+    }
     // Mirror the Kangaroo Race flow — tapping the tile only selects the
     // Card Shuffle controls panel locally on the host. The mini-game is
     // pushed to the venue (and the introduction screen shown) only when
@@ -2060,7 +2072,7 @@ function HostDashboardContent() {
     if (activeMiniGameLocal !== 'card_shuffle') {
       setActiveMiniGameLocal('card_shuffle');
     }
-  }, [activeMiniGameLocal]);
+  }, [activeMiniGameLocal, cardShuffleFinishedHold, launchCardShuffleOnVenue]);
 
   const handleCardShuffleCommand = (
     command: 'start_game' | 'next_round' | 'reveal_cards',
@@ -2973,10 +2985,13 @@ function HostDashboardContent() {
             questions={currentRoundPreviewQuestions}
             roundsFallback={previewRoundsFallback}
             currentRoundIndex={currentRoundIndex}
-            currentQuestionIndex={gameState?.currentQuestionIndex ?? 0}
+            highlightQuestionIndex={
+              currentQuestion?.questionIndex ?? gameState?.currentQuestionIndex ?? 0
+            }
             pin={pin}
             socket={socket}
             questionState={questionState}
+            sessionState={state}
             timerRunning={Boolean(gameState?.timerRunning)}
             jumpDisabled={
               miniGameLive ||

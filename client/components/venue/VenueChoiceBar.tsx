@@ -2,6 +2,7 @@
 
 import { cn } from '@/lib/utils';
 import { optionAccent } from '@/lib/designTokens';
+import { VenueAutoFitText } from '@/components/venue/VenueAutoFitText';
 
 type VenueChoiceBarProps = {
   index: number;
@@ -10,6 +11,8 @@ type VenueChoiceBarProps = {
   revealed?: boolean;
   isWinner?: boolean;
   className?: string;
+  /** Taller pills for stacked image-question layout. */
+  layout?: 'grid' | 'stack';
 };
 
 /**
@@ -22,9 +25,11 @@ export function VenueChoiceBar({
   revealed = false,
   isWinner = false,
   className,
+  layout = 'grid',
 }: VenueChoiceBarProps) {
   const tone = optionAccent(index);
   const dimmed = revealed && !isWinner;
+  const stacked = layout === 'stack';
 
   const borderColor = dimmed ? `${tone.accent}99` : tone.accent;
   const outerGlow = isWinner
@@ -38,7 +43,10 @@ export function VenueChoiceBar({
   return (
     <div className={cn('relative min-w-0', className)}>
       <div
-        className="venue-option-bar relative flex h-[110px] w-full items-center overflow-hidden rounded-[20px] font-semibold"
+        className={cn(
+          'venue-option-bar relative flex w-full items-stretch overflow-hidden rounded-[20px] font-semibold',
+          stacked ? 'min-h-[110px]' : 'h-[110px]',
+        )}
         style={{
           background: answerBg,
           border: `2px solid ${borderColor}`,
@@ -46,7 +54,7 @@ export function VenueChoiceBar({
         }}
       >
         <span
-          className="flex h-full w-[120px] shrink-0 items-center justify-center rounded-l-[18px]"
+          className="flex w-[120px] shrink-0 items-center justify-center self-stretch rounded-l-[18px]"
           style={{
             background: dimmed
               ? `linear-gradient(180deg, ${tone.from}99 0%, ${tone.to} 100%)`
@@ -63,18 +71,22 @@ export function VenueChoiceBar({
             {letter}
           </span>
         </span>
-        <span
+        <VenueAutoFitText
           className={cn(
-            'min-w-0 flex-1 truncate px-4 text-[35px] font-semibold leading-none',
+            'flex min-h-0 min-w-0 flex-1 items-center px-4 py-2 font-semibold',
             dimmed ? 'text-[#7F8084]' : 'text-black',
           )}
           style={{ background: answerBg }}
+          minFontSize={stacked ? 20 : 18}
+          maxFontSize={35}
+          step={1}
+          align="left"
         >
-          {label}
-        </span>
+          <span className="block w-full leading-tight">{label}</span>
+        </VenueAutoFitText>
         {isWinner ? (
           <span
-            className="mr-6 flex size-[65px] shrink-0 items-center justify-center rounded-full border border-[#38FF00] shadow-[0_0_12px_#38FF00]"
+            className="mr-6 flex size-[65px] shrink-0 items-center justify-center self-center rounded-full border border-[#38FF00] shadow-[0_0_12px_#38FF00]"
             style={{
               background: 'radial-gradient(circle at 50% 50%, #38FF00 0%, #007B00 90%)',
             }}

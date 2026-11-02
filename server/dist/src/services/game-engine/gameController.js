@@ -2705,6 +2705,7 @@ const launchMiniGame = async (io, pin, gameType, config = {}) => {
   gameState.activeMiniGame = gameType;
   gameState.miniGameConfig = normalizedConfig;
   gameState.scoreboardVisible = false;
+  delete gameState.miniGameHold;
   gameState.miniGameState =
     gameType === 'card_shuffle'
       ? createCardShuffleState()

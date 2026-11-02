@@ -37,12 +37,15 @@ type HostQuestionPreviewColumnProps = {
   /** Fallback when socket preview is empty — all rounds from session state. */
   roundsFallback?: { name?: string; type?: string; questions?: HostQuestionPreviewRow[] }[];
   currentRoundIndex: number;
-  currentQuestionIndex: number;
+  /** Index of the question the host is viewing / running (may differ from raw gameState during preview). */
+  highlightQuestionIndex: number;
   pin: string;
   socket: Socket | null;
   jumpDisabled?: boolean;
   questionState?: string;
   timerRunning?: boolean;
+  /** Live session state (e.g. QUESTION, ROUND_END, SCOREBOARD). */
+  sessionState?: string;
   className?: string;
 };
 
@@ -68,12 +71,13 @@ export function HostQuestionPreviewColumn({
   questions: fallbackRows,
   roundsFallback,
   currentRoundIndex,
-  currentQuestionIndex,
+  highlightQuestionIndex,
   pin,
   socket,
   jumpDisabled = false,
   questionState = '',
   timerRunning = false,
+  sessionState = '',
   className,
 }: HostQuestionPreviewColumnProps) {
   const listRef = useRef<HTMLUListElement>(null);
@@ -137,7 +141,7 @@ export function HostQuestionPreviewColumn({
     const viewBottom = viewTop + list.clientHeight;
     if (itemTop < viewTop) list.scrollTop = itemTop;
     else if (itemBottom > viewBottom) list.scrollTop = itemBottom - list.clientHeight;
-  }, [currentQuestionIndex, currentRoundIndex, liveRounds]);
+  }, [highlightQuestionIndex, currentRoundIndex, liveRounds, sessionState]);
 
   const fallbackRoundGroups: LivePreviewRound[] =
     Array.isArray(roundsFallback) && roundsFallback.length > 0
@@ -170,7 +174,7 @@ export function HostQuestionPreviewColumn({
 
   const displayRounds = liveRounds.length > 0 ? liveRounds : fallbackRoundGroups;
   const totalQuestionCount = displayRounds.reduce(
-    (sum, round) => sum + round.questions.length,
+    (sum, round) => sum + round.questions.length + (round.questions.length > 0 ? 1 : 0),
     0,
   );
 
@@ -181,7 +185,7 @@ export function HostQuestionPreviewColumn({
   const needsJumpConfirm = (roundIndex: number, idx: number) => {
     const goingBack =
       roundIndex < currentRoundIndex ||
-      (roundIndex === currentRoundIndex && idx < currentQuestionIndex);
+      (roundIndex === currentRoundIndex && idx < highlightQuestionIndex);
     const timerLive =
       roundIndex === currentRoundIndex && questionState === 'ACTIVE' && timerRunning;
     return goingBack || timerLive;
@@ -212,7 +216,7 @@ export function HostQuestionPreviewColumn({
   const handleGoToQuestion = (roundIndex: number, idx: number) => {
     if (!socket || !pin || jumpDisabled) return;
     const isCurrentSpot =
-      roundIndex === currentRoundIndex && idx === currentQuestionIndex;
+      roundIndex === currentRoundIndex && idx === highlightQuestionIndex;
     if (isCurrentSpot) return;
     if (needsJumpConfirm(roundIndex, idx)) {
       setPendingJump({ roundIndex, questionIndex: idx });
@@ -368,19 +372,22 @@ export function HostQuestionPreviewColumn({
                     ) : null}
                   </span>
                   <span className="shrink-0 rounded bg-black/30 px-2 py-0.5 text-[10px] font-bold text-white/70">
-                    {round.questions.length}
+                    {round.questions.length + 1}
                   </span>
                 </button>
                 {isRoundOpen ? (
                 <ul id={roundPanelId} className="space-y-3 pb-1 pl-1" role="region" aria-labelledby={`preview-round-trigger-${round.roundIndex}`}>
                   {round.questions.map((q, idx) => {
-                    const isCurrent = isActiveRound && idx === currentQuestionIndex;
+                    const roundEndLive =
+                      isActiveRound &&
+                      (sessionState === 'ROUND_END' || sessionState === 'SCOREBOARD');
+                    const isCurrent =
+                      isActiveRound && idx === highlightQuestionIndex && !roundEndLive;
                     const expanded = expandedId === q.id;
                     const text = String(q.text || '').trim() || 'Untitled question';
                     const showThumb = q.mediaUrl && isQuestionImageMedia(q.mediaType, q.mediaUrl);
                     const editReady = q.options.length >= 2;
                     const canJump = !jumpDisabled;
-
                     return (
                       <li
                         key={`${round.roundIndex}-${q.id ?? idx}`}
@@ -389,14 +396,18 @@ export function HostQuestionPreviewColumn({
                       >
                         <div
                           className={cn(
-                            'flex min-h-[80px] items-center gap-2 rounded-[5px] border border-solid py-2 pl-3 pr-2',
-                            HOST_DASHBOARD.tileGradient,
+                            'relative flex min-h-[80px] items-center gap-2 rounded-[5px] border border-solid py-2 pl-3 pr-2',
                             isCurrent
-                              ? 'border-[#00d9ff] shadow-[0_0_12px_rgba(0,217,255,0.2)]'
-                              : 'border-[#888]',
+                              ? 'border-[#00d9ff] bg-[#00d9ff]/12 shadow-[0_0_20px_rgba(0,217,255,0.4)] ring-2 ring-[#00d9ff]/70'
+                              : cn(HOST_DASHBOARD.tileGradient, 'border-[#888]'),
                           )}
                         >
-                          <p className="line-clamp-2 min-w-0 flex-1 text-[13px] font-bold leading-4 text-white">
+                          <p
+                            className={cn(
+                              'line-clamp-2 min-w-0 flex-1 text-[13px] font-bold leading-4',
+                              isCurrent ? 'text-white' : 'text-white/90',
+                            )}
+                          >
                             {text}
                           </p>
                           <span className="shrink-0 text-[16px] font-bold text-white">{idx + 1}</span>
@@ -490,6 +501,52 @@ export function HostQuestionPreviewColumn({
                       </li>
                     );
                   })}
+                  {(() => {
+                    const roundEndLive =
+                      isActiveRound &&
+                      (sessionState === 'ROUND_END' || sessionState === 'SCOREBOARD');
+                    const endLabel = roundSubtitle
+                      ? `End of round — ${roundSubtitle}`
+                      : `End of ${roundTitle}`;
+                    return (
+                      <li
+                        key={`round-${round.roundIndex}-end`}
+                        ref={roundEndLive ? activeRef : undefined}
+                        className="list-none"
+                      >
+                        <div
+                          className={cn(
+                            'flex min-h-[72px] items-center gap-2 rounded-[5px] border border-solid px-3 py-3',
+                            roundEndLive
+                              ? 'border-[#c084fc] bg-[linear-gradient(180deg,rgba(64,32,186,0.55)_0%,rgba(0,0,0,0.85)_100%)] shadow-[0_0_18px_rgba(192,132,252,0.35)] ring-2 ring-[#a855f7]/60'
+                              : 'border-[#555] bg-[linear-gradient(180deg,rgba(64,32,186,0.25)_0%,rgba(11,15,26,0.95)_100%)]',
+                          )}
+                        >
+                          <span className="shrink-0 text-lg" aria-hidden>
+                            🏁
+                          </span>
+                          <div className="min-w-0 flex-1">
+                            <p className="text-[11px] font-black uppercase tracking-wide text-[#c084fc]">
+                              End of round slide
+                            </p>
+                            <p className="line-clamp-2 text-[12px] font-bold leading-snug text-white/90">
+                              {endLabel}
+                            </p>
+                            <p className="mt-0.5 text-[9px] font-semibold uppercase text-white/45">
+                              Venue shows round wrap → leaderboard
+                            </p>
+                          </div>
+                          {roundEndLive ? (
+                            <span className="shrink-0 rounded bg-[#a855f7] px-1.5 py-0.5 text-[8px] font-black uppercase text-white">
+                              Now
+                            </span>
+                          ) : (
+                            <span className="shrink-0 text-[14px] font-bold text-white/40">★</span>
+                          )}
+                        </div>
+                      </li>
+                    );
+                  })()}
                 </ul>
                 ) : null}
               </li>

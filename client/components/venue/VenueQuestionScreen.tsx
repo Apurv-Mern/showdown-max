@@ -55,7 +55,7 @@ const IMAGE_MEDIA_FRAME_STYLE: CSSProperties = {
 /** Fills logical 1920×1080 stage (scaled by VenueStage for 1080p–4K+ / large venue TVs). */
 export function VenueQuestionScreen({
   questionText,
-  questionIndex,
+  questionIndex: _questionIndex,
   options,
   timerRemaining,
   timerDuration,
@@ -74,9 +74,11 @@ export function VenueQuestionScreen({
   const hasVideo = Boolean(media?.url && mediaType === 'mp4');
   const winners = new Set(winnerIndexes);
 
+  const upperQuestion = toDisplayUpper(questionText);
+
   const questionLine = (
     <p className="venue-question-text line-clamp-3 shrink-0 text-center text-[clamp(1.75rem,4.2cqh,2.875rem)] font-normal leading-snug text-white [text-shadow:0_2px_4px_rgba(0,0,0,0.5)]">
-      Q{questionIndex + 1}. {toDisplayUpper(questionText)}
+      {upperQuestion}
     </p>
   );
 
@@ -96,6 +98,7 @@ export function VenueQuestionScreen({
           label={toDisplayUpper(opt.text)}
           revealed={revealed}
           isWinner={winners.has(i)}
+          layout={layout}
         />
       ))}
     </div>
@@ -125,7 +128,7 @@ export function VenueQuestionScreen({
                 maxFontSize={60}
                 step={2}
               >
-                {`Q${questionIndex + 1}. ${toDisplayUpper(questionText)}`}
+                {upperQuestion}
               </VenueAutoFitText>
             </div>
 
@@ -134,7 +137,7 @@ export function VenueQuestionScreen({
                 className="h-[560px] max-h-full w-[787px] max-w-[41%] shrink-0 overflow-hidden bg-[#e1d7cf]"
                 style={IMAGE_MEDIA_FRAME_STYLE}
               >
-                <img src={media?.url} alt="" className="size-full " />
+                <img src={media?.url} alt="" className="size-full object-contain object-bottom" />
               </div>
               <div className="flex min-h-0 min-w-0 flex-1 flex-col justify-start overflow-y-auto overflow-x-hidden pr-1 pt-0">
                 {renderOptions('stack')}
@@ -167,7 +170,7 @@ export function VenueQuestionScreen({
                   maxFontSize={56}
                   step={2}
                 >
-                  {`Q${questionIndex + 1}. ${toDisplayUpper(questionText)}`}
+                  {upperQuestion}
                 </VenueAutoFitText>
               )}
             </div>

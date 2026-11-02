@@ -10,6 +10,7 @@ type VenueAutoFitTextProps = {
   maxFontSize: number;
   step?: number;
   style?: CSSProperties;
+  align?: 'left' | 'center';
 };
 
 /**
@@ -23,6 +24,7 @@ export function VenueAutoFitText({
   maxFontSize,
   step = 2,
   style,
+  align = 'center',
 }: VenueAutoFitTextProps) {
   const boxRef = useRef<HTMLDivElement>(null);
   const textRef = useRef<HTMLSpanElement>(null);
@@ -60,7 +62,10 @@ export function VenueAutoFitText({
 
   return (
     <div ref={boxRef} className={cn('min-h-0 min-w-0 overflow-hidden', className)} style={style}>
-      <span ref={textRef} className="block max-w-full text-center">
+      <span
+        ref={textRef}
+        className={cn('block max-w-full', align === 'left' ? 'text-left' : 'text-center')}
+      >
         {children}
       </span>
     </div>

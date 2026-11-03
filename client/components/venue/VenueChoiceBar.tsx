@@ -44,7 +44,7 @@ export function VenueChoiceBar({
     <div className={cn('relative min-w-0', className)}>
       <div
         className={cn(
-          'venue-option-bar relative flex w-full items-stretch overflow-hidden rounded-[20px] font-semibold',
+          'venue-option-bar relative flex w-full items-stretch overflow-hidden rounded-[20px] font-bold',
           stacked ? 'min-h-[110px]' : 'h-[110px]',
         )}
         style={{
@@ -64,7 +64,7 @@ export function VenueChoiceBar({
         >
           <span
             className={cn(
-              'text-[80px] font-semibold leading-none [text-shadow:0_4px_6px_rgba(0,0,0,0.8)]',
+              'text-[80px] font-bold leading-none [text-shadow:0_4px_6px_rgba(0,0,0,0.8)]',
               dimmed ? 'text-[#9A9A9A]' : 'text-white',
             )}
           >
@@ -73,12 +73,12 @@ export function VenueChoiceBar({
         </span>
         <VenueAutoFitText
           className={cn(
-            'flex min-h-0 min-w-0 flex-1 items-center px-4 py-2 font-semibold',
+            'flex min-h-0 min-w-0 flex-1 items-center px-4 py-2 font-bold',
             dimmed ? 'text-[#7F8084]' : 'text-black',
           )}
           style={{ background: answerBg }}
-          minFontSize={stacked ? 22 : 20}
-          maxFontSize={40}
+          minFontSize={stacked ? 26 : 24}
+          maxFontSize={44}
           step={1}
           align="left"
         >

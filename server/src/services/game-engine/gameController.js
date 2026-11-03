@@ -1254,6 +1254,135 @@ const jumpToQuestion = async (io, pin, questionIndex, roundIndexArg = undefined)
   });
 };
 
+const assertJumpAllowed = (gameState) => {
+  if (!gameState) {
+    throw new Error('No live game for this session.');
+  }
+  if (gameState.activeMiniGame) {
+    throw new Error('Cannot jump while a mini-game is active.');
+  }
+  const jumpAllowedStates = new Set([
+    GAME_STATES.QUESTION,
+    GAME_STATES.ROUND_INTRO,
+    GAME_STATES.SCOREBOARD,
+    GAME_STATES.WAGER_COLLECTION,
+    GAME_STATES.ROUND_END,
+  ]);
+  if (!jumpAllowedStates.has(gameState.state)) {
+    throw new Error('Jump is not available in the current game phase.');
+  }
+};
+
+const resolveTargetRoundIndex = (gameState, roundIndexArg) => {
+  const targetRoundIdx =
+    roundIndexArg !== undefined && roundIndexArg !== null
+      ? Number(roundIndexArg)
+      : Number(gameState.currentRoundIndex);
+  if (
+    !Number.isFinite(targetRoundIdx) ||
+    targetRoundIdx < 0 ||
+    targetRoundIdx >= gameState.rounds.length
+  ) {
+    throw new Error('Invalid round.');
+  }
+  return targetRoundIdx;
+};
+
+/** Host preview: show the round intro slide for a round (scores unchanged). */
+const jumpToRoundIntro = async (io, pin, roundIndexArg = undefined) => {
+  let gameState = await redisStore.getGameState(pin);
+  assertJumpAllowed(gameState);
+  const targetRoundIdx = resolveTargetRoundIndex(gameState, roundIndexArg);
+
+  if (
+    gameState.state === GAME_STATES.ROUND_INTRO &&
+    Number(gameState.currentRoundIndex) === targetRoundIdx
+  ) {
+    return;
+  }
+
+  timerManager.stopTimer(pin);
+  try {
+    io.to(`session:${pin}`).emit(SOCKET_EVENTS.MUSIC_CONTROL, { action: 'pause' });
+  } catch {
+    /* ignore */
+  }
+
+  gameState = clearStandardWagerAudiencePointers(gameState);
+  gameState = {
+    ...gameState,
+    state: GAME_STATES.ROUND_INTRO,
+    currentRoundIndex: targetRoundIdx,
+    currentQuestionIndex: 0,
+    questionState: QUESTION_STATES.WAITING,
+    responseCount: 0,
+    timerRemaining: 0,
+    timerRunning: false,
+    timerPaused: false,
+    scoreboardVisible: false,
+    audienceHoldRoundIntro: false,
+    hostPreviewAwaitingWagerCollection: false,
+    hostViewingQuestionPreview: false,
+    audienceWagerCollectionOpen: false,
+  };
+  await redisStore.setGameState(pin, gameState);
+
+  io.to(`session:${pin}`).emit(SOCKET_EVENTS.ROUND_INTRO, {
+    round: stateMachine.getCurrentRound(gameState),
+    roundIndex: gameState.currentRoundIndex,
+    totalRounds: gameState.rounds.length,
+  });
+  io.to(`session:${pin}`).emit(
+    SOCKET_EVENTS.SESSION_STATE,
+    clientPayloadFromGameState(gameState, pin),
+  );
+  require('../sessionCheckpointService').persistNow(pin).catch(() => {});
+  logger.info('Jumped to round intro', { pin, roundIndex: targetRoundIdx });
+};
+
+/** Host preview: show the end-of-round slide for a round (scores unchanged). */
+const jumpToRoundEnd = async (io, pin, roundIndexArg = undefined) => {
+  let gameState = await redisStore.getGameState(pin);
+  assertJumpAllowed(gameState);
+  const targetRoundIdx = resolveTargetRoundIndex(gameState, roundIndexArg);
+
+  if (
+    gameState.state === GAME_STATES.ROUND_END &&
+    Number(gameState.currentRoundIndex) === targetRoundIdx
+  ) {
+    return;
+  }
+
+  timerManager.stopTimer(pin);
+  try {
+    io.to(`session:${pin}`).emit(SOCKET_EVENTS.MUSIC_CONTROL, { action: 'pause' });
+  } catch {
+    /* ignore */
+  }
+
+  gameState = clearStandardWagerAudiencePointers(gameState);
+  gameState = {
+    ...gameState,
+    currentRoundIndex: targetRoundIdx,
+    questionState: QUESTION_STATES.WAITING,
+    responseCount: 0,
+    timerRemaining: 0,
+    timerRunning: false,
+    timerPaused: false,
+    scoreboardVisible: false,
+    audienceHoldRoundIntro: false,
+    hostPreviewAwaitingWagerCollection: false,
+    hostViewingQuestionPreview: false,
+    audienceWagerCollectionOpen: false,
+  };
+  const applied = await endRound(io, pin, gameState, { force: true });
+  if (!applied) {
+    throw new Error('Unable to show end-of-round slide.');
+  }
+  require('../sessionCheckpointService').persistNow(pin).catch(() => {});
+  logger.info('Jumped to round end slide', { pin, roundIndex: targetRoundIdx });
+};
+
 /**
  * Handle a team's answer submission
  */
@@ -1726,7 +1855,8 @@ const expireActiveQuestionTimerAndReveal = async (io, pin, reason) => {
  *
  * Score persistence happens here so it is durable regardless of how the host advances.
  */
-const endRound = async (io, pin, gameState) => {
+const endRound = async (io, pin, gameState, options = {}) => {
+  const { force = false } = options;
   if (eliminationStates.has(pin)) {
     eliminationStates.delete(pin);
   }
@@ -1748,29 +1878,34 @@ const endRound = async (io, pin, gameState) => {
   gameState.activeTeamIds = Object.keys(gameState.teams).map(Number);
 
   const result = stateMachine.transition(gameState, GAME_STATES.ROUND_END);
-  if (!result.valid) return;
+  let finalState;
+  if (!result.valid) {
+    if (!force) return false;
+    finalState = { ...gameState, state: GAME_STATES.ROUND_END };
+  } else {
+    finalState = result.gameState;
+  }
 
-  await redisStore.setGameState(pin, result.gameState);
-  persistScoresToDB(result.gameState.teams).catch((err) =>
+  await redisStore.setGameState(pin, finalState);
+  persistScoresToDB(finalState.teams).catch((err) =>
     logger.error('Failed to persist team flags after round end', { pin, error: err.message }),
   );
   logger.info('Round ended', {
     pin,
     roundIndex: gameState.currentRoundIndex,
-    totalTeams: Object.keys(result.gameState.teams).length,
+    totalTeams: Object.keys(finalState.teams).length,
+    forced: force && !result.valid,
   });
 
-  const currentRound = stateMachine.getCurrentRound(result.gameState);
-  const nextIdx = Number(result.gameState.currentRoundIndex) + 1;
+  const currentRound = stateMachine.getCurrentRound(finalState);
+  const nextIdx = Number(finalState.currentRoundIndex) + 1;
   const nextRound =
-    nextIdx >= 0 && nextIdx < result.gameState.rounds.length
-      ? result.gameState.rounds[nextIdx]
-      : null;
+    nextIdx >= 0 && nextIdx < finalState.rounds.length ? finalState.rounds[nextIdx] : null;
   const isFinalRound = !nextRound;
 
   io.to(`session:${pin}`).emit(SOCKET_EVENTS.ROUND_END, {
-    roundIndex: result.gameState.currentRoundIndex,
-    roundName: currentRound?.name || `Round ${Number(result.gameState.currentRoundIndex) + 1}`,
+    roundIndex: finalState.currentRoundIndex,
+    roundName: currentRound?.name || `Round ${Number(finalState.currentRoundIndex) + 1}`,
     roundType: currentRound?.type || '',
     nextRound: nextRound
       ? {
@@ -1783,8 +1918,9 @@ const endRound = async (io, pin, gameState) => {
   });
   io.to(`session:${pin}`).emit(
     SOCKET_EVENTS.SESSION_STATE,
-    clientPayloadFromGameState(result.gameState, pin),
+    clientPayloadFromGameState(finalState, pin),
   );
+  return true;
 };
 
 /**
@@ -3340,6 +3476,8 @@ module.exports = {
   getLiveRoundPreview,
   updateLiveQuestion,
   jumpToQuestion,
+  jumpToRoundIntro,
+  jumpToRoundEnd,
   restoreEliminationState,
   publishQuestionLiveStatsAfterRosterChange,
 };

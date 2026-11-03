@@ -2851,8 +2851,6 @@ export default function GamePage() {
                     className="mb-3 shrink-0 sm:mb-4"
                     timerDisplay={timerRemaining}
                     timerDuration={timerDuration}
-                    questionIndex={question.questionIndex || 0}
-                    totalQuestions={question.totalQuestions}
                     teamName={session.teamName}
                     score={session.score}
                     pointsDisplay={formatQuestionPointsHeader(
@@ -3041,8 +3039,6 @@ export default function GamePage() {
                     className="mb-3 shrink-0 sm:mb-4"
                     timerDisplay={0}
                     timerDuration={timerDuration}
-                    questionIndex={question.questionIndex || 0}
-                    totalQuestions={question.totalQuestions}
                     teamName={session.teamName}
                     score={session.score}
                     pointsDisplay={formatQuestionPointsHeader(

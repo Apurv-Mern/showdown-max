@@ -557,6 +557,52 @@ const hostHandlers = (io, socket) => {
     }
   });
 
+  socket.on(SOCKET_EVENTS.JUMP_TO_ROUND_INTRO, async (data, ack) => {
+    try {
+      const pin = data?.pin;
+      if (!assertHostForPin(socket, pin)) {
+        const message = 'Unauthorized';
+        socket.emit(SOCKET_EVENTS.ERROR, { message });
+        if (typeof ack === 'function') ack({ ok: false, error: message });
+        return;
+      }
+      const roundIndex =
+        data?.roundIndex !== undefined && data?.roundIndex !== null
+          ? Number(data.roundIndex)
+          : undefined;
+      await gameController.jumpToRoundIntro(io, pin, roundIndex);
+      if (typeof ack === 'function') ack({ ok: true });
+    } catch (err) {
+      logger.error('jump_to_round_intro error', { error: err.message });
+      const message = err.message || 'Failed to jump to round intro';
+      socket.emit(SOCKET_EVENTS.ERROR, { message });
+      if (typeof ack === 'function') ack({ ok: false, error: message });
+    }
+  });
+
+  socket.on(SOCKET_EVENTS.JUMP_TO_ROUND_END, async (data, ack) => {
+    try {
+      const pin = data?.pin;
+      if (!assertHostForPin(socket, pin)) {
+        const message = 'Unauthorized';
+        socket.emit(SOCKET_EVENTS.ERROR, { message });
+        if (typeof ack === 'function') ack({ ok: false, error: message });
+        return;
+      }
+      const roundIndex =
+        data?.roundIndex !== undefined && data?.roundIndex !== null
+          ? Number(data.roundIndex)
+          : undefined;
+      await gameController.jumpToRoundEnd(io, pin, roundIndex);
+      if (typeof ack === 'function') ack({ ok: true });
+    } catch (err) {
+      logger.error('jump_to_round_end error', { error: err.message });
+      const message = err.message || 'Failed to jump to round end';
+      socket.emit(SOCKET_EVENTS.ERROR, { message });
+      if (typeof ack === 'function') ack({ ok: false, error: message });
+    }
+  });
+
   socket.on(SOCKET_EVENTS.EDIT_TEAM_SCORE, async (data) => {
     try {
       const { pin, teamId, score, teamName: rawTeamName } = data;

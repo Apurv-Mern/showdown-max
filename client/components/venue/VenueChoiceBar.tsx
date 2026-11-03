@@ -77,8 +77,8 @@ export function VenueChoiceBar({
             dimmed ? 'text-[#7F8084]' : 'text-black',
           )}
           style={{ background: answerBg }}
-          minFontSize={stacked ? 20 : 18}
-          maxFontSize={35}
+          minFontSize={stacked ? 22 : 20}
+          maxFontSize={40}
           step={1}
           align="left"
         >

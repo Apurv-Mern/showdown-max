@@ -89,9 +89,17 @@ export function HostQuestionPreviewColumn({
     roundIndex: number;
     questionIndex: number;
   } | null>(null);
+  const [jumpingSlide, setJumpingSlide] = useState<{
+    roundIndex: number;
+    kind: 'intro' | 'end';
+  } | null>(null);
   const [pendingJump, setPendingJump] = useState<{
     roundIndex: number;
     questionIndex: number;
+  } | null>(null);
+  const [pendingSlideJump, setPendingSlideJump] = useState<{
+    roundIndex: number;
+    kind: 'intro' | 'end';
   } | null>(null);
   const [openRoundIndex, setOpenRoundIndex] = useState<number | null>(currentRoundIndex);
 
@@ -174,7 +182,7 @@ export function HostQuestionPreviewColumn({
 
   const displayRounds = liveRounds.length > 0 ? liveRounds : fallbackRoundGroups;
   const totalQuestionCount = displayRounds.reduce(
-    (sum, round) => sum + round.questions.length + (round.questions.length > 0 ? 1 : 0),
+    (sum, round) => sum + round.questions.length + (round.questions.length > 0 ? 2 : 1),
     0,
   );
 
@@ -225,11 +233,101 @@ export function HostQuestionPreviewColumn({
     executeJump(roundIndex, idx);
   };
 
+  const needsSlideJumpConfirm = (roundIndex: number, kind: 'intro' | 'end') => {
+    const goingBack = roundIndex < currentRoundIndex;
+    const timerLive =
+      roundIndex === currentRoundIndex && questionState === 'ACTIVE' && timerRunning;
+    const leavingLiveSpot =
+      roundIndex === currentRoundIndex &&
+      ((kind === 'intro' && sessionState !== 'ROUND_INTRO') ||
+        (kind === 'end' &&
+          sessionState !== 'ROUND_END' &&
+          sessionState !== 'SCOREBOARD'));
+    return goingBack || timerLive || leavingLiveSpot;
+  };
+
+  const executeJumpRoundIntro = useCallback(
+    (roundIndex: number) => {
+      if (!socket || !pin) return;
+      setJumpingSlide({ roundIndex, kind: 'intro' });
+      socket.emit(
+        'jump_to_round_intro',
+        { pin, roundIndex },
+        (ack?: { ok?: boolean; error?: string }) => {
+          setJumpingSlide(null);
+          if (ack?.ok) {
+            toast.success(`Jumped to Round ${roundIndex + 1} intro`);
+            setOpenRoundIndex(roundIndex);
+            requestPreview();
+          } else if (ack?.error) {
+            toast.error(ack.error);
+          }
+        },
+      );
+    },
+    [socket, pin, requestPreview],
+  );
+
+  const executeJumpRoundEnd = useCallback(
+    (roundIndex: number) => {
+      if (!socket || !pin) return;
+      setJumpingSlide({ roundIndex, kind: 'end' });
+      socket.emit(
+        'jump_to_round_end',
+        { pin, roundIndex },
+        (ack?: { ok?: boolean; error?: string }) => {
+          setJumpingSlide(null);
+          if (ack?.ok) {
+            toast.success(`Jumped to Round ${roundIndex + 1} end slide`);
+            setOpenRoundIndex(roundIndex);
+            requestPreview();
+          } else if (ack?.error) {
+            toast.error(ack.error);
+          }
+        },
+      );
+    },
+    [socket, pin, requestPreview],
+  );
+
+  const handleGoToRoundIntro = (roundIndex: number) => {
+    if (!socket || !pin || jumpDisabled) return;
+    const isCurrent =
+      roundIndex === currentRoundIndex && sessionState === 'ROUND_INTRO';
+    if (isCurrent) return;
+    if (needsSlideJumpConfirm(roundIndex, 'intro')) {
+      setPendingSlideJump({ roundIndex, kind: 'intro' });
+      return;
+    }
+    executeJumpRoundIntro(roundIndex);
+  };
+
+  const handleGoToRoundEnd = (roundIndex: number) => {
+    if (!socket || !pin || jumpDisabled) return;
+    const isCurrent =
+      roundIndex === currentRoundIndex &&
+      (sessionState === 'ROUND_END' || sessionState === 'SCOREBOARD');
+    if (isCurrent) return;
+    if (needsSlideJumpConfirm(roundIndex, 'end')) {
+      setPendingSlideJump({ roundIndex, kind: 'end' });
+      return;
+    }
+    executeJumpRoundEnd(roundIndex);
+  };
+
   const confirmPendingJump = () => {
     if (!pendingJump) return;
     const { roundIndex, questionIndex } = pendingJump;
     setPendingJump(null);
     executeJump(roundIndex, questionIndex);
+  };
+
+  const confirmPendingSlideJump = () => {
+    if (!pendingSlideJump) return;
+    const { roundIndex, kind } = pendingSlideJump;
+    setPendingSlideJump(null);
+    if (kind === 'intro') executeJumpRoundIntro(roundIndex);
+    else executeJumpRoundEnd(roundIndex);
   };
 
   const updateLocalQuestion = (id: number, patch: Partial<LivePreviewQuestion>) => {
@@ -372,17 +470,78 @@ export function HostQuestionPreviewColumn({
                     ) : null}
                   </span>
                   <span className="shrink-0 rounded bg-black/30 px-2 py-0.5 text-[10px] font-bold text-white/70">
-                    {round.questions.length + 1}
+                    {round.questions.length > 0 ? round.questions.length + 2 : 1}
                   </span>
                 </button>
                 {isRoundOpen ? (
                 <ul id={roundPanelId} className="space-y-3 pb-1 pl-1" role="region" aria-labelledby={`preview-round-trigger-${round.roundIndex}`}>
+                  {(() => {
+                    const roundIntroLive =
+                      isActiveRound && sessionState === 'ROUND_INTRO';
+                    const introLabel = roundSubtitle
+                      ? `Start of round — ${roundSubtitle}`
+                      : `Start of ${roundTitle}`;
+                    const introBusy =
+                      jumpingSlide?.roundIndex === round.roundIndex &&
+                      jumpingSlide.kind === 'intro';
+                    return (
+                      <li
+                        key={`round-${round.roundIndex}-intro`}
+                        ref={roundIntroLive ? activeRef : undefined}
+                        className="list-none"
+                      >
+                        <div
+                          className={cn(
+                            'flex min-h-[72px] items-center gap-2 rounded-[5px] border border-solid px-3 py-3',
+                            roundIntroLive
+                              ? 'border-[#00d9ff] bg-[linear-gradient(180deg,rgba(0,100,180,0.45)_0%,rgba(0,10,40,0.92)_100%)] shadow-[0_0_18px_rgba(0,217,255,0.35)] ring-2 ring-[#00d9ff]/60'
+                              : 'border-[#555] bg-[linear-gradient(180deg,rgba(0,80,140,0.22)_0%,rgba(11,15,26,0.95)_100%)]',
+                          )}
+                        >
+                          <span className="shrink-0 text-lg" aria-hidden>
+                            ▶
+                          </span>
+                          <div className="min-w-0 flex-1">
+                            <p className="text-[11px] font-black uppercase tracking-wide text-[#00d9ff]">
+                              Start of round slide
+                            </p>
+                            <p className="line-clamp-2 text-[12px] font-bold leading-snug text-white/90">
+                              {introLabel}
+                            </p>
+                            <p className="mt-0.5 text-[9px] font-semibold uppercase text-white/45">
+                              Venue round intro → first question
+                            </p>
+                          </div>
+                          <div className="flex shrink-0 flex-col items-end gap-1">
+                            {roundIntroLive ? (
+                              <span className="rounded bg-[#00d9ff] px-1.5 py-0.5 text-[8px] font-black uppercase text-[#041018]">
+                                Now
+                              </span>
+                            ) : null}
+                            <button
+                              type="button"
+                              className={previewActionBtn}
+                              disabled={jumpDisabled || roundIntroLive || introBusy || jumpingTarget !== null}
+                              onClick={() => handleGoToRoundIntro(round.roundIndex)}
+                            >
+                              {introBusy ? '…' : 'Go to'}
+                            </button>
+                          </div>
+                        </div>
+                      </li>
+                    );
+                  })()}
                   {round.questions.map((q, idx) => {
+                    const roundIntroLive =
+                      isActiveRound && sessionState === 'ROUND_INTRO';
                     const roundEndLive =
                       isActiveRound &&
                       (sessionState === 'ROUND_END' || sessionState === 'SCOREBOARD');
                     const isCurrent =
-                      isActiveRound && idx === highlightQuestionIndex && !roundEndLive;
+                      isActiveRound &&
+                      idx === highlightQuestionIndex &&
+                      !roundEndLive &&
+                      !roundIntroLive;
                     const expanded = expandedId === q.id;
                     const text = String(q.text || '').trim() || 'Untitled question';
                     const showThumb = q.mediaUrl && isQuestionImageMedia(q.mediaType, q.mediaUrl);
@@ -508,6 +667,9 @@ export function HostQuestionPreviewColumn({
                     const endLabel = roundSubtitle
                       ? `End of round — ${roundSubtitle}`
                       : `End of ${roundTitle}`;
+                    const endBusy =
+                      jumpingSlide?.roundIndex === round.roundIndex &&
+                      jumpingSlide.kind === 'end';
                     return (
                       <li
                         key={`round-${round.roundIndex}-end`}
@@ -536,13 +698,21 @@ export function HostQuestionPreviewColumn({
                               Venue shows round wrap → leaderboard
                             </p>
                           </div>
-                          {roundEndLive ? (
-                            <span className="shrink-0 rounded bg-[#a855f7] px-1.5 py-0.5 text-[8px] font-black uppercase text-white">
-                              Now
-                            </span>
-                          ) : (
-                            <span className="shrink-0 text-[14px] font-bold text-white/40">★</span>
-                          )}
+                          <div className="flex shrink-0 flex-col items-end gap-1">
+                            {roundEndLive ? (
+                              <span className="rounded bg-[#a855f7] px-1.5 py-0.5 text-[8px] font-black uppercase text-white">
+                                Now
+                              </span>
+                            ) : null}
+                            <button
+                              type="button"
+                              className={previewActionBtn}
+                              disabled={jumpDisabled || roundEndLive || endBusy || jumpingTarget !== null}
+                              onClick={() => handleGoToRoundEnd(round.roundIndex)}
+                            >
+                              {endBusy ? '…' : 'Go to'}
+                            </button>
+                          </div>
                         </div>
                       </li>
                     );
@@ -554,6 +724,45 @@ export function HostQuestionPreviewColumn({
           })}
         </ul>
       </aside>
+
+      {pendingSlideJump ? (
+        <div
+          className="fixed inset-0 z-[70] flex items-center justify-center bg-black/70 p-4"
+          role="presentation"
+          onClick={() => setPendingSlideJump(null)}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            className="w-full max-w-md rounded-2xl border border-[#00d9ff]/55 bg-[#151b2b] p-5 shadow-[0_0_24px_rgba(0,217,255,0.12)]"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="mb-3 text-lg font-bold text-[#00d9ff]">
+              Go to Round {pendingSlideJump.roundIndex + 1}{' '}
+              {pendingSlideJump.kind === 'intro' ? 'intro' : 'end slide'}?
+            </h3>
+            <p className="mb-5 text-sm leading-relaxed text-white/70">
+              Team scores stay the same; the venue will show that slide.
+            </p>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setPendingSlideJump(null)}
+                className="flex-1 rounded-lg border border-white/20 py-2 text-sm font-medium text-white/80 hover:bg-white/5"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={confirmPendingSlideJump}
+                className="flex-1 rounded-lg border border-[#00d9ff]/55 bg-[linear-gradient(180deg,#00a9df_0%,#075a89_100%)] py-2 text-sm font-bold uppercase tracking-wide text-white hover:brightness-110"
+              >
+                Go to slide
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {pendingJump ? (
         <div

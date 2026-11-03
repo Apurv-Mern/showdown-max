@@ -77,7 +77,7 @@ export function VenueQuestionScreen({
   const upperQuestion = toDisplayUpper(questionText);
 
   const questionLine = (
-    <p className="venue-question-text line-clamp-3 shrink-0 text-center text-[clamp(1.75rem,4.2cqh,2.875rem)] font-normal leading-snug text-white [text-shadow:0_2px_4px_rgba(0,0,0,0.5)]">
+    <p className="venue-question-text line-clamp-3 shrink-0 text-center text-[clamp(2rem,4.8cqh,3.25rem)] font-normal leading-snug text-white [text-shadow:0_2px_4px_rgba(0,0,0,0.5)]">
       {upperQuestion}
     </p>
   );
@@ -124,8 +124,8 @@ export function VenueQuestionScreen({
             >
               <VenueAutoFitText
                 className="venue-question-text flex h-full w-full items-center justify-center text-center font-normal leading-tight text-white [text-shadow:0_2px_4px_rgba(0,0,0,0.5)]"
-                minFontSize={32}
-                maxFontSize={60}
+                minFontSize={36}
+                maxFontSize={68}
                 step={2}
               >
                 {upperQuestion}
@@ -166,8 +166,8 @@ export function VenueQuestionScreen({
               ) : (
                 <VenueAutoFitText
                   className="venue-question-text flex h-full w-full items-center justify-center text-center font-normal leading-tight text-white [text-shadow:0_2px_4px_rgba(0,0,0,0.5)]"
-                  minFontSize={28}
-                  maxFontSize={56}
+                  minFontSize={32}
+                  maxFontSize={64}
                   step={2}
                 >
                   {upperQuestion}

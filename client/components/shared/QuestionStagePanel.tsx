@@ -6,8 +6,6 @@ import { VenueTimerRing } from '@/components/venue/VenueTimerRing';
 
 type QuestionStagePanelProps = {
   timerDisplay: string | number;
-  questionIndex: number;
-  totalQuestions: number;
   questionText: string;
   teamName?: string;
   score?: string | number;
@@ -23,8 +21,6 @@ type QuestionStagePanelProps = {
  */
 export function QuestionStagePanel({
   timerDisplay,
-  questionIndex,
-  totalQuestions,
   questionText,
   teamName,
   score,
@@ -77,10 +73,7 @@ export function QuestionStagePanel({
               boxShadow: '0 0 15px #0010FF, inset 0 0 15px #0010FF',
             }}
           >
-            <p className="shrink-0 text-center text-[16px] font-extrabold uppercase text-white">
-              Q. {questionIndex + 1}/{totalQuestions}
-            </p>
-            <div className="mt-3 flex min-h-0 flex-1 items-center justify-center overflow-hidden">
+            <div className="flex min-h-0 flex-1 items-center justify-center overflow-hidden">
               {questionMedia}
             </div>
           </div>
@@ -92,23 +85,21 @@ export function QuestionStagePanel({
               boxShadow: '0 0 12px #0010FF, inset 0 0 12px #0010FF',
             }}
           >
-            <h2 className="text-center text-[18px] font-extrabold uppercase leading-snug text-white sm:text-[20px]">
+            <h2 className="text-center text-[20px] font-extrabold uppercase leading-snug text-white sm:text-[22px]">
               {toDisplayUpper(questionText)}
             </h2>
           </div>
         </>
       ) : (
         <div
-          className="relative flex min-h-[220px] w-full items-center justify-center rounded-[10px] px-4 py-6"
+          className="relative flex min-h-[220px] w-full flex-col items-center justify-center gap-2 rounded-[10px] px-4 py-6"
           style={{
             background: '#00010A',
             border: '1px solid #FFFFFF',
             boxShadow: '0 0 15px #0010FF, inset 0 0 15px #0010FF',
           }}
         >
-          <h2 className="text-center text-[22px] font-extrabold uppercase leading-snug text-white">
-            Q. {questionIndex + 1}/{totalQuestions}
-            <br />
+          <h2 className="text-center text-[24px] font-extrabold uppercase leading-snug text-white sm:text-[26px]">
             {toDisplayUpper(questionText)}
           </h2>
         </div>

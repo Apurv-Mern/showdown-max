@@ -53,6 +53,10 @@ const SOCKET_EVENTS = Object.freeze({
   UPDATE_LIVE_QUESTION: 'update_live_question',
   /** Host: jump to a question index in the current round (no score changes). */
   JUMP_TO_QUESTION: 'jump_to_question',
+  /** Host: jump to a round intro slide for the given round index. */
+  JUMP_TO_ROUND_INTRO: 'jump_to_round_intro',
+  /** Host: jump to the end-of-round slide for the given round index. */
+  JUMP_TO_ROUND_END: 'jump_to_round_end',
   /** Host: scroll the venue leaderboard without touching the venue machine. */
   VENUE_LEADERBOARD_SCROLL: 'venue_leaderboard_scroll',
   /** Venue -> host: how far the venue leaderboard can still scroll. */

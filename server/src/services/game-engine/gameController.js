@@ -2426,20 +2426,6 @@ const showScoreboard = async (io, pin) => {
   const gameState = await redisStore.getGameState(pin);
   if (!gameState) return;
 
-  // Overlay between rounds / finale closing screen — not during live questions.
-  if (
-    gameState.state !== GAME_STATES.SCOREBOARD &&
-    gameState.state !== GAME_STATES.ROUND_END &&
-    gameState.state !== GAME_STATES.GAME_SHOW_END
-  ) {
-    logger.warn('showScoreboard rejected — round still active', {
-      pin,
-      state: gameState.state,
-      questionState: gameState.questionState,
-    });
-    return;
-  }
-
   gameState.scoreboardVisible = true;
   await redisStore.setGameState(pin, gameState);
 
@@ -2455,7 +2441,16 @@ const showScoreboard = async (io, pin) => {
     source: 'manual',
     ...(revealSnapshot ? { revealSnapshot } : {}),
   });
-  logger.info('Leaderboard shown', { pin, teamCount: sortedTeams.length });
+  io.to(`session:${pin}`).emit(
+    SOCKET_EVENTS.SESSION_STATE,
+    clientPayloadFromGameState(gameState, pin),
+  );
+  logger.info('Leaderboard shown', {
+    pin,
+    teamCount: sortedTeams.length,
+    state: gameState.state,
+    questionState: gameState.questionState,
+  });
 };
 
 const hideScoreboard = async (io, pin) => {
@@ -2463,6 +2458,10 @@ const hideScoreboard = async (io, pin) => {
   if (gameState) {
     gameState.scoreboardVisible = false;
     await redisStore.setGameState(pin, gameState);
+    io.to(`session:${pin}`).emit(
+      SOCKET_EVENTS.SESSION_STATE,
+      clientPayloadFromGameState(gameState, pin),
+    );
   }
   io.to(`session:${pin}`).emit(SOCKET_EVENTS.SCOREBOARD_HIDDEN, {});
   logger.info('Leaderboard hidden', { pin });

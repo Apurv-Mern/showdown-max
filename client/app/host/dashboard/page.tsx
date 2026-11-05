@@ -838,7 +838,7 @@ function HostDashboardContent() {
           setHostBreakRemaining(w.remaining);
         }
         setIsScoreboardVisible(
-          !data.activeMiniGame && (data.state === 'SCOREBOARD' || Boolean(data.scoreboardVisible)),
+          data.state === 'SCOREBOARD' || Boolean(data.scoreboardVisible),
         );
         // The round-over transition is only meaningful while the server keeps us in
         // ROUND_END; once we move on (scoreboard, next intro, break, etc.) drop the info.
@@ -1224,7 +1224,6 @@ function HostDashboardContent() {
     };
 
     const onScoreboard = (payload?: { teams?: Team[]; source?: string }) => {
-      if (gameStateRef.current?.activeMiniGame) return;
       setIsScoreboardVisible(true);
       setGameState((prev) => {
         if (!prev) return prev;
@@ -1903,10 +1902,6 @@ function HostDashboardContent() {
     }
   };
   const handleShowScoreboard = () => {
-    const canToggleScoreboard =
-      state === 'SCOREBOARD' || state === 'ROUND_END' || state === 'GAME_SHOW_END';
-    if (!canToggleScoreboard) return;
-
     if (isScoreboardVisible) {
       emit('hide_scoreboard');
       setShowScoreboardModal(false);
@@ -2718,8 +2713,6 @@ function HostDashboardContent() {
     (state === 'SCOREBOARD' ||
       state === 'GAME_SHOW_END' ||
       (state === 'QUESTION' && questionState === 'REVEALED' && isLastQuestionOfRound));
-  const canOpenScoreboard =
-    state === 'SCOREBOARD' || state === 'ROUND_END' || state === 'GAME_SHOW_END';
   const canStartBreak = state !== 'LOBBY' && state !== 'FINAL_RESULTS';
   const canToggleBreak = state === 'BREAK' || canStartBreak;
 
@@ -4055,7 +4048,6 @@ function HostDashboardContent() {
                   <path d="M5 3h4v2H5V3zm0 6h4v2H5V9zm0 6h4v2H5v-2zm6-12h10v2H11V3zm0 6h10v2H11V9zm0 6h10v2H11v-2z" />
                 </svg>
               }
-              disabled={miniGameLive || state === 'FINAL_RESULTS' || !canOpenScoreboard}
               onClick={handleShowScoreboard}
             >
               {isScoreboardVisible ? 'Hide Leaderboard' : 'Show Leaderboard'}

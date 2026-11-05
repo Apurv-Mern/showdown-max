@@ -23,7 +23,8 @@ type VenueQuestionScreenProps = {
   timerDuration: number;
   stats: VenueLiveResponseStats;
   roundType?: string;
-  teamCount: number;
+  /** Teams that have submitted for the current question (live, starts at 0). */
+  responseCount: number;
   pointsLabel: string;
   media?: { type?: string; url?: string } | null;
   videoRef?: RefObject<HTMLVideoElement | null>;
@@ -61,7 +62,7 @@ export function VenueQuestionScreen({
   timerDuration,
   stats,
   roundType,
-  teamCount,
+  responseCount,
   pointsLabel,
   media,
   videoRef,
@@ -110,7 +111,7 @@ export function VenueQuestionScreen({
         <VenueTimerRing remainingSeconds={timerRemaining} totalSeconds={timerDuration} />
         <VenueLiveResponseHud stats={stats} roundType={roundType} className="shrink-0" />
         <div className="flex shrink-0 items-center gap-6">
-          <VenueStatBadge kind="teams" value={teamCount} />
+          <VenueStatBadge kind="teams" value={responseCount} />
           <VenueStatBadge kind="points" value={pointsLabel} />
         </div>
       </div>

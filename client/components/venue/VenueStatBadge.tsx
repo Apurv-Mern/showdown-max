@@ -10,8 +10,11 @@ type VenueStatBadgeProps = {
 
 /** Figma top-right people / trophy badges. */
 export function VenueStatBadge({ kind, value, className }: VenueStatBadgeProps) {
+  const ariaLabel =
+    kind === 'teams' ? `${value} team responses` : `Points: ${value}`;
+
   return (
-    <div className={cn('flex items-center gap-3', className)}>
+    <div className={cn('flex items-center gap-3', className)} aria-label={ariaLabel}>
       <span
         className="flex size-[110px] items-center justify-center rounded-full border-2 border-[#00D9FF]"
         style={{

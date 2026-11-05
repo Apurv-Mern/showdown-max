@@ -168,6 +168,32 @@ function venueQuestionHasVisualMedia(q?: { mediaUrl?: string; mediaType?: string
   return mediaType === 'image' || mediaType === 'mp4';
 }
 
+/** Union rosters for venue leaderboard — never drop rows on disconnect; keep names/scores stable. */
+function mergeVenueLeaderboardRoster(incoming: Team[], carryForward: Team[] = []): Team[] {
+  const byId = new Map<number, Team>();
+  for (const t of carryForward) {
+    const id = Number(t.teamId);
+    if (Number.isFinite(id)) byId.set(id, { ...t });
+  }
+  for (const t of incoming) {
+    const id = Number(t.teamId);
+    if (!Number.isFinite(id)) continue;
+    const existing = byId.get(id);
+    const teamName =
+      String(t.teamName || '').trim() ||
+      String(existing?.teamName || '').trim() ||
+      `Team ${id}`;
+    byId.set(id, {
+      ...(existing || { teamId: id, score: 0 }),
+      ...t,
+      teamName,
+      score: Number(t.score ?? existing?.score ?? 0),
+      isEliminated: t.isEliminated ?? existing?.isEliminated,
+    });
+  }
+  return [...byId.values()].sort((a, b) => b.score - a.score);
+}
+
 /** Fresh tallies when a question opens (or resumes) with no graded answers yet. */
 function venueQuestionPhaseFromSession(questionState?: string): 'question' | 'reveal' {
   return String(questionState || '').toUpperCase() === 'REVEALED' ? 'reveal' : 'question';
@@ -470,6 +496,8 @@ function VenueDisplayContent() {
   // resumes the timer and triggers MP3/MP4 playback).
   const [timerRunning, setTimerRunning] = useState(false);
   const [totalTeams, setTotalTeams] = useState(0);
+  /** Live submissions for the active question (venue people badge). */
+  const [questionResponseCount, setQuestionResponseCount] = useState(0);
   const [liveResponses, setLiveResponses] = useState({
     correct: 0,
     incorrect: 0,
@@ -629,27 +657,11 @@ function VenueDisplayContent() {
     [roundEndInfo?.roundType, roundInfo?.round?.type, question?.roundType],
   );
 
-  const displayScoreboardTeams = useMemo(() => {
-    if (phase !== 'scoreboard') return scoreboard;
-    const byId = new Map<number, Team>();
-    for (const t of scoreboard) {
-      byId.set(Number(t.teamId), t);
-    }
-    for (const t of teams) {
-      const id = Number(t.teamId);
-      const existing = byId.get(id);
-      if (!existing) {
-        byId.set(id, t);
-      } else {
-        byId.set(id, {
-          ...existing,
-          ...t,
-          isEliminated: t.isEliminated ?? existing.isEliminated,
-        });
-      }
-    }
-    return [...byId.values()].sort((a, b) => b.score - a.score);
-  }, [phase, scoreboard, teams]);
+  /** Full session roster for venue leaderboard (never shrinks on disconnect). */
+  const venueLeaderboardTeams = useMemo(
+    () => mergeVenueLeaderboardRoster(scoreboard, teams),
+    [scoreboard, teams],
+  );
 
   const muteTimerSound =
     shouldMuteVenueTimerSound(question?.roundType, question?.question) ||
@@ -1247,6 +1259,9 @@ function VenueDisplayContent() {
         const rosterCount = teamList.length;
         setTeams(teamList);
         setTotalTeams(rosterCount);
+        if (phaseRef.current === 'scoreboard' || phaseRef.current === 'game_end') {
+          setScoreboard((prev) => mergeVenueLeaderboardRoster(teamList, prev));
+        }
         setLiveResponses((prev) => {
           if (phaseRef.current === 'reveal' && revealDataRef.current) {
             return liveStatsFromRevealPayload(
@@ -1451,6 +1466,7 @@ function VenueDisplayContent() {
           ? data.activeTeamIds.length
           : (data.teams ? Object.keys(data.teams).length : 0) || Number(data.totalTeams || 0);
         if (data.state === 'QUESTION' && data.questionState === 'ACTIVE') {
+          setQuestionResponseCount(Math.max(0, Number(data.responseCount ?? 0)));
           return bootstrapLiveResponseStats(rosterCount);
         }
         if (data.state === 'QUESTION' && data.questionState === 'REVEALED') {
@@ -1471,14 +1487,13 @@ function VenueDisplayContent() {
       });
 
       const shouldShowScoreboard =
-        !data.activeMiniGame &&
-        (data.state === 'SCOREBOARD' || Boolean(data.scoreboardVisible));
+        data.state === 'SCOREBOARD' || Boolean(data.scoreboardVisible);
       if (shouldShowScoreboard && data.teams) {
         const scoreboardTeams =
           typeof data.teams === 'object' && !Array.isArray(data.teams)
             ? (Object.values(data.teams) as Team[])
             : (data.teams as Team[]);
-        setScoreboard([...scoreboardTeams].sort((a, b) => b.score - a.score));
+        setScoreboard((prev) => mergeVenueLeaderboardRoster(scoreboardTeams, prev));
         if (phaseRef.current !== 'scoreboard') {
           previousPhaseBeforeScoreboardRef.current = phaseRef.current;
         }
@@ -1605,7 +1620,23 @@ function VenueDisplayContent() {
       );
     };
 
-    const onTeamRemoved = ({ teamId }: { teamId: number }) => {
+    const onTeamRemoved = ({
+      teamId,
+      reason,
+    }: {
+      teamId: number;
+      reason?: string;
+    }) => {
+      // Passive tab close / network loss — keep full name + score on venue leaderboard.
+      if (reason !== 'host_removed') {
+        const markDisconnected = (list: Team[]) =>
+          list.map((t) =>
+            sameVenueTeamId(t.teamId, teamId) ? { ...t, isConnected: false } : t,
+          );
+        setTeams((prev) => markDisconnected(prev));
+        setScoreboard((prev) => markDisconnected(prev));
+        return;
+      }
       const dropTeam = (list: Team[]) => list.filter((t) => !sameVenueTeamId(t.teamId, teamId));
       setTeams((prev) => {
         const next = dropTeam(prev);
@@ -1670,6 +1701,7 @@ function VenueDisplayContent() {
             : false,
       );
       setLiveResponses(bootstrapLiveResponseStats(totalTeams));
+      setQuestionResponseCount(0);
       setRevealData(null);
       setIsVenueMp3Playing(false);
       stopMp3();
@@ -1700,7 +1732,9 @@ function VenueDisplayContent() {
 
     const onResponseCount = (data: { count: number; total: number }) => {
       const n = Math.max(0, Number(data.total) || 0);
+      const answered = Math.max(0, Number(data.count) || 0);
       setTotalTeams(n);
+      setQuestionResponseCount(answered);
       setLiveResponses((prev) => ({
         ...prev,
         total: Math.max(prev.total, n, 1),
@@ -1733,8 +1767,12 @@ function VenueDisplayContent() {
       if (phaseRef.current === 'scoreboard' || miniGameTypeRef.current) return;
       clearVenueMiniGameOverlay();
       setRevealData(data);
-      setLiveResponses(liveStatsFromRevealPayload(data, questionRef.current?.roundType));
-      setScoreboard(data.teams.sort((a, b) => b.score - a.score));
+      const revealStats = liveStatsFromRevealPayload(data, questionRef.current?.roundType);
+      setLiveResponses(revealStats);
+      setQuestionResponseCount(
+        Math.max(0, revealStats.correct + revealStats.incorrect),
+      );
+      setScoreboard((prev) => mergeVenueLeaderboardRoster(data.teams, prev));
       setPhase('reveal');
       stopMp3Ref.current();
       if (!data.replay) {
@@ -1747,14 +1785,10 @@ function VenueDisplayContent() {
     };
 
     const onScoreboard = (data: { teams: Team[]; revealSnapshot?: RevealData | null }) => {
-      if (miniGameTypeRef.current || phaseRef.current === 'mini_game' || phaseRef.current === 'mini_game_result') {
-        return;
-      }
-      clearVenueMiniGameOverlay();
       if (phaseRef.current !== 'scoreboard') {
         previousPhaseBeforeScoreboardRef.current = phaseRef.current;
       }
-      setScoreboard(data.teams.sort((a, b) => b.score - a.score));
+      setScoreboard((prev) => mergeVenueLeaderboardRoster(data.teams, prev));
       if (data.revealSnapshot) {
         setRevealData(data.revealSnapshot);
       }
@@ -2179,7 +2213,7 @@ function VenueDisplayContent() {
       setQuestion(null);
       setRevealData(null);
       if (data?.teams) {
-        setScoreboard(data.teams.sort((a, b) => b.score - a.score));
+        setScoreboard((prev) => mergeVenueLeaderboardRoster(data.teams, prev));
       }
       applyVenuePhaseFromSession('game_end');
       if (typeof window !== 'undefined') {
@@ -2557,7 +2591,7 @@ function VenueDisplayContent() {
               total: Math.max(1, liveResponses.total || totalTeams || 1),
             })}
             roundType={question.roundType}
-            teamCount={liveTotalTeams}
+            responseCount={questionResponseCount}
             pointsLabel={liveQuestionPoints}
             media={
               venueQuestionHasVisualMedia(question.question)
@@ -2595,7 +2629,10 @@ function VenueDisplayContent() {
               total: Math.max(1, liveResponses.total || totalTeams || 1),
             })}
             roundType={question.roundType}
-            teamCount={liveTotalTeams}
+            responseCount={Math.max(
+              questionResponseCount,
+              liveResponses.correct + liveResponses.incorrect,
+            )}
             pointsLabel={liveQuestionPoints}
             media={
               venueQuestionHasVisualMedia(question.question)
@@ -2644,7 +2681,7 @@ function VenueDisplayContent() {
         {phase === 'scoreboard' && (
           <div className="absolute inset-0 z-[5] h-full w-full animate-fadeIn">
             <LeaderboardScreen
-              teams={displayScoreboardTeams}
+              teams={venueLeaderboardTeams}
               size="venue"
               showScene={false}
               eliminationStyle={scoreboardEliminationStyle}
@@ -2774,43 +2811,47 @@ function VenueDisplayContent() {
             <h1 className="text-6xl font-black uppercase mb-2 text-glow-cyan">
               THANK YOU FOR PLAYING!
             </h1>
-            {scoreboard.length > 0 && (
+            {venueLeaderboardTeams.length > 0 && (
               <>
                 <p className="text-3xl uppercase text-neon-gold text-glow-gold font-bold mt-4 mb-8">
-                  WINNER: {toDisplayUpper(scoreboard[0]?.teamName)}
+                  WINNER: {toDisplayUpper(venueLeaderboardTeams[0]?.teamName)}
                 </p>
                 <div className="flex items-end gap-4 mb-8">
-                  {scoreboard.length > 1 && (
+                  {venueLeaderboardTeams.length > 1 && (
                     <div className="text-center">
                       <p className="text-lg font-bold text-foreground/60 mb-2">
-                        {toDisplayUpper(scoreboard[1]?.teamName)}
+                        {toDisplayUpper(venueLeaderboardTeams[1]?.teamName)}
                       </p>
                       <div className="w-32 h-24 neon-border bg-surface/80 rounded-t-xl flex items-center justify-center">
-                        <span className="text-2xl font-mono font-bold">{scoreboard[1]?.score}</span>
+                        <span className="text-2xl font-mono font-bold">
+                          {venueLeaderboardTeams[1]?.score}
+                        </span>
                       </div>
                       <div className="bg-foreground/5 py-1 text-foreground/30 text-sm">2nd</div>
                     </div>
                   )}
                   <div className="text-center">
                     <p className="text-xl font-black text-neon-gold text-glow-gold mb-2">
-                      {toDisplayUpper(scoreboard[0]?.teamName)}
+                      {toDisplayUpper(venueLeaderboardTeams[0]?.teamName)}
                     </p>
                     <div className="w-36 h-36 bg-neon-gold/10 border-2 border-neon-gold/40 rounded-t-xl flex items-center justify-center shadow-[0_0_30px_rgba(255,215,0,0.2)]">
                       <span className="text-3xl font-mono font-black text-neon-gold">
-                        {scoreboard[0]?.score}
+                        {venueLeaderboardTeams[0]?.score}
                       </span>
                     </div>
                     <div className="bg-neon-gold/10 py-1 text-neon-gold text-sm font-bold">
                       1st 🏆
                     </div>
                   </div>
-                  {scoreboard.length > 2 && (
+                  {venueLeaderboardTeams.length > 2 && (
                     <div className="text-center">
                       <p className="text-lg font-bold text-orange-400/60 mb-2">
-                        {toDisplayUpper(scoreboard[2]?.teamName)}
+                        {toDisplayUpper(venueLeaderboardTeams[2]?.teamName)}
                       </p>
                       <div className="w-32 h-16 neon-border bg-surface/80 rounded-t-xl flex items-center justify-center">
-                        <span className="text-2xl font-mono font-bold">{scoreboard[2]?.score}</span>
+                        <span className="text-2xl font-mono font-bold">
+                          {venueLeaderboardTeams[2]?.score}
+                        </span>
                       </div>
                       <div className="bg-orange-500/5 py-1 text-orange-400/50 text-sm">3rd</div>
                     </div>

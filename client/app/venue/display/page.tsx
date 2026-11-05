@@ -2212,8 +2212,9 @@ function VenueDisplayContent() {
       setIsVenueMp3Playing(false);
       setQuestion(null);
       setRevealData(null);
-      if (data?.teams) {
-        setScoreboard((prev) => mergeVenueLeaderboardRoster(data.teams, prev));
+      const endGameTeams = data?.teams;
+      if (endGameTeams) {
+        setScoreboard((prev) => mergeVenueLeaderboardRoster(endGameTeams, prev));
       }
       applyVenuePhaseFromSession('game_end');
       if (typeof window !== 'undefined') {

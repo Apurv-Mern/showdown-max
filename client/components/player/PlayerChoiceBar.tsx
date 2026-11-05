@@ -75,11 +75,11 @@ export function PlayerChoiceBar({
           background: `linear-gradient(180deg, ${tone.from} 0%, ${tone.to} 100%)`,
         }}
       >
-        <span className="text-[30px] font-extrabold leading-none text-white [text-shadow:0_2px_4px_rgba(0,0,0,0.5)]">
+        <span className="text-[32px] font-extrabold leading-none text-white [text-shadow:0_2px_4px_rgba(0,0,0,0.5)]">
           {letter}
         </span>
       </span>
-      <span className="min-w-0 flex-1 whitespace-normal break-words px-2.5 py-2 text-[18px] font-extrabold uppercase leading-snug text-white [text-shadow:0_2px_4px_rgba(0,0,0,0.5)] sm:text-[20px]">
+      <span className="min-w-0 flex-1 whitespace-normal break-words px-2.5 py-2 text-[20px] font-extrabold uppercase leading-snug text-white [text-shadow:0_2px_4px_rgba(0,0,0,0.5)] sm:text-[22px]">
         {label}
       </span>
       {trailing ? (

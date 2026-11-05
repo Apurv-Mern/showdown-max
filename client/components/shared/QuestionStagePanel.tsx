@@ -85,7 +85,7 @@ export function QuestionStagePanel({
               boxShadow: '0 0 12px #0010FF, inset 0 0 12px #0010FF',
             }}
           >
-            <h2 className="text-center text-[20px] font-extrabold uppercase leading-snug text-white sm:text-[22px]">
+            <h2 className="text-center text-[22px] font-extrabold uppercase leading-snug text-white sm:text-[24px]">
               {toDisplayUpper(questionText)}
             </h2>
           </div>
@@ -99,7 +99,7 @@ export function QuestionStagePanel({
             boxShadow: '0 0 15px #0010FF, inset 0 0 15px #0010FF',
           }}
         >
-          <h2 className="text-center text-[24px] font-extrabold uppercase leading-snug text-white sm:text-[26px]">
+          <h2 className="text-center text-[26px] font-extrabold uppercase leading-snug text-white sm:text-[28px]">
             {toDisplayUpper(questionText)}
           </h2>
         </div>

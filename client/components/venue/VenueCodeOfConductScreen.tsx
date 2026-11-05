@@ -5,13 +5,13 @@ import { VenueLogo } from '@/components/venue/VenueLogo';
 const RULES = [
   {
     number: 1,
-    text: 'NO CHEATING ALLOWED DURNING GAMESHOW',
+    text: 'NO CHEATING ALLOWED DURING GAMESHOW',
     pillSrc: '/venue/code-of-conduct/rule-1.svg',
     badgeSrc: '/venue/code-of-conduct/badge-1.svg',
   },
   {
     number: 2,
-    text: 'NOT NECCESSARY ANYWAY, PLAYERS ARE SMART ENOUGH',
+    text: 'NOT NECESSARY ANYWAY, PLAYERS ARE SMART ENOUGH',
     pillSrc: '/venue/code-of-conduct/rule-2.svg',
     badgeSrc: '/venue/code-of-conduct/badge-2.svg',
   },

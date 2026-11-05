@@ -32,9 +32,7 @@ export function VenueWelcomeScreen({
         <VenueLogo width={500} />
       </div>
 
-      <div
-        className="absolute left-[365px] top-[306px] h-[550px] w-[950px] overflow-hidden rounded-[30px] border-4 border-[#00D9FF] bg-black"
-      >
+      <div className="absolute left-[365px] top-[306px] h-[550px] w-[950px] overflow-hidden rounded-[30px] border-4 border-[#00D9FF] bg-black">
         {showVideo ? (
           <video
             ref={videoRef}
@@ -76,7 +74,7 @@ export function VenueWelcomeScreen({
       </div>
 
       <p className="absolute bottom-[50px] left-1/2 w-full -translate-x-1/2 text-center text-[50px] font-black uppercase leading-[60px] text-white">
-        ENTER YOU TEAM NAME
+        ENTER YOUR TEAM NAME
         <br />
         AND JOIN THE GAME
       </p>

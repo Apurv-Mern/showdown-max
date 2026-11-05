@@ -145,7 +145,7 @@ function LeaderboardColumn({
   isPlayer: boolean;
   cfg: (typeof SIZE_CONFIG)[LeaderboardScreenSize];
   startRank?: number;
-  /** Venue interleaved columns: left 1,3,5… right 2,4,6… */
+  /** Venue column rank increment (default 1: consecutive ranks per column). */
   rankStep?: number;
   columnSide?: 'left' | 'right';
   eliminationStyle?: boolean;
@@ -326,19 +326,13 @@ export function LeaderboardScreen({
       leftStartRank: number;
       rightStartRank: number;
     }[] = [];
+    // Each viewport page: ranks 1–10 left, 11–20 right; then 21–30 left, 31–40 right; …
     for (let i = 0; i < displayTeams.length; i += VENUE_PAGE_SIZE) {
-      const pageSlice = displayTeams.slice(i, i + VENUE_PAGE_SIZE);
-      const left: LeaderboardTeam[] = [];
-      const right: LeaderboardTeam[] = [];
-      for (let j = 0; j < pageSlice.length; j += 1) {
-        if (j % 2 === 0) left.push(pageSlice[j]);
-        else right.push(pageSlice[j]);
-      }
       pages.push({
-        left,
-        right,
+        left: displayTeams.slice(i, i + VENUE_COLUMN_SIZE),
+        right: displayTeams.slice(i + VENUE_COLUMN_SIZE, i + VENUE_PAGE_SIZE),
         leftStartRank: i + 1,
-        rightStartRank: i + 2,
+        rightStartRank: i + VENUE_COLUMN_SIZE + 1,
       });
     }
     return pages;
@@ -547,7 +541,6 @@ export function LeaderboardScreen({
                           isPlayer={isPlayer}
                           cfg={cfg}
                           startRank={page.leftStartRank}
-                          rankStep={2}
                           columnSide="left"
                           eliminationStyle={eliminationStyle}
                         />
@@ -558,7 +551,6 @@ export function LeaderboardScreen({
                           isPlayer={isPlayer}
                           cfg={cfg}
                           startRank={page.rightStartRank}
-                          rankStep={2}
                           columnSide="right"
                           eliminationStyle={eliminationStyle}
                         />

@@ -42,10 +42,10 @@ export function VenueLobbyScreen({ teams, maxTeams, joinUrl, sessionPin }: Venue
         {Array.from({ length: slots }).map((_, i) => {
           const team = teams[i];
           return (
-            <div key={i} className="relative h-[100px] w-full min-w-0">
+            <div key={i} className="relative min-h-[100px] w-full min-w-0">
               <div
                 className={cn(
-                  'flex h-full w-full items-center rounded-[16px] px-6',
+                  'flex min-h-[100px] w-full min-w-0 items-center overflow-hidden rounded-[16px] px-4 py-2 sm:px-5',
                   team ? 'border-2 border-[#00D9FF]' : 'border-2 border-dashed border-white/70',
                 )}
                 style={{
@@ -58,19 +58,19 @@ export function VenueLobbyScreen({ teams, maxTeams, joinUrl, sessionPin }: Venue
                 }}
               >
                 {team ? (
-                  <div className="flex items-center gap-3">
+                  <div className="flex min-w-0 w-full items-center gap-2 sm:gap-3">
                     <span
-                      className="flex size-12 shrink-0 items-center justify-center rounded-full"
+                      className="flex size-10 shrink-0 items-center justify-center rounded-full sm:size-12"
                       style={{
                         background: 'radial-gradient(circle at 50% 50%, #38FF00 0%, #135600 100%)',
                         boxShadow: '0 4px 2px rgba(0,0,0,0.5)',
                       }}
                     >
-                      <svg viewBox="0 0 24 24" className="size-7 text-white" fill="none" stroke="currentColor" strokeWidth="3">
+                      <svg viewBox="0 0 24 24" className="size-6 text-white sm:size-7" fill="none" stroke="currentColor" strokeWidth="3">
                         <path d="M5 12.5 9.5 17 19 7" strokeLinecap="round" strokeLinejoin="round" />
                       </svg>
                     </span>
-                    <p className="min-w-0 truncate text-[20px] font-bold uppercase leading-[28px] text-white">
+                    <p className="min-w-0 flex-1 whitespace-normal break-words text-left text-[16px] font-bold uppercase leading-snug text-white sm:text-[18px] md:text-[20px]">
                       {toDisplayUpper(team.teamName)}
                     </p>
                   </div>

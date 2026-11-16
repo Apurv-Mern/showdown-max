@@ -169,7 +169,11 @@ const hostHandlers = (io, socket) => {
         return;
       }
       const direction = String(data?.direction || '');
-      if (!['up', 'down', 'top', 'bottom', 'refresh'].includes(direction)) return;
+      if (
+        !['left', 'right', 'up', 'down', 'top', 'bottom', 'refresh'].includes(direction)
+      ) {
+        return;
+      }
       io.to(`session:${pin}`).emit(SOCKET_EVENTS.VENUE_LEADERBOARD_SCROLL, { direction });
     } catch (err) {
       logger.error('venue_leaderboard_scroll error', { error: err.message });

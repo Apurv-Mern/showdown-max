@@ -213,15 +213,46 @@ function countConnectedHostTeams(teams?: Record<string | number, Team>): number 
   return Object.values(teams).filter(isHostTeamConnected).length;
 }
 
-function resolveHostRosterCount(
-  activeTeamIds?: number[],
-  teams?: Record<string | number, Team>,
-  totalTeams?: number,
-): number {
-  const connectedCount = countConnectedHostTeams(teams);
-  if (connectedCount > 0) return connectedCount;
-  const activeCount = Array.isArray(activeTeamIds) ? activeTeamIds.length : 0;
-  return activeCount > 0 ? activeCount : Math.max(0, Number(totalTeams || 0));
+/** Who counts toward "X of Y responded" on the host — survivors in elimination, else active/live roster. */
+function resolveHostLiveResponseRoster(
+  activeTeamIds: number[] | undefined,
+  teams: Record<string | number, Team> | undefined,
+  totalTeams: number | undefined,
+  roundType?: string,
+): { count: number; ids: number[] } {
+  const elimination = isEliminationRoundType(roundType);
+
+  let ids = (Array.isArray(activeTeamIds) ? activeTeamIds : [])
+    .map(Number)
+    .filter((id) => Number.isFinite(id));
+
+  if (elimination && teams) {
+    ids = ids.filter((id) => {
+      const row = teams[id] ?? teams[String(id)];
+      return Boolean(row && !row.isEliminated);
+    });
+    if (ids.length === 0) {
+      ids = Object.values(teams)
+        .filter((t) => t && !t.isEliminated)
+        .map((t) => Number(t.teamId))
+        .filter((id) => Number.isFinite(id));
+    }
+  }
+
+  if (ids.length > 0) {
+    return { count: ids.length, ids };
+  }
+
+  const connected = Object.values(teams || {}).filter(isHostTeamConnected);
+  if (connected.length > 0) {
+    const connectedIds = connected
+      .map((t) => Number(t.teamId))
+      .filter((id) => Number.isFinite(id));
+    return { count: connected.length, ids: connectedIds };
+  }
+
+  const fallback = Math.max(0, Number(totalTeams || 0));
+  return { count: Math.max(1, fallback), ids: [] };
 }
 
 type LiveResponseDetail = {
@@ -527,6 +558,8 @@ type VenueLeaderboardScrollState = {
   firstVisibleRow: number;
   lastVisibleRow: number;
   totalRows: number;
+  currentPage: number;
+  totalPages: number;
 };
 
 const EMPTY_VENUE_LEADERBOARD_SCROLL: VenueLeaderboardScrollState = {
@@ -535,9 +568,11 @@ const EMPTY_VENUE_LEADERBOARD_SCROLL: VenueLeaderboardScrollState = {
   firstVisibleRow: 0,
   lastVisibleRow: 0,
   totalRows: 0,
+  currentPage: 0,
+  totalPages: 0,
 };
 
-/** Compact arrow button for the venue-leaderboard scroll cluster in the host footer. */
+/** Compact arrow button for the venue-leaderboard page cluster in the host footer. */
 function HostScrollBtn({
   label,
   disabled,
@@ -898,15 +933,17 @@ function HostDashboardContent() {
             : null,
         );
         setLiveResponses((prev) => {
-          const rosterCount = resolveHostRosterCount(
+          const round = data.rounds?.[data.currentRoundIndex ?? 0];
+          const { count: rosterCount, ids: rosterIds } = resolveHostLiveResponseRoster(
             data.activeTeamIds,
             data.teams as Record<string | number, Team> | undefined,
             data.totalTeams,
+            round?.type,
           );
           const answered = Math.max(0, Number(data.responseCount ?? 0));
           if (data.state === 'QUESTION' && data.questionState === 'ACTIVE') {
             if (answered === 0) {
-              return bootstrapLiveResponseStats(rosterCount, 0, data.activeTeamIds);
+              return bootstrapLiveResponseStats(rosterCount, 0, rosterIds);
             }
             // Keep tallies from live_response_update; session_state only syncs roster size.
             return { ...prev, total: Math.max(prev.total, rosterCount, 1) };
@@ -1018,11 +1055,18 @@ function HostDashboardContent() {
         typeof tr === 'number' && Number.isFinite(tr) ? tr : Number(data.timerDuration ?? 30),
       );
       setIsScoreboardVisible(false);
-      {
-        const g = gameStateRef.current;
-        const roster = resolveHostRosterCount(g?.activeTeamIds, g?.teams, g?.totalTeams);
-        setLiveResponses(bootstrapLiveResponseStats(roster, 0, g?.activeTeamIds));
-      }
+      const gForQuestion = gameStateRef.current;
+      const questionActiveRoundType =
+        data.roundType || gForQuestion?.rounds?.[gForQuestion?.currentRoundIndex ?? 0]?.type;
+      const questionLiveRoster = resolveHostLiveResponseRoster(
+        gForQuestion?.activeTeamIds,
+        gForQuestion?.teams,
+        gForQuestion?.totalTeams,
+        questionActiveRoundType,
+      );
+      setLiveResponses(
+        bootstrapLiveResponseStats(questionLiveRoster.count, 0, questionLiveRoster.ids),
+      );
       setMp3Playing(false);
       setMp4Playing(false);
       setTimerPaused(
@@ -1051,7 +1095,10 @@ function HostDashboardContent() {
           typeof tr === 'number' && Number.isFinite(tr) ? tr : (prev?.timerRemaining ?? 0),
         timerRunning: typeof data.timerRunning === 'boolean' ? data.timerRunning : false,
         totalTeams: prev?.totalTeams ?? 0,
-        activeTeamIds: prev?.activeTeamIds || [],
+        activeTeamIds:
+          questionLiveRoster.ids.length > 0
+            ? questionLiveRoster.ids
+            : prev?.activeTeamIds || [],
       }));
     };
 
@@ -1131,11 +1178,19 @@ function HostDashboardContent() {
                 isEliminated: t.isEliminated ?? false,
               };
         }
+        const roundType = prev.rounds?.[prev.currentRoundIndex ?? 0]?.type;
+        const nextActiveTeamIds = isEliminationRoundType(roundType)
+          ? Object.values(nextTeams)
+              .filter((t) => t && !t.isEliminated)
+              .map((t) => Number(t.teamId))
+              .filter((id) => Number.isFinite(id))
+          : prev.activeTeamIds || [];
         return {
           ...prev,
           questionState: 'REVEALED',
           teams: nextTeams,
           totalTeams: Object.keys(nextTeams).length,
+          activeTeamIds: nextActiveTeamIds,
         };
       });
     };
@@ -1174,11 +1229,26 @@ function HostDashboardContent() {
     }) => {
       const toIds = (raw: number[] | undefined) =>
         Array.isArray(raw) ? raw.map(Number).filter((id) => Number.isFinite(id)) : [];
+      const g = gameStateRef.current;
+      const roundType = g?.rounds?.[g?.currentRoundIndex ?? 0]?.type;
+      const roster = resolveHostLiveResponseRoster(
+        g?.activeTeamIds,
+        g?.teams,
+        g?.totalTeams,
+        roundType,
+      );
+      const serverTotal = Math.max(0, Number(data?.total || 0));
+      const total =
+        roster.count > 0
+          ? isEliminationRoundType(roundType)
+            ? roster.count
+            : Math.max(roster.count, serverTotal, 1)
+          : Math.max(serverTotal, 1);
       setLiveResponses({
         correct: Number(data?.correct || 0),
         incorrect: Number(data?.incorrect || 0),
         noAnswer: Number(data?.noAnswer || 0),
-        total: Number(data?.total || 0),
+        total,
         correctTeamIds: toIds(data?.correctTeamIds),
         incorrectTeamIds: toIds(data?.incorrectTeamIds),
         noAnswerTeamIds: toIds(data?.noAnswerTeamIds),
@@ -1276,6 +1346,8 @@ function HostDashboardContent() {
         firstVisibleRow: Number(data?.firstVisibleRow) || 0,
         lastVisibleRow: Number(data?.lastVisibleRow) || 0,
         totalRows: Number(data?.totalRows) || 0,
+        currentPage: Number(data?.currentPage) || 0,
+        totalPages: Number(data?.totalPages) || 0,
       });
     };
 
@@ -1367,9 +1439,15 @@ function HostDashboardContent() {
     const onBreakEnd = (data?: { restoredState?: string; questionState?: string }) => {
       if (data?.restoredState === 'QUESTION' && data?.questionState === 'ACTIVE') {
         const g = gameStateRef.current;
-        const roster = resolveHostRosterCount(g?.activeTeamIds, g?.teams, g?.totalTeams);
+        const roundType = g?.rounds?.[g?.currentRoundIndex ?? 0]?.type;
+        const { count: roster, ids: rosterIds } = resolveHostLiveResponseRoster(
+          g?.activeTeamIds,
+          g?.teams,
+          g?.totalTeams,
+          roundType,
+        );
         const answered = Math.max(0, Number(g?.responseCount ?? 0));
-        setLiveResponses(bootstrapLiveResponseStats(roster, answered, g?.activeTeamIds));
+        setLiveResponses(bootstrapLiveResponseStats(roster, answered, rosterIds));
       }
     };
 
@@ -1910,8 +1988,8 @@ function HostDashboardContent() {
       setShowScoreboardModal(true);
     }
   };
-  const handleScrollVenueLeaderboard = (
-    direction: 'up' | 'down' | 'top' | 'bottom' | 'refresh',
+  const handleVenueLeaderboardPage = (
+    direction: 'left' | 'right' | 'top' | 'bottom' | 'refresh',
   ) => {
     if (!isScoreboardVisible) return;
     emit('venue_leaderboard_scroll', { direction });
@@ -2391,14 +2469,14 @@ function HostDashboardContent() {
     // behaviour everywhere else on the dashboard.
     ...(isScoreboardVisible
       ? {
-          arrowup: () => handleScrollVenueLeaderboard('up'),
-          arrowdown: () => handleScrollVenueLeaderboard('down'),
+          arrowleft: () => handleVenueLeaderboardPage('left'),
+          arrowright: () => handleVenueLeaderboardPage('right'),
         }
       : {}),
   });
 
   // The host may have reloaded while the venue leaderboard was already up; ask the venue to
-  // re-report its scroll position so the controls aren't stuck disabled.
+  // re-report its page position so the controls aren't stuck disabled.
   useEffect(() => {
     if (!isScoreboardVisible) return;
     emit('venue_leaderboard_scroll', { direction: 'refresh' });
@@ -2563,13 +2641,24 @@ function HostDashboardContent() {
       : activeMiniGameLocal === 'card_shuffle'
         ? cardSelectedTotal
         : 0;
-  const activeTeamCountForLive =
-    Array.isArray(gameState?.activeTeamIds) && gameState.activeTeamIds.length > 0
-      ? gameState.activeTeamIds.length
-      : rosterTeamCount;
+  const liveAnswerRoster = useMemo(
+    () =>
+      resolveHostLiveResponseRoster(
+        gameState?.activeTeamIds,
+        gameState?.teams,
+        gameState?.totalTeams,
+        currentRound?.type,
+      ),
+    [
+      gameState?.activeTeamIds,
+      gameState?.teams,
+      gameState?.totalTeams,
+      currentRound?.type,
+    ],
+  );
   const liveResponseDenominator =
     state === 'QUESTION' && (questionState === 'ACTIVE' || questionState === 'REVEALED')
-      ? Math.max(1, liveResponses.total || activeTeamCountForLive)
+      ? Math.max(1, liveResponses.total || liveAnswerRoster.count)
       : Math.max(1, rosterTeamCount);
   const respondedLineTotal =
     state === 'QUESTION' && questionState === 'ACTIVE'
@@ -4107,26 +4196,30 @@ function HostDashboardContent() {
                 <span className="text-[9px] font-bold uppercase leading-[1.1] tracking-wide text-white/55">
                   Venue
                   <br />
-                  Scroll
+                  Pages
                 </span>
                 <HostScrollBtn
-                  label="Scroll venue leaderboard up (Arrow Up)"
+                  label="Previous venue leaderboard page (Arrow Left)"
                   disabled={!venueLeaderboardScroll.canScrollUp}
-                  onClick={() => handleScrollVenueLeaderboard('up')}
+                  onClick={() => handleVenueLeaderboardPage('left')}
                 >
-                  <path d="M12 8l6 6H6l6-6z" />
+                  <path d="M15 6l-6 6 6 6" fill="none" stroke="currentColor" strokeWidth="2.5" />
                 </HostScrollBtn>
                 <HostScrollBtn
-                  label="Scroll venue leaderboard down (Arrow Down)"
+                  label="Next venue leaderboard page (Arrow Right)"
                   disabled={!venueLeaderboardScroll.canScrollDown}
-                  onClick={() => handleScrollVenueLeaderboard('down')}
+                  onClick={() => handleVenueLeaderboardPage('right')}
                 >
-                  <path d="M12 16l-6-6h12l-6 6z" />
+                  <path d="M9 6l6 6-6 6" fill="none" stroke="currentColor" strokeWidth="2.5" />
                 </HostScrollBtn>
-                {venueLeaderboardScroll.totalRows > 0 ? (
-                  <span className="min-w-14 text-center text-[10px] font-bold tabular-nums text-white/70">
-                    {venueLeaderboardScroll.firstVisibleRow}–{venueLeaderboardScroll.lastVisibleRow}
-                    <span className="text-white/40"> / {venueLeaderboardScroll.totalRows}</span>
+                {venueLeaderboardScroll.totalPages > 0 ? (
+                  <span className="min-w-[4.5rem] text-center text-[10px] font-bold tabular-nums text-white/70">
+                    Page {venueLeaderboardScroll.currentPage}
+                    <span className="text-white/40"> / {venueLeaderboardScroll.totalPages}</span>
+                    <br />
+                    <span className="font-semibold text-white/50">
+                      Ranks {venueLeaderboardScroll.firstVisibleRow}–{venueLeaderboardScroll.lastVisibleRow}
+                    </span>
                   </span>
                 ) : null}
               </div>

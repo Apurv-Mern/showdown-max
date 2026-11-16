@@ -645,6 +645,8 @@ function VenueDisplayContent() {
       firstVisibleRow: 0,
       lastVisibleRow: 0,
       totalRows: 0,
+      currentPage: 0,
+      totalPages: 0,
     });
   }, [phase, reportLeaderboardScrollState]);
 
@@ -2242,6 +2244,8 @@ function VenueDisplayContent() {
     const onLeaderboardScroll = (data: { direction?: string }) => {
       const direction = data?.direction;
       if (
+        direction !== 'left' &&
+        direction !== 'right' &&
         direction !== 'up' &&
         direction !== 'down' &&
         direction !== 'top' &&

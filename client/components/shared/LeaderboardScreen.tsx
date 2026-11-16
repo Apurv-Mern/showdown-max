@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   eliminationLeaderboardRowClasses,
   prepareLeaderboardTeams,
@@ -255,15 +255,31 @@ function LeaderboardColumn({
 }
 
 /** `refresh` reports position without moving — used when the host reloads mid-leaderboard. */
-export type LeaderboardScrollDirection = 'up' | 'down' | 'top' | 'bottom' | 'refresh';
+export type LeaderboardScrollDirection =
+  | 'left'
+  | 'right'
+  | 'up'
+  | 'down'
+  | 'top'
+  | 'bottom'
+  | 'refresh';
 
-/** Reported to the host so remote scroll buttons know when they'd be a no-op. */
+/** Reported to the host so remote page/scroll buttons know when they'd be a no-op. */
 export type LeaderboardScrollState = {
+  /** Venue paging: previous page available (`left`). */
   canScrollUp: boolean;
+  /** Venue paging: next page available (`right`). */
   canScrollDown: boolean;
+  /** First rank shown on the current venue page (1-based). */
   firstVisibleRow: number;
+  /** Last rank shown on the current venue page (1-based). */
   lastVisibleRow: number;
+  /** Total teams on the leaderboard. */
   totalRows: number;
+  /** Current venue page (1-based); omitted for non-venue. */
+  currentPage?: number;
+  /** Total venue pages; omitted for non-venue. */
+  totalPages?: number;
 };
 
 export interface LeaderboardScreenProps {
@@ -278,8 +294,8 @@ export interface LeaderboardScreenProps {
   /** Elimination round only: survivor/neon + grey knockouts and special sort. */
   eliminationStyle?: boolean;
   /**
-   * Venue: remote scroll driven by the host. `nonce` must change per press so repeating the
-   * same direction scrolls again.
+   * Venue: remote page changes driven by the host. `nonce` must change per press so repeating the
+   * same direction advances again.
    */
   scrollRequest?: { direction: LeaderboardScrollDirection; nonce: number } | null;
   onScrollStateChange?: (state: LeaderboardScrollState) => void;
@@ -338,6 +354,61 @@ export function LeaderboardScreen({
     return pages;
   }, [useVenueSplit, displayTeams]);
 
+  const [venuePageIndex, setVenuePageIndex] = useState(0);
+  const venuePageCount = venuePages.length;
+  const clampedVenuePageIndex = venuePageCount > 0 ? Math.min(venuePageIndex, venuePageCount - 1) : 0;
+  const activeVenuePage = venuePages[clampedVenuePageIndex] ?? null;
+
+  const reportVenuePageState = useCallback(() => {
+    if (!onScrollStateChange || !useVenueSplit) return;
+    const total = displayTeams.length;
+    const totalPages = Math.max(1, venuePageCount);
+    const page = venuePageCount > 0 ? clampedVenuePageIndex + 1 : 0;
+    const pageData = venuePages[clampedVenuePageIndex];
+    const firstRank = pageData?.leftStartRank ?? 0;
+    const rightTeams = pageData?.right ?? [];
+    const leftTeams = pageData?.left ?? [];
+    const lastRank =
+      rightTeams.length > 0
+        ? pageData!.rightStartRank + rightTeams.length - 1
+        : leftTeams.length > 0
+          ? pageData!.leftStartRank + leftTeams.length - 1
+          : 0;
+    onScrollStateChange({
+      canScrollUp: clampedVenuePageIndex > 0,
+      canScrollDown: clampedVenuePageIndex < venuePageCount - 1,
+      firstVisibleRow: firstRank,
+      lastVisibleRow: lastRank,
+      totalRows: total,
+      currentPage: page,
+      totalPages,
+    });
+  }, [
+    onScrollStateChange,
+    useVenueSplit,
+    displayTeams.length,
+    venuePageCount,
+    clampedVenuePageIndex,
+    venuePages,
+  ]);
+
+  useEffect(() => {
+    if (!useVenueSplit) return;
+    setVenuePageIndex(0);
+  }, [teamsKey, useVenueSplit]);
+
+  useEffect(() => {
+    if (!useVenueSplit) return;
+    if (venuePageIndex >= venuePageCount && venuePageCount > 0) {
+      setVenuePageIndex(venuePageCount - 1);
+    }
+  }, [venuePageIndex, venuePageCount, useVenueSplit]);
+
+  useEffect(() => {
+    if (!useVenueSplit) return;
+    reportVenuePageState();
+  }, [useVenueSplit, reportVenuePageState, clampedVenuePageIndex, teamsKey]);
+
   /**
    * Row pitch in px (row height + gap). Rows are uniform inside the fixed venue stage, so
    * stepping by whole rows guarantees the projector never shows a half-cut row.
@@ -377,6 +448,7 @@ export function LeaderboardScreen({
   }, [measureRowPitch, onScrollStateChange]);
 
   useEffect(() => {
+    if (useVenueSplit) return;
     const area = scrollAreaRef.current;
     if (!area || !onScrollStateChange) return;
 
@@ -400,16 +472,44 @@ export function LeaderboardScreen({
 
   /** New standings always start from the top — the host shouldn't have to scroll back. */
   useEffect(() => {
+    if (useVenueSplit) return;
     scrollAreaRef.current?.scrollTo({ top: 0 });
-  }, [teamsKey]);
+  }, [teamsKey, useVenueSplit]);
 
   useEffect(() => {
-    const area = scrollAreaRef.current;
-    if (!area || !scrollRequest) return;
+    if (!scrollRequest) return;
     if (appliedScrollNonceRef.current === scrollRequest.nonce) return;
     appliedScrollNonceRef.current = scrollRequest.nonce;
 
-    if (scrollRequest.direction === 'refresh') {
+    const dir = scrollRequest.direction;
+
+    if (useVenueSplit) {
+      if (dir === 'refresh') {
+        reportVenuePageState();
+        return;
+      }
+      if (venuePageCount <= 1) {
+        reportVenuePageState();
+        return;
+      }
+      setVenuePageIndex((prev) => {
+        const maxIdx = venuePageCount - 1;
+        const cur = Math.min(prev, maxIdx);
+        if (dir === 'left' || dir === 'up' || dir === 'top') {
+          return dir === 'top' ? 0 : Math.max(0, cur - 1);
+        }
+        if (dir === 'right' || dir === 'down' || dir === 'bottom') {
+          return dir === 'bottom' ? maxIdx : Math.min(maxIdx, cur + 1);
+        }
+        return cur;
+      });
+      return;
+    }
+
+    const area = scrollAreaRef.current;
+    if (!area) return;
+
+    if (dir === 'refresh') {
       reportScrollState();
       return;
     }
@@ -425,7 +525,7 @@ export function LeaderboardScreen({
       pitch > 0 ? Math.max(1, Math.floor(area.clientHeight / pitch)) * pitch : area.clientHeight;
 
     let target: number;
-    switch (scrollRequest.direction) {
+    switch (dir) {
       case 'top':
         target = 0;
         break;
@@ -433,18 +533,26 @@ export function LeaderboardScreen({
         target = maxScroll;
         break;
       case 'up':
+      case 'left':
         target = area.scrollTop - step;
         break;
       default:
         target = area.scrollTop + step;
     }
 
-    if (pitch > 0 && (scrollRequest.direction === 'up' || scrollRequest.direction === 'down')) {
+    if (pitch > 0 && (dir === 'up' || dir === 'down' || dir === 'left' || dir === 'right')) {
       target = Math.round(target / pitch) * pitch;
     }
 
     area.scrollTo({ top: Math.min(maxScroll, Math.max(0, target)), behavior: 'smooth' });
-  }, [scrollRequest, measureRowPitch, reportScrollState]);
+  }, [
+    scrollRequest,
+    measureRowPitch,
+    reportScrollState,
+    reportVenuePageState,
+    useVenueSplit,
+    venuePageCount,
+  ]);
 
   return (
     <div
@@ -524,38 +632,37 @@ export function LeaderboardScreen({
             <div ref={listAreaRef} className="min-h-0 flex-1 overflow-hidden">
               <div
                 ref={scrollAreaRef}
-                className="h-full min-h-0 overflow-y-auto overflow-x-hidden pr-1 [scrollbar-gutter:stable]"
+                className={cn(
+                  'h-full min-h-0 overflow-x-hidden pr-1',
+                  useVenueSplit ? 'overflow-hidden' : 'overflow-y-auto [scrollbar-gutter:stable]',
+                )}
               >
-                {useVenueSplit ? (
-                  <div ref={contentRef} className="flex w-full flex-col gap-5">
-                    {venuePages.map((page) => (
-                      <div
-                        key={page.leftStartRank}
-                        className="grid w-full grid-cols-2 items-start gap-[80px]"
-                        style={{ gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)' }}
-                      >
-                        <LeaderboardColumn
-                          teams={page.left}
-                          size={size}
-                          highlightTeamId={highlightTeamId}
-                          isPlayer={isPlayer}
-                          cfg={cfg}
-                          startRank={page.leftStartRank}
-                          columnSide="left"
-                          eliminationStyle={eliminationStyle}
-                        />
-                        <LeaderboardColumn
-                          teams={page.right}
-                          size={size}
-                          highlightTeamId={highlightTeamId}
-                          isPlayer={isPlayer}
-                          cfg={cfg}
-                          startRank={page.rightStartRank}
-                          columnSide="right"
-                          eliminationStyle={eliminationStyle}
-                        />
-                      </div>
-                    ))}
+                {useVenueSplit && activeVenuePage ? (
+                  <div
+                    ref={contentRef}
+                    className="grid w-full grid-cols-2 items-start gap-[80px]"
+                    style={{ gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)' }}
+                  >
+                    <LeaderboardColumn
+                      teams={activeVenuePage.left}
+                      size={size}
+                      highlightTeamId={highlightTeamId}
+                      isPlayer={isPlayer}
+                      cfg={cfg}
+                      startRank={activeVenuePage.leftStartRank}
+                      columnSide="left"
+                      eliminationStyle={eliminationStyle}
+                    />
+                    <LeaderboardColumn
+                      teams={activeVenuePage.right}
+                      size={size}
+                      highlightTeamId={highlightTeamId}
+                      isPlayer={isPlayer}
+                      cfg={cfg}
+                      startRank={activeVenuePage.rightStartRank}
+                      columnSide="right"
+                      eliminationStyle={eliminationStyle}
+                    />
                   </div>
                 ) : (
                   <div ref={contentRef}>

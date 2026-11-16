@@ -187,6 +187,8 @@ const venueHandlers = (io, socket) => {
         firstVisibleRow: Number(data?.firstVisibleRow) || 0,
         lastVisibleRow: Number(data?.lastVisibleRow) || 0,
         totalRows: Number(data?.totalRows) || 0,
+        currentPage: Number(data?.currentPage) || 0,
+        totalPages: Number(data?.totalPages) || 0,
       });
     } catch (err) {
       logger.error('venue_leaderboard_state error', { error: err.message });
